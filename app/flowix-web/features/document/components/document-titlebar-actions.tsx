@@ -4,7 +4,7 @@ import { Button } from '@shared/ui/button';
 import { useState } from 'react';
 import { isHtmlFilePath } from '@features/content/public/content-api';
 import { Code2, Ellipsis } from 'lucide-react';
-import { LinkSimpleIcon, CopyIcon, FolderOpenIcon, FileMdIcon, FileDocIcon, FilePdfIcon, ClockIcon, TrashSimpleIcon, SwatchesIcon } from '@phosphor-icons/react';
+import { LinkSimpleIcon, CopyIcon, FolderOpenIcon, FileMdIcon, FileDocIcon, FilePdfIcon, TrashSimpleIcon, SwatchesIcon } from '@phosphor-icons/react';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@shared/ui/dropdown-menu';
 import { POPUP_SEPARATOR_CLASS } from '@shared/ui/popup-separator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@shared/ui/dialog';
@@ -55,7 +55,7 @@ export function DocumentTitlebarActions({
   const {
     colors, changeColors, fontSwitch, selectedFontSizeMode, setEditorFontSizeMode,
     confirmVersion, setConfirmVersion, restoringVersionId, versionRefreshKey,
-    archiveVersion, restorePathVersion, copyFolderPath, revealFile,
+    restorePathVersion, copyFolderPath, revealFile,
   } = useDocumentTitlebarActions(target);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const collectionDisplayIndexPath = collectionDisplay?.indexPath;
@@ -149,7 +149,7 @@ export function DocumentTitlebarActions({
         )}
         {canViewVersionHistory && target.notebookId && target.relativePath && (
           <>
-            <DropdownMenuItem className={itemClass} onClick={() => { void archiveVersion(); }}><ClockIcon className="h-4 w-4" /> {t('document.action.archiveVersion')}</DropdownMenuItem>
+            <div role="separator" aria-hidden="true" className={POPUP_SEPARATOR_CLASS} />
             <VersionHistorySubmenu
               notebookId={target.notebookId}
               relativePath={target.relativePath}

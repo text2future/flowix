@@ -103,6 +103,11 @@ export function IconValueInput({
             onChange(next);
             changeOpen(false);
           }}
+          onClear={() => {
+            onChange('');
+            changeOpen(false);
+          }}
+          clearLabel={t('document.properties.icon.clear')}
         />
       </PopoverContent>
     </Popover>

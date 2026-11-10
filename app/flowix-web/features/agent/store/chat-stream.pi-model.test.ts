@@ -31,7 +31,7 @@ const input = {
 type PiBlock = { pi?: { model?: string; providerId?: string } };
 
 function sentPiBlock(): PiBlock {
-  const payload = backend.chatStream.mock.calls.at(-1)![1] as { runtimeConfig: PiBlock };
+  const payload = backend.chatStream.mock.calls[backend.chatStream.mock.calls.length - 1]![1] as { runtimeConfig: PiBlock };
   return payload.runtimeConfig;
 }
 

@@ -1,13 +1,11 @@
 import type { EditorImageContext } from './editor-image-source';
 import { useSessionViewChannel } from '@features/workspace/public/session-view-state-api';
-import { createLogger } from '@/lib/logger';
+import { useDeferredMarkdownSerialization } from './use-deferred-markdown-serialization';
 import { Editor } from '@tiptap/core';
-import type { JSONContent } from '@tiptap/core';
 import { TextSelection } from '@tiptap/pm/state';
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, useCallback, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { useShortcutScope, pushHandler } from '@features/shortcuts';
 import { TableBubbleMenu } from '@features/editor/extensions/table/table-bubble-menu';
-import { EditorToolbar } from '@features/editor/components/editor-toolbar';
 import { SelectionBubbleMenu } from '@features/editor/components/selection-bubble-menu';
 import { HeadingOutlineNavigation } from '@features/editor/components/heading-outline-navigation';
 import { DragContextMenu } from '@features/editor/components/drag-context-menu';
@@ -51,8 +49,6 @@ type MarkdownEditorProps = SearchPanelControlProps & {
   onViewSourceMode?: () => void;
   transitionId?: number | null;
   content: string;
-  /** Pre-parsed Markdown JSON supplied by the large-document worker path. */
-  initialParsedContent?: JSONContent;
   editable?: boolean;
   placeholder?: string;
   onChange?: (markdown: string) => void;
@@ -62,10 +58,6 @@ type MarkdownEditorProps = SearchPanelControlProps & {
   onEditorScroll?: (scrollTop: number) => void;
   autoFocus?: boolean;
   onBeforeCreate?: (editor: Editor) => void;
-  // Toolbar collapsed — owned by main-layout. Tooltip of the toolbar's visibility
-  // is driven purely by this state; the editor no longer tracks focus.
-  toolbarCollapsed?: boolean;
-  onToolbarCollapsedChange?: (collapsed: boolean) => void;
   onEditingFinished?: () => void;
   /** Move focus from the first editable body block to the title. */
   onFocusTitle?: () => void;
@@ -82,11 +74,6 @@ type MarkdownEditorProps = SearchPanelControlProps & {
   /** Content in the document scroller that stays outside ProseMirror. */
   header?: ReactNode;
 }
-
-const persistenceLog = createLogger('document:editor');
-
-const SERIALIZE_DEBOUNCE_MS = 200;
-const SERIALIZE_IDLE_TIMEOUT_MS = 500;
 
 interface PendingExternalContent {
   content: string;
@@ -116,7 +103,6 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
   onViewSourceMode,
   transitionId = null,
   content,
-  initialParsedContent,
   editable = true,
   placeholder,
   onChange,
@@ -127,8 +113,6 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
   onBeforeCreate,
   searchPanelOpen = false,
   onSearchPanelOpenChange,
-  toolbarCollapsed = false,
-  onToolbarCollapsedChange,
   onEditingFinished,
   onFocusTitle,
   onAppendToTitle,
@@ -159,17 +143,10 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     onSearchPanelOpenChange,
   );
   const firstFrameTraceRef = useRef<number | null>(null);
-  const [isScrolling, setIsScrolling] = useState(false);
-  const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const serializeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const serializeIdleCallbackRef = useRef<number | null>(null);
   const onEditorScrollRef = useRef(onEditorScroll);
   const contentRef = useRef(content);
-  const initialParsedContentRef = useRef(initialParsedContent);
-  initialParsedContentRef.current = initialParsedContent;
   const isApplyingExternalContentRef = useRef(false);
   const isComposingRef = useRef(false);
-  const pendingSerializeDirtyRef = useRef(false);
   const localEditVersionRef = useRef(0);
   const pendingExternalContentRef = useRef<PendingExternalContent | null>(null);
   const onChangeRef = useRef(onChange);
@@ -207,82 +184,18 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
   }, []);
   const getCurrentAttachmentNotebookId = useCallback(() => attachmentOwnerRef.current.getAttachmentNotebookId?.(), []);
 
-  const clearSerializeTimer = useCallback(() => {
-    if (serializeTimerRef.current) {
-      clearTimeout(serializeTimerRef.current);
-      serializeTimerRef.current = null;
-    }
-    if (serializeIdleCallbackRef.current !== null) {
-      const idleWindow = window as Window & {
-        cancelIdleCallback?: (handle: number) => void;
-      };
-      idleWindow.cancelIdleCallback?.(serializeIdleCallbackRef.current);
-      serializeIdleCallbackRef.current = null;
-    }
-  }, []);
-
-  const serializePendingChanges = useCallback((options?: {
-    force?: boolean;
-  }) => {
-    const editor = editorRef.current;
-    if (!editor || editor.isDestroyed || !pendingSerializeDirtyRef.current) {
-      return null;
-    }
-
-    const viewState = editor.view as typeof editor.view & { composing?: boolean };
-    if (!options?.force && (isComposingRef.current || viewState.composing)) {
-      return null;
-    }
-
-    clearSerializeTimer();
-    pendingSerializeDirtyRef.current = false;
-
-    const serializationStarted = performance.now();
-    const markdown = editor.getMarkdown();
-    const serializationMs = performance.now() - serializationStarted;
-    if (serializationMs > 50) persistenceLog.info('slow serialization', { elapsedMs: serializationMs, characters: markdown.length });
-    perfMark('editor-serialize-ms', serializationMs, { chars: markdown.length });
-    if (markdown === contentRef.current) {
-      return null;
-    }
-
-    contentRef.current = markdown;
-    onChangeRef.current?.(markdown);
-    return markdown;
-  }, [clearSerializeTimer]);
-
-  const schedulePendingSerialization = useCallback(() => {
-    if (onDirtyRef.current) { onDirtyRef.current(); return; }
-    // Wait for a short quiet period before serializing. The previous
-    // implementation started a new full-document serialization every 200ms
-    // during continuous typing, even though only the latest content can be
-    // observed by the document buffer and autosave queue.
-    clearSerializeTimer();
-    const editor = editorRef.current;
-    const viewState = editor?.view as (Editor['view'] & { composing?: boolean }) | undefined;
-    if (isComposingRef.current || viewState?.composing) {
-      serializeTimerRef.current = null;
-      return;
-    }
-    serializeTimerRef.current = setTimeout(() => {
-      serializeTimerRef.current = null;
-      const idleWindow = window as Window & {
-        requestIdleCallback?: (
-          callback: (deadline: IdleDeadline) => void,
-          options?: { timeout: number },
-        ) => number;
-      };
-      if (!idleWindow.requestIdleCallback) {
-        serializePendingChanges();
-        return;
-      }
-
-      serializeIdleCallbackRef.current = idleWindow.requestIdleCallback((_deadline) => {
-        serializeIdleCallbackRef.current = null;
-        serializePendingChanges();
-      }, { timeout: SERIALIZE_IDLE_TIMEOUT_MS });
-    }, SERIALIZE_DEBOUNCE_MS);
-  }, [clearSerializeTimer, serializePendingChanges]);
+  const {
+    pendingDirtyRef: pendingSerializeDirtyRef,
+    clearTimer: clearSerializeTimer,
+    flush: serializePendingChanges,
+    schedule: schedulePendingSerialization,
+  } = useDeferredMarkdownSerialization({
+    editorRef,
+    contentRef,
+    isComposingRef,
+    onChangeRef,
+    onDirtyRef,
+  });
 
   const logEditorPerf = useCallback((label: string, startedAt: number, meta?: Record<string, unknown>) => {
     console.info('[perf:open-doc]', label, {
@@ -369,7 +282,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       scrollEl.scrollTop = scrollTop;
       scrollEl.scrollLeft = scrollLeft;
     }
-  }, [clearSerializeTimer, findScrollable, logEditorPerf]);
+  }, [clearSerializeTimer, findScrollable, logEditorPerf, pendingSerializeDirtyRef]);
 
   const focusBodyStart = useCallback(() => {
     const editor = editorRef.current;
@@ -527,7 +440,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     focusStart: focusBodyStart,
     moveTitleToBody,
     pasteToBody,
-  }), [focusBodyStart, moveTitleToBody, pasteToBody, serializePendingChanges]);
+  }), [focusBodyStart, moveTitleToBody, pasteToBody, pendingSerializeDirtyRef, serializePendingChanges]);
 
   useEffect(() => {
     if (!editorMountRef.current) {
@@ -535,12 +448,31 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     }
     const mountStartedAt = performance.now();
     const initialContent = content;
-    const parsedContent = initialParsedContentRef.current;
     contentRef.current = initialContent;
 
     const constructorStartedAt = performance.now();
+    // 扩展集构建单独计时：定位 `new Editor` 大耗时分段（扩展/schema 构建 vs
+    // marked 解析 + ProseMirror doc 构建）。
+    const extensionsBuildStartedAt = performance.now();
+    const editorExtensions = createMarkdownEditorExtensions({
+      ownerPath,
+      getOwnerPath: getCurrentAttachmentOwnerPath,
+      getImageContext: () => imageContextRef.current,
+      getAttachmentNotebookId: getCurrentAttachmentNotebookId,
+      propertyTargetId,
+      onPropertyAreaHoverChange,
+      onViewSourceMode,
+      transitionId,
+      workspaceHost,
+      getPlaceholder: () => resolvedPlaceholderRef.current,
+    }, CodeBlockShiki);
+    logEditorPerf('MarkdownEditor:extensions-build', extensionsBuildStartedAt, {
+      contentChars: initialContent.length,
+    });
     const editor = new Editor({
-      element: editorMountRef.current,
+      // 两步创建（不带 element 构造 + 显式 mount）：把 `new Editor` 的耗时
+      // 拆成「markdown 解析 + PM doc 构建」与「DOM 渲染 + node views +
+      // plugin views」两段。mount 与 tiptap 自动挂载路径完全等价。
       // 修复跨多块复制时多余空行：ProseMirror 默认在块间插入 `\n\n`，
       // 改成单个 `\n`，粘贴到纯文本目标时块间只保留一个换行。
       editorProps: {
@@ -593,20 +525,9 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
           return false;
         },
       },
-      extensions: createMarkdownEditorExtensions({
-        ownerPath,
-        getOwnerPath: getCurrentAttachmentOwnerPath,
-        getImageContext: () => imageContextRef.current,
-        getAttachmentNotebookId: getCurrentAttachmentNotebookId,
-        propertyTargetId,
-        onPropertyAreaHoverChange,
-        onViewSourceMode,
-        transitionId,
-        workspaceHost,
-        getPlaceholder: () => resolvedPlaceholderRef.current,
-      }, CodeBlockShiki),
-      content: parsedContent ?? initialContent,
-      contentType: parsedContent ? 'json' : 'markdown',
+      extensions: editorExtensions,
+      content: initialContent,
+      contentType: 'markdown',
       editable,
       autofocus: !recoveryChannelRef.current?.read() && autoFocus ? 'end' : false,
       onUpdate: ({ transaction }) => {
@@ -627,6 +548,12 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     logEditorPerf('MarkdownEditor:constructor', constructorStartedAt, {
       initialChars: initialContent.length,
     });
+    // DOM 渲染段：node views + ProseMirror doc → DOM + plugin views（含 shiki init）。
+    const domMountStartedAt = performance.now();
+    editor.mount(editorMountRef.current);
+    logEditorPerf('MarkdownEditor:dom-mount', domMountStartedAt, {
+      contentChars: initialContent.length,
+    });
     const placeholderNormalizationStartedAt = performance.now();
     normalizeTaskItemPlaceholders(editor);
     logEditorPerf('MarkdownEditor:normalizeTaskPlaceholders', placeholderNormalizationStartedAt);
@@ -643,7 +570,6 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       initialChars: initialContent.length,
       docSize: editor.state.doc.content.size,
       codeBlockCount,
-      initialContentType: parsedContent ? 'json' : 'markdown',
     });
 
     onBeforeCreate?.(editor);
@@ -682,13 +608,6 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     if (scrollEl) {
       const handleScroll = () => {
         viewRecoveryRef.current?.schedule();
-        setIsScrolling(true);
-        if (scrollTimerRef.current) {
-          clearTimeout(scrollTimerRef.current);
-        }
-        scrollTimerRef.current = setTimeout(() => {
-          setIsScrolling(false);
-        }, 150);
         onEditorScrollRef.current?.(scrollEl.scrollTop);
       };
 
@@ -725,6 +644,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     getCurrentAttachmentOwnerPath,
     getCurrentAttachmentNotebookId,
     handleBackspaceAtBodyStart,
+    pendingSerializeDirtyRef,
     schedulePendingSerialization,
     serializePendingChanges,
   ]);
@@ -816,7 +736,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
 
     pendingExternalContentRef.current = null;
     applyExternalContent(content);
-  }, [content, applyExternalContent, serializePendingChanges]);
+  }, [content, applyExternalContent, pendingSerializeDirtyRef, serializePendingChanges]);
 
   useLayoutEffect(() => {
     if (editorRef.current) {
@@ -907,7 +827,10 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       {header}
       <div ref={editorMountRef} className="editor-document-body" />
       {editorInstance && <DragContextMenu editor={editorInstance} />}
-      {editorInstance && !isScrolling && (
+      {/* 两个漂浮菜单常驻挂载: 元素的显隐与定位由它们自己按编辑器状态决定,
+       * 不靠滚动时卸载 (旧实现会因为 React 门户与 tiptap 的 DOM 归属错位,
+       * 在 body 里留下没有内容的 .selection-bubble-menu 空壳)。 */}
+      {editorInstance && (
         <>
           <TableBubbleMenu editor={editorInstance} />
           <SelectionBubbleMenu editor={editorInstance} />
@@ -931,11 +854,6 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       >
         {editorContentChildren}
       </OverlayScrollbar>
-      <EditorToolbar
-        editor={editorInstance}
-        collapsed={toolbarCollapsed}
-        onCollapsedChange={onToolbarCollapsedChange}
-      />
     </div>
   );
 });

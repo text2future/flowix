@@ -1,7 +1,7 @@
 //! General application window commands.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 use crate::app::state::AppState;
 use crate::config::Theme;
@@ -66,6 +66,20 @@ pub async fn open_preferences_window(
     tab: Option<String>,
 ) -> Result<(), String> {
     open_preferences_window_inner(&app, &state, tab.as_deref())
+}
+
+#[tauri::command]
+pub fn open_payment_dialog_in_main(app: tauri::AppHandle, tab: String) -> Result<(), String> {
+    if tab != "membership" && tab != "credits" {
+        return Err("Unsupported payment dialog tab".into());
+    }
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Main window is unavailable".to_string())?;
+    window.show().map_err(|error| error.to_string())?;
+    window.set_focus().map_err(|error| error.to_string())?;
+    app.emit_to("main", "billing:open-payment-dialog", tab)
+        .map_err(|error| error.to_string())
 }
 
 pub(crate) fn open_preferences_window_inner(

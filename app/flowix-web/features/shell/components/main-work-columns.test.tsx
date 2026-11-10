@@ -47,8 +47,6 @@ function props(): MainWorkColumnsProps {
     browserColumnLayout: { mainColumnWidth: 900, browserColumnWidth: 400 } as MainWorkColumnsProps['browserColumnLayout'],
     browserColumnLayoutKey: 'layout',
     handleBrowserColumnResize: vi.fn(),
-    toolbarCollapsed: false,
-    setToolbarCollapsed: vi.fn(),
     focusedColumnId: 'column-1',
     isMemoListHidden: false,
     isMemoListAnimating: false,
@@ -166,4 +164,48 @@ it('moves the same column DOM and preserves both drafts when indices exchange', 
   expect(column.style.gridColumn).toBe('1');
   expect(column.style.display).toBe('');
   expect(primary.value).toBe('unsaved primary');
+});
+
+describe('MainWorkColumns browser column toggle animation', () => {
+  const grid = () => host!.querySelector<HTMLElement>('[data-document-columns-layout]')!;
+
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('collapses through an animating px-track window and restores the fr template', async () => {
+    vi.useFakeTimers();
+    host = document.createElement('div');
+    document.body.append(host);
+    root = createRoot(host);
+    await act(async () => root?.render(<MainWorkColumns {...props()} browserColumnVisible />));
+    expect(grid().style.gridTemplateColumns).toBe('900px 400px');
+    expect(grid().className).not.toContain('document-columns-layout--animating');
+
+    await act(async () => root?.render(<MainWorkColumns {...props()} browserColumnVisible={false} />));
+    // 收起窗口：双列 px 轨道插值到 0，过渡类挂在 grid 容器上。
+    expect(grid().className).toContain('document-columns-layout--animating');
+    expect(grid().style.gridTemplateColumns).toBe('1300px 0px');
+
+    await act(async () => vi.advanceTimersByTime(200));
+    // 窗口结束：回到隐藏稳态模板（视觉等宽，无跳变）。
+    expect(grid().className).not.toContain('document-columns-layout--animating');
+    expect(grid().style.gridTemplateColumns).toBe('minmax(0, 1fr)');
+  });
+
+  it('expands through the same animating window starting from the collapsed template', async () => {
+    vi.useFakeTimers();
+    host = document.createElement('div');
+    document.body.append(host);
+    root = createRoot(host);
+    await act(async () => root?.render(<MainWorkColumns {...props()} />));
+    expect(grid().style.gridTemplateColumns).toBe('minmax(0, 1fr)');
+
+    await act(async () => root?.render(<MainWorkColumns {...props()} browserColumnVisible />));
+    // 展开窗口：起点模板已 pin 为收起态，终点是展开 px 模板。
+    expect(grid().className).toContain('document-columns-layout--animating');
+    expect(grid().style.gridTemplateColumns).toBe('900px 400px');
+
+    await act(async () => vi.advanceTimersByTime(200));
+    expect(grid().className).not.toContain('document-columns-layout--animating');
+    expect(grid().style.gridTemplateColumns).toBe('900px 400px');
+  });
 });

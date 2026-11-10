@@ -91,9 +91,24 @@
 }
 
 .agent-pi-model-picker__empty--category {
-  padding-block: 10px;
-  font-size: 12px;
-  text-align: left;
+  display: flex;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  appearance: none;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+  width: 100%;
+}
+
+.agent-pi-model-picker__empty--category:hover {
+  background: var(--hover-bg);
 }
 
 .agent-pi-model-picker__reasoning {
@@ -102,7 +117,16 @@
 }
 
 .agent-pi-model-picker__category--custom {
+  position: relative;
   margin-top: 6px;
   padding-top: 6px;
+}
+
+.agent-pi-model-picker__category--custom::before {
+  position: absolute;
+  top: 0;
+  right: 8px;
+  left: 8px;
   border-top: 1px solid var(--border);
+  content: "";
 }

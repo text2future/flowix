@@ -7,6 +7,7 @@ export interface CloudUser {
   id: string;
   email: string;
   displayName: string;
+  region: 'mainland' | 'non_mainland';
 }
 
 export interface CloudMembership {
@@ -24,6 +25,9 @@ export interface CloudMembership {
 
 export interface CloudAiCreditBalance {
   balanceMicrocredits: number;
+  monthlyBalanceMicrocredits: number;
+  permanentBalanceMicrocredits: number;
+  monthlyExpiresAt: number | null;
 }
 
 export interface CloudState {
@@ -39,6 +43,26 @@ export interface CloudState {
   membershipStatus?: 'unknown' | 'refreshing' | 'verified' | 'error';
   membershipError?: string | null;
   syncAccess?: CloudSyncAccess;
+  /** This session revived a deleted account inside its grace window. */
+  restored?: boolean;
+}
+
+/** Server-owned deletion lifecycle; the client never hardcodes the grace period. */
+export interface AccountDeletionState {
+  state: 'active' | 'restorable' | 'purged' | 'suspended';
+  restorableUntil: number | null;
+  graceDays: number;
+  deletedAt?: number | null;
+}
+
+export interface AccountDeletionOutcome {
+  state: string;
+  restorableUntil: number | null;
+  /**
+   * Subscriptions a payment provider refused to cancel. The account is gone
+   * either way, so these must be surfaced instead of silently dropped.
+   */
+  pendingSubscriptionCancellations: string[];
 }
 
 export interface CloudNotebookSyncState {
@@ -96,6 +120,10 @@ export interface CloudProduct {
   description: string;
   price: { amount: number; currency: string };
   billingType?: 'subscription' | 'one_time';
+  /** Older cached catalog entries may not include region metadata. */
+  marketRegion?: 'mainland' | 'non_mainland';
+  /** The two entitlement kinds. Absent in catalogs cached before the split. */
+  entitlementKind?: 'storage' | 'ai';
   entitlement: {
     storageBytes: number;
     duration: { unit: string; count: number };
@@ -147,8 +175,15 @@ export const cloud = {
   getState: () => invoke<CloudState>('cloud_get_state'),
   register: (email: string, password: string, displayName: string) =>
     invoke<CloudState>('cloud_register', { email, password, displayName }),
-  login: (email: string, password: string) =>
-    invoke<CloudState>('cloud_login', { email, password }),
+  login: (email: string, password: string, restoreDeleted = false) =>
+    invoke<CloudState>('cloud_login', { email, password, restoreDeleted }),
+  /** Where the account stands in its deletion window, with the real deadline. */
+  accountDeletion: () => invoke<AccountDeletionState>('cloud_account_deletion'),
+  /** Full server-side export document, written to disk as JSON. */
+  exportAccount: () => invoke<Record<string, unknown>>('cloud_export_account'),
+  /** Irreversible: starts the deletion clock and clears this account locally. */
+  deleteAccount: (confirmEmail: string) =>
+    invoke<AccountDeletionOutcome>('cloud_delete_account', { confirmEmail }),
   signInWithApple: () => invoke<CloudState>('cloud_sign_in_with_apple'),
   startGoogleSignIn: () => invoke<void>('cloud_start_google_sign_in'),
   linkApple: () => invoke<CloudState>('cloud_link_apple'),
@@ -170,13 +205,14 @@ export const cloud = {
     invoke<CloudAiCreditBalance>('cloud_ai_credit_balance'),
   piModelCatalog: () => invoke<{ data: { models: Array<{
     id: string; title?: string; subtitle?: string; creditMultiplier?: number; providerIconUrl?: string;
+    sortOrder?: number;
   }> } }>('cloud_pi_model_catalog'),
   piModelAvailability: () => invoke<boolean>('cloud_pi_model_availability'),
-  connectPiModelProvider: () => invoke<void>('cloud_connect_pi_model_provider'),
   refreshPiModelProvider: () => invoke<boolean>('cloud_refresh_pi_model_provider'),
   refreshPiModelProviderAtStartup: () =>
     invoke<boolean>('cloud_refresh_pi_model_provider_at_startup'),
-  listProducts: () => invoke<CloudProduct[]>('cloud_list_products'),
+  listProducts: (region: CloudUser['region'] = 'non_mainland') =>
+    invoke<CloudProduct[]>('cloud_list_products', { region }),
   listBillingOrders: () => invoke<CloudOrder[]>('cloud_list_billing_orders'),
   listSubscriptions: () => invoke<CloudSubscription[]>('cloud_list_subscriptions'),
   cancelSubscription: (subscriptionId: string) =>

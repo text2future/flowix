@@ -1,14 +1,13 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { Editor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
-import { Markdown, MarkdownManager } from '@tiptap/markdown';
+import { Markdown } from '@tiptap/markdown';
 import { resolveVideo } from './resolve';
 import { VideoEmbed } from './node';
 import { parseVideoUrl, videoEmbedUrl } from './providers';
 import { pasteVideoLink } from './paste';
 import { pasteClipboardSnapshot } from '../paste-rules';
 import { createMarkdownEditorExtensions } from '../../markdown-editor-extensions';
-import { createMarkdownParserExtensions } from '../../markdown-parser-extensions';
 
 vi.mock('./resolve', async importOriginal => ({
   ...await importOriginal<typeof import('./resolve')>(),
@@ -92,7 +91,7 @@ describe('video embed persistence', () => {
     expect(replacement.classList.contains('is-loading')).toBe(true);
     expect(e.getJSON()).toEqual(before);
   });
-  it('round trips through editor and background Markdown parsers with neighboring text', () => {
+  it('round trips through Markdown with neighboring text', () => {
     const e = editor();
     e.commands.setContent({ type: 'doc', content: [
       { type: 'paragraph', content: [{ type: 'text', text: 'before' }] },
@@ -101,10 +100,8 @@ describe('video embed persistence', () => {
     ] });
     const markdown = e.getMarkdown();
     expect(markdown).toContain('[视频](https://www.bilibili.com/video/BV1xx411c7mD?p=2)');
-    const manager = new MarkdownManager({ extensions: createMarkdownParserExtensions() });
-    const parsed = manager.parse(markdown);
-    expect(parsed.content?.map(n => n.type)).toEqual(['paragraph', 'videoEmbed', 'paragraph']);
     e.commands.setContent(markdown, { contentType: 'markdown' });
+    expect(e.getJSON().content?.map(n => n.type)).toEqual(['paragraph', 'videoEmbed', 'paragraph']);
     expect(e.getJSON().content?.[1].attrs).toMatchObject(parseVideoUrl(url)!);
     expect(e.getHTML()).toContain('player.bilibili.com/player.html');
   });

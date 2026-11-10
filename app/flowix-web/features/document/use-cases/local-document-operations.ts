@@ -2,6 +2,7 @@ import { renameCollectionAtPath } from '@features/collection/mutations';
 import { canonicalPath } from '@/lib/path';
 import { toast } from '@/lib/toast';
 import { translate } from '@/lib/i18n';
+import { createLogger } from '@/lib/logger';
 import { getCurrentAppLanguage } from '@features/preferences/public/runtime-api';
 import { externalDocuments } from '@platform/tauri/client';
 import { files } from '@platform/tauri/client/desktop';
@@ -11,11 +12,29 @@ import { beginNotebookPathRename } from '@platform/tauri/notebook-change-events'
 
 import type { EditableDocumentOperations } from './editable-document-operations';
 
+const readPerfLogger = createLogger('perf:doc-read');
+
+function roundMs(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
 /** Persistence boundary for Markdown and other editable local files. */
 export const localDocumentOperations: Omit<EditableDocumentOperations, 'rename'> = {
   read: async ({ path, scopePath }) => {
+    // Split the read so slow opens attribute the cost: the move-catchup gate
+    // vs the native IPC round trip (scope validation + canonicalize + read).
+    const prepareStartedAt = performance.now();
     await prepareMovedDocumentForRead(path);
-    return externalDocuments.read(path, scopePath);
+    const prepareMs = performance.now() - prepareStartedAt;
+    const ipcStartedAt = performance.now();
+    const content = await externalDocuments.read(path, scopePath);
+    const ipcMs = performance.now() - ipcStartedAt;
+    if (prepareMs >= 20 || ipcMs >= 20) {
+      readPerfLogger.info('slow read', {
+        path, prepareMs: roundMs(prepareMs), ipcMs: roundMs(ipcMs), bytes: content?.length ?? 0,
+      });
+    }
+    return content;
   },
   write: async ({ path, content, expectedContent, scopePath }) => {
     const result = await externalDocuments.write({

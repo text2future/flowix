@@ -1,6 +1,7 @@
 import type { Root } from 'react-dom/client';
 
 import type { BillingTab } from '../model/billing-products';
+export type { BillingTab };
 
 /**
  * Mount the shared payment dialog on demand.

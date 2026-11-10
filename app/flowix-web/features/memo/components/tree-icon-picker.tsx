@@ -115,8 +115,8 @@ export function TreeIconPicker({
           ref={panelRef}
           role="dialog"
           aria-label={t('document.properties.icon.placeholder')}
-          className="flowix-tree-icon-picker fixed z-[150] w-[280px] rounded-xl border border-[var(--border-popup)] bg-[var(--card)] p-2 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]"
-          style={{ top: -9999, left: -9999 }}
+          className="flowix-tree-icon-picker flowix-popover-enter fixed z-[150] w-[280px] rounded-xl border border-[var(--border-popup)] bg-[var(--card)] p-2 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]"
+          style={{ top: -9999, left: -9999, transformOrigin: 'top left' }}
           onClick={(event) => event.stopPropagation()}
           // 关键：阻止 pointerdown 沿 React 组件树冒泡到树行。
           // 树行会在 pointerdown 上 setPointerCapture，一旦捕获，后续 click 会被
@@ -129,6 +129,11 @@ export function TreeIconPicker({
               onChangeRef.current(next);
               setOpen(false);
             }}
+            onClear={() => {
+              onChangeRef.current('');
+              setOpen(false);
+            }}
+            clearLabel={t('document.properties.icon.clear')}
           />
         </div>,
         document.body,

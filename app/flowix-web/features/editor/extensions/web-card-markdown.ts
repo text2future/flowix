@@ -1,5 +1,5 @@
 import { Extension, type MarkdownToken } from '@tiptap/core';
-import { boundedIndexOf } from '@features/editor/markdown-tokenizer-start';
+import { boundedIndexOf } from '@features/editor/markdown-tokenizer-source';
 
 export type WebCardAttrs = {
   url: string;

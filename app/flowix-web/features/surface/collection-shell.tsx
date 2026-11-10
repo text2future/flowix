@@ -278,7 +278,6 @@ export function CollectionShell({ host, filePath: filePathProp = null, folderPat
       onReset={() => icon.save('')}
       changeLabel={t('collection.icon.change')}
       resetLabel={t('collection.icon.reset')}
-      hintLabel={t('collection.icon.pickerHint')}
     />
   );
   /** 头图隐藏时，标题行左侧继续使用头图图标的同款外观；可编辑时保留换图标交互。 */
@@ -293,13 +292,12 @@ export function CollectionShell({ host, filePath: filePathProp = null, folderPat
       onReset={() => icon.save('')}
       changeLabel={t('collection.icon.change')}
       resetLabel={t('collection.icon.reset')}
-      hintLabel={t('collection.icon.pickerHint')}
     />
   );
 
   const bannerNode = banner.visible ? (
-    // 图标骑在头图下缘：下 1/4 探出头图外（45px 图标探出约 11px），左移距 left-4
-    // （与标题行的 px-4 左缘对齐）。
+    // 图标骑在头图下缘：无容器盒，图标本体 h-12 w-12，探出量仍由 -bottom-[11px] 控制，
+    // 左移距 left-4（与标题行的 px-4 左缘对齐）。
     // icon 的 z-10 让探出部分盖在标题行上方（父级无 stacking context，直接参与外层比较）。
     <div className="relative">
       <CollectionBanner

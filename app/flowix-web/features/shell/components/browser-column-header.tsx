@@ -1,7 +1,8 @@
 import { useWorkspaceSessionNavigation } from '@features/workspace/public/session-navigation-api';
 import { canOpenBrowserColumnTargetInWorkColumn, type BrowserColumnEntry } from '@features/workspace/public/browser-column-api';
 import type { BrowserColumnSurfaceChrome } from '@features/surface/public/shell-api';
-import { browserCollectionIndexPath } from '@features/surface/public/shell-api';
+import { browserCollectionIndexPath, resolveDocumentBreadcrumb } from '@features/surface/public/shell-api';
+import { useShellNotebooks } from '@features/memo/public/shell-api';
 import { AgentConversationHeaderContent } from '@features/agent/public/header-api';
 import { resolveWorkspaceFileSurfaceKind, type WorkspaceSurfaceKind, type WorkspaceSurfaceCapability } from '@features/workspace/public/surface-api';
 import type { AgentTypeKey } from '@/types/agent';
@@ -37,6 +38,7 @@ export function BrowserColumnHeader(props: BrowserColumnHeaderProps) {
   const { t } = useI18n();
   const { current } = props;
   const navigation = useWorkspaceSessionNavigation('column-2');
+  const notebooks = useShellNotebooks();
   const agentInstanceId = current?.target.kind === 'agent_conversation' ? current.target.instanceId : null;
   const collectionPath = browserCollectionIndexPath(current);
   const target = current?.target.kind === 'file-browser' ? current.target : null;
@@ -53,6 +55,16 @@ export function BrowserColumnHeader(props: BrowserColumnHeaderProps) {
   const mediaTarget = current?.target.kind === 'media'
     ? { filePath: current.target.filePath, notebookPath: current.target.notebookPath, notebookId: current.target.notebookId }
     : path && props.activeSurfaceChrome === 'media' ? { filePath: path, notebookPath: target?.scopePath ?? null, notebookId: target?.notebookId ?? null } : null;
+  // Same resolution chain as the work column (see resolveDocumentBreadcrumb):
+  // the file-browser target often carries no scopePath, so ownership is derived
+  // from the notebook list before falling back to the tree root.
+  const breadcrumb = resolveDocumentBreadcrumb({
+    filePath: path,
+    collectionIndexPath: collectionPath,
+    scopeRoots: [target?.scopePath],
+    notebookRoots: notebooks.map((notebook) => notebook.path),
+    treeRoot: target?.folderPath,
+  });
   const navigate = async (direction: 'back' | 'forward') => {
     try { if (await navigation[direction]() === null) toast.error(t('tabWindow.switchFailed')); }
     catch (error) { toast.error(error instanceof Error ? error.message : t('tabWindow.switchFailed')); }
@@ -64,7 +76,8 @@ export function BrowserColumnHeader(props: BrowserColumnHeaderProps) {
       collection: Boolean(collection), identity: { title: props.runtimeTitle, icon: props.runtimeIcon },
       indexable: sourceKind === 'file-markdown' && Boolean(target?.notebookId && target.scopePath
         && path && notebookRelativeDirectoryPath(target.scopePath, path) !== null) }}
-    sidebar={{ hidden: false, noteNavigationVisible: false, onToggle: () => {} }}
+    sidebar={{ hidden: false, onToggle: () => {} }}
+    breadcrumb={breadcrumb}
     navigation={{ ...navigation, onNavigateBack: () => void navigate('back'), onNavigateForward: () => void navigate('forward') }}
     agent={agentInstanceId ? (beforeMoreMenu) => <AgentConversationHeaderContent beforeMoreMenu={beforeMoreMenu} columnId="column-2" key={agentInstanceId} instanceId={agentInstanceId} /> : undefined}
     webAddressBarVisible={props.webAddressBarVisible}

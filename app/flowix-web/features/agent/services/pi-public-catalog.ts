@@ -3,8 +3,8 @@
  *
  * A signed-out account has no Cloud provider installed in Pi, so the native
  * catalog carries none of its models. The public catalog is what the picker
- * shows in that state: it is a preview, and selecting an entry asks the user to
- * sign in rather than writing a model the next run cannot resolve.
+ * shows in that state: it is a preview, and a signed-out send is handled by the
+ * Cloud access preflight after the prompt has entered the conversation.
  *
  * The merge lives here — the single place a Pi catalog is assembled — because
  * a plain native refresh used to overwrite the store with the local providers
@@ -23,11 +23,27 @@ export type PublicCloudModel = {
   subtitle?: string;
   creditMultiplier?: number;
   providerIconUrl?: string;
+  /** Directory rank set in the Cloud admin; larger values come first. */
+  sortOrder?: number;
 };
 
 export type PublicCloudCatalogCache = { fetchedAt: number; models: PublicCloudModel[] };
 
-export const PI_PUBLIC_CATALOG_MAX_AGE_MS = 15 * 60 * 1000;
+/**
+ * Single ordering rule for every Pi model directory: larger sortOrder first,
+ * unranked models count as 0. The explicit index tie-break preserves the
+ * original catalog order for equal ranks without relying on sort stability.
+ */
+export function byModelOrder<T extends { sortOrder?: number }>(models: T[]): T[] {
+  return models
+    .map((model, index) => ({ model, index }))
+    .sort((left, right) =>
+      (right.model.sortOrder ?? 0) - (left.model.sortOrder ?? 0) || left.index - right.index)
+    .map(({ model }) => model);
+}
+
+/** The public model directory changes infrequently; check it once per day. */
+export const PI_PUBLIC_CATALOG_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 function storageKey(environment: string): string {
   return `${STORAGE_KEYS.PI_CLOUD_PUBLIC_CATALOG}:${environment}`;
@@ -82,7 +98,7 @@ export function withPublicCloudModels(
 ): AgentModelCatalog {
   return {
     ...local,
-    items: [...models.map((model) => ({
+    items: [...byModelOrder(models).map((model) => ({
       id: model.id,
       label: model.title?.trim() || model.id,
       source: "flowix-cloud" as const,
@@ -91,6 +107,7 @@ export function withPublicCloudModels(
       subtitle: model.subtitle,
       creditMultiplier: model.creditMultiplier,
       iconUrl: model.providerIconUrl,
+      sortOrder: model.sortOrder,
     })), ...local.items.filter((model) => !isFlowixCloudModel(model))],
   };
 }

@@ -1743,6 +1743,7 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
         <TableFieldEditorForm
           name={newFieldPropertyKey}
           onNameChange={setNewFieldPropertyKey}
+          namePlaceholder="填写属性名称"
           onNameSubmit={() => addField()}
           type={newFieldType}
           typeChoices={FIELD_TYPE_CHOICES}

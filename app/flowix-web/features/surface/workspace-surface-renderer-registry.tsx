@@ -21,9 +21,8 @@ import type {
 import { useWorkspaceSurfaceRendererLazy, WorkspaceSurfaceErrorBoundary, WorkspaceSurfaceStateView } from './workspace-surface-state-view';
 import { registerStartupSurfaceHostView, useWorkspaceSurfacePresentation } from './workspace-surface-runtime';
 import { CsvTableLoadingSkeleton } from '@shared/ui/csv-table-loading-skeleton';
-import { MultidimensionalTableLoadingSkeleton } from '@shared/ui/multidimensional-table-loading-skeleton';
-import { MediaLibraryLoadingSkeleton } from '@shared/ui/media-library-loading-skeleton';
-import { WorkDocumentsLoadingSkeleton } from '@shared/ui/work-documents-loading-skeleton';
+import { CollectionShellLoadingSkeleton } from '@shared/ui/collection-shell-loading-skeleton';
+import { NoteDocumentLoadingSkeleton } from '@shared/ui/note-document-loading-skeleton';
 
 export type { WorkspaceSurfaceRendererData, WorkspaceSurfaceRenderContext } from './workspace-surface-renderer-contract';
 import type { WorkspaceSurfaceRendererData, WorkspaceSurfaceRenderContext } from './workspace-surface-renderer-contract';
@@ -145,6 +144,11 @@ export function getWorkspaceSurfaceRendererDefinition(surface: WorkspaceSurfaceR
   return { ...definition, appearance: workspaceSurfaceAppearance(contentKind), capabilities: workspaceSurfaceCapabilities(contentKind) };
 }
 
+/**
+ * 集合类文件（`.table/.lib/.workdocs`，含 file-browser 按集合类型换算）的骨架键。
+ * `csv` 仍渲染独立 CSV 骨架（CsvPreview 不走集合外壳）；其余三种的渲染器
+ * 全部落进 `CollectionShell`，所以 Suspense fallback 用外壳形骨架对齐真实首帧。
+ */
 type InitialSurfaceSkeleton = 'csv' | 'table' | 'media-library' | 'work-documents';
 
 function initialSurfaceSkeleton(surface: WorkspaceSurfaceRendererData): InitialSurfaceSkeleton | null {
@@ -164,6 +168,52 @@ function initialSurfaceSkeleton(surface: WorkspaceSurfaceRendererData): InitialS
 
 export function workspaceSurfaceRetainsInitialContent(surface: WorkspaceSurfaceRendererData): boolean {
   return initialSurfaceSkeleton(surface) !== null;
+}
+
+/**
+ * Markdown paints its own first frame, so a centered loader over the document
+ * area only flickers while the chunk and the file read resolve. These surfaces
+ * report loading in the background and render a note skeleton instead.
+ */
+export function workspaceSurfaceSilentLoading(surface: WorkspaceSurfaceRendererData): boolean {
+  if (surface.kind === 'file-markdown') return true;
+  if (surface.kind !== 'file-browser') return false;
+  const activeFilePath = surface.props.activeFilePath;
+  if (!activeFilePath) return false;
+  return resolveWorkspaceFileSurfaceKind(activeFilePath) === 'markdown';
+}
+
+/** State registered before a renderer publishes its own; silent kinds never block. */
+export function workspaceSurfaceInitialLoadingState(
+  silentLoading: boolean,
+  retainContent: boolean,
+): SurfaceState {
+  return silentLoading
+    ? { status: 'loading', loadingMode: 'background', retainContent: true }
+    : { status: 'loading', loadingMode: 'blocking', retainContent };
+}
+
+/** The host may own the only loading layer; skeletons cover the kinds that own theirs. */
+function surfaceSuspenseFallback(
+  surface: WorkspaceSurfaceRendererData,
+  appearance: Readonly<SurfaceAppearance>,
+  loadingOwner: 'surface' | 'host',
+): ReactNode {
+  const skeleton = initialSurfaceSkeleton(surface);
+  if (skeleton === 'csv') return <CsvTableLoadingSkeleton />;
+  // 集合类文件与文件夹打开同走 CollectionShell（头图 + 大标题 + 副标题 + tab 条），
+  // fallback 也按外壳形状给，内容区按各自域选占位，避免挂载后框架跳变。
+  if (skeleton === 'table') return <CollectionShellLoadingSkeleton body="table" />;
+  if (skeleton === 'media-library') return <CollectionShellLoadingSkeleton body="gallery" />;
+  if (skeleton === 'work-documents') return <CollectionShellLoadingSkeleton body="cards" />;
+  // Silent kinds own their first paint: markdown renders a note skeleton
+  // instead of the common centered loader.
+  if (workspaceSurfaceSilentLoading(surface)) return <NoteDocumentLoadingSkeleton />;
+  if (loadingOwner === 'host') return null;
+  return <WorkspaceSurfaceStateView
+    appearance={appearance}
+    state={{ status: 'loading', loadingMode: 'blocking', retainContent: false }}
+  />;
 }
 
 export function WorkspaceSurfaceRendererView({
@@ -191,19 +241,7 @@ export function WorkspaceSurfaceRendererView({
   const backgroundClass = appearance.contentBackground === 'document'
     ? 'bg-[var(--document-bg)]'
     : 'bg-[var(--agent-bg,var(--document-bg))]';
-  const initialSkeleton = initialSurfaceSkeleton(surface);
-  const suspenseFallback = initialSkeleton === 'csv'
-    ? <CsvTableLoadingSkeleton />
-    : initialSkeleton === 'table'
-      ? <MultidimensionalTableLoadingSkeleton />
-      : initialSkeleton === 'media-library'
-        ? <MediaLibraryLoadingSkeleton />
-        : initialSkeleton === 'work-documents'
-          ? <WorkDocumentsLoadingSkeleton />
-    : loadingOwner === 'host' ? null : <WorkspaceSurfaceStateView
-      appearance={appearance}
-      state={{ status: 'loading', loadingMode: 'blocking', retainContent: false }}
-    />;
+  const suspenseFallback = surfaceSuspenseFallback(surface, appearance, loadingOwner);
   return <SessionViewRecoveryContext.Provider value={context.sessionEntryId ? { sessionId, entryId: context.sessionEntryId } : null}><div data-workspace-surface={surface.kind} data-surface-capabilities={(runtime.capabilities ?? definition.capabilities).join(' ')} className={`flex h-full min-h-0 w-full flex-col ${backgroundClass}`}>
     <WorkspaceSurfaceErrorBoundary key={`${context.viewId}:${surface.kind}:${contentIdentity}`} appearance={appearance} reportPresentation={context.reportPresentation} onRendererError={context.onRendererError}>
       <WorkspaceSurfaceStateView state={resolvedState} appearance={appearance} keepContentMounted loadingOwner={loadingOwner}>

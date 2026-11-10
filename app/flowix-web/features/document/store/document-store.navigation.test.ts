@@ -4,6 +4,7 @@ const { prepareDocumentLeave } = vi.hoisted(() => ({ prepareDocumentLeave: vi.fn
 vi.mock('./document-session-service', () => ({ prepareDocumentLeave }));
 vi.mock('@/lib/document-open-perf', () => ({
   startDocumentOpenTrace: vi.fn(), markDocumentOpenTrace: vi.fn(),
+  attachDocumentOpenJourney: vi.fn(() => false),
 }));
 
 import { useDocumentStore } from './document-store';

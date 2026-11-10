@@ -16,10 +16,10 @@ use std::time::Duration;
 use chrono::Utc;
 use flowix_core::memo_file::{notebook_path_from_relative, notebook_relative_path, IsMd};
 use flowix_sync::{
-    v2_content_hash, v2_local_content_diverged, CloudAiCreditBalance, CloudCheckout,
-    CloudMembership, CloudNotebook, CloudOrder, CloudOrderCheck, CloudProduct, CloudState,
-    CloudSubscription, SyncError, V2AccountSyncReport, V2LocalNote, V2LocalNotebook, V2RemoteApply,
-    V2SyncedNotebook,
+    v2_content_hash, v2_local_content_diverged, AccountDeletionOutcome, AccountDeletionState,
+    CloudAiCreditBalance, CloudCheckout, CloudMembership, CloudNotebook, CloudOrder,
+    CloudOrderCheck, CloudProduct, CloudState, CloudSubscription, SyncError, V2AccountSyncReport,
+    V2LocalNote, V2LocalNotebook, V2RemoteApply, V2SyncedNotebook,
 };
 use once_cell::sync::Lazy;
 use serde::Serialize;
@@ -80,8 +80,13 @@ fn sync_error(error: impl std::fmt::Display) -> String {
 fn cloud_error(error: SyncError) -> String {
     match error {
         SyncError::Api { code, details, .. }
-            if code == "MEMBERSHIP_REQUIRED" || code == "STORAGE_QUOTA_EXCEEDED" =>
+            if code == "MEMBERSHIP_REQUIRED"
+                || code == "STORAGE_QUOTA_EXCEEDED"
+                || code == "ACCOUNT_DELETED_RESTORABLE" =>
         {
+            // Codes the UI must branch on keep their details (`restorableUntil`
+            // for a deleted account, quota numbers for storage). Everything
+            // else stays a plain message.
             format!("{code}:{}", details.unwrap_or(serde_json::Value::Null))
         }
         other => other.to_string(),
@@ -121,15 +126,77 @@ pub async fn cloud_register(
 pub async fn cloud_login(
     email: String,
     password: String,
+    restore_deleted: Option<bool>,
     state: State<'_, AppState>,
 ) -> Result<CloudState, String> {
     state
         .cloud_sync.account()
-        .login(email.trim(), &password)
+        .login_with_restore(email.trim(), &password, restore_deleted.unwrap_or(false))
         .await
-        .map_err(sync_error)?;
+        .map_err(cloud_error)?;
     let next_state = state.cloud_sync.account().state().map_err(sync_error)?;
     Ok(next_state)
+}
+
+/// Where this account stands in its deletion lifecycle, including the real
+/// grace deadline. The client asks before offering a destructive action so the
+/// wording comes from the server rather than a hardcoded "30 days".
+#[tauri::command]
+pub async fn cloud_account_deletion(
+    state: State<'_, AppState>,
+) -> Result<AccountDeletionState, String> {
+    state
+        .cloud_sync.account()
+        .deletion_state()
+        .await
+        .map_err(sync_error)
+}
+
+/// The account export document, untyped: it is a snapshot meant to be written
+/// to disk, not a contract this client renders field by field.
+#[tauri::command]
+pub async fn cloud_export_account(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    state
+        .cloud_sync.account()
+        .export_account()
+        .await
+        .map_err(sync_error)
+}
+
+/// Start deleting the signed-in account.
+///
+/// Deletion revokes every server session, so the local side has nothing left to
+/// revoke — the account service clears authentication, the sync database and
+/// the persisted refresh token itself. The only extra work here is dropping the
+/// PI provider, which holds an access credential that no longer exists.
+#[tauri::command]
+pub async fn cloud_delete_account(
+    app: AppHandle,
+    confirm_email: String,
+    state: State<'_, AppState>,
+) -> Result<AccountDeletionOutcome, String> {
+    let pi = state.pi.clone();
+    let api_base = state.cloud_environment.api_base().to_string();
+    let credential_generation = state.cloud_sync.account().ai_credential_session_generation();
+    let outcome = state
+        .cloud_sync.account()
+        .delete_account(confirm_email.trim())
+        .await
+        .map_err(sync_error)?;
+    if let Err(error) = pi
+        .disconnect_cloud_model_provider(&app, &api_base, credential_generation)
+        .await
+    {
+        // The account is already gone server-side; a provider that fails to
+        // disconnect must not turn a completed deletion into an error.
+        tracing::warn!("failed to disconnect cloud model provider after account deletion: {error}");
+    }
+    if let Ok(next_state) = state.cloud_sync.account().state() {
+        emit_cloud_state(&app, &next_state);
+    }
+    Ok(outcome)
 }
 
 #[tauri::command]
@@ -181,7 +248,8 @@ pub async fn cloud_start_google_sign_in(app: AppHandle) -> Result<(), String> {
     }
     let mut url = url::Url::parse(&format!("{cloud_api_base}/v1/auth/google/start"))
         .map_err(|error| error.to_string())?;
-    url.query_pairs_mut()
+    let mut query = url.query_pairs_mut();
+    query
         .append_pair(
             "mode",
             if option_env!("FLOWIX_DEV_MODE") == Some("1") {
@@ -192,6 +260,16 @@ pub async fn cloud_start_google_sign_in(app: AppHandle) -> Result<(), String> {
         )
         .append_pair("state", &state)
         .append_pair("code_challenge", &code_challenge);
+    let client_platform = match std::env::consts::OS {
+        "macos" => Some("macos"),
+        "windows" => Some("windows"),
+        _ => None,
+    };
+    if let Some(client_platform) = client_platform {
+        query.append_pair("clientPlatform", client_platform);
+    }
+    query.append_pair("clientVersion", &app.package_info().version.to_string());
+    drop(query);
     app.opener()
         .open_url(url.as_str(), None::<&str>)
         .map_err(|error| error.to_string())
@@ -436,15 +514,6 @@ pub async fn cloud_pi_model_availability(
 }
 
 #[tauri::command]
-pub async fn cloud_connect_pi_model_provider(
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
-    let api_base = state.cloud_environment.api_base().trim_end_matches('/');
-    state.pi.connect_cloud_model_provider(&app, api_base).await
-}
-
-#[tauri::command]
 pub async fn cloud_refresh_pi_model_provider_at_startup(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -466,8 +535,15 @@ pub async fn cloud_refresh_pi_model_provider(
 }
 
 #[tauri::command]
-pub async fn cloud_list_products(state: State<'_, AppState>) -> Result<Vec<CloudProduct>, String> {
-    state.cloud_sync.account().products().await.map_err(sync_error)
+pub async fn cloud_list_products(
+    region: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<CloudProduct>, String> {
+    let region = match region.as_deref() {
+        Some("mainland") => "mainland",
+        _ => "non_mainland",
+    };
+    state.cloud_sync.account().products(region).await.map_err(sync_error)
 }
 
 #[tauri::command]

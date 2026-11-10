@@ -1,9 +1,8 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
-import { ContentIcon } from '@features/content/public/content-api';
 import { PROPERTY_ICON_OPTIONS } from '@features/document/properties/property-icons';
-import { CollectionIcon, CollectionResourceIcon, collectionDefaultIcon } from './collection-icon';
+import { CollectionDatabaseIcon, CollectionIcon, CollectionResourceIcon, collectionDefaultIcon } from './collection-icon';
 import type { CollectionDomain } from './model';
 
 const state = vi.hoisted(() => ({ summary: null as unknown }));
@@ -28,7 +27,7 @@ it('uses the same defaults in headers and tree rows, with persisted custom icons
     await act(async () => root.render(<>
       <div data-header><CollectionIcon defaultIcon="media-library" /></div>
       <div data-tree><CollectionResourceIcon filePath="/book/a.index.yaml" notebookPath="/book" /></div>
-      <div data-reference><ContentIcon content={{ kind: 'media-library' }} /></div>
+      <div data-reference><CollectionDatabaseIcon /></div>
     </>));
     const reference = host.querySelector('[data-reference] svg')?.innerHTML;
     expect(reference).toBeTruthy();

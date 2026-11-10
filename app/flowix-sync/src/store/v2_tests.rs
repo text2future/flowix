@@ -14,6 +14,7 @@ fn v2_state_uses_one_account_cursor_and_same_notebook_id() {
             id: "usr_1".into(),
             email: "user@example.com".into(),
             display_name: "User".into(),
+            region: "non_mainland".into(),
         },
         protocol_epoch: PROTOCOL_EPOCH,
     };
@@ -418,6 +419,7 @@ fn switching_users_clears_user_scoped_sync_state() {
             id: id.into(),
             email: format!("{id}@example.com"),
             display_name: id.into(),
+            region: "non_mainland".into(),
         },
         protocol_epoch: PROTOCOL_EPOCH,
     };
@@ -441,6 +443,7 @@ fn clearing_account_removes_user_scoped_sync_state() {
                 id: "usr_a".into(),
                 email: "a@example.com".into(),
                 display_name: "A".into(),
+                region: "non_mainland".into(),
             },
             protocol_epoch: PROTOCOL_EPOCH,
         })

@@ -28,7 +28,7 @@ beforeEach(() => {
 });
 afterEach(async () => { await act(async () => root.unmount()); vi.clearAllMocks(); });
 it.each(['column-1', 'column-2'] as const)('creation keeps the %s session binding after the columns exchange positions', async (columnId) => {
-  await act(async () => root.render(<ColumnProvider value={{ index: columnId === 'column-1' ? 1 : 0, browserVisible: true, sidebarHidden: false, navigationVisible: false, onToggleSidebar: vi.fn() }}>
+  await act(async () => root.render(<ColumnProvider value={{ index: columnId === 'column-1' ? 1 : 0, browserVisible: true, sidebarHidden: false, onToggleSidebar: vi.fn() }}>
     <Probe columnId={columnId} />
   </ColumnProvider>));
   await act(async () => commands.createNote('template'));

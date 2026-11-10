@@ -56,6 +56,55 @@ it("puts the guest catalog first and tags it with the preview provider", () => {
   expect(merged.items[0].creditMultiplier).toBe(0.1);
 });
 
+it("ranks guest Cloud models by descending sortOrder, keeping unranked order", () => {
+  const ranked = [
+    { id: "flowix/low", title: "Low", sortOrder: 0 },
+    { id: "flowix/high", title: "High", sortOrder: 30 },
+    { id: "flowix/medium", title: "Medium", sortOrder: 10 },
+    { id: "flowix/default", title: "Default" },
+  ];
+
+  const merged = withPublicCloudModels({ items: [localItem] }, ranked);
+
+  expect(merged.items.map((item) => item.id)).toEqual([
+    "flowix/high",
+    "flowix/medium",
+    "flowix/low",
+    "flowix/default",
+    "deepseek-v4-pro",
+  ]);
+  expect(merged.items[0].sortOrder).toBe(30);
+});
+
+it("ranks installed Cloud models by sortOrder when a session exists", async () => {
+  useAgentDataStore.getState().setPiCloudAccount("user-1", 9);
+  backend.listProviders.mockResolvedValue([
+    {
+      id: "flowix-cloud-member",
+      displayName: "Flowix Cloud",
+      source: "flowix-cloud",
+      models: [
+        { id: "flowix/model-a", name: "A", sortOrder: 0 },
+        { id: "flowix/model-b", name: "B", sortOrder: 20 },
+        { id: "flowix/model-c", name: "C", sortOrder: 10 },
+      ],
+    },
+  ]);
+  backend.listModels.mockResolvedValue([
+    "flowix-cloud-member::flowix/model-a",
+    "flowix-cloud-member::flowix/model-b",
+    "flowix-cloud-member::flowix/model-c",
+  ]);
+
+  const catalog = await loadAgentModelCatalog("pi", { force: true });
+
+  expect(catalog.items.map((item) => item.id)).toEqual([
+    "flowix/model-b",
+    "flowix/model-c",
+    "flowix/model-a",
+  ]);
+});
+
 it("replaces an installed Cloud entry rather than listing it twice", () => {
   const installed = { ...localItem, id: "deepseek-v4-pro", source: "flowix-cloud" as const, providerId: "flowix-cloud-member" };
   const merged = withPublicCloudModels({ items: [installed, localItem] }, publicModels);

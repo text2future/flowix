@@ -14,8 +14,8 @@ import {
 import { WorkColumnTitlebar } from './work-column-titlebar';
 import { isWindowsPlatform } from '@/lib/path';
 import { BrowserColumnHeader } from './browser-column-header';
+import { EmptyWorkspaceActions } from './empty-workspace-actions';
 import { useWorkspaceHeaderCreation } from '../hooks/use-workspace-header-creation';
-import { workspaceSurfaceAppearance } from '@features/workspace/public/surface-api';
 import { useCollectionBannerControl } from '@/lib/collection-banner-visibility';
 import {
   captureLatestDocumentContent,
@@ -29,7 +29,6 @@ import {
   getBrowserColumnSurfaceDefinition,
   useWorkspaceSurfacePresentation,
   resolveBrowserColumnSurface,
-  WorkspaceSurfaceStateView,
   browserCollectionIndexPath,
 } from '@features/surface/public/shell-api';
 
@@ -38,22 +37,25 @@ export interface BrowserColumnProps {
   selectionView?: ReactNode;
   layoutKey: string;
   onResize: (width: number) => void;
-  toolbarCollapsed: boolean;
-  onToolbarCollapsedChange: (collapsed: boolean) => void;
   /**
    * When true, the outer width transitions instead of snapping. Only enabled
    * during the memo-list collapse/expand window so browser-column drags and
    * viewport resizes stay responsive.
    */
   animated?: boolean;
+  /**
+   * True while the header-toggle expand/collapse transition runs: the grid
+   * track interpolates down to 0, so the section must release its min-width
+   * and clip overflow instead of overflowing the shrinking track.
+   */
+  toggleAnimating?: boolean;
 }
 
 export const BrowserColumn = memo(function BrowserColumn({
   width,
   onResize,
-  toolbarCollapsed,
-  onToolbarCollapsedChange,
   animated = false,
+  toggleAnimating = false,
   selectionView,
 }: BrowserColumnProps) {
   const sessionId = useColumnSessionId('column-2');
@@ -87,10 +89,8 @@ export const BrowserColumn = memo(function BrowserColumn({
         // Cross-column editing ownership is controlled by DocumentContainer.
         readOnly: false,
         webRuntime,
-        toolbarCollapsed,
-        onToolbarCollapsedChange,
       })
-    : null, [current, webRuntime, toolbarCollapsed, onToolbarCollapsedChange]);
+    : null, [current, webRuntime]);
   const activeSurfaceRuntime = useWorkspaceSurfacePresentation(activeSurface?.surfaceId ?? '');
   const activeSurfaceDefinition = activeSurface ? getBrowserColumnSurfaceDefinition(activeSurface) : null;
   const collectionPath = browserCollectionIndexPath(current);
@@ -118,11 +118,12 @@ export const BrowserColumn = memo(function BrowserColumn({
       aria-label="浏览器列辅助工作区"
       onPointerDown={(event) => focusWorkspaceColumnFromEvent(event, 'column-2')}
       onFocusCapture={(event) => focusWorkspaceColumnFromEvent(event, 'column-2')}
-      className={`relative flex h-full min-w-0 shrink-0 flex-col bg-[var(--document-bg)]${index === 1 ? ' border-l border-[var(--divider)]' : ''}${
+      className={`relative flex h-full min-w-0 shrink-0 flex-col bg-[var(--document-bg)]${toggleAnimating ? ' overflow-hidden' : ''}${index === 1 ? ' border-l border-[var(--divider)]' : ''}${
         animated ? ' transition-[width] flowix-motion' : ''
       }`}
       style={environment ? {
-        minWidth: BROWSER_COLUMN_MIN_WIDTH, gridColumn: index + 1, gridRow: 1,
+        minWidth: toggleAnimating ? 0 : BROWSER_COLUMN_MIN_WIDTH,
+        gridColumn: index + 1, gridRow: 1,
         display: index === 0 || environment.browserVisible ? undefined : 'none',
       } : { width }}
     >
@@ -155,11 +156,7 @@ export const BrowserColumn = memo(function BrowserColumn({
             webAddressBarVisible={webAddressBarVisible}
           />
         ) : (
-          <WorkspaceSurfaceStateView
-            appearance={{ ...workspaceSurfaceAppearance('file-markdown'), emptyDecoration: 'none' }}
-            state={{ status: 'empty', reason: 'no-target', message: { key: 'document.file.loading' } }}
-            messageOverride="选择内容以打开"
-          />
+          <EmptyWorkspaceActions columnId="column-2" />
         )}
       </div>
     </section>

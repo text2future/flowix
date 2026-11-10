@@ -1,6 +1,7 @@
 'use client';
 
 import { cn } from '@/lib/utils';
+import type { CSSProperties } from 'react';
 
 export interface NotebookIconOption {
   id: string;
@@ -14,9 +15,10 @@ const NOTEBOOK_ICON_MODULES = import.meta.glob<string>('../../../assets/notebook
   import: 'default',
 });
 
-export const DEFAULT_NOTEBOOK_ICON_ID = 'notebook_2_fill';
+export const DEFAULT_NOTEBOOK_ICON_ID = 'planet_fill';
 
 const NOTEBOOK_ICON_PREFERRED_ORDER = [
+  'planet_fill',
   'notebook_2_fill',
   'board_fill',
   'mark_pen_fill',
@@ -28,7 +30,6 @@ const NOTEBOOK_ICON_PREFERRED_ORDER = [
   'chart_pie_2_fill',
   'world_fill',
   'compass_fill',
-  'planet_fill',
 ] as const;
 
 
@@ -114,6 +115,9 @@ export function NotebookIcon({
   const option = resolveNotebookIconOption(icon);
   const iconUrl = option ? NOTEBOOK_ICON_URL_BY_ID[option.id] : null;
 
+  // 图标 SVG 自带硬编码深色填充（#09244B），不能用 <img> 渲染 —— 深色主题下
+  // 深色填充贴深色背景几乎不可见，且文字色类对 img 不生效。改用 CSS mask +
+  // bg-current，让图标颜色跟随容器文字色（含各调用点的 text-* 覆盖）。
   if (option && iconUrl) {
     return (
       <span
@@ -125,11 +129,12 @@ export function NotebookIcon({
       >
         <span
           aria-hidden="true"
-          className={cn(
-            '[&_img]:block [&_img]:h-full [&_img]:w-full [&_img]:object-contain [&_img]:opacity-90',
-            imageClassName ?? 'h-[78%] w-[78%]',
-          )}
-        ><img src={iconUrl} alt="" draggable={false} /></span>
+          className={cn('shrink-0 bg-current', imageClassName ?? 'h-[78%] w-[78%]')}
+          style={{
+            mask: `url("${iconUrl}") center / contain no-repeat`,
+            WebkitMask: `url("${iconUrl}") center / contain no-repeat`,
+          } as CSSProperties}
+        />
       </span>
     );
   }

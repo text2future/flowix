@@ -1,15 +1,8 @@
 import { forwardRef, useId } from 'react';
 import type { Icon, IconProps } from '@phosphor-icons/react';
 import { Folder, Globe } from 'lucide-react';
-import {
-  FileCodeIcon,
-  FileImageIcon,
-  FileMdIcon,
-  FileTextIcon,
-  FileVideoIcon,
-  FileZipIcon,
-} from '@phosphor-icons/react';
-import { classifyFileContent, isEditableTextFilePath, type FileContentKind } from '@features/content/model/content-kind';
+import { FileMdIcon } from '@phosphor-icons/react';
+import { classifyFileContent, type FileContentKind } from '@features/content/model/content-kind';
 import { NoteContentIcon } from './note-content-icon';
 import { WorkDocumentsIcon as WorkDocumentsCollectionIcon } from './work-documents-icon';
 
@@ -146,20 +139,17 @@ export const HtmlFileIcon = forwardRef<SVGSVGElement, IconProps>(
   },
 );
 
-const ICON_BY_KIND: Record<ContentFileIconKind, Icon> = {
+/**
+ * 有专属图形的分类查找表。image / video / code 走自绘描边组件、archive / text /
+ * unknown / fallback 统一空白纸页（见 FileKindIcon），都不进这张表。
+ */
+const ICON_BY_KIND: Record<'note' | 'html' | 'document' | 'presentation' | 'spreadsheet' | 'pdf', Icon> = {
   note: FileMdIcon,
   html: HtmlFileIcon,
   document: DocumentFileIcon,
   presentation: PresentationFileIcon,
   spreadsheet: SpreadsheetFileIcon,
   pdf: PdfFileIcon,
-  video: FileVideoIcon,
-  archive: FileZipIcon,
-  image: FileImageIcon,
-  code: FileCodeIcon,
-  fallback: FileTextIcon,
-  text: FileTextIcon,
-  unknown: FileTextIcon,
 };
 
 /** Flat icon categories; special resources sit beside file categories. */
@@ -188,24 +178,6 @@ export function getFileIconKind(path: string, mimeType?: string | null): Content
   return classifyFileContent(path, mimeType);
 }
 
-/** Resolve the legacy icon component for callers that need it. */
-export function getFileIcon(path: string): Icon {
-  if (isTableDocumentPath(path)) return ICON_BY_KIND.spreadsheet;
-  const kind = getFileIconKind(path);
-  // 无扩展名但能在 CodeMirror 打开的文本文件（LICENSE、Makefile…）用代码图标，
-  // 其余纯文本用文本图标。分类器把这类文件判成 text，所以在这里升级图标，
-  // 不去改共享的 content kind（它还决定用哪个编辑器打开）。
-  if (kind === 'text' && isEditableTextFilePath(path)) return ICON_BY_KIND.code;
-  return ICON_BY_KIND[kind];
-}
-
-export function FileTypeIcon({ path, className }: { path: string; className?: string }) {
-  if (isTableDocumentPath(path)) return <ContentIcon content={{ kind: 'multidimensional-table' }} className={className} />;
-  if (/\.lib\.ya?ml$/i.test(path)) return <ContentIcon content={{ kind: 'media-library' }} className={className} />;
-  return <ContentIcon content={{ kind: 'file', path }} className={className} />;
-}
-
-/** Resolve the custom icons used for non-note files in the notebook tree. */
 export function NotebookTreeResourceIcon({ path, className, collectionType }: { path: string; className?: string; collectionType?: 'table' | 'media_library' | 'work_documents' }) {
   const legacyCollectionType = collectionType
     ?? (isTableDocumentPath(path) ? 'table' : /\.lib\.ya?ml$/i.test(path) ? 'media_library' : /\.workdocs\.ya?ml$/i.test(path) ? 'work_documents' : undefined);
@@ -219,9 +191,17 @@ export function NotebookTreeResourceIcon({ path, className, collectionType }: { 
   return <ContentIcon content={content} className={className} />;
 }
 
+/**
+ * 文件分类 → 图标的唯一分流：image / video / code 用自绘描边组件；
+ * archive / text 自 2026-11 起不再有专属图形，与 unknown / fallback 一样
+ * 统一渲染「空白折角纸页」（FallbackFileIcon）；其余查 ICON_BY_KIND。
+ */
 function FileKindIcon({ kind, className }: { kind: ContentFileIconKind; className?: string }) {
-  if (kind === 'image' || kind === 'video' || kind === 'code' || kind === 'unknown') {
-    return <CustomFileIcon kind={kind === 'unknown' ? 'fallback' : kind} className={className} />;
+  if (kind === 'image') return <ImageFileIcon className={className} />;
+  if (kind === 'video') return <VideoFileIcon className={className} />;
+  if (kind === 'code') return <CodeFileIcon className={className} />;
+  if (kind === 'archive' || kind === 'text' || kind === 'unknown' || kind === 'fallback') {
+    return <FallbackFileIcon className={className} />;
   }
   const IconComponent = ICON_BY_KIND[kind];
   return <IconComponent aria-hidden="true" className={className} />;
@@ -266,13 +246,6 @@ export const MediaLibraryIcon = forwardRef<SVGSVGElement, IconProps>(
     );
   },
 );
-
-function CustomFileIcon({ kind, className }: { kind: ContentFileIconKind; className?: string }) {
-  if (kind === 'image') return <ImageFileIcon className={className} />;
-  if (kind === 'video') return <VideoFileIcon className={className} />;
-  if (kind === 'code') return <CodeFileIcon className={className} />;
-  return <FallbackFileIcon className={className} />;
-}
 
 export function CodeFileIcon({ className }: { className?: string }) {
   return (

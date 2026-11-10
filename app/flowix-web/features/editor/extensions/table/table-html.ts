@@ -34,8 +34,8 @@ export function serializeTableHtml(node: JSONContent, schema: Schema, ownerDocum
 }
 
 /**
- * The parser worker installs a minimal document shim, so `document` is not a
- * given even though serialization is only reachable from an editor.
+ * Serialization is only reachable from an editor, but tests and scripts can
+ * call it without a DOM, so `document` is not a given.
  */
 function schemaDocument(): Document {
   if (typeof document === 'undefined') {

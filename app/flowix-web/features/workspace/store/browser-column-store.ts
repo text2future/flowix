@@ -50,6 +50,7 @@ interface BrowserColumnState extends BrowserColumnSessionState {
   openContent: (entry: BrowserColumnEntry, options?: { history?: 'push' | 'skip' }) => string;
   focusContent: (surfaceId: string) => void;
   clearContent: () => void;
+  clearMissingConversation: (instanceId: string) => boolean;
   clearSession: () => void;
   restoreHistoryEntry: (entry: BrowserColumnEntry, direction: 'back' | 'forward') => void;
   updateFileBrowserContext: (surfaceId: string, patch: Partial<Omit<FileBrowserTarget, 'kind'>>) => void;
@@ -184,6 +185,16 @@ export const useBrowserColumnStore = createBrowserColumnView<BrowserColumnState>
     useWorkspaceFocusStore.getState().focusColumn('column-2');
   },
   clearContent: () => clearSession(false),
+  clearMissingConversation: (instanceId) => {
+    const owner = session();
+    const current = owner.navigation.current;
+    if (current?.target.kind !== 'agent-conversation' || current.target.instanceId !== instanceId) return false;
+    useWorkspaceSessionStore.getState().updateSession(owner.id, (state) => ({ ...state,
+      navigation: { ...state.navigation, current: null,
+        transaction: { ...emptySessionTransaction(), requestId: state.navigation.transaction.requestId + 1 } },
+    }));
+    return true;
+  },
   clearSession: () => clearSession(true),
   restoreHistoryEntry: (entry, direction) => {
     useWorkspaceSessionStore.getState().updateSession(session().id, (current) => {

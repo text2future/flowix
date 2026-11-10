@@ -4,6 +4,7 @@ import { DialogFooter } from '@shared/ui/dialog-footer';
 import { useStartedLiveThreads } from './use-started-live-threads';
 
 import { removeAgentConversation } from '@features/agent/use-cases/remove-conversation';
+import { prepareConversationForOpen } from '@features/agent/use-cases/prepare-conversation-open';
 import { ConversationActionItems } from './conversation-action-items';
 import { AgentConversationHoverCard } from '@features/agent/components/agent-conversation-hover-card';
 
@@ -241,26 +242,9 @@ export function AgentConversationList({ isActive = true, onBack }: AgentConversa
 
   const prepareConversation = useCallback((instance: AgentConversationInstance) => {
     // The durable list snapshot may arrive before the Zustand session store
-    // hydrates. Install this exact persisted instance without rewriting it so
-    // either conversation surface can immediately resolve its runtime configuration.
-    useAgentSessionStore.getState().setConversationRegistry((registry) => ({
-      ...registry,
-      instances: {
-        ...registry.instances,
-        [instance.instanceId]: instance,
-      },
-    }));
-
-    if (instance.threadId) {
-      useAgentSessionStore.getState().setSessionMeta((meta) => ({
-        ...meta,
-        activeThreadIds: {
-          ...meta.activeThreadIds,
-          [instance.agentType]: instance.threadId!,
-        },
-        activeAgentTypeKey: instance.agentType,
-      }));
-    }
+    // hydrates. Opening a row only completes missing facts on the registered
+    // instance, so a stale page can never downgrade what a column is showing.
+    prepareConversationForOpen(instance);
   }, []);
 
   /**

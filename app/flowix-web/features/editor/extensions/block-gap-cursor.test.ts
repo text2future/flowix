@@ -76,6 +76,27 @@ describe('block gap cursor', () => {
     expect(editor.getJSON().content).toEqual([{ type: 'card' }]);
   });
 
+  it('swallows Backspace on a top-level gap instead of letting the list keymap throw', () => {
+    const editor = createEditor();
+    editor.commands.setContent({
+      type: 'doc',
+      content: [
+        { type: 'bulletList', content: [{ type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'i' }] }] }] },
+        { type: 'card' },
+        { type: 'card' },
+      ],
+    });
+    const gapPos = editor.state.doc.child(0).nodeSize + 1;
+    editor.view.dispatch(editor.state.tr.setSelection(new GapCursor(editor.state.doc.resolve(gapPos))));
+    const before = editor.getJSON();
+    // Tiptap's list keymap reads `$anchor.before()`, which is invalid at the top
+    // level; the guard must consume the key before that handler runs.
+    expect(() => editor.view.dom.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true }),
+    )).not.toThrow();
+    expect(editor.getJSON()).toEqual(before);
+  });
+
   it('supports adjacent cards and document edges despite frontmatter schema ordering', () => {
     const editor = createEditor();
     for (const pos of [0, 1, 2]) expect(isValidBlockGap(editor.state.doc.resolve(pos))).toBe(true);

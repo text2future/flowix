@@ -15,6 +15,11 @@ const editorTablesZhCN = {
   'editor.table.columnStyle': '列样式',
   'editor.table.headerRowRequired': '当前主题需要保留标题行，无法关闭。',
   'editor.table.rowColumnOperations': '行列操作',
+  // 表格气泡触发按钮的 tooltip 产品文案。与菜单 label 分开: label 仍作
+  // aria-label (会带当前值), tooltip 只说明这个按钮管什么。
+  'editor.table.borderStyle': '边框样式',
+  'editor.table.rowColumnStyle': '行列样式',
+  'editor.table.rowColumnBackground': '行列背景',
   'editor.table.rowOperations': '行操作',
   'editor.table.columnOperations': '列操作',
   'editor.table.styleBusinessBlue': '商务蓝',

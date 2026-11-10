@@ -30,7 +30,7 @@
   border-radius: 6px;
   background: transparent;
   color: var(--muted-foreground);
-  cursor: grab;
+  cursor: pointer;
   user-select: none;
   touch-action: none;
 }
@@ -75,9 +75,6 @@
   border-radius: 0;
   box-shadow: none;
   background: radial-gradient(circle, currentColor 0.75px, transparent 1px) 0 0 / 4px 4px;
-}
-.markdown-editor .table-reorder-handle:active:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
-  cursor: grabbing;
 }
 .markdown-editor .table-reorder-marker:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   position: absolute;

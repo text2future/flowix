@@ -1,4 +1,5 @@
 import type { I18nKey } from "@/lib/i18n";
+import { replayEnterAnimation } from "@/lib/replay-enter-animation";
 import type { NotePickerController } from "@features/agent/thread-card/note/note-picker-controller";
 import type { ComposerAttachmentController } from "./composer-attachment-controller";
 import { COMPOSER_ATTACHMENT_ACCEPT } from "./composer-attachment-controller";
@@ -78,6 +79,7 @@ export class ComposerAddMenuController {
     this.options.trigger.setAttribute("aria-expanded", String(open));
     this.options.trigger.classList.toggle("agent-composer__add-button--open", open);
     if (open) {
+      this.replayEnterAnimation();
       this.render();
       this.position();
       document.addEventListener("pointerdown", this.handleOutsidePointer, true);
@@ -89,6 +91,11 @@ export class ComposerAddMenuController {
       this.activeSettingsItem = null;
       document.removeEventListener("pointerdown", this.handleOutsidePointer, true);
     }
+  }
+
+  /** 打开时重放标准入场动画 (见 lib/replay-enter-animation.ts)。 */
+  private replayEnterAnimation(): void {
+    replayEnterAnimation(this.options.popover);
   }
 
   private readonly handleOutsidePointer = (event: PointerEvent): void => {

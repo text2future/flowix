@@ -34,6 +34,7 @@ export type ImageMenuItem = {
   displayKey: I18nKey
 }
 
+// 下拉窗菜单项图标 16px bold —— 与 bubble 块样式下拉项 (bubbleDropdownIconSize=16) 对齐。
 const ICON_PROPS = { size: 16, weight: 'bold' as const }
 
 export const headingMenuItems: HeadingMenuItem[] = [

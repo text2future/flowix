@@ -16,12 +16,33 @@ impl AccountService {
                 protocol_epoch: crate::v2::PROTOCOL_EPOCH,
             },
             auth.session.into(),
+            false,
         )
     }
 
     pub async fn login(&self, email: &str, password: &str) -> Result<CloudState, SyncError> {
+        self.login_with_restore(email, password, false).await
+    }
+
+    /// Sign in, optionally reviving an account that is still inside its
+    /// deletion grace window.
+    ///
+    /// The server answers a plain login on a deleted account with
+    /// `410 ACCOUNT_DELETED_RESTORABLE` and the deadline; the caller shows that
+    /// to the user and repeats the request with `restore_deleted` once the user
+    /// agrees. Credentials are verified on both requests — the flag only says
+    /// what to do *after* authentication succeeds, it is not a way in.
+    pub async fn login_with_restore(
+        &self,
+        email: &str,
+        password: &str,
+        restore_deleted: bool,
+    ) -> Result<CloudState, SyncError> {
         let generation = self.begin_auth_attempt();
-        let auth = self.client.login(email, password).await?;
+        let auth = self
+            .client
+            .login(email, password, restore_deleted)
+            .await?;
         self.accept_auth(
             generation,
             V2CloudAccount {
@@ -29,6 +50,7 @@ impl AccountService {
                 protocol_epoch: crate::v2::PROTOCOL_EPOCH,
             },
             auth.session.into(),
+            auth.restored,
         )
     }
 
@@ -49,6 +71,7 @@ impl AccountService {
                 protocol_epoch: crate::v2::PROTOCOL_EPOCH,
             },
             auth.session.into(),
+            auth.restored,
         )
     }
 
@@ -76,6 +99,7 @@ impl AccountService {
                 protocol_epoch: crate::v2::PROTOCOL_EPOCH,
             },
             auth.session.into(),
+            auth.restored,
         )
     }
 
@@ -145,7 +169,7 @@ impl AccountService {
                 protocol_epoch: crate::v2::PROTOCOL_EPOCH,
             },
         };
-        self.accept_auth(generation, account, runtime)
+        self.accept_auth(generation, account, runtime, false)
     }
 
     fn accept_auth(
@@ -153,8 +177,9 @@ impl AccountService {
         generation: u64,
         account: V2CloudAccount,
         runtime: RuntimeSession,
+        restored: bool,
     ) -> Result<CloudState, SyncError> {
-        self.install_authenticated_session(generation, account, runtime)?;
+        self.install_authenticated_session(generation, account, runtime, restored)?;
         self.state()
     }
 
@@ -163,6 +188,7 @@ impl AccountService {
         generation: u64,
         account: V2CloudAccount,
         runtime: RuntimeSession,
+        restored: bool,
     ) -> Result<u64, SyncError> {
         let mut current_generation = self.require_auth_generation(generation)?;
         let mut auth = self.auth.write().unwrap_or_else(|p| p.into_inner());
@@ -170,6 +196,7 @@ impl AccountService {
         self.persist_auth_token(&mut auth, &runtime.refresh_token);
         auth.error = None;
         auth.session = Some(runtime);
+        auth.restored = restored;
         *self
             .account_entitlement
             .write()
@@ -225,7 +252,7 @@ impl AccountService {
             .expect("unconditional logout cannot be superseded")
     }
 
-    fn clear_auth_at_generation(
+    pub(super) fn clear_auth_at_generation(
         &self,
         expected_generation: u64,
         cleanup: impl FnOnce() -> Result<(), SyncError>,
@@ -254,6 +281,7 @@ impl AccountService {
             .unwrap_or_else(|p| p.into_inner()) = AccountEntitlementState::default();
         auth.pending_credential = None;
         auth.status = CloudAuthStatus::SignedOut;
+        auth.restored = false;
         auth.revision = auth.revision.saturating_add(1);
         let account_result = self.store.clear_v2_account();
         let cleanup_result = cleanup();
@@ -441,10 +469,12 @@ mod tests {
                         id: token.into(),
                         email: "test@example.test".into(),
                         display_name: "Test".into(),
+                        region: "non_mainland".into(),
                     },
                     protocol_epoch: crate::v2::PROTOCOL_EPOCH,
                 },
                 runtime(token),
+                false,
             )
             .unwrap()
     }

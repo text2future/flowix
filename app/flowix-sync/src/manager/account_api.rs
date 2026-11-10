@@ -92,6 +92,34 @@ impl SyncManager {
         self.account.login(email, password).await
     }
 
+    /// Same as [`Self::login`] with an explicit decision about reviving an
+    /// account that is inside its deletion grace window.
+    pub async fn login_with_restore(
+        &self,
+        email: &str,
+        password: &str,
+        restore_deleted: bool,
+    ) -> Result<CloudState, SyncError> {
+        self.account
+            .login_with_restore(email, password, restore_deleted)
+            .await
+    }
+
+    pub async fn account_deletion(&self) -> Result<crate::AccountDeletionState, SyncError> {
+        self.account.deletion_state().await
+    }
+
+    pub async fn delete_account(
+        &self,
+        confirm_email: &str,
+    ) -> Result<crate::AccountDeletionOutcome, SyncError> {
+        self.account.delete_account(confirm_email).await
+    }
+
+    pub async fn export_account(&self) -> Result<serde_json::Value, SyncError> {
+        self.account.export_account().await
+    }
+
     pub async fn apple_challenge(&self) -> Result<AppleAuthChallenge, SyncError> {
         self.account.apple_challenge().await
     }
@@ -172,8 +200,8 @@ impl SyncManager {
         self.account.refresh_membership().await
     }
 
-    pub async fn products(&self) -> Result<Vec<CloudProduct>, SyncError> {
-        self.account.products().await
+    pub async fn products(&self, region: &str) -> Result<Vec<CloudProduct>, SyncError> {
+        self.account.products(region).await
     }
 
     pub async fn billing_orders(&self) -> Result<Vec<CloudOrder>, SyncError> {

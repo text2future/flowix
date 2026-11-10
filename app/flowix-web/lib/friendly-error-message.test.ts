@@ -39,7 +39,7 @@ describe('friendly error presentation', () => {
 
   it('preserves known membership guidance without exposing request IDs', () => {
     expect(cloudSyncErrorMessage('cloud API error 403 STORAGE_PLAN_REQUIRED: no plan', t))
-      .toBe('云存储方案未开通或已过期，请开通或续费后重试');
+      .toBe('云会员未开通或已过期，请开通或续费后重试');
     expect(cloudModelAccessErrorMessage('cloud API error 403 MEMBERSHIP_REQUIRED: inactive (request id: test-ref)', t))
       .not.toContain('test-ref');
     expect(cloudModelAccessErrorMessage('cloud API error 503 INTERNAL_ERROR: provider failure', t, 'errors.friendly.cloudConnect'))

@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ArrowLeft, ChevronRight, MoreHorizontal, Trash2 } from 'lucide-react';
 import { CaretDownIcon, FolderSimpleIcon, PlusIcon } from '@phosphor-icons/react';
 import { FolderFileTree } from '@features/memo/components/folder-file-tree';
@@ -11,6 +11,7 @@ import { useI18n } from '@/lib/i18n';
 import { openPath } from '@platform/tauri/opener';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@shared/ui/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '@shared/ui/popover';
+import { breadcrumbSignature, useBreadcrumbCollapse } from '@shared/hooks/use-breadcrumb-collapse';
 import { resolveFileBrowserBreadcrumbItems, type FileBrowserBreadcrumbItem } from './file-browser-breadcrumb';
 import { files, type FileBrowserDirectoriesChangedEvent } from '@platform/tauri/client';
 import { subscribe } from '@platform/tauri/event-bus';
@@ -215,48 +216,13 @@ function BrowserBreadcrumbs({
   onFileSelect: (filePath: string) => void;
   onFileOpenInNewTab: (filePath: string) => void;
 }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const itemRefs = useRef<Array<HTMLSpanElement | null>>([]);
-  const [hiddenStart, setHiddenStart] = useState<number | null>(null);
-
-  useLayoutEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    const update = () => {
-      const width = container.clientWidth;
-      const itemWidths = items.map((_, index) => itemRefs.current[index]?.getBoundingClientRect().width ?? 0);
-      const gap = 4;
-      const fullWidth = itemWidths.reduce((sum, itemWidth) => sum + itemWidth, 0) + gap * Math.max(0, items.length - 1);
-      if (fullWidth <= width || items.length <= 2) {
-        setHiddenStart(null);
-        return;
-      }
-
-      // Keep the project root and current file visible. Retain the parent
-      // directory and shallower segments only when they fit.
-      const ellipsisWidth = 44;
-      let keptWidth = itemWidths[0] + itemWidths[items.length - 1] + ellipsisWidth + gap * 2;
-      let start = items.length - 1;
-      if (items.length >= 4 && keptWidth + itemWidths[items.length - 2] + gap <= width) {
-        keptWidth += itemWidths[items.length - 2] + gap;
-        start = items.length - 2;
-      }
-      for (let index = items.length - 3; index > 1; index -= 1) {
-        const nextWidth = keptWidth + itemWidths[index] + gap;
-        if (nextWidth > width) break;
-        keptWidth = nextWidth;
-        start = index;
-      }
-      setHiddenStart(start);
-    };
-
-    update();
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update);
-    observer?.observe(container);
-    itemRefs.current.forEach((item) => { if (item) observer?.observe(item); });
-    return () => observer?.disconnect();
-  }, [items]);
+  const { containerRef, itemRefs, hiddenStart } = useBreadcrumbCollapse({
+    signature: breadcrumbSignature(items),
+    itemCount: items.length,
+    // The collapsed marker is a padded button here, so it reserves more room
+    // than the header's bare icon.
+    ellipsisWidth: 44,
+  });
 
   const visibleItems = hiddenStart === null
     ? items.map((item, index) => ({ item, index }))

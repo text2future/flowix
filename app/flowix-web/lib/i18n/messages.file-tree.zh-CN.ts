@@ -21,6 +21,10 @@ const zhCN = {
   // 打开被规则排除的文件夹时，用这行提示替代「如何显示当前文件夹？」选择界面。
   "memo.fileTree.hiddenFolderTitle": "这是一个隐藏文件夹",
   "memo.fileTree.hiddenFolderNoPreview": "无法透视查看其中的内容",
+  // 文件夹右键「用于...」二级菜单：把文件夹指定为新建笔记的默认落点。
+  "memo.fileTree.folderUsageSubmenu": "用于...",
+  "memo.fileTree.setAsNotesFolder": "设为笔记文件夹",
+  "memo.fileTree.unsetAsNotesFolder": "取消笔记文件夹",
 } as const;
 
 export default zhCN;

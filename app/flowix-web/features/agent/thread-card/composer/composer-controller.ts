@@ -31,7 +31,7 @@ import {
 import {
   queryMentionNotes,
   type MentionNoteItem,
-} from "@features/editor/extensions/note-mention/note-mention-data";
+} from "@features/editor/public/mention-data-api";
 import type {
   ComposerSlashCommand,
   ComposerSlashSkill,

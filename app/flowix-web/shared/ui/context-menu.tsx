@@ -282,9 +282,11 @@ function ContextMenuContent({ children, className, style }: ContextMenuContentPr
 			onFocus={(event) => event.stopPropagation()}
 			// Start at the cursor position; the layout effect above clamps
 			// these values once the element's true size is known.
-			style={{ left: position?.x ?? 0, top: position?.y ?? 0, ...style }}
+			// 入场缩放从光标处 (左上) 长出来; `animate-in …` 是 tw-animate-css
+			// 的死类 (Tailwind v3 不生成), 换成共享关键帧类。
+			style={{ transformOrigin: "top left", left: position?.x ?? 0, top: position?.y ?? 0, ...style }}
 			className={cn(
-				"fixed z-[150] min-w-[160px] bg-[var(--card)] border border-[var(--border-popup)] rounded-lg shadow-lg py-1 animate-in fade-in-0 zoom-in-95",
+				"fixed z-[150] min-w-[160px] bg-[var(--card)] border border-[var(--border-popup)] rounded-lg shadow-lg py-1 flowix-popover-enter",
 				className
 			)}
 		>

@@ -1,14 +1,14 @@
 [data-theme="mist"] {
 	--neutral-hue: 265;
-	/* 深色主题品牌色对齐 rock: 暖陶土色。品牌衍生的链接与标签颜色
-	 * 继续沿用这组色相。 */
-	--brand-hue: 22;
-	--brand-chroma: 0.120;
+	/* 深色主题品牌色 = 偏好面板预览卡的金黄 (#e4bf46 ≈ oklch 0.816 0.142 91.7)。
+	 * 品牌衍生的链接与标签颜色继续沿用这组色相。 */
+	--brand-hue: 91.7;
+	--brand-chroma: 0.142;
 
-	/* 主色与品牌色使用同一暖陶土色；配浅色前景保持按钮文字对比。 */
-	--primary: oklch(0.550 var(--brand-chroma) var(--brand-hue));
-	--primary-foreground: oklch(0.970 0.007 var(--neutral-hue));
-	--brand: oklch(0.550 var(--brand-chroma) var(--brand-hue));
+	/* 主色与品牌色使用同一金黄；亮度高 (L≈0.82)，按钮前景翻成深色保持对比。 */
+	--primary: oklch(0.816 var(--brand-chroma) var(--brand-hue));
+	--primary-foreground: oklch(0.173 0.009 var(--neutral-hue));
+	--brand: oklch(0.816 var(--brand-chroma) var(--brand-hue));
 	--text-hint: #0F8C25;
 
 	--background: oklch(0.173 0.009 var(--neutral-hue));

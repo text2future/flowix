@@ -165,23 +165,6 @@ if (interFonts.some((name) => !name.endsWith('.woff2'))) {
   failures.push(`legacy Inter font formats emitted: ${interFonts.map(basename).join(', ')}`);
 }
 
-const markdownParserWorker = readdirSync(join(DIST, 'assets')).find((name) =>
-  /^markdown-parser\.worker-.+\.js$/.test(name),
-);
-if (!markdownParserWorker) {
-  failures.push('Markdown parser Worker bundle is missing');
-} else {
-  const parserWorkerPath = join(DIST, 'assets', markdownParserWorker);
-  const parserWorkerSource = readFileSync(parserWorkerPath, 'utf8');
-  // Includes the worker-safe DOM parser required to preserve raw HTML tables.
-  if (statSync(parserWorkerPath).size > 750_000) {
-    failures.push(`Markdown parser Worker is ${statSync(parserWorkerPath).size} bytes, budget is 750000`);
-  }
-  if (/\blocalStorage\b/.test(parserWorkerSource)) {
-    failures.push('Markdown parser Worker includes browser storage code; keep feature stores out of its dependency graph');
-  }
-}
-
 if (failures.length) {
   console.error(`\n❌ Web bundle budget failed\n\n${failures.map((item) => `  ${item}`).join('\n')}\n`);
   process.exit(1);

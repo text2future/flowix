@@ -10,7 +10,7 @@ import {
   ComposerFolderController,
   type ComposerFolderReference,
 } from "./composer-folder-controller";
-import type { MentionNoteItem } from "@features/editor/extensions/note-mention/note-mention-data";
+import type { MentionNoteItem } from "@features/editor/public/mention-data-api";
 
 const TestNoteReference = TiptapNode.create({
   name: "noteReference",

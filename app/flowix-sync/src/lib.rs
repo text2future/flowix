@@ -19,11 +19,11 @@ pub use error::SyncError;
 pub use account::{AccountService, PendingLogout};
 pub use manager::SyncManager;
 pub use models::{
-    AppleAuthChallenge, AppleAuthorization, CloudAiCredential, CloudAiCreditBalance, CloudAiModel,
-    CloudAiProvider, CloudAuthStatus, CloudCheckout, CloudEntitlementStatus, CloudMembership,
-    CloudNotebook, CloudOrder, CloudOrderCheck, CloudPrice, CloudProduct, CloudState,
-    CloudSubscription, CloudUser, LocalChangeKind, ProductDuration, ProductEntitlement,
-    RefreshTokenStore,
+    AccountDeletionOutcome, AccountDeletionState, AppleAuthChallenge, AppleAuthorization,
+    CloudAiCredential, CloudAiCreditBalance, CloudAiModel, CloudAiProvider, CloudAuthStatus,
+    CloudCheckout, CloudEntitlementStatus, CloudMembership, CloudNotebook, CloudOrder,
+    CloudOrderCheck, CloudPrice, CloudProduct, CloudState, CloudSubscription, CloudUser,
+    LocalChangeKind, ProductDuration, ProductEntitlement, RefreshTokenStore,
 };
 pub use store::SyncStore;
 pub use v2::{

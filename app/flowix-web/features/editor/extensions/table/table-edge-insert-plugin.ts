@@ -25,7 +25,7 @@ export interface TableEdgeInsertLabels {
   insertRowAfter: string;
 }
 
-/** Neutral fallbacks for callers without an i18n context (tests, worker schemas). */
+/** Neutral fallbacks for callers without an i18n context (tests, schema-only builds). */
 const DEFAULT_LABELS: TableEdgeInsertLabels = {
   insertColumnAfter: 'Insert column after',
   insertRowAfter: 'Insert row after',

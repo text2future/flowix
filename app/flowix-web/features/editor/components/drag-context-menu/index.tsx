@@ -421,6 +421,7 @@ function getMenuStyle(position: MenuViewportPosition | null): CSSProperties {
   return {
     left: position ? `${position.left}px` : '-9999px',
     top: position ? `${position.top}px` : '-9999px',
-    minWidth: 180,
+    // 宽度对齐 bubble 块样式下拉 (PopoverContent 基础类 w-[200px])。
+    minWidth: 200,
   }
 }

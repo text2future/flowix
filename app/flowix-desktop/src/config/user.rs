@@ -1838,6 +1838,9 @@ mod tests {
         std::fs::write(config_dir.join("dsh-settings.yaml"), "legacy: true\n").unwrap();
 
         let store = UserConfigStore::new(home.path().to_path_buf());
+        // The layout migration runs as its own startup step (storage
+        // initialization), not implicitly inside dsh_dir().
+        store.initialize_legacy_dsh_layout().expect("migrate legacy DSH layout");
         let dsh_dir = store.dsh_dir();
 
         assert_eq!(

@@ -5,9 +5,9 @@ use std::sync::{Arc, RwLock};
 use crate::client::CloudClient;
 use crate::error::SyncError;
 use crate::models::{
-    AppleAuthChallenge, AppleAuthorization, CloudAuthStatus, CloudCheckout, CloudEntitlementStatus,
-    CloudMembership, CloudOrder, CloudOrderCheck, CloudProduct, CloudState, RefreshTokenStore,
-    RuntimeSession,
+    AccountDeletionOutcome, AccountDeletionState, AppleAuthChallenge, AppleAuthorization,
+    CloudAuthStatus, CloudCheckout, CloudEntitlementStatus, CloudMembership, CloudOrder,
+    CloudOrderCheck, CloudProduct, CloudState, RefreshTokenStore, RuntimeSession,
 };
 use crate::store::SyncStore;
 use crate::v2::V2CloudAccount;
@@ -41,6 +41,9 @@ struct AuthState {
     credential_error: Option<String>,
     pending_credential: Option<CredentialWrite>,
     revision: u64,
+    /// This session revived a deleted account. Cleared on logout so it cannot
+    /// outlive the session that produced it.
+    restored: bool,
 }
 
 #[derive(Default)]
@@ -59,6 +62,7 @@ impl Default for AuthState {
             credential_error: None,
             pending_credential: None,
             revision: 0,
+            restored: false,
         }
     }
 }
@@ -145,6 +149,7 @@ mod access;
 mod ai;
 mod auth;
 mod billing;
+mod deletion;
 mod entitlements;
 pub use access::{CloudSyncAccess, CloudSyncRestriction};
 mod lifecycle;

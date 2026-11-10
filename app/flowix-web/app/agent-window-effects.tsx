@@ -10,8 +10,8 @@ const logger = createLogger('agent-catalog');
 // `tag-mention` barrels also re-export their TipTap Node views, which dragged
 // ProseMirror into the desktop startup graph for two cache helpers.
 import { invalidateNotebookCache, prewarmNotebookCache } from '@features/editor/extensions/note-link/memo-resolver';
-import { invalidateMentionNotes } from '@features/editor/extensions/note-mention/note-mention-data';
-import { invalidateMentionTags } from '@features/editor/extensions/tag-mention/tag-mention-data';
+import { invalidateMentionNotes } from '@features/editor/public/mention-data-api';
+import { invalidateMentionTags } from '@features/editor/public/mention-data-api';
 import { cloud, listenToAgentWorkspaceChanges, listenToCloudStateChanges, type CloudState } from '@platform/tauri/client';
 import { acquireMemoEventBridge } from '@/lib/memo-dispatcher';
 import { runStartupStage3Task, waitForStartupStage3 } from '@/lib/startup-stage3';
@@ -39,7 +39,7 @@ export function AgentWindowEffects() {
       if (!request || (request.view !== 'skills' && request.view !== 'templates')) return;
       void import('@features/surface/public/open-skill-market-ui')
         .then((module) => module.openSkillMarketUi(request.view, request.index))
-        .catch((error: unknown) => logger.warn('failed to open Skill Market UI', error));
+        .catch((error) => logger.warn('failed to open Skill Market UI', error));
     };
     window.addEventListener(SKILL_MARKET_UI_REQUEST_EVENT, openSkillMarketUi);
     return () => window.removeEventListener(SKILL_MARKET_UI_REQUEST_EVENT, openSkillMarketUi);

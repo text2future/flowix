@@ -1,21 +1,25 @@
-//! 敏感凭据存储适配层 ── 把 API key / token 这类敏感信息存到本地 SQLite
-//! 数据库 (`default.db`) 的 key-value 表里。
+//! 敏感凭据存储适配层 ── 把 API key / token 这类敏感信息存到本地。
 //!
-//! ## 存储
+//! ## 存储（按平台选择后端）
 //!
-//! - 数据库文件: `<config_dir>/db/default.db` (生产环境 `~/.flowix/db/default.db`),
-//!   Unix 下 db 文件权限为 `0o600`。
-//! - 表 `secret_kv (key TEXT PRIMARY KEY, value TEXT NOT NULL)`, 通用
-//!   key-value 形态, 未来可承载其它敏感 / 关键配置, 不止 API key。
+//! - **macOS**: Keychain（条目带 ACL，只有本应用可无提示读取）。首次启动把
+//!   旧 SQLite 条目一次性搬进去，搬完即从 db 删除（`secure_delete = ON`）。
+//! - **其它平台 / Keychain 不可用**: `<config_dir>/db/default.db` 的
+//!   `secret_kv` 表，Unix 下 0o600。Keychain 打不开（企业策略、访问被拒）
+//!   不能让登录挂掉，所以迁移失败时整体退回 db 后端，行为与旧版一致。
+//!   另有 `FLOWIX_SECRET_FORCE_DB=1` 环境变量可强制 db 后端（CI / 排障用）。
+//!
+//! ## 为什么不是全平台 Keychain
+//!
+//! `flowix-cli` 已不读凭据（跨进程共享的理由已消失），但 headless Linux /
+//! CI 没有 Secret Service，Windows CredMan 未经本仓验证。macOS 是唯一被
+//! 评审确认过威胁模型（0600 挡不住同用户进程）且能验证的平台。
 //!
 //! ## 设计目标
 //!
-//! - **跨进程共享**: desktop 进程与 `flowix-cli` sidecar 都指向同一份
-//!   `default.db` 文件, 命中同一份 entry, 不需要在 IPC 里走 key。
 //! - **可 mock**: 测试通过 [`SecretBackend`] trait 注入 `MockBackend`,
-//!   不依赖真实磁盘 db。
-//! - **无 OS 后端依赖**: 不再依赖 macOS Keychain / Windows CredMan /
-//!   Linux Secret Service, headless Linux / CI 环境也能跑, 行为一致。
+//!   不依赖真实磁盘 db / 真实 Keychain。
+//! - **迁移幂等**: 先写 Keychain、后删 db 行；中途崩溃则下次启动重搬。
 //!
 //! ## 命名
 //!
@@ -52,8 +56,10 @@ pub enum SecretStoreError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum KeyBackend {
-    /// 本地 SQLite 数据库 (`default.db`)。统一后端, 全平台一致。
+    /// 本地 SQLite 数据库 (`default.db`)。非 macOS 平台与迁移失败兜底。
     Database,
+    /// macOS Keychain。默认后端。
+    Keychain,
     /// 后端不可用 (db 打不开)。store 仍能构造, 但 `save` / `load` 会返
     /// BackendUnavailable。
     Unavailable,
@@ -63,6 +69,7 @@ impl KeyBackend {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Database => "Database",
+            Self::Keychain => "Keychain",
             Self::Unavailable => "Unavailable",
         }
     }
@@ -74,6 +81,8 @@ impl KeyBackend {
 pub enum KeySource {
     /// 来自 `default.db` 的 secret_kv 表
     Database,
+    /// 来自 macOS Keychain
+    Keychain,
     /// 来自 `~/.flowix/agent-config.toml` 老 plaintext (迁移中状态)
     Plaintext,
     /// 没找到
@@ -216,6 +225,46 @@ impl SecretBackend for DbBackend {
     }
 }
 
+/// 把 `secret_kv` 里还在的条目搬到 `backend`，成功搬一条删一条（db 开了
+/// `secure_delete`，删除即粉碎）。
+///
+/// 幂等：`backend.save` 是覆盖写，中途崩溃后下次启动会把残留行再搬一遍。
+/// 任何一条写失败即整体停——已搬走的留在新后端，没搬的留在 db，调用方
+/// （[`SecretStore::new`]）收到 Err 后退回 db 后端，两边的条目仍然可读。
+#[cfg(target_os = "macos")]
+mod keychain;
+
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn migrate_db_secrets(
+    db_path: impl AsRef<Path>,
+    backend: &dyn SecretBackend,
+) -> Result<usize, SecretStoreError> {
+    let db_path = db_path.as_ref();
+    if !db_path.exists() {
+        return Ok(0);
+    }
+    let conn = DbBackend::new(db_path).open()?;
+    let mut stmt = conn
+        .prepare("SELECT key, value FROM secret_kv ORDER BY key")
+        .map_err(|e| SecretStoreError::Platform(format!("migration select: {e}")))?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|e| SecretStoreError::Platform(format!("migration query: {e}")))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| SecretStoreError::Platform(format!("migration row: {e}")))?;
+    drop(stmt);
+    let mut moved = 0;
+    for (account, secret) in rows {
+        backend.save(&account, &secret)?;
+        moved += conn
+            .execute("DELETE FROM secret_kv WHERE key = ?1", params![account])
+            .map_err(|e| SecretStoreError::Platform(format!("migration delete: {e}")))?;
+    }
+    Ok(moved)
+}
+
 /// SecretStore ── 凭据存储抽象的总入口, 持有后端实例。
 ///
 /// 用法:
@@ -229,9 +278,38 @@ pub struct SecretStore {
 }
 
 impl SecretStore {
-    /// 构造真实 SQLite 后端的 SecretStore ── db 路径由调用方 (UserConfigStore)
-    /// 按 config_dir 派生 (`~/.flowix/db/default.db`), desktop / CLI 共用。
+    /// 构造凭据后端 ── db 路径由调用方 (UserConfigStore) 按 config_dir 派生
+    /// (`~/.flowix/db/default.db`)。
+    ///
+    /// macOS 上默认 Keychain，并在构造时做一次旧 db → Keychain 的幂等迁移；
+    /// 迁移失败（钥匙串不可用/被拒）则整体退回 db 后端，行为与旧版一致。
+    /// 迁移在构造里做而不是独立命令：secret 读写本就低频，多一次启动期
+    /// 枚举全表（几十行以内）的成本可忽略，换来"没有第二处需要记得迁移"。
     pub fn new(db_path: impl AsRef<Path>) -> Self {
+        if std::env::var("FLOWIX_SECRET_FORCE_DB").as_deref() == Ok("1") {
+            return Self {
+                backend: Box::new(DbBackend::new(db_path)),
+            };
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let keychain = keychain::KeychainBackend::new();
+            match migrate_db_secrets(&db_path, &keychain) {
+                Ok(moved) => {
+                    if moved > 0 {
+                        tracing::info!("migrated {moved} secret entries from sqlite to keychain");
+                    }
+                    return Self {
+                        backend: Box::new(keychain),
+                    };
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        "keychain migration failed, falling back to sqlite secret store: {error}"
+                    );
+                }
+            }
+        }
         Self {
             backend: Box::new(DbBackend::new(db_path)),
         }

@@ -4,6 +4,14 @@
 > 评审方式：实测。`tsc` / `eslint` / 4 个门禁脚本 / 全量单测 / 构建产物 / 自写依赖图扫描（跨模块边、双向依赖、Tarjan 强连通分量）
 > 评审日期：2026-10-27　｜　上一版：`FRONTEND-ARCH-REVIEW-2026-10-25.md`
 
+> **状态更新（2026-11-10）**：文中提到的 Worker 解析器已删除 ——
+> `features/editor/markdown-parser.worker.ts`、`markdown-worker-dom.ts`、
+> `markdown-parser-extensions.ts`、`markdown-parser.ts` 不再存在，Markdown 解析改在
+> `new Editor({ contentType: 'markdown' })` 内同步进行；懒加载块清单里也没有
+> `markdown-parser.worker` 了。当前的 Markdown 管线为三套（`marked` 用于 Agent 消息、
+> `@tiptap/markdown` 用于编辑器、`agent-thread-card-markdown-spec` 用于 Agent 专用
+> tokenizer）。
+
 ---
 
 ## 0. 评分结论

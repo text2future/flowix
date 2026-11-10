@@ -151,8 +151,9 @@ describe('workspace navigation', () => {
     const { notes } = await import('@platform/tauri/client');
     const { openExternalTarget } = await import('./workspace-navigation');
     const opening = openExternalTarget('/new.md', { destination: 'column-1' });
+    // Markdown opens without the blocking work-column loader.
     expect(mocks.beginNavigation).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: 'external', path: '/new.md' }), expect.any(String), false, true,
+      expect.objectContaining({ kind: 'external', path: '/new.md' }), expect.any(String), false, false,
     );
     expect(notes.resolveLocation).not.toHaveBeenCalled();
     mocks.isCurrentNavigation.mockReturnValueOnce(false);

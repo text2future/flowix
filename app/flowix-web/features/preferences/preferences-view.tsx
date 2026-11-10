@@ -157,7 +157,8 @@ export function PreferencesView({ initialTab }: PreferencesViewProps) {
 											)}
 												onClick={() => setActiveTab(tab.id)}
 										>
-											{tab.icon}
+											{/* 侧边栏用实心图标 (sidebarIcon: weight="fill" + 前景色 60%), 缺省回退 icon。 */}
+											{tab.sidebarIcon ?? tab.icon}
 											<span className="text-sm font-normal">{t(tab.labelKey)}</span>
 										</Button>
 									))}

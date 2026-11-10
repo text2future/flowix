@@ -52,5 +52,7 @@ export {
 } from '@features/surface/workspace-surface-runtime';
 /** 资源文件夹图标（seti 主题）：供跨 feature 的文件夹选择器等 surface 复用。 */
 export { ResourceFolderIcon } from '@features/surface/resource-file-icon';
+/** 文档标题栏面包屑：统一根目录解析（scope → 笔记本归属 → 文件树根），文件段按文件树口径隐藏后缀。 */
+export { resolveDocumentBreadcrumb } from '@features/surface/file-browser-breadcrumb';
 
 export { collectionIndexPath, browserCollectionIndexPath } from '../collection-frame';

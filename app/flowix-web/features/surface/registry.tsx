@@ -16,7 +16,9 @@ import type { WorkspaceSurfaceKind } from '@features/workspace/public/surface-ap
 import type { SurfaceAppearance } from '@features/workspace/public/surface-api';
 import {
   getWorkspaceSurfaceRendererDefinition,
+  workspaceSurfaceInitialLoadingState,
   workspaceSurfaceRetainsInitialContent,
+  workspaceSurfaceSilentLoading,
   WorkspaceSurfaceRendererView,
 } from './workspace-surface-renderer-registry';
 import { WorkspaceSurfaceStateView } from './workspace-surface-state-view';
@@ -121,9 +123,9 @@ function WorkColumnSurfaceMount({ surface, focused, webAddressBarVisible }: { su
   const finishTransitionOnMount = transition?.finishOnMount ?? false;
   const presentationScope = `${surface.kind}:${surface.instanceKey}:${'fileIdentity' in surface ? surface.fileIdentity?.path ?? '' : ''}`;
   const presentationOwner = useMemo(() => ({}), [presentationScope]);
-  const retainInitialContent = workspaceSurfaceRetainsInitialContent(
-    workspaceSurfaceRendererDataFromWorkSurface(surface),
-  );
+  const surfaceData = workspaceSurfaceRendererDataFromWorkSurface(surface);
+  const silentLoading = workspaceSurfaceSilentLoading(surfaceData);
+  const retainInitialContent = workspaceSurfaceRetainsInitialContent(surfaceData);
   const reportPresentation = useCallback((update: SurfacePresentationUpdate) => {
     if (reportWorkspaceSurfacePresentation(surface.instanceKey, update, presentationOwner)) {
       updatePrimarySurfaceMetadata(entryId, update);
@@ -154,9 +156,9 @@ function WorkColumnSurfaceMount({ surface, focused, webAddressBarVisible }: { su
   }, [finishTransitionOnMount, transitionId]);
 
   useLayoutEffect(() => registerWorkspaceSurfacePresentationOwner(surface.instanceKey, presentationOwner, {
-    state: { status: 'loading', loadingMode: 'blocking', retainContent: retainInitialContent },
+    state: workspaceSurfaceInitialLoadingState(silentLoading, retainInitialContent),
   }),
-    [presentationOwner, retainInitialContent, surface.instanceKey]);
+    [presentationOwner, retainInitialContent, silentLoading, surface.instanceKey]);
 
   return getWorkColumnSurfaceDefinition(surface, reportPresentation, registerLifecycle, focused, onRendererError, webAddressBarVisible).render();
 }
@@ -166,9 +168,17 @@ export function WorkColumnSurfaceHost({ surface, focused = false, webAddressBarV
   return <WorkColumnSurfaceMount key={instanceKey} surface={surface} focused={focused} webAddressBarVisible={webAddressBarVisible} />;
 }
 
-export function WorkColumnContentHost({ content, focused = false, startupIdentity = '', webAddressBarVisible = false }: { content: WorkColumnContentPresentation; focused?: boolean; startupIdentity?: string; webAddressBarVisible?: boolean }) {
+export function WorkColumnContentHost({ content, focused = false, startupIdentity = '', webAddressBarVisible = false, renderNoTargetEmpty }: {
+  content: WorkColumnContentPresentation;
+  focused?: boolean;
+  startupIdentity?: string;
+  webAddressBarVisible?: boolean;
+  /** Column creation controls belong to the shell, so the shell supplies this view. */
+  renderNoTargetEmpty?: () => ReactNode;
+}) {
   if (content.status === 'empty') {
     reportEmptyWorkspaceSurfaceForIdentity('column-1', startupIdentity);
+    if (content.reason === 'no-target' && renderNoTargetEmpty) return <>{renderNoTargetEmpty()}</>;
     const baseAppearance = content.tone === 'agent' ? workspaceSurfaceAppearance('agent-conversation')
       : workspaceSurfaceAppearance('file-markdown');
     const appearance = content.actions?.length ? { ...baseAppearance, emptyDecoration: 'none' as const } : baseAppearance;

@@ -31,7 +31,6 @@ import {
 import { useSettingsStore } from '@/lib/store/settings-store';
 import { useWorkspaceStartupStore, isWorkspaceInteractive } from '@/lib/store/workspace-startup-store';
 import { useShallow } from 'zustand/react/shallow';
-import { isWindowsPlatform } from '@/lib/path';
 import { WindowsTitlebarControls } from '@shared/window-titlebar-controls';
 import { SurfaceBoundary } from '@shared/surface-boundary';
 import { NotebookDeleteDialog } from '@features/shell/components/notebook-delete-dialog';
@@ -154,15 +153,11 @@ export function MainLayout({
 
   const {
     memoListVisible,
-    toolbarCollapsed,
     setMemoListVisible,
-    setToolbarCollapsed,
   } = useSettingsStore(
     useShallow((s) => ({
       memoListVisible: s.memoListVisible,
-      toolbarCollapsed: s.toolbarCollapsed,
       setMemoListVisible: s.setMemoListVisible,
-      setToolbarCollapsed: s.setToolbarCollapsed,
     })),
   );
   const {
@@ -232,6 +227,7 @@ export function MainLayout({
     isMemoListHidden,
     memoColWidth,
   } = useMainPanelController({
+    browserColumnVisible,
     browserColumnSplitRatio,
     documentPanelMinWidth: DOCUMENT_PANEL_MIN_WIDTH,
     memoListVisible,
@@ -381,8 +377,6 @@ export function MainLayout({
             externalScopePath: activeExternalSession.scopePath,
             searchPanelOpen: isSearchPanelOpen,
             onSearchPanelOpenChange: setIsSearchPanelOpen,
-            toolbarCollapsed,
-            onToolbarCollapsedChange: setToolbarCollapsed,
             onMetainfoData: (data: { memoContent: string }) => {
               currentDocumentContentRef.current = data.memoContent;
             },
@@ -433,6 +427,7 @@ export function MainLayout({
     } : undefined,
     activeExternalSession,
     selectedNotebook,
+    notebooks,
   });
 
   return (
@@ -449,7 +444,8 @@ export function MainLayout({
       {interactive && <ExternalFileDropOverlay />}
       <div className="flex flex-1 overflow-hidden">
         <div className="flex flex-col flex-1 overflow-hidden">
-          <div className={`relative flex flex-1 h-full overflow-hidden ${isWindowsPlatform() ? 'rounded-b-[12px]' : 'rounded-b-[18px]'} border-b border-[var(--divider)]`}>
+          {/* 状态栏上方的内容容器：方角贴住底栏，只用 1px 下边框（与 divide 同色）分隔。 */}
+          <div className="relative flex flex-1 h-full overflow-hidden border-b border-[var(--divider)]">
           <MainListColumnSection
             selectedNotebook={selectedNotebook}
             isMemoListHidden={isMemoListHidden}
@@ -477,8 +473,6 @@ export function MainLayout({
             browserColumnLayout={browserColumnLayout}
             browserColumnLayoutKey={browserColumnLayoutKey}
             handleBrowserColumnResize={handleBrowserColumnResize}
-            toolbarCollapsed={toolbarCollapsed}
-            setToolbarCollapsed={setToolbarCollapsed}
             focusedColumnId={focusedColumnId}
             isMemoListHidden={isMemoListHidden}
             isMemoListAnimating={isMemoListAnimating}

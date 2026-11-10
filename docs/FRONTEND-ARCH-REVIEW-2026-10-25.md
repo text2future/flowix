@@ -4,6 +4,13 @@
 > 评审方式：全量静态扫描（文件规模、依赖图、循环依赖、门禁脚本执行、构建产物分析）+ 关键路径代码阅读
 > 评审日期：2026-10-25
 
+> **状态更新（2026-11-10）**：B4 所述的四套 Markdown 管线现为三套 —— Worker parser
+> （`markdown-parser.worker` / `markdown-parser-extensions.ts` / `markdown-parser.ts`）
+> 已整体删除，解析改在编辑器的 `new Editor({ contentType: 'markdown' })` 内同步完成。
+> 该条建议的"把共享 tokenizer/spec 收敛成唯一真源"仍然成立，真源现在是
+> `createMarkdownEditorExtensions` 与 `features/editor/markdown-tokenizer-source.ts`
+> 里的有界扫描工具。
+
 ---
 
 ## 1. 规模基线（先看数字）

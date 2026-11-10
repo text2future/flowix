@@ -1,5 +1,5 @@
 import { Extension, type Editor } from '@tiptap/core';
-import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state';
+import { Plugin, PluginKey, TextSelection, type Transaction } from '@tiptap/pm/state';
 import type { EditorView } from '@tiptap/pm/view';
 import { createRoot, type Root } from 'react-dom/client';
 import { useNoteStore } from '@features/memo/store/note-store';
@@ -31,7 +31,8 @@ import { openMediaLibraryReferencePicker } from '@features/media-library/media-l
 import type { TableViewType } from '@features/multidimensional-table/model';
 import { insertTableTemplate } from './table/table-templates';
 
-export const slashMenuPluginKey = new PluginKey('slashMenu');
+/** 插件状态 = 上一次事务刚插入 `/` 之后的位置；null 表示没有。 */
+export const slashMenuPluginKey = new PluginKey<number | null>('slashMenu');
 
 interface SlashMenuState {
   triggerFrom: number;
@@ -55,6 +56,8 @@ let activeEditor: Editor | null = null;
 let activeView: EditorView | null = null;
 let menuInstance: MenuInstance | null = null;
 let menuOpenId = 0;
+/** 菜单打开期间正在合成 (IME) 的 view；合成中的事务不能用来判定 query。 */
+let composingOwner: { view: EditorView; openId: number } | null = null;
 let unsubscribeRuntimeStatus: (() => void) | null = null;
 let unsubscribeUserSettings: (() => void) | null = null;
 let positionFrame: number | null = null;
@@ -159,6 +162,7 @@ function closeMenu(ownerView?: EditorView) {
   activeEditor = null;
   activeView = null;
   menuInstance = null;
+  composingOwner = null;
 
   if (root && container) {
     disposeMenuRoot(root, container);
@@ -173,6 +177,18 @@ function isCurrentMenuView(view: EditorView, openId = menuOpenId): boolean {
     activeView === view &&
     !view.isDestroyed &&
     Boolean(menuRoot && menuContainer && menuState && menuInstance)
+  );
+}
+
+/**
+ * 输入法 (IME) 合成期间 editor 仍会提交事务，但那时 state 里的文本是
+ * 半成品 (拼音串、临时占位)，用它判定 query 会把刚打开的菜单立即关掉。
+ * 与 mention 菜单 (shared/suggestion-menu.tsx) 同一套判定。
+ */
+function isComposing(view: EditorView): boolean {
+  return (
+    (composingOwner?.view === view && composingOwner.openId === menuOpenId)
+    || view.composing
   );
 }
 
@@ -224,6 +240,50 @@ function getSlashTriggerDeleteFrom(view: EditorView, pos: number): number | null
 
   const previousChar = view.state.doc.textBetween(pos - 1, pos, '\n', '\n');
   return /\s/.test(previousChar) ? pos - 1 : null;
+}
+
+/**
+ * 记录「本次事务在光标前刚插入了一个 `/`」，null 表示没有。
+ *
+ * 为什么需要它: 浏览器并不保证「键入的字符」都经过 handleTextInput。
+ * WebKit 的 DOMObserver 回读路径和 IME 合成提交 (insertCompositionText /
+ * insertFromComposition) 都会直接改文档，PM 不会再调 handleTextInput，
+ * 于是首次输入 `/` 时菜单完全没有反应。这里把「刚插入了 /」记成插件状态，
+ * 由 update() 补开菜单，两条路径共用同一套触发位置校验。
+ */
+function detectInsertedSlash(tr: Transaction): number | null {
+  if (!tr.docChanged) return null;
+  // 粘贴 / 拖放带 uiEvent 元数据，不属于键入；undo / redo 与规范化事务
+  // 标了 addToHistory:false，也不该重新唤起菜单。
+  if (tr.getMeta('uiEvent')) return null;
+  if (tr.getMeta('addToHistory') === false) return null;
+
+  let insertedAt: number | null = null;
+  tr.mapping.maps.forEach((map) => {
+    map.forEach((oldStart, oldEnd, newStart, newEnd) => {
+      if (insertedAt !== null) return;
+      if (oldStart !== oldEnd || newEnd !== newStart + 1) return;
+      if (tr.doc.textBetween(newStart, newEnd) !== '/') return;
+      insertedAt = newEnd;
+    });
+  });
+  return insertedAt;
+}
+
+/** 原生输入路径 (未经过 handleTextInput) 插入 `/` 后补开菜单。 */
+function openMenuAfterNativeSlashInput(view: EditorView, editor: Editor): void {
+  const insertedAt = slashMenuPluginKey.getState(view.state);
+  if (insertedAt == null) return;
+
+  const { selection } = view.state;
+  if (!editor.isEditable || !selection.empty || selection.from !== insertedAt) return;
+  if (!selection.$from.parent.isTextblock) return;
+
+  const triggerFrom = insertedAt - 1;
+  const deleteFrom = getSlashTriggerDeleteFrom(view, triggerFrom);
+  if (deleteFrom === null) return;
+
+  openMenu(view, editor, triggerFrom, deleteFrom);
 }
 
 function isBlockStartTrigger(editor: Editor): boolean {
@@ -695,6 +755,8 @@ function refreshMenuFromEditor(view: EditorView, force = false) {
   const state = menuState;
   const instance = menuInstance;
   if (!state || !instance) return;
+  // 合成中的文档是半成品，等 compositionend 再刷新/判定。
+  if (isComposing(view)) return;
 
   const query = getQuery(view, state.triggerFrom);
   if (query === null) {
@@ -741,8 +803,14 @@ export const SlashMenu = Extension.create({
     const editor = this.editor;
 
     return [
-      new Plugin({
+      new Plugin<number | null>({
         key: slashMenuPluginKey,
+
+        /** 上一次事务是否刚插入 `/`（位置 = `/` 之后），供 update 兜底开菜单。 */
+        state: {
+          init: () => null,
+          apply: (tr) => detectInsertedSlash(tr),
+        },
 
         view(view) {
           const handleBlur = (event: FocusEvent) => {
@@ -750,15 +818,34 @@ export const SlashMenu = Extension.create({
             if (nextTarget instanceof Node && menuContainer?.contains(nextTarget)) return;
             closeMenu(view);
           };
+          const handleCompositionStart = () => {
+            if (activeView === view && menuState) composingOwner = { view, openId: menuOpenId };
+          };
+          const handleCompositionEnd = () => {
+            const composition = composingOwner;
+            if (composition?.view !== view) return;
+            composingOwner = null;
+            // 合成提交后文档才稳定，等这一轮事务落地再刷新 (否则读到半成品)。
+            window.setTimeout(() => {
+              if (isCurrentMenuView(view, composition.openId)) refreshMenuFromEditor(view);
+            }, 0);
+          };
+          view.dom.addEventListener('compositionstart', handleCompositionStart);
+          view.dom.addEventListener('compositionend', handleCompositionEnd);
           view.dom.addEventListener('blur', handleBlur);
 
           return {
             update(updatedView) {
-              if (updatedView !== view || !menuState) return;
-              refreshMenuFromEditor(updatedView);
+              if (updatedView.isDestroyed || updatedView !== view) return;
+              if (menuState) refreshMenuFromEditor(updatedView);
+              else openMenuAfterNativeSlashInput(updatedView, editor);
             },
             destroy() {
-              if (!view.isDestroyed) view.dom.removeEventListener('blur', handleBlur);
+              if (!view.isDestroyed) {
+                view.dom.removeEventListener('compositionstart', handleCompositionStart);
+                view.dom.removeEventListener('compositionend', handleCompositionEnd);
+                view.dom.removeEventListener('blur', handleBlur);
+              }
               closeMenu(view);
             },
           };

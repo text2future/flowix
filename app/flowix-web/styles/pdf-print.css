@@ -71,10 +71,15 @@
   html.flowix-pdf-printing .flowix-pdf-print-scope .agent-thread-card,
   html.flowix-pdf-printing .flowix-pdf-print-scope .heading-outline-navigation-anchor,
   html.flowix-pdf-printing .flowix-pdf-print-scope .selection-bubble-menu,
-  html.flowix-pdf-printing .flowix-pdf-print-scope .table-bubble-menu-anchor,
   html.flowix-pdf-printing .flowix-pdf-print-scope .drag-context-menu-handle,
   html.flowix-pdf-printing .flowix-pdf-print-scope .cm-source-mode-toggle,
   html.flowix-pdf-printing .flowix-pdf-print-scope .cm-source-header-gutter-background {
+    display: none !important;
+  }
+
+  /* 漂浮层 (选区气泡 / 表格菜单) 挂在 body 上, 不在打印作用域内,
+   * 作用域规则管不到, 单独挡一层。 */
+  html.flowix-pdf-printing .selection-bubble-menu {
     display: none !important;
   }
 
@@ -230,8 +235,12 @@
   }
 
   html.flowix-pdf-printing .flowix-pdf-print-scope .markdown-editor .ProseMirror a {
-    color: var(--document-link);
-    text-decoration: none;
+    /* 与编辑器内正文链接保持一致 (前景色 60% + 细下划线), 导出结果不跳色。 */
+    color: color-mix(in oklch, var(--foreground) 60%, transparent);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-decoration-color: color-mix(in oklch, currentColor 80%, transparent);
+    text-underline-offset: 0.18em;
   }
 
   /* Inline code follows the editor styling on this alignment pass. */

@@ -6,6 +6,7 @@ import {
   useConversationRunIndex,
 } from '@features/agent/store/conversation-run-index';
 import type { AgentConversationInstance } from '@features/agent/store/agent-conversation-types';
+import { prepareConversationForOpen } from '@features/agent/use-cases/prepare-conversation-open';
 
 export { AgentIcon } from '@features/agent/components/agent-icon';
 export { getConversationRunSummary };
@@ -22,13 +23,5 @@ export function useRunningAgentConversations() {
 }
 
 export function prepareAgentConversationSelection(instance: AgentConversationInstance): void {
-  if (!instance.threadId) return;
-  useAgentSessionStore.getState().setSessionMeta((meta) => ({
-    ...meta,
-    activeThreadIds: {
-      ...meta.activeThreadIds,
-      [instance.agentType]: instance.threadId!,
-    },
-    activeAgentTypeKey: instance.agentType,
-  }));
+  prepareConversationForOpen(instance);
 }

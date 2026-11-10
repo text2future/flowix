@@ -178,7 +178,7 @@ export class CodeEditorSearchPanel implements Panel {
     replaceField.append(this.replaceInput);
     this.replaceButton = makeButton('', 'replace', () => replaceNext(this.view));
     this.replaceAllButton = makeButton('', 'replaceAll', () => replaceAll(this.view));
-    this.replaceRow.append(this.replaceField, this.replaceButton, this.replaceAllButton);
+    this.replaceRow.append(replaceField, this.replaceButton, this.replaceAllButton);
 
     this.settingsRow.className = 'cm-code-search-expanded-row cm-code-search-settings-row';
     this.settingsRow.setAttribute('role', 'group');

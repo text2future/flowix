@@ -58,3 +58,28 @@ export function resolveBrowserColumnLayout({
     browserColumnWidth,
   };
 }
+
+export interface SidebarCollapseOnBrowserExpandInput {
+  browserColumnVisible: boolean;
+  /** Visibility of the browser column before the transition being handled. */
+  previousBrowserColumnVisible: boolean;
+  memoListVisible: boolean;
+  canSplit: boolean;
+}
+
+/**
+ * 展开右栏（column-2，visible false→true 的过渡瞬间）时，若侧边栏展开
+ * 状态下双列放不下两个最小列（canSplit=false），应同时收起侧边栏让出宽度。
+ * 只在过渡瞬间为真：右栏保持展开时手动重新展开侧边栏不受影响。
+ */
+export function shouldCollapseSidebarOnBrowserExpand({
+  browserColumnVisible,
+  previousBrowserColumnVisible,
+  memoListVisible,
+  canSplit,
+}: SidebarCollapseOnBrowserExpandInput): boolean {
+  return browserColumnVisible
+    && !previousBrowserColumnVisible
+    && memoListVisible
+    && !canSplit;
+}

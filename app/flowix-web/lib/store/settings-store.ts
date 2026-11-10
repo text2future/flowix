@@ -16,7 +16,6 @@ export interface SettingsStore {
   reasoningCollapsed: boolean;
   appview: AppViewState;
   memoListVisible: boolean;
-  toolbarCollapsed: boolean;
   propertiesVisible: boolean;
   setReasoningCollapsed: (collapsed: boolean) => void;
   toggleReasoningCollapsed: () => void;
@@ -24,7 +23,6 @@ export interface SettingsStore {
   setAppViewModeAllSize: (size: { w: number; h: number }) => void;
   setMemoListVisible: (visible: boolean) => void;
   toggleMemoListVisible: () => void;
-  setToolbarCollapsed: (collapsed: boolean) => void;
   setPropertiesVisible: (visible: boolean) => void;
   togglePropertiesVisible: () => void;
 }
@@ -37,8 +35,7 @@ export const useSettingsStore = create<SettingsStore>()(
         mode: 'all',
       },
       memoListVisible: true,
-      toolbarCollapsed: false,
-      propertiesVisible: true,
+      propertiesVisible: false,
       setReasoningCollapsed: (collapsed) => set({ reasoningCollapsed: collapsed }),
       toggleReasoningCollapsed: () =>
         set((state) => ({ reasoningCollapsed: !state.reasoningCollapsed })),
@@ -50,7 +47,6 @@ export const useSettingsStore = create<SettingsStore>()(
       })),
       setMemoListVisible: (visible) => set({ memoListVisible: visible }),
       toggleMemoListVisible: () => set((state) => ({ memoListVisible: !state.memoListVisible })),
-      setToolbarCollapsed: (collapsed) => set({ toolbarCollapsed: collapsed }),
       setPropertiesVisible: (visible) => set({ propertiesVisible: visible }),
       togglePropertiesVisible: () => set((state) => ({ propertiesVisible: !state.propertiesVisible })),
     }),
@@ -60,7 +56,6 @@ export const useSettingsStore = create<SettingsStore>()(
         reasoningCollapsed: state.reasoningCollapsed,
         appview: state.appview,
         memoListVisible: state.memoListVisible,
-        toolbarCollapsed: state.toolbarCollapsed,
         propertiesVisible: state.propertiesVisible,
       }),
     }

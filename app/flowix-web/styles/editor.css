@@ -13,6 +13,12 @@
   /* Cell/row selection fill: info state color at 10% opacity, matching the
    * solid info fill of selected row/column controls, instead of a hardcoded blue. */
   --editor-table-selection-bg: color-mix(in srgb, var(--info) 10%, transparent);
+  /* Divider selection: same info-derived tint as .is-block-selected and the
+   * text selection. A 1px rule box cannot paint a band by itself, so the
+   * selected state expands it with a spread shadow that costs no layout.
+   * 0.25rem each side → a 9px band around the 1px rule. */
+  --editor-divider-selected-background: color-mix(in oklch, var(--info) 16%, transparent);
+  --editor-divider-selected-spread: 0.25rem;
   --document-tag-font-scale: 0.875;
   --document-tag-font-size: calc(100% * var(--document-tag-font-scale));
   --document-tag-line-height: 1.2;
@@ -98,6 +104,20 @@ html[data-platform="mac"] .markdown-editor .editor-content-frame > .overlay-scro
 @container document-editor (width > 860px) {
   .markdown-editor .editor-content:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
     --editor-document-padding-inline: 6rem;
+  }
+}
+
+/* Note loading skeleton (shared/ui/note-document-loading-skeleton.tsx) mirrors
+ * the editor column: same inline padding stepped at the same 860px pane width.
+ * Its own wrapper is the container so the rule also holds for the Suspense
+ * fallback, which paints before .markdown-editor exists. */
+.note-document-skeleton {
+  padding-inline: 3rem;
+}
+
+@container note-skeleton (width > 860px) {
+  .note-document-skeleton {
+    padding-inline: 6rem;
   }
 }
 
@@ -331,6 +351,42 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
   pointer-events: none;
 }
 
+/* 标题上方的笔记图标行: 只在 frontmatter flowix_icon 已设置时渲染,
+ * h-12 尺寸、与标题左缘对齐; 点击触发与图标属性相同的 picker 弹窗换图标. */
+.memo-title-icon-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.memo-title-note-icon-trigger {
+  display: inline-flex;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 0.625rem;
+  background: transparent;
+  padding: 0.125rem;
+  margin: -0.125rem;
+  cursor: pointer;
+}
+
+.memo-title-note-icon-trigger:hover,
+.memo-title-note-icon-trigger:focus-visible,
+/* picker 弹窗打开期间保留 hover 底色 (Radix 在 trigger 上标 data-state)。 */
+.memo-title-note-icon-trigger[data-state='open'] {
+  background: var(--muted);
+  outline: none;
+}
+
+.memo-title-note-icon {
+  width: 3rem;
+  height: 3rem;
+  flex: none;
+  object-fit: contain;
+  user-select: none;
+  pointer-events: none;
+}
+
 .memo-title-shell {
   position: relative;
   width: 100%;
@@ -386,6 +442,12 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
   background: var(--muted);
   color: var(--foreground);
   outline: none;
+}
+
+/* 图标 picker 打开期间保留选中底色 (仅图标按钮带 data-state)。 */
+.memo-title-property-action[data-state='open'] {
+  background: var(--muted);
+  color: var(--foreground);
 }
 
 .memo-title-property-action svg {
@@ -527,11 +589,18 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
   53%, 100% { opacity: 0; }
 }
 
-.markdown-editor .ProseMirror:not(.agent-composer__input-content) > :nth-child(1 of :not(.agent-thread-card, .frontmatter-property-node, .editor-block-gap, .ProseMirror-gapcursor)):is(h1, h2, h3, h4, h5, h6, p):where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+/* First-block offsets come from the `editorFirstBlockMark` extension:
+ *   .editor-first-block    first content block (a leading agent card is chrome)
+ *   .editor-leading-block  first block after the frontmatter (a card counts)
+ * Do not rewrite these back to `:has(+ :nth-child(1 of :not(...)))`: WebKit
+ * re-scans siblings per element for an `of S` nth-child inside `:has()`, which
+ * made a 100 KB note with 103 code blocks take 32-39 s inside `Editor.mount()`
+ * (0.2 s with the class form). `styles/selector-cost.test.ts` guards this. */
+.markdown-editor .ProseMirror:not(.agent-composer__input-content) > .editor-first-block:is(h1, h2, h3, h4, h5, h6, p):where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   padding-top: var(--editor-first-block-offset) !important;
 }
 
-.markdown-editor .ProseMirror:not(.agent-composer__input-content) > :nth-child(1 of :not(.agent-thread-card, .frontmatter-property-node, .editor-block-gap, .ProseMirror-gapcursor)):not(h1, h2, h3, h4, h5, h6, p):where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+.markdown-editor .ProseMirror:not(.agent-composer__input-content) > .editor-first-block:not(h1, h2, h3, h4, h5, h6, p):where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   margin-top: var(--editor-first-block-offset) !important;
 }
 
@@ -549,12 +618,12 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
  * merged gap and pulling it down by another offset would push it into the block.
  * Text blocks use `padding-top` and need no compensation. The gap widget and the
  * caret are siblings, so `:has()` with `+` covers both orders. */
-.markdown-editor .editor-block-gap:has(+ :nth-child(1 of :not(.frontmatter-property-node, .editor-block-gap, .ProseMirror-gapcursor)):not(h1, h2, h3, h4, h5, h6, p)) .editor-block-gap__hit:where(:not(.agent-conversation-surface, .agent-conversation-surface *)),
-.markdown-editor .editor-block-gap:has(+ .ProseMirror-gapcursor + :nth-child(1 of :not(.frontmatter-property-node, .editor-block-gap, .ProseMirror-gapcursor)):not(h1, h2, h3, h4, h5, h6, p)) .editor-block-gap__hit:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+.markdown-editor .editor-block-gap:has(+ .editor-leading-block:not(h1, h2, h3, h4, h5, h6, p)) .editor-block-gap__hit:where(:not(.agent-conversation-surface, .agent-conversation-surface *)),
+.markdown-editor .editor-block-gap:has(+ .ProseMirror-gapcursor + .editor-leading-block:not(h1, h2, h3, h4, h5, h6, p)) .editor-block-gap__hit:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   top: calc(-6px + var(--editor-first-block-offset));
 }
 
-.markdown-editor .ProseMirror-gapcursor:has(+ :nth-child(1 of :not(.frontmatter-property-node, .editor-block-gap, .ProseMirror-gapcursor)):not(h1, h2, h3, h4, h5, h6, p)):where(:not(.agent-conversation-surface, .agent-conversation-surface *))::after {
+.markdown-editor .ProseMirror-gapcursor:has(+ .editor-leading-block:not(h1, h2, h3, h4, h5, h6, p)):where(:not(.agent-conversation-surface, .agent-conversation-surface *))::after {
   top: calc(-5px + var(--editor-first-block-offset));
 }
 
@@ -944,7 +1013,7 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 6px;
+  width: 8px;
   height: 1px;
   border-radius: 999px;
   background: currentColor;
@@ -1069,9 +1138,9 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
 }
 
 .markdown-editor .tiptap:not(.agent-composer__input-content) .editor-link-selection-highlight:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
-  /* 链接选区高亮: 与 .is-block-selected 同思路, 用 --brand 派生透明底,
-   * 在各主题下都能融入品牌色相, 避免硬编码 indigo. */
-  background: color-mix(in oklch, var(--brand) 18%, transparent);
+  /* 链接选区高亮: 与 .is-block-selected / 拖动选区 ::selection 同源,
+   * 用 --info 派生透明底, 各主题下选中语义统一, 避免硬编码 indigo. */
+  background: color-mix(in oklch, var(--info) 16%, transparent);
   border-radius: 2px;
 }
 
@@ -1081,24 +1150,27 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
   border-top: 0.0625rem solid var(--border);
   margin: 0.4rem 0 0.8rem 0;
   padding: 0;
-  /* 让 .is-block-selected / .ProseMirror-selectednode 切到 brand 时
-   * 平滑过渡, 与其他块的高亮入场节奏一致 (120ms)。 */
-  transition: border-top-color 120ms ease-out;
+  /* 让 .is-block-selected / .ProseMirror-selectednode 的色带平滑入场,
+   * 与其他块的高亮节奏一致 (120ms)。边线颜色不参与选中, 不在此列。 */
+  transition: box-shadow 120ms ease-out;
 }
 
-/* hr 选中态: 复用 .is-block-selected / .ProseMirror-selectednode 的
- * brand 色相, 但 hr 是 1px 边线、box 高度近乎 0, 通用规则的背景色铺
- * 不到线上, 视觉上读不出"被选中"。改为把 border-top 直接切到 brand
- * 作为唯一视觉锚 ——
+/* hr 选中态: hr 只有 1px 边线, box 高度近乎 0, 通用 .is-block-selected 的
+ * 背景色铺不到线上, 视觉上读不出"被选中"。这里用 box-shadow 把柔背景外扩
+ * 成一圈色带 (不参与布局, 选中时不会推动上下文), 与 .is-block-selected /
+ * 文本选区同源 —— info 派生 16% 透明度, 各主题下选中语义统一。
+ * 边线本身保持常色的 --border: 选中只表达"这块被选中", 不把分割线染成
+ * 品牌色, 避免与正文里的强调色抢视觉。
  *   - is-block-selected: drag context menu 钉住 (与通用 .is-block-selected
- *     的 inset left stripe 共用, 形成 "线 + 左竖条" 的组合指示);
- *   - ProseMirror-selectednode: NodeSelection (点击 hr 直接选中),
- *     不再加 outline / box-shadow 等外框 — hr 自身就是 1px 边, 高亮
- *     只在线本身, 视觉更克制。
- * 选择器特异性 (0,3,1) 高于全局 .ProseMirror-selectednode (0,1,0)。 */
+ *     的背景色 + 圆角共用);
+ *   - ProseMirror-selectednode: NodeSelection (点击 hr 直接选中)。
+ * 圆角由 border-radius + spread 叠加, 两端读作胶囊, 与图片等原子块的选中
+ * 反馈同一套视觉。选择器特异性 (0,3,1) 高于全局 .ProseMirror-selectednode
+ * (0,1,0)。 */
 .markdown-editor .ProseMirror:not(.agent-composer__input-content) hr.is-block-selected:where(:not(.agent-conversation-surface, .agent-conversation-surface *)),
 .markdown-editor .ProseMirror:not(.agent-composer__input-content) hr.ProseMirror-selectednode:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
-  border-top-color: var(--brand);
+  border-radius: 6px;
+  box-shadow: 0 0 0 var(--editor-divider-selected-spread) var(--editor-divider-selected-background);
 }
 
 .markdown-editor .tag-node:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
@@ -1431,17 +1503,19 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
 /* 块级选中态: 由 drag context menu 在用户点击 handle 后切换, 用来指示
  * 浮动菜单的 transform / delete 操作作用于哪一段。柔背景 + 圆角 + 左侧
  * 强调色, 视觉上读作"行指示", 不抢文本。
+ * 底色用 --info 派生透明度 (与原 --brand 同比例), info 是状态色而非
+ * 品牌强调色, 选中提示更中性、不与内容里的品牌色元素抢视觉。
  * transition 只动画会被改动的属性, 避免影响光标闪烁等 ProseMirror 内部更新。 */
 .markdown-editor .ProseMirror:not(.agent-composer__input-content) .is-block-selected:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   position: relative;
-  background-color: color-mix(in oklch, var(--brand) 6%, transparent);
+  background-color: color-mix(in oklch, var(--info) 16%, transparent);
   border-radius: 6px;
   transition:
     background-color 120ms ease-out;
 }
 
 .markdown-editor .ProseMirror:not(.agent-composer__input-content) .is-block-selected:hover:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
-  background-color: color-mix(in oklch, var(--brand) 10%, transparent);
+  background-color: color-mix(in oklch, var(--info) 19%, transparent);
 }
 
 .markdown-editor .ProseMirror:not(.agent-composer__input-content) .flowix-block-drop-indicator:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
@@ -1489,7 +1563,7 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
 /* 节点级选中 (image / videoAttachment / fileAttachment 等
  * atom 节点被 NodeSelection 选中时): 用品牌色 outline 替代 Tiptap 默认
  * 的浅蓝 #8cf, 与 .is-block-selected 左侧描边、::selection 文字底色共
- * 同收口到 var(--brand), 各主题下视觉一致。 */
+ * 同收口, 各主题下视觉一致。 */
 .markdown-editor .ProseMirror:not(.agent-composer__input-content) .ProseMirror-selectednode:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   /* outline: 2px solid var(--brand);
   outline-offset: 2px; */
@@ -1499,18 +1573,17 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
   transition: outline-color 120ms ease-out;
 }
 
-/* 编辑器内文本选区: 比全局 ::selection 更显眼, 配合块高亮读作"这段
- * 文字被选中了"。限定在 .markdown-editor 内, 避免影响侧栏 / 输入
- * 框等非编辑区域的选区色。 */
+/* 编辑器内文本选区 (拖动选中): 与 .is-block-selected 的块选中底色保持
+ * 同源 —— info 状态色派生透明度, 让文本选区和块高亮读作同一种"选中"
+ * 语义, 各主题下视觉一致。限定在 .markdown-editor 内, 避免影响侧栏 /
+ * 输入框等非编辑区域的选区色。 */
 .markdown-editor .ProseMirror:not(.agent-composer__input-content) :where(:not(.agent-conversation-surface, .agent-conversation-surface *))::selection {
-  background: color-mix(in oklch, var(--brand) 26%, transparent) !important;
+  background: color-mix(in oklch, var(--info) 16%, transparent) !important;
   color: inherit !important;
 }
 
-/* 工具栏容器: 始终位于编辑器底部, 可见性由 collapsed 状态决定
- * (而非 focus 状态)。不再使用 opacity/visibility/pointer-events 的隐式
- * 切换 —— 这避免了在折叠/展开切换时与子元素 (toolbar-content /
- * toolbar-expand-handle) 之间的层叠上下文冲突。 */
+/* 浮动工具条容器: 底部工具栏与表格气泡菜单 (.table-style-controls) 共用。
+ * 表格气泡覆写 position: static; 底部工具栏已移除, 仅保留共用基础。 */
 .editor-toolbar {
   position: absolute;
   bottom: 0;
@@ -1528,47 +1601,6 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
 .editor-toolbar > * {
   pointer-events: auto;
 }
-
-.editor-toolbar .toolbar-content {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  /* 表面色: 用 --card 充当浮层底, 与编辑器/侧栏面板保持一致的"卡片"语义 */
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  /* 阴影: 各方向均匀扩散, 不带方向偏置; 外圈柔光 + 内圈贴近的薄环,
-   * 让工具条在 3 套主题下都像"漂"在编辑器之上, 而非"压"在底面上。
-   * 透明度较初版减半 (6%→3% / 14%→7%), 进一步弱化, 避免压重视觉。 */
-  box-shadow:
-    0 0 0 1px color-mix(in oklch, var(--foreground) 3%, transparent),
-    0 0 14px color-mix(in oklch, var(--foreground) 7%, transparent);
-  padding: 4px 8px;
-}
-
-/* 折叠态的展开按钮 — 与 toolbar-content 共用卡片语义, 但去掉多按钮布局
- * 所需的 gap / padding-x, 收敛为一个紧凑的 chip 形态, 减少视觉重量。 */
-.editor-toolbar .toolbar-expand-handle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  cursor: pointer;
-  color: var(--muted-foreground);
-  /* 与 .toolbar-content 同步: 阴影透明度较初版减半 (6%→3% / 14%→7%) */
-  box-shadow:
-    0 0 0 1px color-mix(in oklch, var(--foreground) 3%, transparent),
-    0 0 14px color-mix(in oklch, var(--foreground) 7%, transparent);
-  transition: background-color 0.15s ease, color 0.15s ease;
-}
-
-.editor-toolbar .toolbar-expand-handle:hover {
-  background: var(--muted);
-  color: var(--foreground);
-}
-
 
 .editor-toolbar .toolbar-button {
   padding: 6px 6px;
@@ -1602,25 +1634,29 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
   margin: 0 4px;
 }
 
+/* 选区气泡「高亮」与表格气泡「颜色」共用的色板外壳。两个入口都把浮层本身
+ * 设为透明无框, 由这一层统一提供边框 / 圆角 / 底色 / 投影 (随气泡减半的 12%)。 */
 .editor-highlight-palette {
-  width: 184px;
+  width: 160px;
   border: 1px solid var(--border-popup);
   border-radius: 0.75rem;
   background: var(--card);
   color: var(--foreground);
-  box-shadow: 0 4px 24px -3px rgb(0 0 0 / 24%);
+  box-shadow: 0 4px 24px -3px rgb(0 0 0 / 12%);
   box-sizing: border-box;
   overflow: hidden;
-  padding: 0.25rem;
+  padding: 0;
 }
 
-[data-flowix-surface="popover"].editor-highlight-palette__menu {
-  width: 184px;
-  min-width: 184px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
+/* 面板四边不再有整体间距, 顶部间距由首个分组的标题承担。高亮面板用
+ * __heading, 表格面板沿用 .table-style-menu-heading, 两者都要吃到这段间距。 */
+.editor-highlight-palette
+  > .editor-highlight-palette__section:first-child
+  .editor-highlight-palette__heading,
+.editor-highlight-palette
+  > .table-style-menu-section:first-child
+  .table-style-menu-heading {
+  padding-top: 0.5rem;
 }
 
 .editor-highlight-palette__heading {
@@ -1638,21 +1674,25 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
   line-height: 1.2;
 }
 
+/* 两套色板 (选区气泡的「高亮」/ 表格气泡的「颜色」) 共用同一份网格与色块规格:
+ * 固定 24px 方块、4px 间距、未选中不画外框; 选中态与 hover 由下方规则覆盖。
+ * 之前这三条只 scope 在 .editor-highlight-palette 里, 表格那套因此自适应放大
+ * 并常显外框 —— 现在两个面板都套同一个外壳, 规格回到基础规则单源。 */
 .editor-highlight-palette__swatches {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 6px;
+  gap: 0.25rem;
   padding: 0 0.375rem 0.375rem;
 }
 
 .editor-highlight-palette__swatch {
   display: inline-flex;
-  width: 100%;
-  aspect-ratio: 1;
-  height: auto;
+  width: 24px;
+  height: 24px;
+  justify-self: center;
   align-items: center;
   justify-content: center;
-  border: 1px solid color-mix(in oklch, var(--foreground) 14%, transparent);
+  border: 1px solid transparent;
   border-radius: 6px;
   background: transparent;
   color: var(--muted-foreground);
@@ -1668,6 +1708,11 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
   font-weight: 600;
 }
 
+/* 文字色的色块未选中时保留一半 --border 色的外框, 给「A」一个可见边界。 */
+.editor-highlight-palette__swatch--foreground:not([data-active='true']) {
+  border-color: color-mix(in oklch, var(--border) 50%, transparent);
+}
+
 .editor-highlight-palette__swatch:hover,
 .editor-highlight-palette__swatch:focus-visible {
   border-color: var(--flowix-swatch-color, var(--brand));
@@ -1675,7 +1720,7 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
 }
 
 .editor-highlight-palette__swatch[data-active="true"] {
-  border-color: var(--flowix-swatch-color, var(--brand));
+  border-color: color-mix(in oklch, var(--brand) 50%, transparent);
   box-shadow: none;
 }
 
@@ -1686,14 +1731,24 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
 
 .editor-highlight-palette__swatch--foreground {
   color: var(--flowix-swatch-color);
+  font-weight: 400;
 }
 
-.flowix-popover-content.editor-highlight-palette--bubble {
-  width: 184px;
+/* 两个入口的外层浮层都只负责定位, 边框 / 底色 / 投影交给内层
+ * .editor-highlight-palette。高亮走 PopoverContent, 表格「颜色」走
+ * DropdownMenuContent; 后者用双类选择器压过其自带的单类基础弹层样式
+ * (默认 min-width / padding / border / background / shadow 全部撤掉)。 */
+.flowix-popover-content.editor-highlight-palette--bubble,
+.table-style-menu.table-style-menu--palette {
+  width: 160px;
   padding: 0;
   border: 0;
   background: transparent;
   box-shadow: none;
+}
+
+.table-style-menu.table-style-menu--palette {
+  min-width: 0;
 }
 
 

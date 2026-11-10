@@ -281,6 +281,16 @@ function App() {
   }, [isPreferencesWindow, language]);
 
   useEffect(() => {
+    if (isPreferencesWindow || !isTauriRuntime()) return;
+    // The catalog is small and public. Warm it after the window mounts so a
+    // later purchase click can render from local storage without waiting for
+    // the Cloud request.
+    void import('@features/cloud-billing/public/product-catalog')
+      .then(({ warmBillingProductCatalog }) => warmBillingProductCatalog())
+      .catch(() => undefined);
+  }, [isPreferencesWindow]);
+
+  useEffect(() => {
     // The static loading screen is only a first-paint fallback. It must not
     // depend on a lazy route resolving: if a packaged chunk is unavailable,
     // ErrorBoundary should be visible instead of an endless spinner.

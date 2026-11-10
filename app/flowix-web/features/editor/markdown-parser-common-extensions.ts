@@ -1,6 +1,19 @@
 import { Paragraph } from '@tiptap/extension-paragraph';
 import { TaskItem } from '@tiptap/extension-task-item';
+import { TaskList } from '@tiptap/extension-task-list';
 import type { JSONContent, MarkdownParseHelpers, MarkdownToken } from '@tiptap/core';
+import { guardListMarkdownTokenizer } from './markdown-list-tokenizer';
+
+/**
+ * The stock TaskList tokenizer splits the whole remaining document on every
+ * block boundary (`parseIndentedBlocks`). The editor registry uses the guarded
+ * variant, which rejects non-list blocks up front and bounds the source it
+ * hands to that split — see `markdown-list-tokenizer.ts`.
+ */
+export const GuardedTaskList = guardListMarkdownTokenizer(
+  TaskList,
+  /^\s*[-+*]\s+\[[ xX]\]\s+/,
+);
 
 const EMPTY_MARKDOWN_PLACEHOLDER_RE = /^(?:&(?:amp;)?nbsp;|\u00a0)$/i;
 

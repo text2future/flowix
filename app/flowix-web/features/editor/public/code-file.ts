@@ -9,6 +9,7 @@ export {
   isHtmlFilePath,
   externalFileViewKind,
   isNotebookResourcePath,
+  isRelativePathHref,
   resourceKindFromPath,
 } from '../code-file';
 

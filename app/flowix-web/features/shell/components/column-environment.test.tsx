@@ -10,7 +10,7 @@ describe('session Header host adaptation', () => {
     document.body.append(node);
     const root = createRoot(node);
     const environment = (host: ColumnEnvironment['index']): ColumnEnvironment => ({
-      index: host, browserVisible: true, sidebarHidden: true, navigationVisible: false, onToggleSidebar: vi.fn(),
+      index: host, browserVisible: true, sidebarHidden: true, onToggleSidebar: vi.fn(),
     });
     const render = (host: ColumnEnvironment['index']) => root.render(
       <ColumnProvider value={environment(host)}>

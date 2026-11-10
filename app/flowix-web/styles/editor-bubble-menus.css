@@ -1,9 +1,11 @@
-.table-bubble-menu-anchor {
-  position: absolute;
-  z-index: 101;
-  transform: translate(-50%, -100%);
-}
-
+/* 编辑器浮层气泡 (选区 / 表格 / 链接 hover) 共用 .selection-bubble-menu 与
+ * .selection-bubble-button 这一套表面 + 按钮样式: 都 portal 到 body, 用
+ * position: fixed + 视口坐标定位 (见 features/editor/overlay)。
+ * 不挂在 .markdown-editor 里有两个原因: 它是 overflow: hidden 的裁剪盒 (会裁掉
+ * 溢出面板的按钮), 又带 isolation: isolate —— 自带叠层上下文, 溢出到相邻列时
+ * 会被后绘制的列表列盖住。
+ * 链接 hover 气泡 (editor-link-tooltip.css, 排在本文件之后加载) 只覆盖定位 /
+ * 动画 / 文案截断, 外观直接吃这里的规则。 */
 .table-bubble-menu {
   display: flex;
   align-items: center;
@@ -12,7 +14,7 @@
   border: 1px solid var(--border-popup);
   border-radius: 7px;
   color: var(--foreground);
-  box-shadow: 0 4px 24px -3px rgb(0 0 0 / 24%);
+  box-shadow: 0 4px 24px -3px rgb(0 0 0 / 12%);
   padding: 3px;
 }
 
@@ -31,14 +33,12 @@
     color 0.15s ease;
 }
 
-.table-bubble-menu button:hover {
-  background: var(--brand);
-  color: var(--primary-foreground);
-}
-
+/* 独立使用时也走中性 hover (放进 table-bubble-menu-panel 后由后面的 scoped
+ * 规则接管), 不再每次悬停都整块反白成品牌色。 */
+.table-bubble-menu button:hover,
 .table-bubble-menu button:active {
-  background: var(--brand);
-  color: var(--primary-foreground);
+  background: var(--hover-bg);
+  color: var(--foreground);
 }
 
 .table-bubble-menu .menu-divider {
@@ -48,17 +48,25 @@
   margin: 0 3px;
 }
 
-.selection-bubble-menu {
-  z-index: 101;
+.selection-bubble-menu,
+.editor-link-hover-tooltip {
+  z-index: var(--layer-editor-overlay);
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  padding: 3px;
+  padding: 3px 6px;
   border: 1px solid var(--border-popup);
+  /* 气泡条 10px: 介于内部按钮 / 菜单项的 rounded-lg (8px) 与下拉面板的
+   * rounded-xl (12px) 之间, 26px 方按钮在 3px 内边距里也不会顶出容器圆角。
+   * 选区 / 表格 / 链接气泡共用这一档, 不再出现多种圆角规格。 */
   border-radius: 10px;
   background: color-mix(in oklch, var(--popover) 94%, transparent);
   color: var(--popover-foreground);
-  box-shadow: 0 4px 24px -3px rgb(0 0 0 / 24%);
+  /* 选区/表格/链接气泡共用: 投影不透明度为标准弹层 (24%) 的一半, 保留浮起感又不压住正文。
+   * inset 顶边是一道极淡的高光, 让毛玻璃底在深色主题里也有上边缘轮廓。 */
+  box-shadow:
+    0 4px 24px -3px rgb(0 0 0 / 12%),
+    inset 0 1px 0 color-mix(in oklch, var(--foreground) 6%, transparent);
   backdrop-filter: blur(18px);
   pointer-events: none;
   user-select: none;
@@ -66,7 +74,25 @@
   -webkit-user-select: none;
 }
 
+/* Popover 组件会给 trigger 强制包一层 div.relative（shared/ui/popover.tsx）。
+ * 在 flex 工具条里这层块级 div 参与布局, 内部的 inline-flex 按钮按文字基线
+ * 落位而非几何居中, 背景区域会比相邻按钮偏高 ~1px（descender 空间垫在按钮
+ * 下方）。转成 flex 容器让按钮作为 flex item 精确居中; 弹层本体走
+ * portal + fixed 定位, 不依赖这层的 relative。 */
+.selection-bubble-menu > div {
+  display: flex;
+  align-items: center;
+}
+
+/* 高亮按钮的 Tooltip 触发器包了层 span (Tooltip 不能直接挂 Radix
+ * PopoverTrigger), 同样要转 flex 避免按钮按基线落位偏高。 */
+.selection-bubble-menu > div > span {
+  display: flex;
+  align-items: center;
+}
+
 .selection-bubble-button,
+.editor-link-hover-tooltip-button,
 .table-style-controls .toolbar-button,
 .table-bubble-menu-panel .table-bubble-menu button {
   display: inline-flex;
@@ -76,7 +102,9 @@
   justify-content: center;
   padding: 0;
   border: none;
-  border-radius: 7px;
+  /* 与下拉菜单项 (rounded-lg = 8px) 一致; 26px 方按钮用 8px 圆角在
+   * 选区 / 表格 / 链接气泡里保持同一节奏。 */
+  border-radius: 8px;
   background: transparent;
   cursor: pointer;
   color: var(--foreground);
@@ -87,28 +115,71 @@
     transform 0.1s ease;
 }
 
-.selection-bubble-button:hover,
-.table-style-controls .toolbar-button:hover,
-.table-bubble-menu-panel .table-bubble-menu button:hover {
-  background: var(--brand);
-  color: var(--primary-foreground);
+/* 气泡的按钮共用一套状态: hover/按下走中性 --hover-bg, 图标保持前景色
+ * 不反白; 选区 bubble 的 is-active 是 B/I/U 开关的状态回显, 走品牌色 12%
+ * 透明底 + 品牌色前景, 与底部工具栏 .toolbar-button.active 对齐。之前表格
+ * bubble 每次 hover 都整块反白成 --brand, 和选区 bubble 的中性 hover 割裂,
+ * 这里收敛成一组规则。 */
+.selection-bubble-menu .selection-bubble-button:hover:not(.is-active),
+.selection-bubble-menu .selection-bubble-button:active:not(.is-active),
+.editor-link-hover-tooltip .editor-link-hover-tooltip-button:hover,
+.editor-link-hover-tooltip .editor-link-hover-tooltip-button:active,
+.table-style-controls .toolbar-button:hover:not(.active),
+.table-style-controls .toolbar-button:active:not(.active),
+.table-bubble-menu-panel .table-bubble-menu button:hover,
+.table-bubble-menu-panel .table-bubble-menu button:active {
+  background: var(--hover-bg);
+  color: var(--foreground);
 }
 
-.selection-bubble-button.is-active,
-.table-style-controls .toolbar-button.active {
-  background: var(--brand);
-  color: var(--primary-foreground);
+.selection-bubble-menu .selection-bubble-button.is-active,
+.selection-bubble-menu .selection-bubble-button.is-active:hover,
+.selection-bubble-menu .selection-bubble-button.is-active:active {
+  background: color-mix(in oklch, var(--brand) 12%, transparent);
+  color: var(--brand);
 }
 
-.selection-bubble-button:active,
+/* 表格下拉的 .active 只是「菜单此刻打开」, 不是格式状态回显: 保持和 hover
+ * 同一个中性底, 文字/图标也不转品牌色, 避免点开菜单时整块按钮跳色。 */
+.table-style-controls .toolbar-button.active,
+.table-style-controls .toolbar-button.active:hover,
+.table-style-controls .toolbar-button.active:active {
+  background: var(--hover-bg);
+  color: var(--foreground);
+}
+
+/* 高亮按钮的图标本身就是色块, 激活时不叠加品牌色低透明度底 (仅保留
+ * 图标转品牌色的激活指示)。声明需位于上面的 .is-active 组之后。 */
+.selection-bubble-menu .selection-bubble-highlight-trigger.is-active,
+.selection-bubble-menu .selection-bubble-highlight-trigger.is-active:hover,
+.selection-bubble-menu .selection-bubble-highlight-trigger.is-active:active {
+  background: transparent;
+}
+
+/* 三类气泡按钮共用同一档按压反馈; 背景/前景已由上面的状态组决定。 */
+.selection-bubble-menu .selection-bubble-button:active,
+.editor-link-hover-tooltip .editor-link-hover-tooltip-button:active,
 .table-style-controls .toolbar-button:active,
 .table-bubble-menu-panel .table-bubble-menu button:active {
-  background: var(--brand);
-  color: var(--primary-foreground);
   transform: scale(0.98);
 }
 
+/* 链接图标是 15px 的细线笔画: 跟着按钮做 0.98 缩放 (且基础样式带 0.1s
+ * transform 过渡) 会在非整数像素上重新栅格化, 按下瞬间看起来忽大忽小。这个
+ * 按钮只负责打开链接编辑弹层, 用已有的中性 hover 底做反馈即可, 不做几何缩放;
+ * svg 再由 flex 固定成 15×15, 杜绝任何拉伸。 */
+.selection-bubble-menu .selection-bubble-button.selection-bubble-link-trigger:active {
+  transform: none;
+}
+
+.selection-bubble-link-trigger > svg {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+}
+
 .selection-bubble-button:focus-visible,
+.editor-link-hover-tooltip-button:focus-visible,
 .table-style-controls .toolbar-button:focus-visible,
 .table-bubble-menu-panel .table-bubble-menu button:focus-visible {
   outline: 2px solid var(--ring);
@@ -116,6 +187,7 @@
 }
 
 .selection-bubble-button:disabled,
+.editor-link-hover-tooltip-button:disabled,
 .table-style-controls .toolbar-button:disabled,
 .table-bubble-menu-panel .table-bubble-menu button:disabled {
   cursor: default;
@@ -129,113 +201,86 @@
   background: var(--divider, var(--border));
 }
 
-@keyframes link-edit-popup-in {
-  from {
-    opacity: 0;
-    transform: translateY(-4px) scale(0.98);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
+/* 「转换为」下拉触发按钮: 块图标 16px + 当前块类型名称 + 10px 弱化箭头。
+ * 刻意不带 is-active —— 上面的品牌色激活态 (底 + 图标/文字色) 不适用于它,
+ * 非正文块的状态由名称回显; 它只走基础色 + hover 中性底。箭头 svg 保持次级
+ * 弱化色不变。 */
+.selection-bubble-button.selection-bubble-dropdown-trigger {
+  width: auto;
+  min-width: 30px;
+  gap: 4px;
+  padding: 0 6px;
 }
 
-.link-edit-popup {
-  background: var(--popover);
-  color: var(--popover-foreground);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 8px 10px;
-  min-width: 236px;
-  box-shadow: 0 10px 24px color-mix(in oklch, var(--foreground) 14%, transparent);
-  transform-origin: top left;
-  animation: link-edit-popup-in 0.14s ease-out;
-  will-change: opacity, transform;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .link-edit-popup {
-    animation: none;
-    will-change: auto;
-  }
-}
-
-.link-edit-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.link-edit-row + .link-edit-row {
-  margin-top: 6px;
-}
-
-.link-edit-text,
-.link-edit-href {
-  flex: 1;
-  padding: 4px 8px;
-  border: 1px solid var(--border);
-  background: var(--card);
-  color: var(--foreground);
+/* 名称跟着当前块类型变 (英文最长 "Bulleted list" 也放得下); 上限防未来长文案
+ * 把整条气泡撑出视口, 超出时省略号截断。 */
+.selection-bubble-dropdown-trigger-label {
+  max-width: 100px;
+  overflow: hidden;
   font-size: 13px;
-  outline: none;
-  border-radius: 6px;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.link-edit-text::placeholder,
-.link-edit-href::placeholder {
+.selection-bubble-dropdown-trigger > svg:last-child {
+  margin-left: -2px;
   color: var(--muted-foreground);
 }
 
-.link-edit-href {
-  background: var(--popover);
+.editor-bubble-dropdown [role='menu'] {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
-.link-edit-href:focus {
-  border-color: var(--ring);
-  box-shadow: 0 0 0 2px color-mix(in oklch, var(--ring) 24%, transparent);
+.selection-bubble-dropdown-divider {
+  height: 1px;
+  margin: 2px 4px;
+  background: var(--divider, var(--border));
 }
 
-.link-edit-href[aria-invalid="true"] {
-  border-color: var(--destructive, #ef4444);
-}
-
-.link-edit-row-btn {
-  justify-content: flex-end;
-}
-
-.link-edit-cancel,
-.link-edit-save {
-  padding: 4px 12px;
-  font-size: 12px;
-  font-weight: 500;
-  border-radius: 6px;
-  cursor: pointer;
-  transition:
-    background-color 0.12s ease,
-    border-color 0.12s ease,
-    color 0.12s ease;
-}
-
-.link-edit-cancel {
-  border: 1px solid var(--border);
+/* 菜单项与底部工具栏同节奏: h-7 / gap-3 / rounded-lg / px-2。 */
+.selection-bubble-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 28px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 8px;
   background: transparent;
+  color: var(--popover-foreground);
+  cursor: pointer;
+  font-size: 13px;
+  text-align: left;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.selection-bubble-dropdown-item:hover,
+.selection-bubble-dropdown-item.is-active {
+  background: var(--hover-bg);
   color: var(--foreground);
 }
 
-.link-edit-cancel:hover {
-  background: var(--muted);
+/* 主文案恒为前景色 (与 drag 菜单下拉项对齐); Kbd 保持次级弱化色。 */
+.selection-bubble-dropdown-text {
+  color: var(--foreground);
+  flex: 1;
 }
 
-.link-edit-save {
-  border: 1px solid var(--primary);
-  background: var(--primary);
-  color: var(--primary-foreground);
+.selection-bubble-dropdown-kbd {
+  margin-left: auto;
+  color: var(--muted-foreground);
 }
 
-.link-edit-save:hover {
-  background: color-mix(in oklch, var(--primary) 88%, var(--foreground) 12%);
+.selection-bubble-dropdown-item:hover .selection-bubble-dropdown-text,
+.selection-bubble-dropdown-item:hover .selection-bubble-dropdown-kbd,
+.selection-bubble-dropdown-item.is-active .selection-bubble-dropdown-text,
+.selection-bubble-dropdown-item.is-active .selection-bubble-dropdown-kbd {
+  color: var(--foreground);
 }
 
 .slash-menu-dropdown {
@@ -521,13 +566,13 @@
 .memo-navigation-submenu-trigger:focus-visible > span:last-child,
 .memo-navigation-submenu-trigger:hover > span:last-child > *,
 .memo-navigation-submenu-trigger:focus-visible > span:last-child > * {
-  color: var(--primary-foreground);
+  color: var(--foreground);
 }
 
 .memo-navigation-submenu-trigger[aria-expanded='true'] > span,
 .memo-navigation-submenu-trigger[aria-expanded='true'] > span *,
 .memo-navigation-submenu-trigger[aria-expanded='true'] svg {
-  color: var(--primary-foreground);
+  color: var(--foreground);
 }
 
 .mention-note-dropdown:not(.is-keyboard-navigation) .mention-note-item:hover,

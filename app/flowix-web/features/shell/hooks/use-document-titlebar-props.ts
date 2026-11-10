@@ -1,7 +1,10 @@
 import { resolveWorkspaceHeaderModel } from '@features/workspace/public/header-api';
 import { useSessionAddressBar } from '@features/workspace/public/session-header-api';
+import { openWorkspaceSurface } from '@features/workspace/public/session-opening-api';
 import { resolveWorkspaceFileSurfaceKind } from '@features/workspace/public/surface-api';
 import { notebookRelativeDirectoryPath } from '@/lib/path';
+import { useI18n } from '@/lib/i18n';
+import { toast } from '@/lib/toast';
 
 import {
   resolveDocumentTitlebarTarget,
@@ -12,6 +15,7 @@ import {
   resolveWorkColumnRuntimePresentation,
   collectionIndexPath,
   useWorkspaceSurfacePresentation,
+  resolveDocumentBreadcrumb,
   type WorkColumnPresentation,
 } from '@features/surface/public/shell-api';
 import type { Notebook } from '@features/memo/public/shell-api';
@@ -48,6 +52,8 @@ export interface UseDocumentTitlebarPropsInput {
   mediaActions: DocumentTitlebarProps['mediaActions'];
   activeExternalSession: ActiveExternalSession;
   selectedNotebook: Notebook | null;
+  /** Fallback ownership lookup: some surfaces (file tree, access space) carry no scopePath. */
+  notebooks?: readonly { path: string }[];
 }
 
 /**
@@ -79,7 +85,9 @@ export function useDocumentTitlebarProps(input: UseDocumentTitlebarPropsInput): 
     mediaActions,
     activeExternalSession,
     selectedNotebook,
+    notebooks = [],
   } = input;
+  const { t } = useI18n();
   const workWebSurfaceId = workColumnPresentation.content.status === 'surface'
     && workColumnPresentation.content.surface.kind === 'web'
     ? workColumnPresentation.content.surface.instanceKey : null;
@@ -108,8 +116,42 @@ export function useDocumentTitlebarProps(input: UseDocumentTitlebarPropsInput): 
       } : activeExternalSession, selectedNotebook?.path ?? null)
     : null;
 
+  /** Path breadcrumb for the document header: notebook/repository root first,
+   * then the folders leading to the file. Markdown notes only report content
+   * capabilities (never a title), so the breadcrumb also drives the header
+   * identity here. Collections keep their own tabbed shell instead. */
+  const breadcrumbFilePath = documentTarget?.fileIdentity.path
+    ?? (workColumnPresentation.header.kind === 'document'
+      ? workColumnPresentation.header.document.externalFilePath : null);
+  /** The selected notebook is only a root candidate when the file really lives inside it. */
+  const selectedNotebookRoot = selectedNotebook?.path && breadcrumbFilePath
+    && notebookRelativeDirectoryPath(selectedNotebook.path, breadcrumbFilePath) !== null
+    ? selectedNotebook.path
+    : null;
+  const breadcrumb = resolveDocumentBreadcrumb({
+    filePath: breadcrumbFilePath,
+    collectionIndexPath: collectionPath,
+    scopeRoots: [
+      documentTarget?.scopePath,
+      activeExternalSession?.scopePath,
+      activeExternalSession?.notebookPath,
+      fileBrowser?.scopePath,
+      selectedNotebookRoot,
+    ],
+    notebookRoots: notebooks.map((notebook) => notebook.path),
+    treeRoot: fileBrowser?.folderPath,
+  });
+
   return {
     headerBackgroundColor: workRuntimePresentation.headerBackgroundColor,
+    breadcrumb,
+    /** 面包屑文件夹弹层选中的文件在当前栏打开：换文档，不动栏本身。 */
+    onBreadcrumbFileOpen: (filePath: string, scopePath: string) => {
+      void openWorkspaceSurface({
+        columnId: 'column-1',
+        target: { kind: 'external', path: filePath, scopePath, transitionId: null },
+      }).catch(() => { toast.error(t('memo.fileTree.openFailed')); });
+    },
     webAddressBarVisible: addressBar.visible,
     onToggleWebAddressBar: workWebSurfaceId ? addressBar.toggle : undefined,
     reserveWindowsControls: !browserColumnVisible,

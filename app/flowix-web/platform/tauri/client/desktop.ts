@@ -2,6 +2,7 @@ import { acceptPathMutationResult, publishNotebookPathMove, type PathMutationRes
 import { invokeDocumentMutation } from './document-mutation';
 import { convertFileSrc, invoke } from '@platform/tauri/core';
 import { applyWindowTheme } from './window-theme';
+import { markDocumentOpenJourney } from '@/lib/document-open-perf';
 import type { NoteColor } from '@/types/note-item';
 import type { MarkdownLocation } from './notes';
 
@@ -287,7 +288,10 @@ export const files = {
   importFile: (filePath: string, targetDirectoryPath: string, spacePath: string) =>
     invoke<string>('import_file', { filePath, targetDirectoryPath, spacePath }),
   /** The legacy-named native resolver canonicalizes and classifies every file type. */
-  resolveLocation: (filePath: string) => invoke<MarkdownLocation>('resolve_markdown_location', { filePath }),
+  resolveLocation: (filePath: string) => invoke<MarkdownLocation>('resolve_markdown_location', { filePath })
+    // Journey mark here (not at the navigation call site) so the measured
+    // segment is the bare IPC round trip; no-op without a pending journey.
+    .then((location) => (markDocumentOpenJourney(filePath, 'journey:location-ipc-done'), location)),
   importFolder: (sourceDirectoryPath: string, targetDirectoryPath: string, spacePath: string) =>
     invoke<string>('import_folder', { sourceDirectoryPath, targetDirectoryPath, spacePath }),
   renameFolder: (folderPath: string, name: string, spacePath: string) =>
@@ -401,6 +405,8 @@ export const windows = {
   reportUiHeartbeat: (hidden: boolean) => invoke<void>('report_ui_heartbeat', { hidden }),
   getWindowMaterial: () => invoke<'none' | 'mica' | 'vibrancy'>('get_window_material'),
   openPreferences: (tab?: string) => invoke<void>('open_preferences_window', { tab }),
+  openPaymentDialogInMain: (tab: 'membership' | 'credits') =>
+    invoke<void>('open_payment_dialog_in_main', { tab }),
   applyWindowTheme,
   applyMenuLanguage: (language: 'zh-CN' | 'en-US') =>
     invoke<void>('apply_menu_language', { language }),

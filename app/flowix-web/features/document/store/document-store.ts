@@ -3,6 +3,7 @@ import { NavigationCancelledError } from '@/lib/navigation-cancelled-error';
 import { prepareDocumentLeave } from '@features/document/store/document-session-service';
 import { canonicalPath } from '@/lib/path';
 import {
+  attachDocumentOpenJourney,
   markDocumentOpenTrace,
   startDocumentOpenTrace,
 } from '@/lib/document-open-perf';
@@ -164,10 +165,15 @@ export const useDocumentStore = create<DocumentStore>()(
       }
 
       const transitionId = get().documentTransitionId + 1;
+      // Continue a journey begun at the user action (file-tree click, list
+      // row, search hit) under this transitionId so elapsedMs spans the whole
+      // open. Absent journey → trace starts here (traceStartedLate behaviour).
+      const journeyAttached = attachDocumentOpenJourney(transitionId, path);
       startDocumentOpenTrace(transitionId, {
         source: 'external',
         path,
         hasPrevious: !!get().activeExternalSession,
+        journeyAttached,
       });
       markDocumentOpenTrace(transitionId, 'navigation:external-start', {
         scopePath: canonicalScopePath,

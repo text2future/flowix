@@ -41,6 +41,19 @@ export function resolveDocumentTitlebarTarget(
   };
 }
 
+/**
+ * Path breadcrumb items shown in the document header; styled after the
+ * file-browser breadcrumbs. Structurally identical to the workspace header's
+ * own item type (a shell-private module, so the shape is mirrored here rather
+ * than exported through a barrel for three fields).
+ */
+export interface DocumentTitlebarBreadcrumbItem {
+  label: string;
+  type?: 'folder' | 'file';
+  /** Segment path; folder segments use it to open the file tree popover. */
+  path?: string;
+}
+
 export interface DocumentTitlebarProps {
   webAddressBarVisible?: boolean;
   onToggleWebAddressBar?: () => void;
@@ -54,6 +67,10 @@ export interface DocumentTitlebarProps {
   showEditorModeToggle?: boolean;
   editorMode?: DocumentEditorMode;
   onSetEditorMode?: (mode: DocumentEditorMode) => void;
+  /** 文档路径面包屑（根段=笔记本/仓库目录名）；缺省时标题栏回退为普通标题。 */
+  breadcrumb?: DocumentTitlebarBreadcrumbItem[] | null;
+  /** 面包屑文件夹弹层选中文件后，在当前栏打开它（缺省则面包屑只展示）。 */
+  onBreadcrumbFileOpen?: (filePath: string, scopePath: string) => void;
   document: {
     target: DocumentTitlebarTarget | null;
     /** File-browser editors own their buffer and commands independently of the primary document store. */

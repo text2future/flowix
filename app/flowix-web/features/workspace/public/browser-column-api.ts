@@ -33,6 +33,11 @@ export function hideBrowserColumn(): void {
   useBrowserColumnStore.getState().setVisible(false);
 }
 
+/** Drop a restored conversation target after its provisional instance is confirmed missing. */
+export function clearMissingBrowserConversation(instanceId: string): boolean {
+  return useBrowserColumnStore.getState().clearMissingConversation(instanceId);
+}
+
 export function useBrowserColumnVisible(): boolean {
   return useBrowserColumnStore((state) => state.visible);
 }

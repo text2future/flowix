@@ -429,8 +429,8 @@ export function NotebookSelectorPopup({
           NOTEBOOK_ITEM_CLASS,
           'group relative flex cursor-pointer select-none items-center gap-0 rounded-lg px-1.5 py-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]',
           isActive
-            ? 'bg-[color-mix(in_oklch,var(--primary)_9%,var(--popover))]'
-            : 'bg-transparent hover:bg-[var(--muted)]',
+            ? 'bg-[var(--hover-bg)]'
+            : 'bg-transparent hover:bg-[var(--hover-bg)]',
           isMissing && 'opacity-70',
         )}
         style={{ touchAction: 'none' }}
@@ -438,9 +438,9 @@ export function NotebookSelectorPopup({
         <NotebookIcon
           icon={notebook.icon}
           className={cn(
-            'mr-3 h-7 w-7 shrink-0 rounded-md transition-colors duration-150',
+            'mr-3 h-6 w-6 shrink-0 rounded-md transition-colors duration-150',
             isActive
-              ? 'bg-[color-mix(in_oklch,var(--primary)_16%,var(--muted))] !text-[var(--primary)]'
+              ? '!text-[var(--primary)]'
               : 'bg-[var(--muted)] !text-[var(--foreground)]',
           )}
           imageClassName="h-[72%] w-[72%]"
@@ -477,7 +477,7 @@ export function NotebookSelectorPopup({
                 />
               </span>
             )}
-            <span className="text-sm">
+            <span className="font-mono tabular-nums text-sm">
               {notebook.memoCount === undefined ? '—' : t('status.notebookMemoCount', { count: notebook.memoCount })}
             </span>
           </span>
@@ -540,12 +540,12 @@ export function NotebookSelectorPopup({
             {selectedNotebook && (
               <NotebookIcon
                 icon={selectedNotebook.icon}
-                className="h-4 w-4 rounded text-[12px] font-semibold !text-[var(--foreground)]"
-                imageClassName="h-[92%] w-[92%]"
+                className="h-4 w-4 rounded text-[12px] font-semibold !text-[var(--primary)]"
+                imageClassName="h-[88%] w-[88%]"
               />
             )}
             {selectedNotebook?.name && (
-              <span className="w-fit max-w-20 min-w-0 truncate text-xs text-[var(--muted-foreground)]">
+              <span className="w-fit max-w-40 min-w-0 truncate text-xs text-[var(--muted-foreground)]">
                 {selectedNotebook.name}
               </span>
             )}
@@ -649,13 +649,13 @@ export function NotebookSelectorPopup({
           >
             <NotebookIcon
               icon={sourceNotebook.icon}
-              className="h-7 w-7 shrink-0 rounded-md bg-[color-mix(in_oklch,var(--primary)_14%,var(--muted))] text-[15px] font-semibold !text-[var(--primary)]"
+              className="h-6 w-6 shrink-0 rounded-md bg-[color-mix(in_oklch,var(--primary)_14%,var(--muted))] text-[15px] font-semibold !text-[var(--primary)]"
             />
             <div className="min-w-0 flex-1 space-y-0.5">
               <span className="block truncate text-sm text-[var(--foreground)]">
                 {sourceNotebook.name}
               </span>
-              <span className="block text-xs text-[var(--muted-foreground)]">
+              <span className="block font-mono tabular-nums text-xs text-[var(--muted-foreground)]">
                 {sourceNotebook.memoCount === undefined ? '—' : t('status.notebookMemoCount', { count: sourceNotebook.memoCount })}
               </span>
             </div>

@@ -50,8 +50,7 @@ const zhCN = {
   "collection.banner.empty": "无图片",
   // 集合图标：头图处的图标可点击打开属性图标 picker，写入集合属性 `icon`
   "collection.icon.change": "更换图标",
-  "collection.icon.reset": "恢复默认图标",
-  "collection.icon.pickerHint": "点击图标库中的图标即可应用",
+  "collection.icon.reset": "清除图标",
   // 文件树 tab 标题行：高度 / 文字色 / 图标对齐 与表格表头同款
   "collection.filesTab.fileColumn": "名称",
   "collection.filesTab.updatedColumn": "更新时间",

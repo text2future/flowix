@@ -4,6 +4,7 @@ import { DialogFooter } from '@shared/ui/dialog-footer';
 import { useStartedLiveThreads } from './use-started-live-threads';
 
 import { removeAgentConversation } from '@features/agent/use-cases/remove-conversation';
+import { prepareConversationForOpen } from '@features/agent/use-cases/prepare-conversation-open';
 import { ConversationActionItems } from './conversation-action-items';
 import { AgentConversationHoverCard } from '@features/agent/components/agent-conversation-hover-card';
 
@@ -29,6 +30,7 @@ import { isAgentConversationRunning } from '@features/agent/store/conversation-r
 import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
 import { useActiveAgentConversationInstanceId } from '@features/workspace/public/active-conversation-api';
 import { useI18n } from '@/lib/i18n';
+import { formatTimeAgo } from '@/lib/format-time-ago';
 import { cn } from '@/lib/utils';
 import { readFavoriteConversationIds, subscribeToFavoriteConversationChanges, toggleFavoriteConversation } from '@features/agent/conversation-favorites';
 import { toast } from '@/lib/toast';
@@ -200,40 +202,30 @@ export function AgentTasksSection({
   }, [onHeightChange, tasks.items.length]);
 
   const prepareConversation = useCallback((instance: AgentConversationInstance) => {
-    useAgentSessionStore.getState().setConversationRegistry((registry) => ({
-      ...registry,
-      instances: { ...registry.instances, [instance.instanceId]: instance },
-    }));
-    if (instance.threadId) {
-      useAgentSessionStore.getState().setSessionMeta((meta) => ({
-        ...meta,
-        activeThreadIds: { ...meta.activeThreadIds, [instance.agentType]: instance.threadId! },
-        activeAgentTypeKey: instance.agentType,
-      }));
-    }
+    prepareConversationForOpen(instance);
   }, []);
 
   /**
-   * A file-tree conversation row opens in the Browser column. Every other tree
-   * row (note, folder, collection…) keeps opening in Work, so the split lives
-   * here rather than in the shared navigation use-cases.
+   * A file-tree conversation row opens in the Work column, matching notes,
+   * folders and collections; the row menu offers the Browser column, so the
+   * split lives here rather than in the shared navigation use-cases.
    */
   const openConversation = useCallback((instance: AgentConversationInstance) => {
     onConversationSelect?.(instance.instanceId);
     prepareConversation(instance);
     if (instance.threadId) useAgentSessionStore.getState().markThreadRead(instance.threadId);
-    void openWorkspaceSurface({ index: 1, target: { kind: 'agent-conversation', instanceId: instance.instanceId } }).catch((error) => {
-      logger.error('Failed to open conversation in browser column', { error });
+    void openWorkspaceSurface({ index: 0, target: { kind: 'agent-conversation', instanceId: instance.instanceId } }).catch((error) => {
+      logger.error('Failed to open conversation in work column', { error });
       toast.error(error instanceof Error ? error.message : String(error));
     });
   }, [prepareConversation, onConversationSelect]);
 
-  /** Menu escape hatch: the row click no longer targets Work. */
-  const openConversationInWorkColumn = useCallback((instance: AgentConversationInstance) => {
+  /** Menu escape hatch: the row click no longer targets the Browser column. */
+  const openConversationInBrowserColumn = useCallback((instance: AgentConversationInstance) => {
     prepareConversation(instance);
     if (instance.threadId) useAgentSessionStore.getState().markThreadRead(instance.threadId);
-    void openWorkspaceSurface({ index: 0, target: { kind: 'agent-conversation', instanceId: instance.instanceId } }).catch((error) => {
-      logger.error('Failed to open conversation in work column', { error });
+    void openWorkspaceSurface({ index: 1, target: { kind: 'agent-conversation', instanceId: instance.instanceId } }).catch((error) => {
+      logger.error('Failed to open conversation in browser column', { error });
       toast.error(error instanceof Error ? error.message : String(error));
     });
   }, [prepareConversation]);
@@ -401,7 +393,7 @@ export function AgentTasksSection({
                 <div
                   onContextMenu={(event) => showConversationContextMenu(event, instance.instanceId)}
                   className={cn(
-                    'group flex h-8 w-full items-center gap-1.5 rounded-lg px-1.5 text-left text-sm transition-colors hover:bg-[var(--muted)]',
+                    'group flex h-9 w-full items-center rounded-lg px-2 text-left text-sm transition-colors hover:bg-[var(--muted)]',
                     selected && 'bg-[var(--muted)]',
                   )}
                   style={{ marginLeft: edgeGutter, width }}
@@ -417,9 +409,12 @@ export function AgentTasksSection({
                       // Keep navigation in the sidebar, just like arrow selection.
                       event.currentTarget.focus({ preventScroll: true });
                     }}
-                    className="flex h-full min-w-0 flex-1 items-center gap-1.5 text-left focus:outline-none"
+                    className="flex h-full min-w-0 flex-1 items-center gap-2 py-1 text-left text-[var(--foreground)] focus:outline-none"
                   >
-                    <span className="relative flex h-4 w-4 shrink-0 items-center justify-center">
+                    <span className={cn(
+                      'relative flex h-4 w-4 shrink-0 items-center justify-center rounded-full',
+                      running && 'agent-conversation-list__icon--running',
+                    )}>
                       <AgentIcon typeKey={instance.agentType} alt="" className="h-4 w-4 object-contain" />
                       {(running || unread) && (
                         <span
@@ -432,11 +427,17 @@ export function AgentTasksSection({
                       )}
                     </span>
                     <span className={cn(
-                      'min-w-0 flex-1 truncate text-[var(--foreground)]',
-                      selected ? 'opacity-100' : 'opacity-[0.82]',
+                      'agent-conversation-list__title min-w-0 flex-1 select-none text-sm font-normal',
+                      selected ? 'opacity-100' : 'opacity-80',
                     )}>
                       {instance.title?.trim() || t('common.untitled')}
                     </span>
+                    <time
+                      className="shrink-0 text-xs text-[var(--muted-foreground)] group-hover:hidden"
+                      dateTime={new Date(instance.updatedAt).toISOString()}
+                    >
+                      {formatTimeAgo(instance.updatedAt, t, { compact: true })}
+                    </time>
                   </button>
                   <DropdownMenu
                     open={openMenuId === instance.instanceId}
@@ -451,8 +452,8 @@ export function AgentTasksSection({
                     <DropdownMenuContent align="end" className="w-[160px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
                       <ConversationActionItems
                         favorite={favoriteIds.has(instance.instanceId)}
-                        openHost="column-1"
-                        onOpen={() => openConversationInWorkColumn(instance)}
+                        openHost="column-2"
+                        onOpen={() => openConversationInBrowserColumn(instance)}
                         onFavorite={() => toggleFavorite(instance.instanceId)}
                         onRename={() => renameConversation(instance)}
                         onArchive={() => void removeConversation(instance, 'archive')}
@@ -471,10 +472,12 @@ export function AgentTasksSection({
                       toggleFavorite(instance.instanceId);
                     }}
                     className={cn(
-                      'shrink-0 overflow-hidden rounded p-1 text-[var(--muted-foreground)] transition-[width,opacity,color] duration-[37.5ms] hover:text-[var(--foreground)] focus-visible:opacity-100',
+                      // 折叠态必须连内边距一起归零: w-0 只压内容盒, p-1 会把按钮
+                      // 撑回 8px, 行右侧就永远留着一段没有内容的空隙。
+                      'shrink-0 overflow-hidden rounded text-[var(--muted-foreground)] transition-[width,opacity,color,padding] duration-[37.5ms] hover:text-[var(--foreground)] focus-visible:opacity-100',
                       favoriteIds.has(instance.instanceId)
-                        ? 'w-6 opacity-100'
-                        : 'w-0 opacity-0 group-focus-within:w-6 group-focus-within:opacity-100 group-hover:w-6 group-hover:opacity-100',
+                        ? 'w-6 p-1 opacity-100'
+                        : 'w-0 p-0 opacity-0 group-focus-within:w-6 group-focus-within:p-1 group-focus-within:opacity-100 group-hover:w-6 group-hover:p-1 group-hover:opacity-100',
                     )}
                   >
                     <StarIcon className="h-4 w-4" weight={favoriteIds.has(instance.instanceId) ? 'fill' : 'regular'} aria-hidden="true" />

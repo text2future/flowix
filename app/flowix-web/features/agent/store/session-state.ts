@@ -8,6 +8,14 @@ import type { ThreadListItem } from "@/types";
 import type { AgentConversationInstance } from "@features/agent/store/agent-conversation-types";
 
 export interface AgentSessionMeta {
+  /**
+   * Runtime binding only: the thread each agent type currently attaches to for
+   * sends, chunk attribution and persistence. It is deliberately column-free
+   * (a thread is a thread), so it must never drive what a column *displays* —
+   * display activation is read from that column's navigation target
+   * (`useActiveAgentConversationInstanceId`). Wiring display to this slot makes
+   * one column's navigation repaint the other column's conversation.
+   */
   activeThreadIds: Partial<Record<AgentTypeKey, string | undefined>>;
   activeAgentTypeKey: AgentTypeKey;
   threadTypes: Record<string, AgentTypeKey>;

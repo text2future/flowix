@@ -8,6 +8,7 @@ import { useNoteStore } from '@features/memo/store/note-store';
 import { joinNotebookMemoPath } from '@/lib/path';
 import { parseTableDocumentAsync } from '@features/multidimensional-table/parse-table-document';
 import { toast } from '@/lib/toast';
+import { replayEnterAnimation } from '@/lib/replay-enter-animation';
 import { applyPopoverPosition, calculateAnchoredPopoverPosition } from '../popover/popover-position';
 import {
   appendFeaturedNoteIconContent,
@@ -242,6 +243,7 @@ export class FeaturedNotesController {
       settingsPopover.hidden = !open;
       settingsButton.setAttribute("aria-expanded", String(open));
       if (open) {
+        replayEnterAnimation(settingsPopover);
         positionSettingsPopover();
         (settingsPopover.querySelector<HTMLElement>(".agent-thread-card__featured-notes-view-option")
           ?? settingsPopover.querySelector<HTMLElement>(".agent-thread-card__featured-notes-view-create"))?.focus({ preventScroll: true });

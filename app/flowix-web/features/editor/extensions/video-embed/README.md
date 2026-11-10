@@ -11,7 +11,7 @@ One `videoEmbed` node is shared by all video platforms. Platform differences bel
 | `providers/runtime.ts` | Editor-only resolver registry; platforms needing no metadata lookup have no resolver |
 | `providers/bilibili-runtime.ts` | Bilibili-specific native service calls and typed resolution |
 | `resolve.ts` | Dispatch optional runtime resolution; deduplicate in-flight requests only |
-| `markdown.ts` | Portable source link plus Flowix metadata; shared with the background parser |
+| `markdown.ts` | Portable source link plus Flowix metadata; the one Markdown spec both parse and serialize use |
 | `node.ts` | Shared Tiptap schema and HTML persistence |
 | `view.ts` | Shared rendering, dynamic source labels, asynchronous update lifecycle |
 | `player-loading.ts` | Initialization cover, visible-player timeout, reload and disposal |

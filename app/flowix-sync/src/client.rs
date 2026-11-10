@@ -4,9 +4,9 @@ use serde_json::json;
 
 use crate::error::SyncError;
 use crate::models::{
-    ApiErrorEnvelope, AppleAuthChallenge, AppleAuthorization, AuthData, CloudAiCredential,
-    CloudCheckout, CloudOrder, CloudOrderCheck, CloudProduct, CloudSubscription, DataEnvelope,
-    EntitlementData, MeData, RefreshData,
+    AccountDeletionOutcome, AccountDeletionState, ApiErrorEnvelope, AppleAuthChallenge,
+    AppleAuthorization, AuthData, CloudAiCredential, CloudCheckout, CloudOrder, CloudOrderCheck,
+    CloudProduct, CloudSubscription, DataEnvelope, EntitlementData, MeData, RefreshData,
 };
 use crate::v2::{
     V2BlobDownloadEnvelope, V2BlobReservationEnvelope, V2Bootstrap, V2ChangesPage,
@@ -39,6 +39,31 @@ fn apple_authorization_body(authorization: &AppleAuthorization) -> serde_json::V
         );
     }
     serde_json::Value::Object(body)
+}
+
+fn with_registration_client(mut body: serde_json::Value) -> serde_json::Value {
+    if let Some(fields) = body.as_object_mut() {
+        fields.insert(
+            "clientVersion".to_string(),
+            serde_json::Value::String(env!("CARGO_PKG_VERSION").to_string()),
+        );
+        let platform = match std::env::consts::OS {
+            "macos" => Some("macos"),
+            "windows" => Some("windows"),
+            _ => None,
+        };
+        if let Some(platform) = platform {
+            fields.insert(
+                "clientPlatform".to_string(),
+                serde_json::Value::String(platform.to_string()),
+            );
+        }
+    }
+    body
+}
+
+fn apple_registration_body(authorization: &AppleAuthorization) -> serde_json::Value {
+    with_registration_client(apple_authorization_body(authorization))
 }
 
 #[derive(Clone)]
@@ -109,10 +134,10 @@ impl CloudClient {
             .map_err(|error| SyncError::InvalidState(format!("invalid cloud response: {error}")))
     }
 
-    pub(crate) async fn products(&self) -> Result<Vec<CloudProduct>, SyncError> {
+    pub(crate) async fn products(&self, region: &str) -> Result<Vec<CloudProduct>, SyncError> {
         self.send::<DataEnvelope<Vec<CloudProduct>>>(
             Method::GET,
-            "/v2/catalog/products",
+            &format!("/v2/catalog/products?region={region}"),
             None,
             None,
         )
@@ -236,22 +261,76 @@ impl CloudClient {
             Method::POST,
             "/v1/auth/register",
             None,
-            Some(json!({
+            Some(with_registration_client(json!({
                 "email": email,
                 "password": password,
                 "displayName": display_name,
+            }))),
+        )
+        .await
+        .map(|value| value.data)
+    }
+
+    pub(crate) async fn login(
+        &self,
+        email: &str,
+        password: &str,
+        restore_deleted: bool,
+    ) -> Result<AuthData, SyncError> {
+        self.send::<DataEnvelope<AuthData>>(
+            Method::POST,
+            "/v1/auth/login",
+            None,
+            Some(json!({
+                "email": email,
+                "password": password,
+                "restoreDeleted": restore_deleted,
             })),
         )
         .await
         .map(|value| value.data)
     }
 
-    pub(crate) async fn login(&self, email: &str, password: &str) -> Result<AuthData, SyncError> {
-        self.send::<DataEnvelope<AuthData>>(
-            Method::POST,
-            "/v1/auth/login",
+    pub(crate) async fn account_deletion(
+        &self,
+        access_token: &str,
+    ) -> Result<AccountDeletionState, SyncError> {
+        self.send::<DataEnvelope<AccountDeletionState>>(
+            Method::GET,
+            "/v1/account/deletion",
+            Some(access_token),
             None,
-            Some(json!({ "email": email, "password": password })),
+        )
+        .await
+        .map(|value| value.data)
+    }
+
+    pub(crate) async fn delete_account(
+        &self,
+        access_token: &str,
+        confirm_email: &str,
+    ) -> Result<AccountDeletionOutcome, SyncError> {
+        self.send::<DataEnvelope<AccountDeletionOutcome>>(
+            Method::DELETE,
+            "/v1/account",
+            Some(access_token),
+            Some(json!({ "confirmEmail": confirm_email })),
+        )
+        .await
+        .map(|value| value.data)
+    }
+
+    /// The server wraps the export document in the usual `data` envelope; the
+    /// document itself is an open-ended snapshot, so it stays untyped here.
+    pub(crate) async fn account_export(
+        &self,
+        access_token: &str,
+    ) -> Result<serde_json::Value, SyncError> {
+        self.send::<DataEnvelope<serde_json::Value>>(
+            Method::GET,
+            "/v1/account/export",
+            Some(access_token),
+            None,
         )
         .await
         .map(|value| value.data)
@@ -276,7 +355,7 @@ impl CloudClient {
             Method::POST,
             "/v1/auth/apple/exchange",
             None,
-            Some(apple_authorization_body(authorization)),
+            Some(apple_registration_body(authorization)),
         )
         .await
         .map(|value| value.data)

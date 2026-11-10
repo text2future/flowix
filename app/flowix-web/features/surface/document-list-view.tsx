@@ -477,7 +477,7 @@ export function DocumentListView({ listContext, mediaLibrary = false, workDocume
       </div> : '不支持读取隐藏/系统文件夹'}
     </div>
       : (loading || (mediaLibrary && loadingLinkedItems)) && visibleItems.length === 0
-      ? workDocuments ? <WorkDocumentsLoadingSkeleton showHeader={false} />
+      ? workDocuments ? <WorkDocumentsLoadingSkeleton />
         : <div className="flex h-full min-h-[160px] items-center justify-center text-sm text-[var(--muted-foreground)]">正在整理文件列表…</div>
       : !loading && visibleItems.length === 0 && !(mediaLibrary && hasMore)
       ? <div className="flex h-full min-h-[160px] items-center justify-center text-sm text-[var(--muted-foreground)]">

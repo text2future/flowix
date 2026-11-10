@@ -1,5 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { resolveBrowserColumnLayout } from '@features/shell/hooks/browser-column-layout';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import {
+  resolveBrowserColumnLayout,
+  shouldCollapseSidebarOnBrowserExpand,
+} from '@features/shell/hooks/browser-column-layout';
 import { useResizablePanels } from '@features/shell/hooks/use-resizable-panels';
 
 // Slightly longer than --flowix-motion-duration (180ms, see styles/index.css)
@@ -8,6 +11,7 @@ import { useResizablePanels } from '@features/shell/hooks/use-resizable-panels';
 const MEMO_LIST_ANIMATION_MS = 200;
 
 interface MainPanelControllerOptions {
+  browserColumnVisible: boolean;
   browserColumnSplitRatio: number;
   documentPanelMinWidth: number;
   memoListVisible: boolean;
@@ -16,6 +20,7 @@ interface MainPanelControllerOptions {
 }
 
 export function useMainPanelController({
+  browserColumnVisible,
   browserColumnSplitRatio,
   documentPanelMinWidth,
   memoListVisible,
@@ -104,6 +109,25 @@ export function useMainPanelController({
   const handleToggleMemoList = useCallback(() => {
     setMemoListVisible(!memoListVisible);
   }, [memoListVisible, setMemoListVisible]);
+
+  // 展开右栏（column-2，覆盖显式 toggle 与列表点行/恢复会话等所有
+  // visible false→true 路径）时，若双列放不下两个最小列，在展开的同一帧
+  // 收起左侧列表侧边栏让出宽度。判定见 shouldCollapseSidebarOnBrowserExpand。
+  // 用 layout effect：收起必须在首帧 paint 前生效，否则展开瞬间会闪一帧
+  // 「侧边栏占位 + canSplit=false 网格」的溢出/横向滚动条。
+  const prevBrowserColumnVisibleRef = useRef(browserColumnVisible);
+  useLayoutEffect(() => {
+    const wasVisible = prevBrowserColumnVisibleRef.current;
+    prevBrowserColumnVisibleRef.current = browserColumnVisible;
+    if (shouldCollapseSidebarOnBrowserExpand({
+      browserColumnVisible,
+      previousBrowserColumnVisible: wasVisible,
+      memoListVisible,
+      canSplit: browserColumnLayout.canSplit,
+    })) {
+      setMemoListVisible(false);
+    }
+  }, [browserColumnVisible, browserColumnLayout.canSplit, memoListVisible, setMemoListVisible]);
 
   return {
     browserColumnLayout,

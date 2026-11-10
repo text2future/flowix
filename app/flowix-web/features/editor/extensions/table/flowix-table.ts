@@ -13,7 +13,7 @@ import {
   TableMap,
 } from '@tiptap/pm/tables';
 import { isEmptyMarkdownPlaceholderOnly } from '../../markdown-normalization';
-import { scanHead } from '@features/editor/markdown-tokenizer-start';
+import { scanHead } from '@features/editor/markdown-tokenizer-source';
 import { tableHeaderModesFromJSON } from './table-header-modes';
 import {
   applyColumnHeader,
@@ -65,7 +65,7 @@ export function tableNeedsHtml(node: JSONContent): boolean {
 }
 
 /**
- * Markdown-only table behavior, shared by the parser worker and the editor.
+ * Markdown-only table behavior shared with the editor's table extension.
  *
  * The editor replaces `renderMarkdown` through `createEditorTable()` so that
  * complex tables can be serialized as HTML with the live schema. This base

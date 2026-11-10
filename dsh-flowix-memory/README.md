@@ -17,14 +17,14 @@ local notebook data directory.
 ## Prerequisites
 
 1. A `flowix` command on `PATH` (or set `FLOWIX_CLI_PATH` to the absolute  
- `flowix-cli` binary path) is needed to use the memo operations. If it is  
- missing, the tool explains how to install Flowix from  
- `https://flowix-memo.com/latest.json`. The CLI is built from the  
- [flowix-main](https://github.com/text2future/flowix) repository  
- (`app/flowix-cli`, binary `flowix-cli`).
+   `flowix-cli` binary path) is needed to use the memo operations. If it is  
+   missing, the tool explains how to install Flowix from  
+   `https://flowix-memo.com/latest.json`. The CLI is built from the  
+   [flowix-main](https://github.com/text2future/flowix) repository  
+   (`app/flowix-cli`, binary `flowix-cli`).
 2. Access to the Flowix notebook data the CLI should manage. Defaults to the  
- user config directory (`~/.flowix`); override with `FLOWIX_HOME` when the  
- data lives elsewhere.
+   user config directory (`~/.flowix`); override with `FLOWIX_HOME` when the  
+   data lives elsewhere.
 
 ## Install
 
@@ -65,11 +65,11 @@ Prefer structured arguments:
 {"action":"search","query":"product plan","notebook":"work","tag":"project/flowix","limit":20}
 ```
 
-To read a collection, call `collection.list`, use its `collectionId` with
-`collection.describe`, then call `collection.query`. Hybrid collections need
-`domain: "notes"`, `"media"`, or `"work_documents"`. Query results for notes
-include an `address`; pass it to `{"action":"show","address":"..."}` to read
-the Markdown body. Pass the returned `snapshot` and `nextOffset` to each next
+To read a collection, call `collection.list`, use its `collectionId` with  
+`collection.describe`, then call `collection.query`. Hybrid collections need  
+`domain: "notes"`, `"media"`, or `"work_documents"`. Query results for notes  
+include an `address`; pass it to `{"action":"show","address":"..."}` to read  
+the Markdown body. Pass the returned `snapshot` and `nextOffset` to each next  
 page. Use `collection.read` when you need the raw YAML payload.
 
 ```json
@@ -83,7 +83,7 @@ accepted for compatibility but is no longer the recommended contract.
 
 ## Configuration
 
-
+<!-- flowix:table {"version":1,"columns":[{"width":237},{"width":237},{"width":236}]} -->
 | Key               | Default                | Meaning                                    |
 | ----------------- | ---------------------- | ------------------------------------------ |
 | `FLOWIX_CLI_PATH` | `flowix` (PATH lookup) | Absolute path to the flowix-cli executable |
@@ -102,9 +102,9 @@ dsh plugin --profile flowix remove dsh-flowix-memory
 ## Notes
 
 - The MCP stdio bridge strips ambient credential-like variables and all  
-`DSH_*` variables before spawning the child; other ambient variables  
-(including `HOME`/`PATH`) are inherited.
+  `DSH_*` variables before spawning the child; other ambient variables  
+  (including `HOME`/`PATH`) are inherited.
 - Flowix Desktop installs this same bundle into its `flowix` profile and sets  
-`FLOWIX_DSH_MCP_CLI`. Other DSH clients can install it into any profile and  
-use `FLOWIX_CLI_PATH` or the `flowix` executable on PATH. There is one  
-canonical bundle patch and no embedded duplicate row.
+  `FLOWIX_DSH_MCP_CLI`. Other DSH clients can install it into any profile and  
+  use `FLOWIX_CLI_PATH` or the `flowix` executable on PATH. There is one  
+  canonical bundle patch and no embedded duplicate row.

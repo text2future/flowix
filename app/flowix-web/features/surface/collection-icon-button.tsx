@@ -13,7 +13,7 @@ export interface CollectionIconPickerButtonProps {
   iconSrc?: string;
   /** 集合可编辑才允许点击换图标；否则只展示（缺集合 / 只读）。 */
   editable: boolean;
-  /** 标题左侧使用 38px 外框；头图下缘使用 45px 外框。 */
+  /** banner = 头图下缘（图标本体 h-12 w-12）；title = 标题行内（图标本体 h-10 w-10）。两者均无容器。 */
   placement: 'banner' | 'title';
   /** 当前集合属性 `icon` 的值（属性图标 value），空 = 默认图标。 */
   value: string;
@@ -23,7 +23,6 @@ export interface CollectionIconPickerButtonProps {
   onReset: () => void;
   changeLabel: string;
   resetLabel: string;
-  hintLabel: string;
 }
 
 /**
@@ -32,21 +31,21 @@ export interface CollectionIconPickerButtonProps {
  * 可编辑时点击打开属性图标 picker，写入集合属性 `icon`；不可编辑只展示。
  * 侧边栏和「全部」列表通过 CollectionResourceIcon 读取同一份集合属性。
  */
-export function CollectionIconPickerButton({ defaultIcon, iconSrc, editable, placement, value, onChange, onReset, changeLabel, resetLabel, hintLabel }: CollectionIconPickerButtonProps) {
+export function CollectionIconPickerButton({ defaultIcon, iconSrc, editable, placement, value, onChange, onReset, changeLabel, resetLabel }: CollectionIconPickerButtonProps) {
   const [open, setOpen] = useState(false);
-  // 标题图标略小，其余 chip 样式及内部图标尺寸保持一致。
-  const sizeClass = placement === 'banner' ? 'h-[45px] w-[45px]' : 'h-[38px] w-[38px]';
+  // 两个位置都去掉容器（无 tint 底色 / 无外框 / 无圆角盒 / 无 hover 底色），
+  // 图标本体直接展示，仅尺寸不同：banner h-12 w-12、title h-7 w-7。
+  // title 靠下显得沉，整体向上偏移 2px 做光学对齐。
   const containerBase = cn(
-    'collection-header-icon-tint flex shrink-0 items-center justify-center rounded-xl text-[var(--muted-foreground)]',
-    sizeClass,
+    'flex shrink-0 items-center justify-center text-[var(--muted-foreground)]',
     placement === 'title' && '-translate-y-[2px]',
-    'border border-[var(--border)]',
   );
+  const iconClassName = placement === 'banner' ? 'h-12 w-12 object-contain' : 'h-7 w-7 object-contain';
 
   if (!editable) {
     return (
       <span className={containerBase}>
-        <CollectionHeaderIcon defaultIcon={defaultIcon} iconSrc={iconSrc} />
+        <CollectionHeaderIcon defaultIcon={defaultIcon} iconSrc={iconSrc} iconClassName={iconClassName} />
       </span>
     );
   }
@@ -58,26 +57,18 @@ export function CollectionIconPickerButton({ defaultIcon, iconSrc, editable, pla
           type="button"
           aria-label={changeLabel}
           title={changeLabel}
-          className={cn(containerBase, 'transition-colors hover:bg-[var(--muted)]/60')}
+          className={containerBase}
         >
-          <CollectionHeaderIcon defaultIcon={defaultIcon} iconSrc={iconSrc} />
+          <CollectionHeaderIcon defaultIcon={defaultIcon} iconSrc={iconSrc} iconClassName={iconClassName} />
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" side="bottom" sideOffset={8} className="w-[300px] rounded-xl p-2">
         <PropertyIconPickerPanel
           value={value}
           onSelect={(next: string) => { onChange(next); setOpen(false); }}
+          onClear={() => { onReset(); setOpen(false); }}
+          clearLabel={resetLabel}
         />
-        <div className="mt-2 flex items-center justify-between border-t border-[var(--border)] pt-2">
-          <span className="text-xs text-[var(--muted-foreground)]">{hintLabel}</span>
-          <button
-            type="button"
-            onClick={() => { onReset(); setOpen(false); }}
-            className="rounded-md px-2 py-1 text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--hover-bg)] hover:text-[var(--foreground)]"
-          >
-            {resetLabel}
-          </button>
-        </div>
       </PopoverContent>
     </Popover>
   );

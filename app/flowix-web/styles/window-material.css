@@ -29,9 +29,3 @@ html[data-window-material][data-theme="mist"] {
 html[data-window-material][data-theme="mist"] .flowix-main-layout {
 	background: var(--frame-bg) !important;
 }
-
-/* Keep the editor's floating toolbar surfaces opaque over the material frame. */
-html[data-window-material][data-theme="mist"] [data-workspace-host="column-1"] .markdown-editor .editor-toolbar .toolbar-content,
-html[data-window-material][data-theme="mist"] [data-workspace-host="column-1"] .markdown-editor .editor-toolbar .toolbar-expand-handle {
-	background: var(--card) !important;
-}

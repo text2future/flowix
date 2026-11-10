@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveBrowserColumnLayout } from './browser-column-layout';
+import { resolveBrowserColumnLayout, shouldCollapseSidebarOnBrowserExpand } from './browser-column-layout';
 
 const base = {
   noteNavigationWidth: 220,
@@ -23,8 +23,8 @@ describe('resolveBrowserColumnLayout', () => {
     expect(resolveBrowserColumnLayout({ ...base, viewportWidth: 1200 })).toMatchObject({
       canSplit: false,
       availableDocumentWidth: 657,
-      mainColumnWidth: 360,
-      browserColumnWidth: 360,
+      mainColumnWidth: 420,
+      browserColumnWidth: 420,
     });
   });
 
@@ -50,12 +50,47 @@ describe('resolveBrowserColumnLayout', () => {
   it('clamps both panes to the same minimum width at the split boundary', () => {
     const layout = resolveBrowserColumnLayout({
       ...base,
-      viewportWidth: 1263,
+      viewportWidth: 1383,
       splitRatio: 0.2,
     });
 
     expect(layout.canSplit).toBe(true);
-    expect(layout.mainColumnWidth).toBe(360);
-    expect(layout.browserColumnWidth).toBe(360);
+    expect(layout.mainColumnWidth).toBe(420);
+    expect(layout.browserColumnWidth).toBe(420);
+  });
+});
+
+describe('shouldCollapseSidebarOnBrowserExpand', () => {
+  const expandWithSidebar = {
+    browserColumnVisible: true,
+    previousBrowserColumnVisible: false,
+    memoListVisible: true,
+    canSplit: false,
+  };
+
+  it('collapses the sidebar when expanding into a width that cannot fit two panes', () => {
+    expect(shouldCollapseSidebarOnBrowserExpand(expandWithSidebar)).toBe(true);
+  });
+
+  it('keeps the sidebar when the two panes fit', () => {
+    expect(shouldCollapseSidebarOnBrowserExpand({ ...expandWithSidebar, canSplit: true })).toBe(false);
+  });
+
+  it('ignores the steady visible state, so a manual sidebar reopen is not overridden', () => {
+    expect(shouldCollapseSidebarOnBrowserExpand({
+      ...expandWithSidebar,
+      previousBrowserColumnVisible: true,
+    })).toBe(false);
+  });
+
+  it('ignores collapses and hidden sidebars', () => {
+    expect(shouldCollapseSidebarOnBrowserExpand({
+      ...expandWithSidebar,
+      browserColumnVisible: false,
+    })).toBe(false);
+    expect(shouldCollapseSidebarOnBrowserExpand({
+      ...expandWithSidebar,
+      memoListVisible: false,
+    })).toBe(false);
   });
 });

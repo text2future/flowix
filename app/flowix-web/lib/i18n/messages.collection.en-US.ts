@@ -98,8 +98,7 @@ const enUS: Record<keyof typeof zhCN, string> = {
   "collection.areaMenu.importFilesFailed": "Failed to import {count} file(s)",
   "collection.areaMenu.onlyMarkdown": "Only Markdown notes (.md) can be imported",
   "collection.icon.change": "Change icon",
-  "collection.icon.reset": "Reset to default",
-  "collection.icon.pickerHint": "Pick an icon from the library",
+  "collection.icon.reset": "Clear icon",
 };
 
 export default enUS;

@@ -1,8 +1,8 @@
 use super::*;
 
 impl AccountService {
-    pub async fn products(&self) -> Result<Vec<CloudProduct>, SyncError> {
-        self.client.products().await
+    pub async fn products(&self, region: &str) -> Result<Vec<CloudProduct>, SyncError> {
+        self.client.products(region).await
     }
 
     pub async fn billing_orders(&self) -> Result<Vec<CloudOrder>, SyncError> {

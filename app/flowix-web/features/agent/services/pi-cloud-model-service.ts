@@ -1,5 +1,6 @@
 import { cloud, type CloudState } from "@platform/tauri/client";
 import { isFlowixCloudModel } from "@features/agent/config/agent-model-source";
+import { FLOWIX_CLOUD_PREVIEW_PROVIDER_ID } from "@features/agent/config/cloud-access";
 import { useAgentDataStore, type AgentModelCatalog } from "@features/agent/store/agent-data-store";
 import { loadAgentModelCatalog, refreshAgentModelCatalog } from "./agent-catalog-service";
 import {
@@ -8,6 +9,7 @@ import {
   readPiPublicCatalogCache,
   withPublicCloudModels,
   writePiPublicCatalogCache,
+  type PublicCloudModel,
 } from "./pi-public-catalog";
 
 import { createLogger } from '@/lib/logger';
@@ -20,6 +22,37 @@ const publicCatalogRefreshInterval = setInterval(() => {
   });
 }, PI_PUBLIC_CATALOG_MAX_AGE_MS);
 publicCatalogRefreshInterval.unref?.();
+
+function modelsFromPreviewCatalog(catalog: AgentModelCatalog): PublicCloudModel[] {
+  return catalog.items
+    .filter((model) => model.providerId === FLOWIX_CLOUD_PREVIEW_PROVIDER_ID)
+    .map((model) => ({
+      id: model.id,
+      title: model.label,
+      subtitle: model.subtitle,
+      creditMultiplier: model.creditMultiplier,
+      providerIconUrl: model.iconUrl,
+      sortOrder: model.sortOrder,
+    }));
+}
+
+/** Apply guest models immediately, while keeping the local Pi providers. */
+function applyGuestCatalog(
+  epoch: number,
+  models: PublicCloudModel[],
+  local = useAgentDataStore.getState().agents.pi.catalog.models,
+): AgentModelCatalog {
+  const store = useAgentDataStore.getState();
+  if (store.piCloudCatalogEpoch !== epoch || store.piCloudAccountId) {
+    return store.agents.pi.catalog.models;
+  }
+  const catalog = withPublicCloudModels({
+    ...local,
+    items: local.items.filter((model) => !isFlowixCloudModel(model)),
+  }, models);
+  store.setModelCatalog("pi", catalog);
+  return catalog;
+}
 
 /**
  * Refresh the guest catalog, then rebuild through the shared loader.
@@ -34,17 +67,37 @@ function syncGuestPublicCatalog(
   epoch: number,
 ): Promise<AgentModelCatalog> {
   const existing = pending.get(epoch);
-  const cached = readPiPublicCatalogCache(environment);
-  const isFresh = cached !== null && Date.now() - cached.fetchedAt < PI_PUBLIC_CATALOG_MAX_AGE_MS;
-  if (!options.force && isFresh) return loadAgentModelCatalog("pi", options);
   if (existing) return existing;
+  const cached = readPiPublicCatalogCache(environment);
+  const store = useAgentDataStore.getState();
+  const cachedModels = cached?.models.filter((model) =>
+    typeof model?.id === "string" && model.id.trim().length > 0,
+  ) ?? [];
+  const retainedModels = cachedModels.length
+    ? cachedModels
+    : modelsFromPreviewCatalog(store.agents.pi.catalog.models);
+  if (retainedModels.length) applyGuestCatalog(epoch, retainedModels);
+  const isFresh = !!cached && cachedModels.length > 0
+    && Date.now() - cached.fetchedAt < PI_PUBLIC_CATALOG_MAX_AGE_MS;
+  if (!options.force && isFresh) return loadAgentModelCatalog("pi", options);
 
+  let lastGoodModels = retainedModels;
   const request = cloud.piModelCatalog().then(async (response) => {
     const current = useAgentDataStore.getState();
     if (current.piCloudCatalogEpoch !== epoch || current.piCloudAccountId) {
       return current.agents.pi.catalog.models;
     }
-    writePiPublicCatalogCache(environment, response.data.models);
+    const receivedModels = response.data.models.filter((model) =>
+      typeof model?.id === "string" && model.id.trim().length > 0,
+    );
+    // A transient empty response must not erase the last usable directory.
+    // Rewriting the retained list updates its check time so an empty service
+    // response is retried on the normal daily cadence, not on every picker open.
+    const models = receivedModels.length ? receivedModels : retainedModels;
+    if (models.length) {
+      lastGoodModels = models;
+      writePiPublicCatalogCache(environment, models);
+    }
     // Rebuild through the loader so the store matches what every other path
     // produces, then re-apply the fetched list: the cache write can fail, and
     // this response is newer than whatever the loader read.
@@ -55,12 +108,10 @@ function syncGuestPublicCatalog(
     if (store.piCloudCatalogEpoch !== epoch || store.piCloudAccountId) {
       return store.agents.pi.catalog.models;
     }
-    const catalog = withPublicCloudModels(local, response.data.models);
-    store.setModelCatalog("pi", catalog);
-    return catalog;
+    return applyGuestCatalog(epoch, models, local);
   }).catch((error: unknown) => {
     logger.warn('Failed to sync public Pi Cloud model catalog', { error });
-    if (cached) return loadAgentModelCatalog("pi", options);
+    if (lastGoodModels.length) return applyGuestCatalog(epoch, lastGoodModels);
     throw error;
   }).finally(() => pending.delete(epoch));
   pending.set(epoch, request);

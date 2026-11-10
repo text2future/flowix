@@ -56,15 +56,24 @@ contract and should shrink as higher-level commands are introduced.
 Same-feature code may use its own internal paths. Tests may import internals
 when they are explicitly testing an internal unit.
 
-## Markdown parsing worker
+## Markdown parsing
 
-`features/editor/markdown-parser-extensions.ts` is the parser-only registry used
-for every Markdown document. Its extensions must come from pure Markdown
-modules; they must not import editor NodeViews, React, Tauri clients, or feature
-stores. Editor extensions reuse the same tokenizer and parse specs so parsing
-behavior stays aligned between the Worker and the interactive editor. Raw HTML
-and other unsupported forms return an explicit Worker error and use the
-existing main-thread parser fallback.
+Rich documents are parsed by the editor itself: `MarkdownEditor` constructs
+`Editor` with `contentType: 'markdown'`, so opening, external-change reloads and
+undo all share one parser. There is no Markdown Worker and no pre-parse step —
+do not reintroduce one without a measured large-document budget.
+
+`features/editor/markdown-editor-extensions.ts` is the single registry: every
+Markdown tokenizer and parse spec lives on the same extensions the editor
+mounts, so there is no second list to keep aligned. Parse-only consumers (tests,
+`npm run bench:markdown`) build a `MarkdownManager` over that registry instead of
+a copy — it reads tokenizers and parse handlers only, so nothing is mounted.
+
+Because parsing now runs on the UI thread, long notes pay for every
+per-block tokenizer scan. `markdown-list-tokenizer.ts` and
+`markdown-tokenizer-source.ts` keep those scans bounded; do not register the
+stock list extensions alongside the guarded variants (that runs the expensive
+tokenizer twice).
 
 ## Navigation transaction
 

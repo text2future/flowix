@@ -113,6 +113,9 @@ function findWikiNotePasteMatches(text: string): PasteRuleMatch[] {
 
 // ─── NodeView ─────────────────────────────────────────────────────────────────
 
+/** 双击会连发两次 click, 这个窗口内的重复"打开"只认第一次。 */
+const OPEN_BURST_GUARD_MS = 400;
+
 class NoteReferenceView implements ProseMirrorNodeView {
   dom: HTMLElement;
   contentDOM: HTMLElement | null = null;
@@ -123,6 +126,8 @@ class NoteReferenceView implements ProseMirrorNodeView {
    * 立即放弃 dispatch, 避免 dispatch 到已死的 view 触发 PM 内部错误,
    * 或把 attrs 写到错的 noteReference 节点 (pos 处已被别的节点占据). */
   private destroyed = false;
+  /** 最近一次"打开目标"的时间戳, 用于吞掉双击带来的第二次 click。 */
+  private lastOpenAt = 0;
   private previewController: NoteReferencePreviewController | null = null;
 
   constructor(node: ProseMirrorNode, view: EditorView, getPos: (() => number | undefined) | undefined, private readonly presentation: 'document' | 'composer') {
@@ -235,10 +240,19 @@ class NoteReferenceView implements ProseMirrorNodeView {
       wrapperClassName: wrapper.className,
       content: card,
       onClick: () => {
+        // 正文里单击即打开目标文档 (原来是双击): 引用本身就是"跳转",
+        // 单击不再只是把节点选中, 因此也不会再闪一下选中底。
+        if (this.presentation !== 'composer') {
+          void this.openTarget();
+          return;
+        }
         this.selectOnClick();
-        if (this.presentation === 'composer') this.previewController?.toggle();
+        this.previewController?.toggle();
       },
-      onDoubleClick: () => { void this.handleDoubleClick(); },
+      // Composer 里的 chip 单击是"预览卡片", 双击才打开笔记, 保持原行为。
+      ...(this.presentation === 'composer'
+        ? { onDoubleClick: () => { void this.openTarget(); } }
+        : {}),
       ...(this.presentation === 'composer' ? {
         hoverActions: [{
           ariaLabel: `移除笔记引用 ${noteReferenceDisplayTitle(this.node.attrs as NoteReferenceAttrs)}`,
@@ -354,7 +368,17 @@ class NoteReferenceView implements ProseMirrorNodeView {
     }
   }
 
-  private async handleDoubleClick(): Promise<void> {
+  /**
+   * 打开引用指向的文档 (正文单击 / Composer 双击共用)。
+   *
+   * 400ms 内的重复触发只认第一次: 浏览器双击会连发两次 click, 单击即打开的
+   * 语义下第二次不能把同一篇文档再打开一遍。
+   */
+  private async openTarget(): Promise<void> {
+    const now = Date.now();
+    if (now - this.lastOpenAt < OPEN_BURST_GUARD_MS) return;
+    this.lastOpenAt = now;
+
     const attrs = this.node.attrs as NoteReferenceAttrs;
     if (attrs.linkTarget && /^flowix:\/\/memo\//i.test(attrs.linkTarget)) {
       this.applyAttrs({ stale: true });

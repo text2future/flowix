@@ -1,5 +1,5 @@
 /** The main and browser document panes share the same minimum width. */
-export const BROWSER_COLUMN_MIN_WIDTH = 360;
+export const BROWSER_COLUMN_MIN_WIDTH = 420;
 export const BROWSER_COLUMN_DEFAULT_SPLIT_RATIO = 0.5;
 export const BROWSER_COLUMN_FILE_TREE_DEFAULT_WIDTH = 220;
 export const BROWSER_COLUMN_FILE_TREE_MIN_WIDTH = 200;

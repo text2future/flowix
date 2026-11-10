@@ -1,4 +1,5 @@
-import { canonicalPath } from '@/lib/path';
+import { canonicalPath, findOwningRoot } from '@/lib/path';
+import { displayTitleFromFilename } from '@/lib/utils';
 
 export interface FileBrowserBreadcrumbItem {
   label: string;
@@ -80,4 +81,54 @@ export function resolveFileBrowserBreadcrumbItems(
       } satisfies FileBrowserBreadcrumbItem;
     }),
   ];
+}
+
+/**
+ * Breadcrumb for a document header: identical path split as the file browser,
+ * but the current file is labelled with the file tree's display rule, so
+ * `AGENTS.md` reads `AGENTS` (notes, tables, indexes, HTML drop the suffix).
+ *
+ * Only the trailing file segment is rewritten; folder segments keep their raw
+ * names, and an unrenderable label (e.g. a lone `.index.yaml`) falls back to
+ * the real filename so the header never loses its identity.
+ */
+export function resolveDocumentBreadcrumbItems(
+  folderPath: string,
+  activeFilePath: string | null,
+): FileBrowserBreadcrumbItem[] {
+  return resolveFileBrowserBreadcrumbItems(folderPath, activeFilePath).map((item) => (
+    item.type === 'file' ? { ...item, label: displayTitleFromFilename(item.label) || item.label } : item
+  ));
+}
+
+export interface DocumentBreadcrumbQuery {
+  filePath: string | null | undefined;
+  /** Collection index path: collections keep their own tabbed shell, so they get no breadcrumb. */
+  collectionIndexPath?: string | null;
+  /** Candidate roots in priority order (target scope, external session, browser scope...). */
+  scopeRoots?: readonly (string | null | undefined)[];
+  /** Notebook roots for the ownership lookup; surfaces such as the file tree carry no scope. */
+  notebookRoots?: readonly string[];
+  /** Root of the tree the file was opened from; last resort, keeps a short relative trail. */
+  treeRoot?: string | null;
+}
+
+/**
+ * The one root-resolution chain for document headers, shared by both columns.
+ *
+ * Order matters: an explicit scope is authoritative, notebook ownership is the
+ * fallback when the surface carries none (file tree / access space), and the
+ * tree root only exists so the header never goes blank.
+ */
+export function resolveDocumentBreadcrumb(
+  query: DocumentBreadcrumbQuery,
+): FileBrowserBreadcrumbItem[] | null {
+  const filePath = query.filePath?.trim();
+  if (!filePath || query.collectionIndexPath) return null;
+
+  const explicitRoot = query.scopeRoots?.find((root) => Boolean(root?.trim())) ?? null;
+  const root = explicitRoot
+    ?? findOwningRoot(filePath, query.notebookRoots ?? [])
+    ?? (query.treeRoot?.trim() || null);
+  return root ? resolveDocumentBreadcrumbItems(root, filePath) : null;
 }

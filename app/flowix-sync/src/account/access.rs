@@ -55,7 +55,16 @@ impl CloudSyncAccess {
             _ => false,
         };
         if !membership.is_active_at(now) || !feature {
-            return Self::denied(CloudSyncRestriction::MembershipRequired);
+            // A lapsed plan stops writes, not access to data the account already
+            // stored. Reinstalling or switching machines must still be able to
+            // pull the index and download blobs, and a user must still be able
+            // to delete what they can no longer pay to keep.
+            return Self {
+                can_read: true,
+                can_upload: false,
+                can_delete: true,
+                restriction: Some(CloudSyncRestriction::MembershipRequired),
+            };
         }
         let limited =
             membership.read_only || membership.quota_bytes <= 0 || membership.available_bytes <= 0;
@@ -112,13 +121,30 @@ mod tests {
             assert_eq!(access, CloudSyncAccess::denied(reason));
         }
         assert_eq!(
-            CloudSyncAccess::resolve(true, CloudEntitlementStatus::Verified, Some(&grant), 100)
-                .restriction,
-            Some(CloudSyncRestriction::MembershipRequired)
+            CloudSyncAccess::resolve(true, CloudEntitlementStatus::Verified, Some(&grant), 100),
+            CloudSyncAccess {
+                can_read: true,
+                can_upload: false,
+                can_delete: true,
+                restriction: Some(CloudSyncRestriction::MembershipRequired),
+            }
         );
         assert!(
             CloudSyncAccess::resolve(true, CloudEntitlementStatus::Refreshing, Some(&grant), 50)
                 .can_upload
+        );
+    }
+    #[test]
+    fn an_expired_membership_keeps_reading_and_deleting_but_never_uploads() {
+        let mut grant = member();
+        grant.expires_at = Some(50);
+        let access =
+            CloudSyncAccess::resolve(true, CloudEntitlementStatus::Verified, Some(&grant), 50);
+        assert!(access.can_read && access.can_delete);
+        assert!(!access.can_upload);
+        assert_eq!(
+            access.restriction,
+            Some(CloudSyncRestriction::MembershipRequired)
         );
     }
     #[test]
@@ -145,11 +171,12 @@ mod tests {
         ] {
             let mut grant = member();
             grant.features = features;
-            assert_eq!(
-                CloudSyncAccess::resolve(true, CloudEntitlementStatus::Verified, Some(&grant), 50)
-                    .can_read,
-                allowed
-            );
+            let access =
+                CloudSyncAccess::resolve(true, CloudEntitlementStatus::Verified, Some(&grant), 50);
+            // Reads never depend on the feature; uploads do.
+            assert!(access.can_read);
+            assert_eq!(access.can_upload, allowed);
+            assert!(access.can_delete);
         }
     }
 }

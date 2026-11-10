@@ -7,10 +7,14 @@ import type { SurfacePresentationUpdate } from '@features/workspace/model/surfac
 import { DEFAULT_AGENT_TYPE_KEY } from '@/lib/agent-types';
 import type { AgentTypeKey } from '@/types/agent';
 import { useI18n } from '@/lib/i18n';
+import { isWindowsPlatform } from '@/lib/path';
 import { toast } from '@/lib/toast';
 import { createLogger } from '@/lib/logger';
 import { agent } from '@platform/tauri/client/agent';
 import { useAgentConversationSurface } from './use-agent-conversation-surface';
+import type { WorkspaceColumnId } from '@features/workspace/public/surface-api';
+import { clearMissingBrowserConversation } from '@features/workspace/public/browser-column-api';
+import { WorkspaceColumnContextMenu } from '@features/shell/public/work-column-api';
 import { isInitialConversationHistoryLoading } from './agent-conversation-history-loading';
 import { useAgentSessionStore } from '@features/agent/store/agent-session-store';
 import { consumeAgentConversationInitialPrompt, createAndOpenAgentConversation } from '@features/agent/use-cases/new-conversation';
@@ -124,16 +128,24 @@ function persistDetailDraft(instanceId: string, draft: string | null): void {
  */
 export function AgentConversationDetail({
   instanceId,
+  host,
   reportPresentation,
 }: {
   instanceId: string;
+  host?: WorkspaceColumnId;
   reportPresentation?: (update: SurfacePresentationUpdate) => void;
 }) {
   const { t } = useI18n();
   const { instance, status, retry } = useAgentConversationSurface(instanceId, reportPresentation);
 
+  useEffect(() => {
+    if (host === 'column-2' && status === 'not-found') {
+      clearMissingBrowserConversation(instanceId);
+    }
+  }, [host, instanceId, status]);
+
   if (instance) {
-    return <AgentConversationDetailContent key={instanceId} instanceId={instanceId} instance={instance} />;
+    return <AgentConversationDetailContent key={instanceId} instanceId={instanceId} instance={instance} host={host ?? 'column-1'} />;
   }
 
   if (reportPresentation) return null;
@@ -156,9 +168,11 @@ export function AgentConversationDetail({
 function AgentConversationDetailContent({
   instanceId,
   instance,
+  host,
 }: {
   instanceId: string;
   instance: AgentConversationInstance;
+  host: WorkspaceColumnId;
 }) {
   const { language, t } = useI18n();
   const selectedNotebookId = useNoteStore((state) => state.selectedNotebook?.id ?? null);
@@ -313,7 +327,8 @@ function AgentConversationDetailContent({
         },
         source: { kind: 'dedicated', notebookId: currentInstance.source.notebookId ?? null },
       });
-      await openWorkspaceSurface({ index: 1, target: { kind: 'agent-conversation', instanceId: fork.instanceId } });
+      // fork 出的新会话与「新建会话」同默认：开进第一列（侧边栏打开同款落点）。
+      await openWorkspaceSurface({ index: 0, target: { kind: 'agent-conversation', instanceId: fork.instanceId, blankIfMissing: true } });
     } catch (error) {
       logger.error(`Failed to fork ${agentType} conversation`, { error });
       toast.error(error instanceof Error ? error.message : String(error));
@@ -823,105 +838,108 @@ function AgentConversationDetailContent({
       style={getAgentMessageTypographyCssVars(messageFontMode, messageSizeMode) as CSSProperties}
     >
       <div ref={domRef} className="agent-thread-card agent-conversation-detail__card flex min-h-0 flex-1 flex-col">
-        <div className="agent-conversation-detail__body-shell" data-no-context-menu-scroll>
-          {document.documentElement.dataset.platform === 'mac' ? (
-            <OverlayScrollbar
-              className="agent-conversation-detail__body-frame h-full"
-              scrollerClassName="agent-thread-card__body h-full"
-              observeContent
-              scrollerRef={bodyRef}
-              onScroll={handleBodyScroll}
-              onWheel={handleBodyWheel}
-            >
-              {loadingIndicator}
-            </OverlayScrollbar>
-          ) : (
+        <WorkspaceColumnContextMenu columnId={host} isWindows={isWindowsPlatform()}>
+          <div className="agent-conversation-detail__body-shell" data-no-context-menu-scroll>
+            {document.documentElement.dataset.platform === 'mac' ? (
+              <OverlayScrollbar
+                className="agent-conversation-detail__body-frame h-full"
+                scrollerClassName="agent-thread-card__body h-full"
+                observeContent
+                scrollerRef={bodyRef}
+                onScroll={handleBodyScroll}
+                onWheel={handleBodyWheel}
+              >
+                {loadingIndicator}
+              </OverlayScrollbar>
+            ) : (
+              <div
+                ref={bodyRef}
+                className="agent-thread-card__body"
+                onScroll={handleBodyScroll}
+                onWheel={handleBodyWheel}
+              >
+                {loadingIndicator}
+              </div>
+            )}
             <div
-              ref={bodyRef}
-              className="agent-thread-card__body"
-              onScroll={handleBodyScroll}
-              onWheel={handleBodyWheel}
-            >
-              {loadingIndicator}
-            </div>
-          )}
-          <div
-            aria-hidden="true"
-            className={[
-              'pointer-events-none absolute inset-x-0 top-0 z-[3] h-2',
-              'bg-gradient-to-b from-[color-mix(in_oklch,var(--foreground)_1%,transparent)] to-transparent',
-              'transition-opacity duration-200',
-              showScrollTopHint ? 'opacity-100' : 'opacity-0',
-            ].join(' ')}
-          />
-          {showHistoryError && (
-            <div className="absolute inset-0 z-[4]">
-              <WorkspaceEmptyState
-                tone="agent"
-                message={(
-                  <span className="flex flex-col items-center gap-3">
-                    <span>{missingSession ? t('status.agent.historySessionNotFound') : t('status.agent.loadHistoryFailed')}</span>
-                    {missingSession ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="rounded-lg"
-                        onClick={() => {
-                          const notebookId = instance.source.notebookId ?? selectedNotebookId;
-                          if (notebookId) createAndOpenAgentConversation(instance.agentType, notebookId);
-                        }}
-                        disabled={!instance.source.notebookId && !selectedNotebookId}
-                      >
-                        {t('status.agent.newConversation')}
-                      </Button>
-                    ) : (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="rounded-lg"
-                        onClick={() => {
-                          if (threadId) void useAgentSessionStore.getState().loadMessages(instance.agentType, threadId);
-                        }}
-                      >
-                        {t('error.retry')}
-                      </Button>
-                    )}
-                  </span>
+              aria-hidden="true"
+              className={[
+                'pointer-events-none absolute inset-x-0 top-0 z-[3] h-2',
+                'bg-gradient-to-b from-[color-mix(in_oklch,var(--foreground)_1%,transparent)] to-transparent',
+                'transition-opacity duration-200',
+                showScrollTopHint ? 'opacity-100' : 'opacity-0',
+              ].join(' ')}
+            />
+            {showHistoryError && (
+              <div className="absolute inset-0 z-[4]" role="alert">
+                <WorkspaceEmptyState
+                  tone="agent"
+                  artwork={false}
+                  message={(
+                    <span className="flex flex-col items-center gap-3">
+                      <span>{missingSession ? t('status.agent.historySessionNotFound') : t('status.agent.loadHistoryFailed')}</span>
+                      {missingSession ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="rounded-lg"
+                          onClick={() => {
+                            const notebookId = instance.source.notebookId ?? selectedNotebookId;
+                            if (notebookId) createAndOpenAgentConversation(instance.agentType, notebookId);
+                          }}
+                          disabled={!instance.source.notebookId && !selectedNotebookId}
+                        >
+                          {t('status.agent.newConversation')}
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="rounded-lg"
+                          onClick={() => {
+                            if (threadId) void useAgentSessionStore.getState().loadMessages(instance.agentType, threadId);
+                          }}
+                        >
+                          {t('error.retry')}
+                        </Button>
+                      )}
+                    </span>
+                  )}
+                />
+              </div>
+            )}
+            {showHistoryWarning && (
+              <div className="absolute inset-x-3 top-3 z-[4] flex items-center justify-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)]/95 px-3 py-2 text-xs text-[var(--muted-foreground)] shadow-sm" role="alert">
+                <span>{missingSession ? t('status.agent.historySessionNotFound') : t('status.agent.historyRefreshFailed')}</span>
+                {missingSession ? (
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    className="rounded-lg"
+                    onClick={() => {
+                      const notebookId = instance.source.notebookId ?? selectedNotebookId;
+                      if (notebookId) createAndOpenAgentConversation(instance.agentType, notebookId);
+                    }}
+                    disabled={!instance.source.notebookId && !selectedNotebookId}
+                  >
+                    {t('status.agent.newConversation')}
+                  </Button>
+                ) : (
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    className="rounded-lg"
+                    onClick={() => {
+                      if (threadId) void useAgentSessionStore.getState().loadMessages(instance.agentType, threadId);
+                    }}
+                  >
+                    {t('error.retry')}
+                  </Button>
                 )}
-              />
-            </div>
-          )}
-          {showHistoryWarning && (
-            <div className="absolute inset-x-3 top-3 z-[4] flex items-center justify-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)]/95 px-3 py-2 text-xs text-[var(--muted-foreground)] shadow-sm" role="alert">
-              <span>{missingSession ? t('status.agent.historySessionNotFound') : t('status.agent.historyRefreshFailed')}</span>
-              {missingSession ? (
-                <Button
-                  variant="outline"
-                  size="xs"
-                  className="rounded-lg"
-                  onClick={() => {
-                    const notebookId = instance.source.notebookId ?? selectedNotebookId;
-                    if (notebookId) createAndOpenAgentConversation(instance.agentType, notebookId);
-                  }}
-                  disabled={!instance.source.notebookId && !selectedNotebookId}
-                >
-                  {t('status.agent.newConversation')}
-                </Button>
-              ) : (
-                <Button
-                  variant="ghost"
-                  size="xs"
-                  className="rounded-lg"
-                  onClick={() => {
-                    if (threadId) void useAgentSessionStore.getState().loadMessages(instance.agentType, threadId);
-                  }}
-                >
-                  {t('error.retry')}
-                </Button>
-              )}
-            </div>
-          )}
-        </div>
+              </div>
+            )}
+          </div>
+        </WorkspaceColumnContextMenu>
         <CloudAccessNotice
           accessKey={cloudAccessKey}
           agentType={instance.agentType}

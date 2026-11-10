@@ -27,9 +27,11 @@ fn mock_backend_round_trip() {
 #[test]
 fn db_backend_round_trip_against_real_sqlite() {
     // 真实 DbBackend + 临时 db 文件, 验证建表 / upsert / query / delete 全链路。
+    // 显式走 DbBackend：macOS 上 `SecretStore::new` 会选 Keychain，
+    // 单测不应写真实钥匙串。
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("default.db");
-    let store = SecretStore::new(&db_path);
+    let store = SecretStore::with_backend(Box::new(DbBackend::new(&db_path)));
 
     assert_eq!(store.backend(), KeyBackend::Database);
     assert!(!store.exists("openai_responses::default"));
@@ -93,11 +95,59 @@ fn database_permissions_are_restricted_before_storing_secrets() {
     use std::os::unix::fs::PermissionsExt;
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("secrets.db");
-    let store = SecretStore::new(&path);
+    let store = SecretStore::with_backend(Box::new(DbBackend::new(&path)));
     store.save("account", "secret").unwrap();
     assert_eq!(
         std::fs::metadata(path).unwrap().permissions().mode() & 0o777,
         0o600
+    );
+}
+
+#[test]
+fn migration_moves_rows_into_the_backend_and_clears_the_table() {
+    let directory = tempfile::tempdir().unwrap();
+    let db_path = directory.path().join("default.db");
+    let db = DbBackend::new(&db_path);
+    db.save("anthropic::default", "sk-1").unwrap();
+    db.save("flowix-cloud::default", "rt-2").unwrap();
+
+    let target = MockBackend::new(KeyBackend::Keychain);
+    assert_eq!(migrate_db_secrets(&db_path, &target).unwrap(), 2);
+
+    // db 表已清空（secure_delete 下删除即粉碎），新后端读得到值。
+    assert!(db.load("anthropic::default").unwrap().is_none());
+    assert!(db.load("flowix-cloud::default").unwrap().is_none());
+    assert_eq!(
+        target.load("anthropic::default").unwrap().unwrap().expose(),
+        "sk-1"
+    );
+    assert_eq!(
+        target
+            .load("flowix-cloud::default")
+            .unwrap()
+            .unwrap()
+            .expose(),
+        "rt-2"
+    );
+
+    // 幂等：残留行搬完后再跑是 no-op。
+    assert_eq!(migrate_db_secrets(&db_path, &target).unwrap(), 0);
+}
+
+#[test]
+fn migration_failure_keeps_rows_in_the_database() {
+    let directory = tempfile::tempdir().unwrap();
+    let db_path = directory.path().join("default.db");
+    let db = DbBackend::new(&db_path);
+    db.save("anthropic::default", "sk-1").unwrap();
+
+    let mut target = MockBackend::new(KeyBackend::Keychain);
+    target.fail_unavailable = true;
+    assert!(migrate_db_secrets(&db_path, &target).is_err());
+    // 行还在 db 里：迁移失败的兜底是继续用 db 后端，凭据不能丢。
+    assert_eq!(
+        db.load("anthropic::default").unwrap().unwrap().expose(),
+        "sk-1"
     );
 }
 

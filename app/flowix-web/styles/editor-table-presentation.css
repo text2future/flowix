@@ -28,6 +28,10 @@
 /* Default grid: square table and fills, with each shared border drawn once.
  * Themes below only supply their own borders, typography and fill variables. */
 .markdown-editor .tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table):where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  /* Opaque blend on purpose: WebKit composites shared collapsed edges twice and
+   * header fills extend under borders (background-clip: border-box), so a
+   * transparent mix would render darker on both. */
+  --flowix-default-table-edge: color-mix(in srgb, var(--foreground) 12%, var(--background));
   --flowix-row-background: initial;
   --flowix-column-background: initial;
   border-collapse: separate;
@@ -40,7 +44,7 @@
 }
 
 .markdown-editor .tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) :is(td, th):where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
-  border: 1px solid var(--border);
+  border: 1px solid var(--flowix-default-table-edge);
   border-top: none;
   border-left: none;
   border-radius: 0;
@@ -58,11 +62,11 @@
 }
 
 .markdown-editor .tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) tr > :is(td, th):first-child:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
-  border-left: 1px solid var(--border);
+  border-left: 1px solid var(--flowix-default-table-edge);
 }
 
 .markdown-editor .tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) tr:first-child > :is(td, th):where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--flowix-default-table-edge);
 }
 
 /* Themed structures override the base grid above without corner exceptions. */
@@ -149,7 +153,7 @@
 .markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="business-blue"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   --flowix-table-head-fill: #234d82;
   --flowix-table-head-ink: #fff;
-  --flowix-table-row-bottom: 1px solid var(--flowix-table-rule);
+  --flowix-table-row-bottom: 1px solid var(--flowix-default-table-edge);
 }
 
 .markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="business-blue"] tr[data-flowix-row-role="total"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
@@ -159,35 +163,34 @@
 
 .markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="striped"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   --flowix-table-head-fill: color-mix(in srgb, var(--foreground) 8%, var(--background));
-  --flowix-table-head-bottom: 1px solid var(--border);
+  --flowix-table-head-bottom: 1px solid var(--flowix-default-table-edge);
 }
 
 .markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style="striped"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   border-collapse: separate;
-  border: 1px solid var(--border);
+  border: 1px solid var(--flowix-default-table-edge);
 }
 
 .markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style="striped"] tr > :is(td, th):not(:last-child):where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
-  border-right: 1px solid var(--border);
+  border-right: 1px solid var(--flowix-default-table-edge);
 }
-
 
 .markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="striped"] tr:nth-child(odd):not(:first-child):where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   --flowix-table-cell-fill: color-mix(in srgb, var(--foreground) 2%, var(--background));
 }
 
 .markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="striped"] tr[data-flowix-row-role="total"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
-  --flowix-table-row-top: 1px solid var(--flowix-table-rule);
+  --flowix-table-row-top: 1px solid var(--flowix-default-table-edge);
 }
 
 .markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="comparison"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
-  --flowix-table-row-bottom: 1px solid var(--flowix-table-rule);
-  --flowix-table-head-top: 1px solid var(--flowix-table-rule);
-  --flowix-table-head-bottom: 1px solid var(--flowix-table-rule);
+  --flowix-table-row-bottom: 1px solid var(--flowix-default-table-edge);
+  --flowix-table-head-top: 1px solid var(--flowix-default-table-edge);
+  --flowix-table-head-bottom: 1px solid var(--flowix-default-table-edge);
 }
 
 .markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="comparison"] tr:first-child:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
-  --flowix-table-row-top: 1px solid var(--flowix-table-rule);
+  --flowix-table-row-top: 1px solid var(--flowix-default-table-edge);
 }
 
 .markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="comparison"] [data-flowix-comparison-column]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
@@ -273,7 +276,7 @@
 
 /* WebKit can composite shared collapsed edges twice. These fine-line templates
  * use one opaque theme blend so outer and inner edges have the same depth. */
-.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table):is([data-flowix-table-style="minimal"], [data-flowix-table-style="literature"], [data-flowix-table-style="comparison"]):where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table):is([data-flowix-table-style="minimal"], [data-flowix-table-style="literature"]):where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   --flowix-table-rule: color-mix(in srgb, var(--foreground) 30%, var(--background));
 }
 
@@ -455,7 +458,9 @@
   min-width: 26px;
   gap: 2px;
   padding: 0 6px;
-  font-size: 12px;
+  /* 与选区 bubble 的块类型名称 (13px) 和底部工具栏同字号, 两个气泡里的
+   * 文字密度一致; 12px 会让表格气泡看起来比选区气泡小一号。 */
+  font-size: 13px;
   line-height: 16px;
 }
 

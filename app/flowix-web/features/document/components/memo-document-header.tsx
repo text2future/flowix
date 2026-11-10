@@ -1,6 +1,13 @@
-import type { RefObject } from 'react';
+import { useCallback, type RefObject } from 'react';
 import { useAppLanguage } from '@features/preferences/public/runtime-api';
-import { translate } from '@/lib/i18n';
+import { useI18n, translate } from '@/lib/i18n';
+import { toast } from '@/lib/toast';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('memo-document-header');
+import { NotebookNoteIcon, useNotebookNoteIcon } from '@features/memo/public/shell-api';
+import { setDocumentProperties } from '@features/document/public/path-properties';
+import { IconValueInput } from '../properties/icon-value-input';
 
 import {
   MemoTitleEditor,
@@ -14,6 +21,8 @@ import type { WorkspaceColumnId } from '@features/workspace/public/host-api';
 interface MemoDocumentHeaderProps {
   displayId: string;
   filename: string;
+  /** Absolute note path; drives the note icon shown above the title. */
+  filePath?: string;
   renameTitle: RenameDocumentTitle;
   updatedAt: Date | null;
   editable: boolean;
@@ -58,6 +67,7 @@ function formatDocumentDateTime(date: Date, language: 'zh-CN' | 'en-US'): string
 export function MemoDocumentHeader({
   displayId,
   filename,
+  filePath,
   renameTitle,
   updatedAt,
   editable,
@@ -75,6 +85,38 @@ export function MemoDocumentHeader({
   titleRef,
 }: MemoDocumentHeaderProps) {
   const language = useAppLanguage();
+  const { t } = useI18n();
+  // 未设置 flowix_icon 时为 null，标题上方不渲染图标行。
+  const noteIcon = useNotebookNoteIcon(filePath ?? null);
+  // 与标题属性操作按钮同一可用性口径：只读文档禁止切换图标。
+  const iconEditingEnabled = propertyActionsEnabled ?? editable;
+  const changeNoteIcon = useCallback((next: string) => {
+    if (!filePath) return;
+    setDocumentProperties(filePath, { flowix_icon: next }).then((saved) => {
+      if (!saved) toast.error(t('media.properties.saveFailed'));
+    }).catch((error) => {
+      logger.error('设置笔记图标失败', { error });
+      toast.error(t('media.properties.saveFailed'));
+    });
+  }, [filePath, t]);
+  const titleIcon = noteIcon ? (
+    <div className="memo-title-icon-row">
+      <IconValueInput
+        value={noteIcon}
+        disabled={!iconEditingEnabled}
+        onChange={changeNoteIcon}
+        trigger={(
+          <button
+            type="button"
+            className="memo-title-note-icon-trigger"
+            aria-label={t('document.properties.category.icon')}
+          >
+            <NotebookNoteIcon icon={noteIcon} className="memo-title-note-icon" />
+          </button>
+        )}
+      />
+    </div>
+  ) : null;
   const dateLine = (
     <div className="memo-date-line">
       {updatedAt ? formatDocumentDateTime(updatedAt, language) : null}
@@ -85,6 +127,7 @@ export function MemoDocumentHeader({
       ref={titleRef}
       displayId={displayId}
       filename={filename}
+      filePath={filePath}
       renameTitle={renameTitle}
       editable={editable}
       propertyActionsEnabled={propertyActionsEnabled}
@@ -105,7 +148,10 @@ export function MemoDocumentHeader({
       <>
         <div className="source-document-date-row">{dateLine}</div>
         <div className="source-document-title-row">
-          <div className="memo-document-header">{titleEditor}</div>
+          <div className="memo-document-header">
+            {titleIcon}
+            {titleEditor}
+          </div>
         </div>
       </>
     );
@@ -114,6 +160,7 @@ export function MemoDocumentHeader({
   return (
     <div className="memo-document-header">
       {dateLine}
+      {titleIcon}
       {titleEditor}
     </div>
   );

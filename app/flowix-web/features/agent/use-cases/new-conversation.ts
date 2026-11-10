@@ -41,12 +41,12 @@ function createAgentConversationInstance(typeKey: AgentTypeKey, notebookId: stri
   });
 }
 
-/** 新会话的开屏位置。调用方显式指定，store 与焦点状态不参与推断。 */
+/** 新会话的开屏位置。缺省 0 = 第一列（与侧边栏打开一致）；调用方仍可显式指定。 */
 export type AgentConversationDestination = 0 | 1;
 
 function openAgentConversation(
   instanceId: string,
-  destination: AgentConversationDestination = 1,
+  destination: AgentConversationDestination = 0,
 ): void {
   if (destination === 1) {
     // 与对话列表点行同一条路径：browser 列自己管理 surface 与可见性。
@@ -112,7 +112,7 @@ export function createAndOpenAgentConversationWithPrompt(
       autoSend: options.autoSend === true,
     });
   }
-  openAgentConversation(instance.instanceId, options.destination ?? 1);
+  openAgentConversation(instance.instanceId, options.destination ?? 0);
 }
 
 /** Consume the one-shot initial prompt registered for a new conversation. */

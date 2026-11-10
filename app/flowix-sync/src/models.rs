@@ -6,6 +6,12 @@ pub struct CloudUser {
     pub id: String,
     pub email: String,
     pub display_name: String,
+    #[serde(default = "default_non_mainland_region")]
+    pub region: String,
+}
+
+fn default_non_mainland_region() -> String {
+    "non_mainland".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -37,6 +43,36 @@ pub(crate) struct CloudSession {
 pub(crate) struct AuthData {
     pub user: CloudUser,
     pub session: CloudSession,
+    /// Set when the sign-in revived an account that had been deleted but was
+    /// still inside its grace window. Absent for ordinary sign-ins.
+    #[serde(default)]
+    pub restored: bool,
+}
+
+/// Where a deleted account stands. `state` is one of `active`, `restorable`,
+/// `purged` or `suspended`; `restorable_until` is the deadline after which
+/// recovery stops working.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountDeletionState {
+    pub state: String,
+    pub restorable_until: Option<i64>,
+    #[serde(default)]
+    pub grace_days: u32,
+    #[serde(default)]
+    pub deleted_at: Option<i64>,
+}
+
+/// Result of starting a deletion. `pending_subscription_cancellations` lists
+/// subscriptions a payment provider refused to cancel, so the UI can point the
+/// user at the billing portal instead of claiming everything ended.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountDeletionOutcome {
+    pub state: String,
+    pub restorable_until: Option<i64>,
+    #[serde(default)]
+    pub pending_subscription_cancellations: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -162,6 +198,12 @@ fn default_cloud_models_enabled() -> bool {
 #[serde(rename_all = "camelCase")]
 pub struct CloudAiCreditBalance {
     pub balance_microcredits: i64,
+    #[serde(default)]
+    pub monthly_balance_microcredits: i64,
+    #[serde(default)]
+    pub permanent_balance_microcredits: i64,
+    #[serde(default)]
+    pub monthly_expires_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -180,6 +222,10 @@ pub struct CloudAiModel {
     pub provider_name: Option<String>,
     #[serde(default)]
     pub provider_icon_url: Option<String>,
+    /// Directory ordering advertised by Cloud: larger values come first.
+    /// Optional so credentials issued by older Cloud versions still parse.
+    #[serde(default)]
+    pub sort_order: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -201,6 +247,13 @@ pub struct CloudProduct {
     // Older Cloud catalog responses omit this field; those products are subscriptions.
     #[serde(default = "default_billing_type")]
     pub billing_type: String,
+    #[serde(default = "default_non_mainland_region")]
+    pub market_region: String,
+    // Authoritative product category since the storage/ai split. Older catalog
+    // responses omit it; the web layer then falls back to feature-based
+    // classification for cached entries.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entitlement_kind: Option<String>,
     pub entitlement: ProductEntitlement,
 }
 
@@ -284,6 +337,11 @@ pub struct CloudState {
     pub membership_status: CloudEntitlementStatus,
     pub membership_error: Option<String>,
     pub sync_access: crate::account::CloudSyncAccess,
+    /// True only for a session created by reviving a deleted account. It stays
+    /// true for the lifetime of that session so the UI can explain what
+    /// happened once, then never again.
+    #[serde(default)]
+    pub restored: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

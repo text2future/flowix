@@ -38,6 +38,7 @@ export interface NotebookCreateFormProps {
   namePlaceholder?: string;
   pathLabel: string;
   pathLocationLabel?: string;
+  pathLocationControl?: ReactNode;
   emptyPathPrimaryPrompt?: string;
   emptyPathAlternativePrompt?: string;
   addFolderLabel?: string;
@@ -133,7 +134,7 @@ export function NotebookCreateFooter({
         >
           {isBusy
             ? <><LoaderCircle size={17} className="flowix-spin" aria-hidden="true" /> {busyLabel}</>
-            : <>{submitLabel} <ChevronRight size={14} className="-ml-1" aria-hidden="true" /></>}
+            : submitLabel}
         </button>
       </div>
     </div>
@@ -249,7 +250,7 @@ export function NotebookStorageLocationList({
           type="button"
           onClick={onSelectDirectory}
           disabled={disabled}
-          className="flex h-12 w-full items-center gap-1 border-t border-[var(--border)] px-3 text-sm text-[var(--muted-foreground)] hover:bg-[var(--muted)] disabled:opacity-50"
+          className="flex h-12 w-full items-center gap-2 border-t border-[var(--border)] px-3 text-sm text-[var(--muted-foreground)] hover:bg-[var(--muted)] disabled:opacity-50"
         >
           <Plus className="h-4 w-4" aria-hidden="true" />{addFolderLabel}
         </button>
@@ -271,6 +272,7 @@ export function NotebookCreateForm({
   namePlaceholder,
   pathLabel,
   pathLocationLabel,
+  pathLocationControl,
   emptyPathPrimaryPrompt,
   emptyPathAlternativePrompt,
   addFolderLabel,
@@ -355,18 +357,19 @@ export function NotebookCreateForm({
                 ) : (
                   <label className="text-sm font-normal text-[var(--foreground)]" htmlFor={`${formId}-path`}>{pathLabel}</label>
                 )}
-                {pathLocationLabel && (
+                {pathLocationControl ?? (pathLocationLabel && (
                   <span className="inline-flex shrink-0 items-center gap-1 text-sm font-normal text-[var(--muted-foreground)]">
                     <Laptop className="h-4 w-4" aria-hidden="true" />
                     {pathLocationLabel}
                   </span>
-                )}
+                ))}
               </div>
             )}
             {hasStorageLocationList ? (
               <NotebookStorageLocationList
                 label={pathLabel}
                 locationLabel={pathLocationLabel}
+                locationControl={pathLocationControl}
                 paths={folders}
                 primaryFolderLabel={primaryFolderLabel ?? ''}
                 setPrimaryFolderLabel={setPrimaryFolderLabel ?? ''}
@@ -391,7 +394,7 @@ export function NotebookCreateForm({
                     disabled={disabled}
                     className="inline-flex h-7 w-fit items-center gap-0.5 rounded-lg bg-[var(--muted)] px-2 text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--hover-bg)] disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    <Plus className="h-4 w-4" aria-hidden="true" />
+                    <Plus className="h-3.5 w-3.5" aria-hidden="true" />
                     {addFolderLabel}
                   </button>
                   {importLabel && ((importWorkBuddyProjectLabel && importCodexProjectLabel && onImportProject) || (importObsidianVaultLabel && onImportObsidianVaults)) && (
@@ -403,10 +406,11 @@ export function NotebookCreateForm({
                           className="inline-flex h-7 w-fit items-center gap-0.5 rounded-lg bg-[var(--muted)] px-2 text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--hover-bg)] disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {importLabel}
-                          <ChevronDown className="h-4 w-4" aria-hidden="true" />
+                          <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
                         </button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" sideOffset={6} className="min-w-[180px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+                      <DropdownMenuContent align="end" sideOffset={0} className="min-w-[180px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+                        <div className="px-2 py-1.5 text-xs leading-4 text-[var(--muted-foreground)]">{t('notebook.create.readAiSpaceMenuHint')}</div>
                         {importWorkBuddyProjectLabel && importCodexProjectLabel && onImportProject && (
                           <>
                             <DropdownMenuItem

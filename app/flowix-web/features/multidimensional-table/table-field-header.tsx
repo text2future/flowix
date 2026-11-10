@@ -28,6 +28,8 @@ export interface TableFieldEditorFormProps {
   name: string;
   onNameChange: (name: string) => void;
   nameDisabled?: boolean;
+  /** 名称输入框的 placeholder / aria-label，默认「名称」。 */
+  namePlaceholder?: string;
   onNameSubmit?: () => void;
   type: TableFieldType;
   typeChoices: TableFieldType[];
@@ -63,6 +65,7 @@ export function TableFieldEditorForm({
   name,
   onNameChange,
   nameDisabled = false,
+  namePlaceholder = '名称',
   onNameSubmit,
   type,
   typeChoices,
@@ -106,9 +109,9 @@ export function TableFieldEditorForm({
         event.preventDefault();
         onNameSubmit();
       }}
-      aria-label="名称"
-      placeholder="名称"
-      className="h-8 w-full rounded-lg border border-[var(--border)] bg-transparent px-3 text-sm outline-none disabled:opacity-50"
+      aria-label={namePlaceholder}
+      placeholder={namePlaceholder}
+      className="h-8 w-full rounded-lg border border-[var(--border)] bg-transparent px-3 text-sm outline-none placeholder:text-[var(--muted-foreground)] placeholder:opacity-85 focus:placeholder:opacity-60 disabled:opacity-50"
     />
     <Popover open={typeMenuOpen} onOpenChange={onTypeMenuOpenChange}>
       <PopoverTrigger asChild>

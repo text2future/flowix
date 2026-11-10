@@ -6,7 +6,7 @@ const resolvers: Partial<Record<VideoInfo['provider'], VideoResolver>> = {
   bilibili: resolveBilibili,
 };
 
-/** This registry is editor-only; Markdown workers import pure providers instead. */
+/** Editor-only registry: resolvers talk to the app client, never to a parse path. */
 export function resolveProviderVideo(video: VideoInfo): Promise<VideoInfo> {
   const resolve = resolvers[video.provider];
   if (!resolve) return Promise.reject(new Error(`No metadata resolver for: ${video.provider}`));

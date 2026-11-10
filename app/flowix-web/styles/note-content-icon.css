@@ -1,0 +1,27 @@
+/* 笔记（.md）图标 NoteContentIcon 的深色主题补偿（浅色走组件里的 attribute 原值）。
+ *
+ * 深色（dark / mist）下图标被三重半透明叠加：
+ *   path 层 × --muted-foreground（深色主题自带 58% alpha）× 文件树 wrapper 的 0.6，
+ * M↓ 有效可见度只剩 ~0.3。所以对根类整体补偿 + 按层调亮 path：
+ *   - color: var(--foreground) 压掉 muted 色的 alpha；
+ *   - opacity: 1 抵消 .notebook-file-tree__default-file-icon 的 0.6；
+ *   - 选择器特异性 (0,2,0)，稳压单类 utility 和 wrapper。
+ * CSS opacity/color 优先于 SVG presentation attribute；层叠关系（纸面 < 折角 < 标志）两套数值都保持。
+ */
+
+:is([data-theme="dark"], [data-theme="mist"]) .note-content-icon {
+  color: var(--foreground);
+  opacity: 1;
+}
+
+:is([data-theme="dark"], [data-theme="mist"]) .note-icon__paper {
+  opacity: 0.26;
+}
+
+:is([data-theme="dark"], [data-theme="mist"]) .note-icon__fold {
+  opacity: 0.4;
+}
+
+:is([data-theme="dark"], [data-theme="mist"]) .note-icon__mark {
+  opacity: 0.85;
+}

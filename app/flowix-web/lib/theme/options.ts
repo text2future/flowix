@@ -5,7 +5,6 @@ import type { I18nKey } from '@/lib/i18n';
 export interface ThemeOption {
   id: ThemeId;
   labelKey: I18nKey;
-  descriptionKey: I18nKey;
   preview: {
     background: string;
     surface: string;
@@ -25,37 +24,31 @@ export const THEME_OPTIONS: ThemeOption[] = [
   {
     id: 'system',
     labelKey: 'theme.system.label',
-    descriptionKey: 'theme.system.description',
     preview: { background: '#ffffff', surface: '#0e1014', primary: '#e4bf46', accent: '#5262dc' },
   },
   {
     id: 'light',
     labelKey: 'theme.light.label',
-    descriptionKey: 'theme.light.description',
     preview: { background: '#ffffff', surface: '#e8ebf0', primary: '#5262DC', accent: '#e5e7eb' },
   },
   {
     id: 'dark',
     labelKey: 'theme.dark.label',
-    descriptionKey: 'theme.dark.description',
     preview: { background: '#0e1014', surface: '#16191f', primary: '#e4bf46', accent: '#262a31' },
   },
   {
     id: 'mist',
     labelKey: 'theme.mist.label',
-    descriptionKey: 'theme.mist.description',
     preview: { background: '#0e1014', surface: '#16191f', primary: '#e4bf46', accent: '#262a31' },
   },
   {
     id: 'rock',
     labelKey: 'theme.rock.label',
-    descriptionKey: 'theme.rock.description',
     preview: { background: '#fbfaf4', surface: '#fffefb', primary: '#55524d', accent: '#f5f3ed' },
   },
   {
     id: 'ember',
     labelKey: 'theme.ember.label',
-    descriptionKey: 'theme.ember.description',
     /* 预览: 近白暖纸 (#faf5ee) + 几乎纯白卡片 (#fefcf8) + CF432C 主色 +
      * 浅米描边 (#ede5d8) ── 与 ember.css v2 的 OKLCH 值取最接近的 sRGB
      * hex (ΔL<0.005), 让偏好面板小样与真实主题渲染视觉一致。 */

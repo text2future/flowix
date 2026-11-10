@@ -1,5 +1,5 @@
 import { Extension, type MarkdownToken } from '@tiptap/core';
-import { boundedSearch } from '@features/editor/markdown-tokenizer-start';
+import { boundedSearch } from '@features/editor/public/markdown-tokenizer-api';
 
 export const TABLE_REFERENCE_MARKER = 'flowix:table-reference';
 export const TABLE_REFERENCE_VERSION = 1;

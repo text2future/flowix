@@ -134,10 +134,13 @@ describe('collection shell', () => {
     expect(node.querySelector('[data-view-scope]')?.textContent).toBe('仅笔记');
     // 名字已经在大标题上，表格 nav 的小标题关掉（一个集合只出现一处名字）。
     expect(calls.tableProps.current?.showNavTitle).toBe(false);
-    // 头图下的集合图标：头图可见时叠在头图下缘（色相已改为静态混色，见 collection-banner.css）。
-    const headerIcon = node.querySelector<HTMLElement>('.collection-header-icon-tint');
-    expect(headerIcon).not.toBeNull();
-    expect(headerIcon?.querySelector('svg')).not.toBeNull();
+    // 集合图标（此场景无媒体域 → 头图隐藏，图标退到标题行左侧）：无容器盒
+    // （无 tint/外框/圆角），图标本体 h-7 w-7 直接展示，整体向上偏移 2px。
+    const headerIconButton = node.querySelector<HTMLButtonElement>('button[aria-label="更换图标"]');
+    expect(headerIconButton).not.toBeNull();
+    expect(headerIconButton?.querySelector('svg')).not.toBeNull();
+    expect(headerIconButton?.className).not.toContain('collection-header-icon-tint');
+    expect(headerIconButton?.querySelector('svg')?.classList.contains('h-7')).toBe(true);
   });
 
   it('集合变更事件更新唯一 tab 栏，不依赖表格回调', async () => {
@@ -474,7 +477,7 @@ describe('collection shell active tab', () => {
     const node = await renderShell(folderProps);
 
     // 缺集合时走的是「占位 tab + 文件树」的兜底分支，不再有那圈 rounded-xl border
-    // （集合图标本身是圆角描边，排除掉它才是这条回归要守的「内容区外框」）。
+    // （集合图标也已去容器：无 tint 也无描边，:not 排除项保留只为兼容旧类名残留）。
     expect(node.textContent).toContain('文件夹');
     expect(node.querySelector('.rounded-xl.border:not(.collection-header-icon-tint)')).toBeNull();
 

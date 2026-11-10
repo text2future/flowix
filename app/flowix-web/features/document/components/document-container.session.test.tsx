@@ -1,7 +1,7 @@
 import { act, type ComponentProps } from 'react';
 import { invoke } from '@platform/tauri/core';
 import { createRoot, type Root } from 'react-dom/client';
-import type { Editor, JSONContent } from '@tiptap/core';
+import type { Editor } from '@tiptap/core';
 import { beforeEach, afterEach, describe, it, expect, vi } from 'vitest';
 import { DocumentContainer } from './document-container';
 import { DocumentSaveNotifications } from './document-save-status';
@@ -28,16 +28,8 @@ const mocks = vi.hoisted(() => ({
   write: vi.fn(),
   rename: vi.fn(),
   publish: vi.fn(),
-  parseMarkdown: vi.fn<(markdown: string) => Promise<{
-    id: number;
-    ok: boolean;
-    document?: JSONContent;
-    workerMs?: number;
-    error?: string;
-  }>>(),
 }));
 vi.mock('@platform/tauri/core', () => ({ invoke: vi.fn(), convertFileSrc: (path: string) => `asset://localhost/${encodeURIComponent(path)}` }));
-vi.mock('@features/editor/markdown-parser', () => ({ parseMarkdownInWorker: mocks.parseMarkdown }));
 vi.mock('./lazy-document-editor', async () => ({
   LazyDocumentEditor: (await import('@features/editor/markdown-editor')).MarkdownEditor,
   preloadDocumentEditor: () => {},
@@ -126,17 +118,10 @@ describe('real document container session lifecycle', () => {
     const onContentStateChange = vi.fn();
     const onSurfaceLifecycleReady = vi.fn();
     const doc = setup(false, { onContentStateChange, onSurfaceLifecycleReady });
-    let finishParse!: (reply: {
-      id: number;
-      ok: boolean;
-      document?: JSONContent;
-      workerMs?: number;
-      error?: string;
-    }) => void;
-    mocks.parseMarkdown.mockImplementationOnce(() => new Promise((resolve) => { finishParse = resolve; }));
+    let finishRead!: (content: string) => void;
+    mocks.read.mockImplementationOnce(() => new Promise((resolve) => { finishRead = resolve; }));
     await act(async () => { doc.render(); });
     expect(mocks.read).toHaveBeenCalled();
-    expect(mocks.parseMarkdown).toHaveBeenCalledWith('Body');
     expect(doc.editors.left).toBeUndefined();
     expect(onContentStateChange).toHaveBeenLastCalledWith({ status: 'loading', retainContent: true });
     expect(onSurfaceLifecycleReady).not.toHaveBeenCalled();
@@ -144,12 +129,7 @@ describe('real document container session lifecycle', () => {
     // DocumentContainer only renders its fallback spinner without that callback.
     expect(container.querySelector('[role="status"]')).toBeNull();
     await act(async () => {
-      finishParse({
-        id: 1,
-        ok: true,
-        document: { type: 'doc', content: [{ type: 'paragraph' }] },
-        workerMs: 1,
-      });
+      finishRead('Body');
     });
     expect(doc.editors.left).toBeDefined();
     expect(onContentStateChange).toHaveBeenLastCalledWith({ status: 'ready' });
@@ -232,7 +212,6 @@ describe('real document container session lifecycle', () => {
     vi.useFakeTimers(); environment.IS_REACT_ACT_ENVIRONMENT = true;
     vi.mocked(invoke).mockReset().mockResolvedValue(undefined);
     useNoteStore.setState({ notebooks: [], selectedNotebook: null });
-    mocks.parseMarkdown.mockReset().mockRejectedValue(new Error('Web Workers are unavailable'));
     mocks.read.mockReset().mockResolvedValue('Body');
     mocks.recoveryRead.mockReset().mockResolvedValue(null);
     mocks.write.mockReset().mockImplementation(async request => ({ status: 'saved', path: request.path, content: request.content }));

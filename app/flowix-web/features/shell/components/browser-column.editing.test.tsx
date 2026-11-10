@@ -27,7 +27,7 @@ it('does not force the right document read-only when the same memo is open on th
   const tab = { id: 'memo:both', title: 'Both', icon: null, target: { kind: 'file-browser' as const, activeFilePath: target.path, folderPath: '/notes', notebookId: 'notes', scopePath: '/notes', fileTreeVisible: true, fileTreeWidth: 220 } };
   useBrowserColumnStore.getState().openContent(tab);
   try {
-    await act(async () => root.render(<BrowserColumn width={500} layoutKey="test" onResize={() => {}} toolbarCollapsed={false} onToolbarCollapsedChange={() => {}} />));
+    await act(async () => root.render(<BrowserColumn width={500} layoutKey="test" onResize={() => {}} />));
     for (const host of ['column-1', 'column-2'] as const) {
       await act(async () => useWorkspaceFocusStore.getState().focusColumn(host));
       expect(resolveSurface.mock.lastCall?.[1].readOnly).toBe(false);
@@ -47,7 +47,7 @@ it('keeps the content host and horizontal resize control mounted at narrow width
   const element = document.createElement('div');
   const root = createRoot(element);
   const resize = vi.fn();
-  const props = { width: 500, layoutKey: 'wide', onResize: resize, toolbarCollapsed: false, onToolbarCollapsedChange: () => {} };
+  const props = { width: 500, layoutKey: 'wide', onResize: resize };
   try {
     await act(async () => root.render(<BrowserColumn {...props} />));
     const host = element.querySelector('section');

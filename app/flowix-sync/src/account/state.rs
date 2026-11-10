@@ -163,6 +163,7 @@ impl AccountService {
                 entitlement.membership.as_ref(),
                 chrono::Utc::now().timestamp_millis(),
             ),
+            restored: auth.restored,
         })
     }
 
@@ -180,6 +181,8 @@ impl AccountService {
         )
     }
 
+    /// Sync stops only when the account identity or its entitlement cannot be
+    /// established. A lapsed plan still reads and deletes, so this returns `Ok`.
     pub fn require_sync_access(&self) -> Result<CloudSyncAccess, SyncError> {
         let access = self.sync_access();
         if access.can_read {
@@ -189,9 +192,9 @@ impl AccountService {
             return Err(SyncError::NotAuthenticated);
         }
         Err(SyncError::Api {
-            status: 403,
+            status: 402,
             code: "MEMBERSHIP_REQUIRED".into(),
-            message: "An active membership with cloud sync access is required".into(),
+            message: "Cloud access could not be verified for this account".into(),
             details: Some(serde_json::json!({ "restriction": access.restriction })),
         })
     }

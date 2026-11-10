@@ -6,8 +6,6 @@ import { PiCloudModelsSection } from './pi-cloud-models-section';
 const mocks = vi.hoisted(() => ({
   getAiCreditBalance: vi.fn(),
   refreshPiModelProvider: vi.fn(),
-  connectPiModelProvider: vi.fn(),
-  listPiModels: vi.fn(),
   refreshAgentModelCatalog: vi.fn(),
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
@@ -17,9 +15,7 @@ vi.mock('@platform/tauri/client', () => ({
   cloud: {
     getAiCreditBalance: mocks.getAiCreditBalance,
     refreshPiModelProvider: mocks.refreshPiModelProvider,
-    connectPiModelProvider: mocks.connectPiModelProvider,
   },
-  piModels: { list: mocks.listPiModels },
 }));
 vi.mock('@features/agent/services/agent-catalog-service', () => ({
   refreshAgentModelCatalog: mocks.refreshAgentModelCatalog,
@@ -37,10 +33,13 @@ let root: Root;
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.getAiCreditBalance.mockResolvedValue({ balanceMicrocredits: 1_000_000 });
+  mocks.getAiCreditBalance.mockResolvedValue({
+    balanceMicrocredits: 1_000_000,
+    monthlyBalanceMicrocredits: 500_000,
+    permanentBalanceMicrocredits: 500_000,
+    monthlyExpiresAt: null,
+  });
   mocks.refreshPiModelProvider.mockResolvedValue(true);
-  mocks.connectPiModelProvider.mockResolvedValue(undefined);
-  mocks.listPiModels.mockResolvedValue([]);
   mocks.refreshAgentModelCatalog.mockResolvedValue({ items: [] });
   container = document.createElement('div');
   document.body.append(container);

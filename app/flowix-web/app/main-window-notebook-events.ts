@@ -3,8 +3,8 @@ import {
   getAppNotebookPath,
   refreshAppPathNoteMetadata,
 } from '@features/memo/public/app-api';
-import { invalidateMentionNotes } from '@features/editor/extensions/note-mention/note-mention-data';
-import { invalidateMentionTags } from '@features/editor/extensions/tag-mention/tag-mention-data';
+import { invalidateMentionNotes } from '@features/editor/public/mention-data-api';
+import { invalidateMentionTags } from '@features/editor/public/mention-data-api';
 import { notifyCreatedDocument, removeCreatedDocumentNotices, moveCreatedDocumentNotices } from './created-document-notices';
 import { rebaseStoredRecoveryDraftPaths } from '@features/document/public/workspace-api';
 import { removeBrowserColumnContentByPath, applyNotebookPathMove } from '@features/workspace/public/app-api';

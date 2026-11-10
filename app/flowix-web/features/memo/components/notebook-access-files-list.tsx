@@ -36,7 +36,7 @@ const ACCESS_MENU_CLASS =
   'w-[160px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]';
 const ACCESS_MENU_ITEM_CLASS =
   'h-7 items-center justify-start gap-2 rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]';
-const ACCESS_NATIVE_ICON_NAMES = ['delete'] as const;
+const ACCESS_NATIVE_ICON_NAMES = ['split', 'delete'] as const;
 
 export function NotebookAccessFilesList({
   notebook,
@@ -93,10 +93,23 @@ export function NotebookAccessFilesList({
       <div className="space-y-0.5">
         {folderItems.map((item) => {
         const rowTitle = item.missing ? t('agent.access.pathMissing') : item.path;
-        // 单击 = 在中间列打开该文件夹的文件树 (浏览), 主空间切换完全走右键
-        // 菜单 ── 消除"单击切主空间"的隐藏语义。missing 行不可浏览。
+        // 单击 = 在主空间（第 1 列）打开该文件夹的文件树 (浏览)，与笔记/仓库
+        // 分区一致；右键菜单提供「在右栏打开」逃生口。missing 行不可浏览。
         const canBrowse = !item.missing;
         const isBrowsing = false;
+        const browseFolder = () => {
+          void openWorkspaceSurface({
+            index: 0,
+            target: createFileBrowserTarget(null, item.path, item.path),
+          });
+          onOpenFile?.(item.path);
+        };
+        const browseFolderInBrowserColumn = () => {
+          void openWorkspaceSurface({
+            index: 1,
+            target: createFileBrowserTarget(null, item.path, item.path),
+          });
+        };
         return (
           <ContextMenu key={item.path}>
             <ContextMenuTrigger asChild>
@@ -110,34 +123,27 @@ export function NotebookAccessFilesList({
                   event.preventDefault();
                   event.stopPropagation();
                   void loadNativeMenuIcons(ACCESS_NATIVE_ICON_NAMES)
-                    .then((icons) => popupNativeContextMenu(event, [{
-                      text: t('agent.access.contextDelete'),
-                      icon: icons.delete!,
-                      action: () => void handleRemoveFolder(item.path),
-                    }]))
+                    .then((icons) => popupNativeContextMenu(event, [
+                      ...(canBrowse ? [{
+                        text: t('workColumn.context.openInBrowserColumn'),
+                        icon: icons.split!,
+                        action: browseFolderInBrowserColumn,
+                      }] : []),
+                      {
+                        text: t('agent.access.contextDelete'),
+                        icon: icons.delete!,
+                        action: () => void handleRemoveFolder(item.path),
+                      },
+                    ]))
                     .catch((error) => logNativeContextMenuError('notebook access file', error));
                 }}
-                onClick={
-                  canBrowse
-                    ? () => {
-                        void openWorkspaceSurface({
-                          index: 1,
-                          target: createFileBrowserTarget(null, item.path, item.path),
-                        });
-                        onOpenFile?.(item.path);
-                      }
-                    : undefined
-                }
+                onClick={canBrowse ? browseFolder : undefined}
                 onKeyDown={
                   canBrowse
                     ? (event) => {
                         if (event.key === 'Enter' || event.key === ' ') {
                           event.preventDefault();
-                          void openWorkspaceSurface({
-                            index: 1,
-                            target: createFileBrowserTarget(null, item.path, item.path),
-                          });
-                          onOpenFile?.(item.path);
+                          browseFolder();
                         }
                       }
                     : undefined
@@ -176,6 +182,14 @@ export function NotebookAccessFilesList({
               </div>
             </ContextMenuTrigger>
             <ContextMenuContent className={ACCESS_MENU_CLASS}>
+              {canBrowse && (
+                <ContextMenuItem
+                  onClick={browseFolderInBrowserColumn}
+                  className={ACCESS_MENU_ITEM_CLASS}
+                >
+                  {t('workColumn.context.openInBrowserColumn')}
+                </ContextMenuItem>
+              )}
               <ContextMenuItem
                 onClick={() => handleRemoveFolder(item.path)}
                 className={cn(ACCESS_MENU_ITEM_CLASS, 'hover:bg-transparent hover:text-[var(--destructive)]')}

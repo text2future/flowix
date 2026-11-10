@@ -26,9 +26,9 @@ afterEach(async () => {
 });
 const button = (label: string) => node.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`);
 function Header({ physicalHost }: { physicalHost: WorkspaceColumnId }) {
-  return <ColumnProvider value={{ index: physicalHost === 'column-1' ? 0 : 1, browserVisible: true, sidebarHidden: true, navigationVisible: false, onToggleSidebar: sidebar }}>
+  return <ColumnProvider value={{ index: physicalHost === 'column-1' ? 0 : 1, browserVisible: true, sidebarHidden: true, onToggleSidebar: sidebar }}>
     <WorkspaceHeader columnId="column-1" isWindows presentation={{ identity: { title: 'Same document' } }}
-      sidebar={{ hidden: true, noteNavigationVisible: false, onToggle: sidebar }}
+      sidebar={{ hidden: true, onToggle: sidebar }}
       navigation={{ canNavigateBack: true, canNavigateForward: false, onNavigateBack: back, onNavigateForward: vi.fn() }}
       onCloseColumn={close} actions={() => <button>document commands</button>} />
   </ColumnProvider>;

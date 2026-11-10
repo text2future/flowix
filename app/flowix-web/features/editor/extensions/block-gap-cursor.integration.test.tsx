@@ -68,6 +68,17 @@ function type(editor: Editor, text: string) {
   if (!handled) editor.view.dispatch(insert());
 }
 
+/**
+ * 原生输入路径：字符由浏览器直接落进文档 (WebKit 的 DOMObserver 回读、
+ * IME 合成提交)，ProseMirror 不会再调 handleTextInput。
+ */
+function typeNative(editor: Editor, text: string, meta?: Record<string, unknown>) {
+  const { from, to } = editor.state.selection;
+  let tr = editor.state.tr.insertText(text, from, to);
+  for (const [key, value] of Object.entries(meta ?? {})) tr = tr.setMeta(key, value);
+  editor.view.dispatch(tr);
+}
+
 function press(editor: Editor, key: string) {
   editor.view.dom.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
 }
@@ -185,5 +196,60 @@ describe('block gap input integration', () => {
     expect(editor.state.doc.child(1).firstChild?.type.name).toBe('fileAttachment');
     editor.commands.undo();
     expect(editor.getJSON()).toEqual(before);
+  });
+});
+
+describe('slash trigger on native input paths', () => {
+  it('opens the menu when the character bypasses handleTextInput', async () => {
+    const editor = createEditor([{ type: 'paragraph' }]);
+    await act(async () => { editor.commands.setTextSelection(1); typeNative(editor, '/'); });
+    expect(editor.state.doc.textContent).toBe('/');
+    expect(isSlashMenuOpen(editor.view)).toBe(true);
+  });
+
+  it('opens the menu after an IME composition commit', async () => {
+    const editor = createEditor([{ type: 'paragraph' }]);
+    await act(async () => {
+      editor.commands.setTextSelection(1);
+      editor.view.dom.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+      typeNative(editor, '/');
+      editor.view.dom.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '/' }));
+    });
+    expect(isSlashMenuOpen(editor.view)).toBe(true);
+  });
+
+  it('ignores slashes typed inside a word', async () => {
+    const editor = createEditor([{ type: 'paragraph', content: [{ type: 'text', text: 'ab' }] }]);
+    await act(async () => { editor.commands.setTextSelection(4); typeNative(editor, '/'); });
+    expect(editor.state.doc.textContent).toBe('ab/');
+    expect(isSlashMenuOpen(editor.view)).toBe(false);
+  });
+
+  it('does not treat pasted or history-free edits as typing', async () => {
+    const editor = createEditor([{ type: 'paragraph' }]);
+    await act(async () => { editor.commands.setTextSelection(1); typeNative(editor, '/', { uiEvent: 'paste' }); });
+    expect(isSlashMenuOpen(editor.view)).toBe(false);
+
+    await act(async () => { editor.commands.setTextSelection(2); typeNative(editor, '/', { addToHistory: false }); });
+    expect(isSlashMenuOpen(editor.view)).toBe(false);
+  });
+
+  it('keeps the menu open while the composition buffer is still half-formed', async () => {
+    const editor = createEditor([{ type: 'paragraph' }]);
+    await act(async () => { editor.commands.setTextSelection(1); type(editor, '/'); });
+    expect(isSlashMenuOpen(editor.view)).toBe(true);
+
+    // 合成中的事务会带进半成品文本 (含空格时 query 判定为失效)，不能据此关菜单。
+    await act(async () => {
+      editor.view.dom.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+      typeNative(editor, ' ');
+    });
+    expect(isSlashMenuOpen(editor.view)).toBe(true);
+
+    await act(async () => {
+      editor.view.dom.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }));
+      await new Promise(resolve => window.setTimeout(resolve, 0));
+    });
+    expect(isSlashMenuOpen(editor.view)).toBe(false);
   });
 });

@@ -51,10 +51,6 @@ export interface DocumentContainerProps {
   // Controlled by main-layout so the titlebar button and Ctrl+F share one state.
   searchPanelOpen?: boolean;
   onSearchPanelOpenChange?: (open: boolean) => void;
-  // Toolbar collapsed — owned by main-layout. Toggled by the toolbar's own
-  // collapse/expand buttons; no focus-based show/hide.
-  toolbarCollapsed?: boolean;
-  onToolbarCollapsedChange?: (collapsed: boolean) => void;
   /** Keep this editor out of the main workspace's singleton document session. */
   documentSessionMode?: 'main' | 'isolated';
   /** Explicit host supplied by the workspace surface protocol. */

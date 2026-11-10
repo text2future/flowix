@@ -2,7 +2,7 @@ import { useColumnSessionId, useColumnIndex } from '@features/workspace/public/s
 import { ColumnProvider, type ColumnEnvironment } from './column-environment';
 import { ColumnResizeHandle } from './column-resize-handle';
 import { resolveWorkspaceHeaderModel } from '@features/workspace/public/header-api';
-import { lazy, Suspense, type CSSProperties } from 'react';
+import { lazy, Suspense, useCallback, useRef, type CSSProperties } from 'react';
 
 import { isWindowsPlatform } from '@/lib/path';
 import { useI18n } from '@/lib/i18n';
@@ -23,12 +23,14 @@ import type {
 } from '@features/workspace/public/shell-api';
 import { BROWSER_COLUMN_MIN_WIDTH } from '@features/workspace/public/shell-api';
 import { WorkColumnTitlebar } from './work-column-titlebar';
+import { EmptyWorkspaceActions } from './empty-workspace-actions';
 import { WorkColumnSelectionView } from './work-column-selection-view';
 import { MainLayoutExportNotice } from './main-layout-export-notice';
 import { MemoListPreviewEdgeTrigger } from './memo-list-preview-edge-trigger';
 import { SurfaceBoundary } from '@shared/surface-boundary';
 import { CenteredLoadingSpinner } from '@shared/ui/centered-loading-spinner';
 import type { useMainPanelController } from '@features/shell/hooks/use-main-panel-controller';
+import { useBrowserColumnAnimation } from '@features/shell/hooks/use-browser-column-animation';
 import type { useAccessSpaceSelectedPaths, useAccessSpaceSelectionContentKinds } from '@features/memo/public/shell-api';
 
 // Agent 标题栏按需加载：只在工作区当前目标是 Agent 会话时渲染，冷启动打开
@@ -55,8 +57,6 @@ export interface MainWorkColumnsProps {
   browserColumnLayout: ReturnType<typeof useMainPanelController>['browserColumnLayout'];
   browserColumnLayoutKey: ReturnType<typeof useMainPanelController>['browserColumnLayoutKey'];
   handleBrowserColumnResize: ReturnType<typeof useMainPanelController>['handleBrowserColumnResize'];
-  toolbarCollapsed: boolean;
-  setToolbarCollapsed: (value: boolean) => void;
   focusedColumnId: ReturnType<typeof useShellWorkspaceViewModel>['focusedColumnId'];
   isMemoListHidden: boolean;
   isMemoListAnimating: boolean;
@@ -93,8 +93,6 @@ export function MainWorkColumns({
   browserColumnLayout,
   browserColumnLayoutKey,
   handleBrowserColumnResize,
-  toolbarCollapsed,
-  setToolbarCollapsed,
   focusedColumnId,
   isMemoListHidden,
   isMemoListAnimating,
@@ -122,6 +120,29 @@ export function MainWorkColumns({
   const columnIndex = useColumnIndex('column-1');
   const columnHasSelection = hasMultipleDocumentsSelected && columnIndex === 0;
   const { t } = useI18n();
+  // Expand/collapse window for the right column (column-2), driven by the
+  // work-column header toggle. The toggle commit pins the pre-toggle grid
+  // template (pinStart) so no frame flashes the end layout; the next commit
+  // mounts the transition class and interpolates grid-template-columns.
+  // Outside the window the templates snap as before (drag resize / viewport
+  // resize stay instant).
+  const columnsGridRef = useRef<HTMLDivElement>(null);
+  const flushColumnsGridLayout = useCallback(() => {
+    columnsGridRef.current?.getBoundingClientRect();
+  }, []);
+  const browserColumnAnimation = useBrowserColumnAnimation(browserColumnVisible, flushColumnsGridLayout);
+  const browserColumnToggling = browserColumnAnimation.pinStart || browserColumnAnimation.running;
+  const expandedColumnsTemplate = `${browserColumnLayout.mainColumnWidth}px ${browserColumnLayout.browserColumnWidth}px`;
+  const collapsedColumnsTemplate = `${browserColumnLayout.mainColumnWidth + browserColumnLayout.browserColumnWidth}px 0px`;
+  const columnsTemplate = browserColumnAnimation.pinStart
+    // Toggle commit: pin the pre-toggle template so the transition has a
+    // matching px start value (the visible steady template is already this).
+    ? (browserColumnAnimation.startVisible ? expandedColumnsTemplate : collapsedColumnsTemplate)
+    : browserColumnAnimation.running
+      // Transition window: both ends must stay px — `minmax(0, 1fr)` is not
+      // interpolable with px tracks, so it only returns after the window.
+      ? (browserColumnVisible ? expandedColumnsTemplate : collapsedColumnsTemplate)
+      : (browserColumnVisible ? expandedColumnsTemplate : 'minmax(0, 1fr)');
   const environment = (index: ColumnEnvironment['index']): ColumnEnvironment => ({
     index, browserVisible: browserColumnVisible, sidebarHidden: isMemoListHidden,
     onToggleSidebar: handleToggleMemoList,
@@ -153,11 +174,12 @@ export function MainWorkColumns({
       className="relative isolate flex min-h-0 min-w-0 flex-1 overflow-hidden"
     >
     <div
+      ref={columnsGridRef}
       data-document-columns-layout="split"
-      className="relative isolate grid min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-hidden"
-      style={{ gridTemplateColumns: browserColumnVisible
-        ? `${browserColumnLayout.mainColumnWidth}px ${browserColumnLayout.browserColumnWidth}px`
-        : 'minmax(0, 1fr)', gridTemplateRows: 'minmax(0, 1fr)' }}
+      className={`relative isolate grid min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-hidden${
+        browserColumnAnimation.running ? ' document-columns-layout--animating' : ''
+      }`}
+      style={{ gridTemplateColumns: columnsTemplate, gridTemplateRows: 'minmax(0, 1fr)' }}
     >
     {isMemoListHidden && (
       <MemoListPreviewEdgeTrigger
@@ -252,6 +274,7 @@ export function MainWorkColumns({
             content={workColumnPresentation.content}
             focused={!columnHasSelection && focusedColumnId === 'column-1'}
             startupIdentity={JSON.stringify(navigationState.target)}
+            renderNoTargetEmpty={() => <EmptyWorkspaceActions columnId="column-1" />}
           />
         </SurfaceBoundary>
         {(workSurfaceBlockingLoading
@@ -271,14 +294,20 @@ export function MainWorkColumns({
           language={language}
           resetKeys={[browserColumnLayoutKey]}
         >
-          <ColumnProvider key="column-2" value={environment(columnIndex === 0 ? 1 : 0)}>
+          <ColumnProvider
+            key="column-2"
+            value={{
+              ...environment(columnIndex === 0 ? 1 : 0),
+              // Stay rendered while the toggle transition shrinks the track to 0.
+              browserVisible: browserColumnVisible || browserColumnToggling,
+            }}
+          >
           <BrowserColumn
             width={browserColumnLayout.browserColumnWidth}
             layoutKey={browserColumnLayoutKey}
             onResize={handleBrowserColumnResize}
-            toolbarCollapsed={toolbarCollapsed}
-            onToolbarCollapsedChange={setToolbarCollapsed}
             animated={isMemoListAnimating}
+            toggleAnimating={browserColumnToggling}
             selectionView={hasMultipleDocumentsSelected && columnIndex === 1
               ? <WorkColumnSelectionView paths={accessSpaceSelectedPaths} contentKinds={accessSpaceSelectionContentKinds} label={selectionLabel} />
               : undefined}
@@ -287,7 +316,7 @@ export function MainWorkColumns({
         </SurfaceBoundary>
       </Suspense>
     )}
-    {browserColumnVisible && (
+    {browserColumnVisible && !browserColumnToggling && (
       <div className="absolute inset-y-0 z-[70]" style={{ left: browserColumnLayout.mainColumnWidth }}>
         <ColumnResizeHandle label="调整列 2 宽度" width={browserColumnLayout.browserColumnWidth}
           direction={-1} onResize={handleBrowserColumnResize} />

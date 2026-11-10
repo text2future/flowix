@@ -67,6 +67,14 @@ const HUMAN_ENTITIES = new Set([
 // 手势 / 身体部位: 名字命中这些词的一律保留 ( thumbs up / waving hand / ear / brain …)。
 const KEEP_BODY_PARTS = /(hand|finger|fist|thumb|biceps|arm|leg|foot|footprints|ear|eye|eyes|nose|mouth|tongue|tooth|bone|brain|lungs|heart|nail|selfie|horns|salute|gesture|lip)/i;
 
+// 产品决定: 这些图标不在属性 picker 里提供 (纯白/空腔形状在浅色背景上不可见,
+// 其余为观感不佳), 同步时跳过, 资产目录里也不保留。
+const EXCLUDED_ICON_IDS = new Set([
+  'tooth', 'speech-balloon', 'left-speech-bubble', 'worm',
+  'white-circle', 'white-large-square', 'white-medium-square',
+  'white-medium-small-square', 'white-small-square',
+]);
+
 function parseArgs(argv) {
   const args = new Set(argv);
   const readValue = (flag) => {
@@ -178,7 +186,9 @@ function main() {
   const assetsDir = path.join(upstream, 'assets');
 
   const planned = [];
-  const skipped = { flags: 0, people: 0, noSvg: 0, noMetadata: 0, unknownGroup: 0 };
+  const skipped = {
+    flags: 0, people: 0, noSvg: 0, noMetadata: 0, unknownGroup: 0, excluded: 0,
+  };
   const byCategory = new Map(CATEGORY_ORDER.map((id) => [id, []]));
 
   for (const name of fs.readdirSync(assetsDir)) {
@@ -208,6 +218,10 @@ function main() {
       continue;
     }
     const id = iconIdFromFileName(path.basename(svgPath));
+    if (EXCLUDED_ICON_IDS.has(id)) {
+      skipped.excluded += 1;
+      continue;
+    }
     planned.push({ id, name, group, category, svgPath, label: meta.cldr ?? name });
     byCategory.get(category).push(id);
   }

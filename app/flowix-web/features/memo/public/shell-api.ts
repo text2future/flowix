@@ -1,8 +1,16 @@
 import { useShallow } from 'zustand/react/shallow';
 import { useNoteStore } from '@features/memo/store/note-store';
+import type { Notebook } from '@features/memo/store';
 import type { NoteTemplate } from '@platform/tauri/client';
 
 export { MemoList } from '@features/memo/components/memo-list';
+export {
+  DocumentBreadcrumbFolderPopover,
+  DocumentBreadcrumbCollapsedPopover,
+  type DocumentBreadcrumbFolderPopoverProps,
+  type DocumentBreadcrumbCollapsedItem,
+  type DocumentBreadcrumbCollapsedPopoverProps,
+} from '@features/memo/components/document-breadcrumb-folder-popover';
 export { useNotebookNoteIcon } from '@features/memo/hooks/use-notebook-note-icon';
 export { NotebookNoteIcon } from '@features/memo/components/notebook-note-icon';
 export { NotebookTreeFileIcon } from '@features/memo/components/notebook-tree-file-icon';
@@ -37,6 +45,9 @@ export function useShellMemoViewModel() {
   })));
 }
 
-/** The one list data source that must be ready before the workspace is shown. */
+/** Notebook roots only: path breadcrumbs resolve file ownership without the full view model. */
+export function useShellNotebooks(): readonly Notebook[] {
+  return useNoteStore((state) => state.notebooks);
+}
 
 export { useAccessSpaceSelectionCount, useAccessSpaceSelectedPaths, useAccessSpaceSelectionContentKinds } from '@features/memo/store/notebook-tree-selection-store';

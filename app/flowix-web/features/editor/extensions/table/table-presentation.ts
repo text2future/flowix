@@ -103,7 +103,7 @@ function backgroundAttribute(name: string, htmlName: string) {
   };
 }
 
-/** Shared by the interactive editor and the worker's HTML/Markdown schema. */
+/** Table presentation attributes, shared by the editor schema and HTML serialization. */
 export const TablePresentation = Extension.create({
   name: 'tablePresentation',
   addGlobalAttributes() {

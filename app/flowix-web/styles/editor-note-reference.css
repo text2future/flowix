@@ -1,13 +1,13 @@
 /* Note Reference — 行内笔记引用
  *
  * 形态: [📄 title] (inline 卡片, 长标题可换行)
- * 状态: 正常 / hover / 选中 / stale (链接失效)
+ * 状态: 正常 / hover (info 12% 淡底) / 键盘选中 / stale (链接失效)
  *
  * 完全对照 .editor-file-attachment 的结构 / 配色 token:
  *   - 透明底 (无边框/无阴影) — 跟文件附件卡片视觉权重一致
  *   - 颜色统一到 --document-link, 跨各主题自动适配
- *   - 选中态背景走 color-mix(--document-link 10%, transparent) 派生公式
- *   - hover 时标题和图标与正文 a:hover 同步提亮
+ *   - 键盘选中 (NodeSelection) 复用 hover 那一档 --info 淡底, 不再用品牌色
+ *   - hover 时给 --info 12% 淡底, 标题和图标同步提亮; 单击直接打开文档
  *
  * 与 file attachment 的差异: 标题放在独立的 __title 中; stale 状态降低
  * 整卡片透明度并追加状态文字。
@@ -68,7 +68,8 @@
    * hover 派生公式一致 → 鼠标悬停时和文件附件卡片同步提亮
    * 内部 __title 由自己的 className 覆写, 这里给兜底色 */
   color: var(--document-link);
-  font-weight: 500;
+  /* 与 __title 保持一致: @ 引用和正文链接同权重 */
+  font-weight: 400;
   cursor: default;
   /* 允许长标题在任意字符处断行, 避免超出编辑器宽度;
    * overflow-wrap 优先在词边界换行, 单"词"超长时强制断字. */
@@ -79,9 +80,17 @@
 }
 
 .markdown-editor .editor-note-reference:not(.agent-composer__note-reference) .note-reference__title:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
-  /* 笔记标题沿用 file-attachment 的 __name 配色 */
+  /* 笔记标题沿用 file-attachment 的 __name 配色。
+   * 字重跟正文 / 链接文字一致走 400: @ 引用和普通链接是同一种"跳转"语义,
+   * 不靠加粗抢权重 (Composer 侧的 note reference 也是 400)。 */
   color: var(--document-link);
-  font-weight: 500;
+  font-weight: 400;
+}
+
+/* hover: 整卡给一层 --info 12% 的淡底 (与文件/图片附件卡片同一档"可点"信号),
+ * 而不是把文字染成品牌色 —— 引用本身已经是文字, 底色比色块文字更克制。 */
+.markdown-editor .editor-note-reference:not(.agent-composer__note-reference) .note-reference__card:hover:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  background-color: color-mix(in oklch, var(--info) 12%, transparent);
 }
 
 /* hover 时标题和图标同步提亮
@@ -91,12 +100,12 @@
   color: color-mix(in oklch, var(--document-link), white 20%);
 }
 
-/* 节点被 NodeSelection 选中 — 与 .editor-file-attachment.is-selected 同源
- * 走 color-mix(--document-link × transparent) 派生公式, 跨主题自动适配。
- * 浓度 10% 与 .editor-file-attachment.is-selected 对齐, 选中态统一为"轻量"——
- * inline 卡片在文本行内不应铺大色块喧宾夺主, 视觉权重对齐 hover 反馈。 */
+/* 节点被 NodeSelection 选中。
+ * 单击现在直接打开文档, 不再顺手选中节点, 所以这个状态只剩键盘导航
+ * (方向键 / 拖动后) 会命中 —— 保留和 hover 同一档的 --info 淡底作为"当前
+ * 焦点在这个原子节点上"的提示, 不再用品牌色铺底。 */
 .markdown-editor .editor-note-reference:not(.agent-composer__note-reference).is-selected .note-reference__card:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
-  background-color: color-mix(in oklch, var(--document-link) 10%, transparent);
+  background-color: color-mix(in oklch, var(--info) 12%, transparent);
 }
 
 /* ─── Stale state (链接失效) ──────────────────────────────────────────────────

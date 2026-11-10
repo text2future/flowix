@@ -67,6 +67,22 @@ export function samePath(left: string, right: string): boolean {
   return canonicalPath(left) === canonicalPath(right);
 }
 
+/**
+ * Longest root that contains the path (notebook/repository ownership).
+ *
+ * Ownership must not depend on which notebook happens to be selected, so every
+ * host that shows a path breadcrumb resolves the root the same way.
+ */
+export function findOwningRoot(filePath: string | null | undefined, roots: readonly string[]): string | null {
+  if (!filePath) return null;
+  let owner: string | null = null;
+  for (const root of roots) {
+    if (notebookRelativeDirectoryPath(root, filePath) === null) continue;
+    if (!owner || root.length > owner.length) owner = root;
+  }
+  return owner;
+}
+
 /** Whether a path is the directory itself or one of its descendants. */
 export function isPathInDirectory(path: string, directoryPath: string): boolean {
   const candidate = pathComparisonKey(path);

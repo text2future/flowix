@@ -6,8 +6,8 @@ import { useMemoListHoverPreview } from './use-memo-list-hover-preview';
 
 let currentPreview!: ReturnType<typeof useMemoListHoverPreview>;
 
-function PreviewHarness({ navigationDrawerPhase }: { navigationDrawerPhase: 'closed' | 'open' | 'closing' }) {
-  currentPreview = useMemoListHoverPreview(true, navigationDrawerPhase);
+function PreviewHarness({ enabled }: { enabled: boolean }) {
+  currentPreview = useMemoListHoverPreview(enabled);
   return <output data-preview-phase={currentPreview.phase} />;
 }
 
@@ -28,113 +28,110 @@ describe('useMemoListHoverPreview', () => {
     vi.useRealTimers();
   });
 
-  it('holds an open preview while the navigation drawer is open', async () => {
+  it('opens the preview after the hover delay', async () => {
     await act(async () => {
-      root.render(<PreviewHarness navigationDrawerPhase="closed" />);
+      root.render(<PreviewHarness enabled={true} />);
     });
     await act(async () => {
       currentPreview.handleTriggerEnter();
-      vi.advanceTimersByTime(420);
+      vi.advanceTimersByTime(419);
     });
-    expect(host.querySelector('output')?.getAttribute('data-preview-phase')).toBe('open');
+    expect(host.querySelector('output')?.getAttribute('data-preview-phase')).toBe('closed');
 
     await act(async () => {
-      root.render(<PreviewHarness navigationDrawerPhase="open" />);
+      vi.advanceTimersByTime(1);
     });
-    await act(async () => {
-      currentPreview.handlePreviewLeave();
-      vi.advanceTimersByTime(400);
-    });
-
     expect(host.querySelector('output')?.getAttribute('data-preview-phase')).toBe('open');
   });
 
-  it('releases the preview after the navigation transition completes', async () => {
+  it('closes through the closing animation after the pointer leaves', async () => {
     await act(async () => {
-      root.render(<PreviewHarness navigationDrawerPhase="closed" />);
+      root.render(<PreviewHarness enabled={true} />);
     });
     await act(async () => {
       currentPreview.handleTriggerEnter();
       vi.advanceTimersByTime(420);
     });
     await act(async () => {
-      root.render(<PreviewHarness navigationDrawerPhase="open" />);
-    });
-    await act(async () => {
-      root.render(<PreviewHarness navigationDrawerPhase="closing" />);
-    });
-    await act(async () => {
-      currentPreview.handlePreviewLeave();
-      vi.advanceTimersByTime(400);
-    });
-    expect(host.querySelector('output')?.getAttribute('data-preview-phase')).toBe('open');
-    await act(async () => {
-      root.render(<PreviewHarness navigationDrawerPhase="closed" />);
-    });
-    await act(async () => {
+      currentPreview.handleTriggerLeave();
       vi.advanceTimersByTime(149);
     });
     expect(host.querySelector('output')?.getAttribute('data-preview-phase')).toBe('open');
 
     await act(async () => {
-      // The drawer transition is complete before the normal close delay and
-      // leave animation begin.
-      vi.advanceTimersByTime(150 + 160 + 1);
+      vi.advanceTimersByTime(1);
+    });
+    expect(host.querySelector('output')?.getAttribute('data-preview-phase')).toBe('closing');
+
+    await act(async () => {
+      vi.advanceTimersByTime(159);
+    });
+    expect(host.querySelector('output')?.getAttribute('data-preview-phase')).toBe('closing');
+
+    await act(async () => {
+      vi.advanceTimersByTime(1);
     });
     expect(host.querySelector('output')?.getAttribute('data-preview-phase')).toBe('closed');
   });
 
-  it('keeps the preview open when the pointer lands on it after the drawer closes', async () => {
+  it('cancels the close when the pointer lands on the preview', async () => {
     await act(async () => {
-      root.render(<PreviewHarness navigationDrawerPhase="closed" />);
+      root.render(<PreviewHarness enabled={true} />);
     });
     await act(async () => {
       currentPreview.handleTriggerEnter();
       vi.advanceTimersByTime(420);
     });
-
-    const preview = document.createElement('div');
-    preview.dataset.memoListHoverPreview = '';
-    host.appendChild(preview);
-    const originalElementFromPoint = document.elementFromPoint;
-    Object.defineProperty(document, 'elementFromPoint', {
-      configurable: true,
-      value: () => preview,
-    });
-
-    try {
-      await act(async () => {
-        window.dispatchEvent(new MouseEvent('pointermove', { clientX: 10, clientY: 10 }));
-        root.render(<PreviewHarness navigationDrawerPhase="open" />);
-      });
-      await act(async () => {
-        root.render(<PreviewHarness navigationDrawerPhase="closed" />);
-        vi.advanceTimersByTime(150 + 160 + 1);
-      });
-
-      expect(host.querySelector('output')?.getAttribute('data-preview-phase')).toBe('open');
-    } finally {
-      if (originalElementFromPoint) {
-        Object.defineProperty(document, 'elementFromPoint', {
-          configurable: true,
-          value: originalElementFromPoint,
-        });
-      } else {
-        Reflect.deleteProperty(document, 'elementFromPoint');
-      }
-      preview.remove();
-    }
-  });
-
-  it('does not create a preview from the navigation drawer alone', async () => {
     await act(async () => {
-      root.render(<PreviewHarness navigationDrawerPhase="open" />);
+      currentPreview.handleTriggerLeave();
+      vi.advanceTimersByTime(100);
     });
     await act(async () => {
-      currentPreview.handleCompanionSurfaceEnter();
+      currentPreview.handlePreviewEnter();
       vi.advanceTimersByTime(1000);
     });
+    expect(host.querySelector('output')?.getAttribute('data-preview-phase')).toBe('open');
 
+    await act(async () => {
+      currentPreview.handlePreviewLeave();
+      vi.advanceTimersByTime(150 + 160 + 1);
+    });
+    expect(host.querySelector('output')?.getAttribute('data-preview-phase')).toBe('closed');
+  });
+
+  it('reopens immediately when the pointer returns during the leave animation', async () => {
+    await act(async () => {
+      root.render(<PreviewHarness enabled={true} />);
+    });
+    await act(async () => {
+      currentPreview.handleTriggerEnter();
+      vi.advanceTimersByTime(420);
+    });
+    await act(async () => {
+      currentPreview.handleTriggerLeave();
+      vi.advanceTimersByTime(150 + 80);
+    });
+    expect(host.querySelector('output')?.getAttribute('data-preview-phase')).toBe('closing');
+
+    await act(async () => {
+      currentPreview.handleTriggerEnter();
+    });
+    expect(host.querySelector('output')?.getAttribute('data-preview-phase')).toBe('open');
+  });
+
+  it('resets to closed when disabled', async () => {
+    await act(async () => {
+      root.render(<PreviewHarness enabled={true} />);
+    });
+    await act(async () => {
+      currentPreview.handleTriggerEnter();
+      vi.advanceTimersByTime(420);
+    });
+    expect(host.querySelector('output')?.getAttribute('data-preview-phase')).toBe('open');
+
+    await act(async () => {
+      root.render(<PreviewHarness enabled={false} />);
+    });
     expect(host.querySelector('output')?.getAttribute('data-preview-phase')).toBe('closed');
   });
 });

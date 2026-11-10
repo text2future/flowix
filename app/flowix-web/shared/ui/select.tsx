@@ -371,9 +371,11 @@ function SelectContent({
 		<div
 			ref={contentRef}
 			onScroll={handleScroll}
-			style={{ ...position, ...style }}
+			// `animate-in …` 是 tw-animate-css 的死类 (Tailwind v3 不生成),
+			// 换成共享关键帧类; select 通常向下弹出, origin 取顶部。
+			style={{ transformOrigin: "top center", ...position, ...style }}
 			className={cn(
-				"z-[150] min-w-[180px] bg-[var(--card)] border border-[var(--border-popup)] rounded-lg shadow-lg px-1.5 py-2 animate-in fade-in-0 zoom-in-95",
+				"z-[150] min-w-[180px] bg-[var(--card)] border border-[var(--border-popup)] rounded-lg shadow-lg px-1.5 py-2 flowix-popover-enter",
 				fitViewport && "overflow-y-auto overscroll-contain [scrollbar-gutter:stable]",
 				className
 			)}

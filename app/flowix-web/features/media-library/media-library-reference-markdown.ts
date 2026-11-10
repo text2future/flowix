@@ -1,5 +1,5 @@
 import { Extension, type MarkdownToken } from '@tiptap/core';
-import { boundedSearch } from '@features/editor/markdown-tokenizer-start';
+import { boundedSearch } from '@features/editor/public/markdown-tokenizer-api';
 
 export const MEDIA_LIBRARY_REFERENCE_MARKER = 'flowix:media-library-reference';
 export const MEDIA_LIBRARY_REFERENCE_VERSION = 1;

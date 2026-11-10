@@ -111,7 +111,12 @@ class TableReferenceNodeView implements ProseMirrorNodeView {
   destroy() {
     this.destroyed = true;
     this.view.dom.removeEventListener(EDITOR_EDITABILITY_CHANGE_EVENT, this.handleEditabilityChange);
-    this.root.unmount();
+    // 编辑器重建时本 destroy 会被 EditorView 的 updateState 同步调用，可能
+    // 正处于 React 渲染/提交期间；同步 unmount 会触发 "Attempted to
+    // synchronously unmount a root while React was already rendering" 竞态。
+    // 推迟到宏任务与当前渲染周期解耦（node view 的 dom 已脱离文档，残留无碍）。
+    const { root } = this;
+    window.setTimeout(() => root.unmount(), 0);
   }
 }
 

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useI18n } from '@/lib/i18n';
 import { getAgentType } from '@/lib/agent-types';
 import { getAgentConversationPresentation } from '@features/agent/conversation-presentation';
@@ -9,7 +10,9 @@ import type { SurfacePresentationUpdate, SurfaceState } from '@features/workspac
 /** Domain hydration and display data shared by both workspace hosts. */
 export function useAgentConversationSurface(instanceId: string, reportPresentation?: (update: SurfacePresentationUpdate) => void) {
   const { t } = useI18n();
-  const instance = useAgentSessionStore((state) => state.getInstance(instanceId));
+  // Shallow-compare the instance: another column registering an equal snapshot
+  // must not re-render this surface's conversation tree.
+  const instance = useAgentSessionStore(useShallow((state) => state.getInstance(instanceId)));
   const isInitialHistoryLoading = useAgentSessionStore((state) => {
     const projection = instance?.threadId ? state.threadProjections[instance.threadId] : undefined;
     return isInitialConversationHistoryLoading(

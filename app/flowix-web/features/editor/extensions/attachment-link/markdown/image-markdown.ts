@@ -1,5 +1,5 @@
 import { Extension, type MarkdownParseHelpers, type MarkdownToken } from '@tiptap/core';
-import { scanHead } from '@features/editor/markdown-tokenizer-start';
+import { scanHead } from '@features/editor/markdown-tokenizer-source';
 import { decodeStorageKey } from './asset-markdown';
 import { parseFlowixMediaStyleComment, parseFlowixMediaStyleSuffix } from './media-style';
 

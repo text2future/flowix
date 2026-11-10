@@ -6,7 +6,6 @@ import { Editor, Extension, renderNestedMarkdownContent } from '@tiptap/core';
 import type { JSONContent } from '@tiptap/core';
 import { NodeSelection } from '@tiptap/pm/state';
 import StarterKit from '@tiptap/starter-kit';
-import { TaskList } from '@tiptap/extension-task-list';
 import { ListItem } from '@tiptap/extension-list';
 import { Markdown } from '@tiptap/markdown';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -42,8 +41,10 @@ import type { TablePluginOptions } from '@features/editor/extensions/table/table
 import { getCurrentAppLanguage } from '@features/preferences/public/runtime-api';
 import { translate } from '@/lib/i18n/provider';
 import { BlockGapCursor } from './extensions/block-gap-cursor';
+import { EditorFirstBlockMark } from './extensions/editor-first-block-mark';
+import { HorizontalRuleBackspace } from '@features/editor/extensions/horizontal-rule-backspace';
 import { StableCaret } from '@features/editor/extensions/stable-caret';
-import { MarkdownParagraph, MarkdownTaskItem } from './markdown-parser-common-extensions';
+import { MarkdownParagraph, MarkdownTaskItem, GuardedTaskList } from './markdown-parser-common-extensions';
 import { isEmptyMarkdownPlaceholderOnly } from './markdown-normalization';
 import type { WorkspaceColumnId } from '@features/workspace/public/host-api';
 
@@ -321,11 +322,14 @@ export function createMarkdownEditorExtensions({
   getPlaceholder,
 }: MarkdownEditorExtensionContext, codeBlockExtension = CodeBlockShikiBase) {
   // Event order follows extension priority, not this array's visual order:
-  // gap input normalization (1200) > slash menu (1150) > managed paste (1100)
-  // > editing handlers such as TabCharacter (1000) > gap navigation (50).
+  // gap input normalization (1200) > slash menu (1150) > managed paste and the
+  // divider Backspace crossing (1100) > editing handlers such as TabCharacter
+  // (1000) > gap navigation (50).
   // Keep paste on its existing pipeline; the host's editorProps handlers run
   // before plugins and must also defer to an active slash menu.
-  return [
+  // Grouped by concern; the array order is load-bearing (see the snapshot test
+  // in `markdown-editor-extensions.test.ts`), so groups are spread in place.
+  const schemaAndTextExtensions = [
     StarterKit.configure({
       heading: { levels: [1, 2, 3, 4] },
       dropcursor: false,
@@ -350,6 +354,9 @@ export function createMarkdownEditorExtensions({
     MarkdownEscape,
     HTMLStrongFallback,
     LegacyAdjacentStrongMarkdown,
+  ];
+
+  const blockAndMediaExtensions = [
     AttachmentLink.configure({ ownerPath, getOwnerPath, getNotebookId: getAttachmentNotebookId, getImageContext }),
     MarkdownLink,
     LinkSelectionHighlight,
@@ -361,7 +368,10 @@ export function createMarkdownEditorExtensions({
     MediaLibraryReference,
     FlowixHighlight.configure({ multicolor: true }),
     createTablePlugin({ labels: tableControlLabels() }),
-    TaskList,
+  ];
+
+  const markdownSpecAndPasteExtensions = [
+    GuardedTaskList,
     PreservedTaskItem.configure({ nested: true }),
     Markdown.configure({ markedOptions: { gfm: true, breaks: true } }),
     Placeholder.configure({
@@ -387,6 +397,9 @@ export function createMarkdownEditorExtensions({
       } : undefined,
     }),
     MarkdownPaste,
+  ];
+
+  const documentChromeExtensions = [
     Frontmatter.configure({
       propertyTargetId,
       onPropertyAreaHoverChange,
@@ -398,7 +411,12 @@ export function createMarkdownEditorExtensions({
     WikiNoteMention,
     TagMention,
     BlockGapCursor,
+    EditorFirstBlockMark,
+    HorizontalRuleBackspace,
     StableCaret,
+  ];
+
+  const interactionExtensions = [
     AgentThreadCard.configure({ workspaceHost }),
     SlashMenu,
     TabCharacter,
@@ -407,5 +425,13 @@ export function createMarkdownEditorExtensions({
     MenuPinExtension,
     BlockDragExtension,
     ListTypeShortcuts,
+  ];
+
+  return [
+    ...schemaAndTextExtensions,
+    ...blockAndMediaExtensions,
+    ...markdownSpecAndPasteExtensions,
+    ...documentChromeExtensions,
+    ...interactionExtensions,
   ];
 }

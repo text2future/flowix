@@ -90,6 +90,8 @@ export function FolderFileTree({
   tree,
   fileIcon: FileIcon = ContentFileIcon,
   folderIcon: FolderIcon,
+  headerLeading,
+  showRowMenu = true,
 }: {
   folderPath: string;
   folderName: string;
@@ -108,6 +110,11 @@ export function FolderFileTree({
   /** Optional icon renderers let the resource tree use its own visual language. */
   fileIcon?: FileTreeFileIcon;
   folderIcon?: FileTreeFolderIcon;
+  /** Rendered before the title so an enclosing popover can add a back button
+      without printing the folder name a second time above the tree. */
+  headerLeading?: ReactNode;
+  /** Popover trees hide the row-end `···` menu; right-click still offers the same actions. */
+  showRowMenu?: boolean;
 }) {
   const { t } = useI18n();
   const [showScrollTopHint, setShowScrollTopHint] = useState(false);
@@ -348,81 +355,83 @@ export function FolderFileTree({
                       ariaLabel={t('memo.fileTree.loading')}
                     />
                   )}
-                  <DropdownMenu
-                    open={openMenuId === item.id}
-                    onOpenChange={(open) => setOpenMenuId(open ? item.id : null)}
-                  >
-                    <DropdownMenuTrigger
-                      asChild
-                      onClick={(event) => event.stopPropagation()}
+                  {showRowMenu && (
+                    <DropdownMenu
+                      open={openMenuId === item.id}
+                      onOpenChange={(open) => setOpenMenuId(open ? item.id : null)}
                     >
-                      <button
-                        type="button"
-                        aria-label={t('memo.fileTree.moreActions')}
-                        title={t('memo.fileTree.moreActions')}
-                        onMouseDown={(event) => event.stopPropagation()}
-                        onPointerDown={(event) => event.stopPropagation()}
-                        onKeyDown={(event) => event.stopPropagation()}
-                        className={cn(
-                          'absolute right-1 top-1/2 -translate-y-1/2 flex h-6 w-6 items-center justify-center rounded-md bg-[var(--muted)] text-[var(--muted-foreground)] transition-opacity hover:text-[var(--foreground)] group-hover:opacity-100 data-[state=open]:opacity-100',
-                          isActive ? 'opacity-100' : 'opacity-0',
-                        )}
+                      <DropdownMenuTrigger
+                        asChild
+                        onClick={(event) => event.stopPropagation()}
                       >
-                        <MoreHorizontal aria-hidden="true" className="h-4 w-4" />
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" side="bottom" className={FOLDER_MENU_CLASS}>
-                      <div className="select-text rounded-lg px-2 py-1 text-[11px] leading-[1.6] text-[var(--muted-foreground)]">
-                        <div className="flex items-center gap-0.5">
-                          <span className="opacity-70">{t('memo.fileTree.createdAt')}</span>
-                          <span className="tabular-nums">{formatTimestamp(item.createdMs)}</span>
+                        <button
+                          type="button"
+                          aria-label={t('memo.fileTree.moreActions')}
+                          title={t('memo.fileTree.moreActions')}
+                          onMouseDown={(event) => event.stopPropagation()}
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onKeyDown={(event) => event.stopPropagation()}
+                          className={cn(
+                            'absolute right-1 top-1/2 -translate-y-1/2 flex h-6 w-6 items-center justify-center rounded-md bg-[var(--muted)] text-[var(--muted-foreground)] transition-opacity hover:text-[var(--foreground)] group-hover:opacity-100 data-[state=open]:opacity-100',
+                            isActive ? 'opacity-100' : 'opacity-0',
+                          )}
+                        >
+                          <MoreHorizontal aria-hidden="true" className="h-4 w-4" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" side="bottom" className={FOLDER_MENU_CLASS}>
+                        <div className="select-text rounded-lg px-2 py-1 text-[11px] leading-[1.6] text-[var(--muted-foreground)]">
+                          <div className="flex items-center gap-0.5">
+                            <span className="opacity-70">{t('memo.fileTree.createdAt')}</span>
+                            <span className="tabular-nums">{formatTimestamp(item.createdMs)}</span>
+                          </div>
+                          <div className="flex items-center gap-0.5">
+                            <span className="opacity-70">{t('memo.fileTree.updatedAt')}</span>
+                            <span className="tabular-nums">{formatTimestamp(item.modifiedMs)}</span>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-0.5">
-                          <span className="opacity-70">{t('memo.fileTree.updatedAt')}</span>
-                          <span className="tabular-nums">{formatTimestamp(item.modifiedMs)}</span>
-                        </div>
-                      </div>
-                      <div role="separator" aria-hidden="true" className={POPUP_SEPARATOR_CLASS} />
-                      <DropdownMenuItem
-                        onClick={() => setDraftRow({ parentPath: creationParentPath, kind: 'file', value: '' })}
-                        className={FOLDER_MENU_ITEM_CLASS}
-                      >
-                        {t('memo.fileTree.newDocument')}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => setDraftRow({ parentPath: creationParentPath, kind: 'folder', value: '' })}
-                        className={FOLDER_MENU_ITEM_CLASS}
-                      >
-                        {t('memo.fileTree.newFolder')}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => setRenaming({ item, value: item.type === 'document' && isTableDocumentFilename(item.name) ? displayTitleFromFilename(item.name) : item.name })}
-                        className={FOLDER_MENU_ITEM_CLASS}
-                      >
-                        {t('memo.fileTree.rename')}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => void handleCopyPath(item)}
-                        className={FOLDER_MENU_ITEM_CLASS}
-                      >
-                        {t('memo.fileTree.copyPath')}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => handleReveal(item)}
-                        className={FOLDER_MENU_ITEM_CLASS}
-                      >
-                        {t('memo.fileTree.reveal')}
-                      </DropdownMenuItem>
-                      <div role="separator" aria-hidden="true" className={POPUP_SEPARATOR_CLASS} />
-                      <DropdownMenuItem
-                        onClick={() => void handleDelete(item)}
-                        className={cn(FOLDER_MENU_ITEM_CLASS, 'hover:bg-transparent hover:text-[var(--destructive)]')}
-                      >
-                        <TrashSimpleIcon className="h-4 w-4" />
-                        {t('memo.fileTree.delete')}
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                        <div role="separator" aria-hidden="true" className={POPUP_SEPARATOR_CLASS} />
+                        <DropdownMenuItem
+                          onClick={() => setDraftRow({ parentPath: creationParentPath, kind: 'file', value: '' })}
+                          className={FOLDER_MENU_ITEM_CLASS}
+                        >
+                          {t('memo.fileTree.newDocument')}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => setDraftRow({ parentPath: creationParentPath, kind: 'folder', value: '' })}
+                          className={FOLDER_MENU_ITEM_CLASS}
+                        >
+                          {t('memo.fileTree.newFolder')}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => setRenaming({ item, value: item.type === 'document' && isTableDocumentFilename(item.name) ? displayTitleFromFilename(item.name) : item.name })}
+                          className={FOLDER_MENU_ITEM_CLASS}
+                        >
+                          {t('memo.fileTree.rename')}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => void handleCopyPath(item)}
+                          className={FOLDER_MENU_ITEM_CLASS}
+                        >
+                          {t('memo.fileTree.copyPath')}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => handleReveal(item)}
+                          className={FOLDER_MENU_ITEM_CLASS}
+                        >
+                          {t('memo.fileTree.reveal')}
+                        </DropdownMenuItem>
+                        <div role="separator" aria-hidden="true" className={POPUP_SEPARATOR_CLASS} />
+                        <DropdownMenuItem
+                          onClick={() => void handleDelete(item)}
+                          className={cn(FOLDER_MENU_ITEM_CLASS, 'hover:bg-transparent hover:text-[var(--destructive)]')}
+                        >
+                          <TrashSimpleIcon className="h-4 w-4" />
+                          {t('memo.fileTree.delete')}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
                 </>
               )}
             </div>
@@ -529,6 +538,7 @@ export function FolderFileTree({
       {/* 标题行 ── 标题右侧下拉菜单用于在访达中显示当前资料文件夹。 */}
       <div className="flex items-center justify-between px-2 py-1.5 gap-2">
         <div className="flex min-w-0 flex-1 items-center gap-0">
+          {headerLeading}
           {embedded && onRequestClose && (
             <button
               type="button"

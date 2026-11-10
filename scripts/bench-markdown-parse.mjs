@@ -16,8 +16,15 @@ import { build } from 'esbuild';
  *   npm run bench:markdown -- --sizes=50,100,200,400 --reps=7 --shape=mixed
  *
  * `--shape` picks the document body. `paragraph` is the worst case for
- * per-block tokenizer scans (many blocks, no lists); `list` exercises the slow
- * path of the guarded list tokenizers; `mixed` alternates both.
+ * per-block tokenizer scans (many blocks, no lists); `list` is the shape that
+ * used to go quadratic when list tokenizers split the whole remaining document
+ * per block (see `features/editor/markdown-tokenizer-source.ts`); `mixed`
+ * alternates both.
+ *
+ * `--assert-linear` turns the run into a gate: every shape must stay inside
+ * `sizeGrowth ^ 1.25`, so a quadratic regression (4x the document costing 10-20x
+ * the time) fails instead of printing a table nobody reads. Run it outside the
+ * test workers, e.g. `npm run check:markdown-parse-perf`.
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -34,6 +41,8 @@ const args = new Map(
 const sizes = (args.get('sizes') ?? '50,100,200,400').split(',').map(Number).filter(Number.isFinite);
 const reps = Number(args.get('reps') ?? '5');
 const shapes = (args.get('shape') ?? 'paragraph,list,mixed').split(',');
+const assertLinear = args.has('assert-linear');
+const MAX_GROWTH_EXPONENT = 1.25;
 
 if (sizes.length === 0 || !Number.isFinite(reps) || reps < 1) {
   console.error('Invalid arguments. Example: --sizes=50,100,200,400 --reps=5 --shape=mixed');
@@ -42,7 +51,16 @@ if (sizes.length === 0 || !Number.isFinite(reps) || reps < 1) {
 
 const entry = `
 import { MarkdownManager } from '@tiptap/markdown';
-import { createMarkdownParserExtensions } from '@features/editor/markdown-parser-extensions';
+import { createMarkdownEditorExtensions } from '@features/editor/markdown-editor-extensions';
+
+const manager = new MarkdownManager({
+  extensions: createMarkdownEditorExtensions({
+    getOwnerPath: () => undefined,
+    getAttachmentNotebookId: () => undefined,
+    workspaceHost: 'column-1',
+    getPlaceholder: () => '',
+  }),
+});
 
 const sentence = 'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor.';
 
@@ -84,7 +102,6 @@ function buildDocument(shape, bytes) {
 }
 
 const [shape, bytes, runs] = process.argv.slice(2);
-const manager = new MarkdownManager({ extensions: createMarkdownParserExtensions() });
 const markdown = buildDocument(shape, Number(bytes));
 manager.instance.lexer(markdown.slice(0, 2000));
 
@@ -118,7 +135,14 @@ await build({
     '@platform': join(frontendRoot, 'platform'),
     '@': frontendRoot,
   },
-  loader: { '.css': 'empty', '.svg': 'text' },
+  loader: { '.css': 'empty', '.svg': 'text', '.jpg': 'empty', '.png': 'empty' },
+  // Editor extensions pull CommonJS dependencies (yaml) that call `require`
+  // for Node built-ins; give the ESM bundle a real `require`.
+  banner: {
+    js: "import { createRequire as __createRequire } from 'node:module';const require = __createRequire(import.meta.url);const __flowixEmptyGlob = () => ({});globalThis.localStorage ??= { getItem: () => null, setItem: () => {}, removeItem: () => {}, clear: () => {}, key: () => null, length: 0 };",
+  },
+  // Vite-only asset glob; the bench only needs the Markdown specs.
+  define: { 'import.meta.glob': '__flowixEmptyGlob' },
   logLevel: 'silent',
 });
 
@@ -138,6 +162,28 @@ for (const sizeKb of sizes) {
   rows.push(row);
 }
 
+const failures = [];
+if (assertLinear) {
+  if (rows.length < 2) {
+    failures.push('--assert-linear needs at least two --sizes');
+  } else {
+    const first = rows[0];
+    const last = rows[rows.length - 1];
+    const sizeGrowth = last.sizeKb / first.sizeKb;
+    const allowedGrowth = sizeGrowth ** MAX_GROWTH_EXPONENT;
+    for (const shape of shapes) {
+      const growth = last[shape] / Math.max(first[shape], 1);
+      if (growth > allowedGrowth) {
+        failures.push(
+          `${shape}: ${sizeGrowth.toFixed(1)}x the document cost ${growth.toFixed(1)}x the time`
+          + ` (${Math.round(first[shape])}ms -> ${Math.round(last[shape])}ms,`
+          + ` allowed ${allowedGrowth.toFixed(1)}x)`,
+        );
+      }
+    }
+  }
+}
+
 const header = ['size', ...shapes.map((shape) => shape.padStart(11)), 'blocks'].join(' | ');
 console.log(header);
 console.log('-'.repeat(header.length));
@@ -146,4 +192,13 @@ for (const row of rows) {
   for (const shape of shapes) cells.push(String(Math.round(row[shape])).padStart(9) + ' ms');
   cells.push(String(row.blocks).padStart(6));
   console.log(cells.join(' | '));
+}
+
+if (assertLinear) {
+  if (failures.length > 0) {
+    console.error('\nFAIL: Markdown lexing is no longer near-linear in document length.');
+    for (const failure of failures) console.error(`  ${failure}`);
+    process.exit(1);
+  }
+  console.log('\nPASS: lexing stays near-linear in document length.');
 }

@@ -25,6 +25,7 @@ export interface ModelSettingsListContext {
   showEmptyState: boolean;
   supportsReasoning: boolean;
   t: (key: I18nKey) => string;
+  onAddCustomModel: () => void;
   createModelItem: (option: AgentModelOption) => HTMLElement;
   onSelectModel: (option: AgentModelOption) => void;
   createSpeedToggle: () => HTMLElement;
@@ -99,6 +100,7 @@ function renderPiModels(list: HTMLElement, ctx: ModelSettingsListContext): void 
         ctx.piModelsLoadFailed ? "agent.model.loadFailed" : "agent.model.noneFound",
       ),
       personalEmptyLabel: ctx.t("agent.pi.modelSection.mineEmpty"),
+      onAddCustomModel: ctx.onAddCustomModel,
       createModelItem: (option) => ctx.createModelItem(option),
     }),
   );

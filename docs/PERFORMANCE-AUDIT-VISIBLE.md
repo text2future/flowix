@@ -6,6 +6,14 @@
 
 本文与 `docs/PERFORMANCE-REVIEW.md` 的关系：那份文档是修复流水账（八批）。本文是一次独立复核，不重复已修项，只回答两件事——**哪些旧结论还成立**、**哪些问题还没被记录**。
 
+> **状态更新（2026-11-10）**：本文记录的 Worker 解析链路已移除 ——
+> `features/editor/markdown-parser.worker.ts`、`markdown-worker-dom.ts`、
+> `markdown-parser-extensions.ts`、`markdown-parser.ts` 均已删除，编辑器现在在
+> `new Editor({ content, contentType: 'markdown' })` 里同步解析（主线程），
+> `initialParsedContent` 预解析入口同时移除。因此文中"Worker 主动抛错把活推回主线程"
+> 一节已经失效。若要恢复 Worker 隔离，注意解析结果体积（400 KB 列表型文档的 JSON doc
+> 是 3.4 MB，结构化克隆的反序列化仍在主线程）。
+
 ---
 
 ## 0. 结论速览
@@ -108,7 +116,7 @@ CPU profile（96 KB / 1157 块，连续 8 次 lex，合计 835 ms）定位到两
 **修法（已落地）**
 
 1. **列表 tokenizer 加 O(1) 守卫**（`features/editor/markdown-list-tokenizer.ts`）：`orderedList` / `taskList` 先在 2 KB 前缀上判断这行是不是列表，不是就直接返回。`StarterKit` 关掉 `bulletList` / `orderedList`，改注册带守卫的版本——必须替换而不是叠加，`extend` 之后若原扩展仍在注册表里会跑两遍（实测 49 KB 从 35 ms 变 58 ms）。
-2. **`start()` 有界化**（`features/editor/markdown-tokenizer-start.ts`）：新增 `scanHead / boundedIndexOf / boundedSearch`，把扫描限制在 2048 字符前缀。改了 9 个块级 tokenizer：math、web-card、flowix-table（`flowix:table` / `table-widths` 两处）、table-reference、media-library-reference、video、image、agent-thread-card。**行内 tokenizer 没动**（`strong` / `highlight` / `noteReference` / `fileAttachment`），它们的 `src` 是段落文本，长度本来有限，截断反而会造成长段落里标记失效。
+2. **`start()` 有界化**（`features/editor/markdown-tokenizer-source.ts`）：新增 `scanHead / boundedIndexOf / boundedSearch`，把扫描限制在 2048 字符前缀。改了 9 个块级 tokenizer：math、web-card、flowix-table（`flowix:table` / `table-widths` 两处）、table-reference、media-library-reference、video、image、agent-thread-card。**行内 tokenizer 没动**（`strong` / `highlight` / `noteReference` / `fileAttachment`），它们的 `src` 是段落文本，长度本来有限，截断反而会造成长段落里标记失效。
 
 **实测（隔离进程 + 取中位数，`scripts/bench-markdown-parse.mjs`）**
 

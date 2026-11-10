@@ -37,13 +37,13 @@ const logger = createLogger('notebook-repositories');
 function AgentRepositoryItem({
   repository,
   onOpenFile,
-  onOpenFileInMainColumn,
+  onOpenFileInBrowserColumn,
   onRemoveRepository,
   onExpandRepository,
 }: {
   repository: WorkspaceAgentRepository;
   onOpenFile: (path: string, scopePath: string) => void;
-  onOpenFileInMainColumn: (path: string, scopePath: string) => void;
+  onOpenFileInBrowserColumn: (path: string, scopePath: string) => void;
   onRemoveRepository: (repository: WorkspaceAgentRepository) => void;
   onExpandRepository: (element: HTMLElement) => void;
 }) {
@@ -257,7 +257,7 @@ function AgentRepositoryItem({
       </div>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-[180px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
-        {!isFolder && <ContextMenuItem onClick={() => onOpenFileInMainColumn(item.fullPath, repository.path)} className="h-7 items-center justify-start rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"><SquareSplitHorizontalIcon className="mr-2 h-4 w-4" aria-hidden="true" />{t('memo.fileTree.openInLeft')}</ContextMenuItem>}
+        {!isFolder && <ContextMenuItem onClick={() => onOpenFileInBrowserColumn(item.fullPath, repository.path)} className="h-7 items-center justify-start rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"><SquareSplitHorizontalIcon className="mr-2 h-4 w-4" aria-hidden="true" />{t('workColumn.context.openInBrowserColumn')}</ContextMenuItem>}
         <ContextMenuSubmenu label={t('memo.fileTree.import')} icon={<Plus className="h-4 w-4" aria-hidden="true" />}>
           <ContextMenuItem onClick={() => { void importIntoRepository(isFolder ? item.fullPath : parentDirectoryPath(item.fullPath, repository.path)); }} className="h-7 items-center justify-start rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]">
             {t('memo.fileTree.importFiles')}
@@ -368,7 +368,7 @@ export function AgentRepositoriesSection({
   onExpandRepository,
   canAddRepository,
   onOpenFile,
-  onOpenFileInMainColumn,
+  onOpenFileInBrowserColumn,
   viewMode = 'tree',
   onOpenRepositoryList,
   introEnabled = true,
@@ -383,10 +383,10 @@ export function AgentRepositoriesSection({
   onRemoveRepository: (repository: WorkspaceAgentRepository) => void;
   onExpandRepository: (element: HTMLElement) => void;
   canAddRepository: boolean;
-  /** Row click: the file tree defaults documents to the Browser column. */
+  /** Row click: the file tree defaults documents to the Work column. */
   onOpenFile: (path: string, scopePath: string) => void;
-  /** Row menu: the Work column stays reachable. */
-  onOpenFileInMainColumn: (path: string, scopePath: string) => void;
+  /** Row menu: the Browser column stays reachable. */
+  onOpenFileInBrowserColumn: (path: string, scopePath: string) => void;
   viewMode?: 'tree' | 'links';
   onOpenRepositoryList?: () => void;
   introEnabled?: boolean;
@@ -508,7 +508,7 @@ export function AgentRepositoriesSection({
               key={repository.path}
               repository={repository}
               onOpenFile={onOpenFile}
-              onOpenFileInMainColumn={onOpenFileInMainColumn}
+              onOpenFileInBrowserColumn={onOpenFileInBrowserColumn}
               onRemoveRepository={onRemoveRepository}
               onExpandRepository={onExpandRepository}
             />

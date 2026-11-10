@@ -5,7 +5,7 @@ import {
 import {
   toNoteReferenceAttrs,
   type MentionNoteItem,
-} from "@features/editor/extensions/note-mention/note-mention-data";
+} from "@features/editor/public/mention-data-api";
 
 export interface ComposerFolderReference {
   path: string;

@@ -141,6 +141,12 @@ interface OpenCreateTableDialogRequest {
   onCreated?: (selection: { relativePath: string; collectionId: string; viewId: string }) => void | Promise<void>;
 }
 
+interface OpenNotebookDocumentCreateDialogRequest {
+  notebookId: string;
+  kind: NotebookDocumentCreateRequest['kind'];
+  viewType?: TableViewType;
+}
+
 export function MemoList({
   isActive = true,
   dataLoadingEnabled = true,
@@ -632,7 +638,14 @@ export function MemoList({
     if (activeFilter === 'thisMonth') parts.push(t('memo.list.filterThisMonth'));
     return parts.length > 0
       ? { headerLabel: parts.join(' '), hasActiveFilter: true }
-      : { headerLabel: t('memo.navigation.allNotes'), hasActiveFilter: false };
+      // 下拉按钮本身保留；笔记 tab（偏好 'detailed'）无筛选时标题展示「笔记」，
+      // 文件夹视图（无选中笔记本的兜底场景）仍展示「全部」。
+      : {
+        headerLabel: memoListView === 'detailed'
+          ? t('memo.list.viewCardsShort')
+          : t('memo.list.headerAll'),
+        hasActiveFilter: false,
+      };
   })();
 
   const { onScroll: handleMemoListScroll } = useMemoListPagination({
@@ -946,7 +959,7 @@ export function MemoList({
     return handleCreateMemo(relative, title);
   }, [handleCreateMemo, selectedNotebook]);
 
-  const openDocumentCreateDialog = (kind: NotebookDocumentCreateRequest['kind'], viewType?: TableViewType) => {
+  const openDocumentCreateDialog = useCallback((kind: NotebookDocumentCreateRequest['kind'], viewType?: TableViewType) => {
     if (!selectedNotebook || selectedNotebook.missing) return;
     const notebook = selectedNotebook;
     handleCreateTypeMenuOpenChange(false);
@@ -962,7 +975,19 @@ export function MemoList({
           : (await fileApi.getNotebookViewPreferences(notebook.path)).defaultCreateFolder;
       },
     });
-  };
+  }, [defaultCreateFolder, defaultCreateFolderReady, handleCreateTypeMenuOpenChange, selectedNotebook, workTargetParentPath]);
+  useEffect(() => {
+    const handleOpenNotebookDocumentCreateDialog = (event: Event) => {
+      const request = (event as CustomEvent<OpenNotebookDocumentCreateDialogRequest>).detail;
+      if (!request) return;
+      const notebook = useNoteStore.getState().notebooks.find((entry) => entry.id === request.notebookId);
+      if (!notebook || notebook.missing) return;
+      event.preventDefault();
+      openDocumentCreateDialog(request.kind, request.viewType);
+    };
+    window.addEventListener('flowix:open-create-notebook-document-dialog', handleOpenNotebookDocumentCreateDialog);
+    return () => window.removeEventListener('flowix:open-create-notebook-document-dialog', handleOpenNotebookDocumentCreateDialog);
+  }, [openDocumentCreateDialog]);
 
   const handleCreateAgentConversation = useCallback((typeKey: AgentTypeKey) => {
     if (!selectedNotebookId) return;
@@ -1046,7 +1071,13 @@ export function MemoList({
         onLoadStart={handleMemoListLoadStart}
         onLoadSuccess={handleMemoListLoadSuccess}
       />
-      <div className="flex min-w-0 items-center gap-2 pb-2 pl-[72px] pr-3">
+      {/* 左边距按 tab 条实测宽度预留（MemoListViewTabs 写入
+          --memo-list-tabs-width；fallback 60px + 20px ≈ 纯图标 tab 条宽度），
+          避免 tab 条盖住筛选/排序下拉按钮。 */}
+      <div
+        className="flex min-w-0 items-center gap-2 pb-2 pr-3"
+        style={{ paddingLeft: 'calc(var(--memo-list-tabs-width, 60px) + 20px)' }}
+      >
         <div className="min-w-0 flex-1">
           {!showFolderView && (
           <MemoNavigationDropdown

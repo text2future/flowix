@@ -189,7 +189,9 @@ export function NotebookTreeSectionMenu({
               <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
             </button>
             {createSubmenuOpen && (
-              <div ref={createSubmenuPosition.contentRef} style={{ ...createSubmenuPosition.style, maxWidth: 'calc(100vw - 8px)', maxHeight: 'calc(100vh - 8px)', overflowY: 'auto' }} className="absolute w-[176px] space-y-0.5 rounded-xl border border-[var(--border-popup)] bg-[var(--card)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+              // 点击触发的子菜单加入场动画; 下方两个 hover 展开的子菜单不加
+              // ── 指针扫过兄弟行时会频繁挂载, 每次都播动画会闪。
+              <div ref={createSubmenuPosition.contentRef} style={{ ...createSubmenuPosition.style, maxWidth: 'calc(100vw - 8px)', maxHeight: 'calc(100vh - 8px)', overflowY: 'auto', transformOrigin: 'top left' }} className="flowix-popover-enter absolute w-[176px] space-y-0.5 rounded-xl border border-[var(--border-popup)] bg-[var(--card)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
                 {onCreateTable && MEMO_CREATE_VIEW_OPTIONS.map(({ type, labelKey }) => (
                   <DropdownMenuItem key={type} onClick={() => onCreateTable(type)} className={itemClassName}>
                     {type === 'table' ? <Table2 className="h-3.5 w-3.5" aria-hidden="true" /> : <span className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}

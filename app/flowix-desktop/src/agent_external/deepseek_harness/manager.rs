@@ -1593,11 +1593,11 @@ mod tests {
         .expect("second stream payload");
         assert_eq!(
             first_payload["message_id"],
-            "msg:deepseek-harness:run-1:assistant:assistant-stream-0"
+            "msg:dsh:run-1:assistant:assistant-stream-0"
         );
         assert_eq!(
             second_payload["message_id"],
-            "msg:deepseek-harness:run-1:assistant:assistant-stream-1"
+            "msg:dsh:run-1:assistant:assistant-stream-1"
         );
     }
 

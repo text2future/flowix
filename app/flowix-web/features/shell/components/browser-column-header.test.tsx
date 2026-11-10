@@ -117,6 +117,31 @@ it('uses the Work collection display menu for folder collections', async () => {
 });
 
 
+it('shows the owning notebook path breadcrumb for a note opened in the browser column', async () => {
+  const { useNoteStore } = await import('@features/memo/store/note-store');
+  const previous = useNoteStore.getState().notebooks;
+  // The browser-column target carries no scopePath; ownership comes from the notebook list.
+  useNoteStore.setState({ notebooks: [{ id: 'book', path: '/book' }] as never });
+  ensureFileDisplayIdentity('/book/08 原则/note.md');
+  const node = document.createElement('div');
+  document.body.append(node);
+  const root = createRoot(node);
+  try {
+    await act(async () => root.render(<BrowserColumnHeader current={{ id: 'note', title: 'Note', icon: null, target: {
+      kind: 'file-browser', activeFilePath: '/book/08 原则/note.md', folderPath: null, scopePath: null,
+      notebookId: null, fileTreeVisible: false, fileTreeWidth: 220,
+    } }} activeSurfaceChrome="document" onToggleMemoEditorMode={vi.fn()} onOpenInWorkColumn={vi.fn()}
+      isFocused canCreate={false} onCreateNote={vi.fn()} onCreateAgentConversation={vi.fn()} />));
+    // The trailing measurement layer is aria-hidden but still contributes textContent.
+    // The note suffix is dropped, matching the access-space file tree.
+    expect(node.querySelector('nav[aria-label="breadcrumb.label"]')?.firstElementChild?.textContent).toBe('book08 原则note');
+  } finally {
+    await act(async () => root.unmount());
+    useNoteStore.setState({ notebooks: previous });
+    node.remove();
+  }
+});
+
 it('hides the underlying note controls only in the fullscreen host, restores them on exit, and follows plugin preview capabilities', async () => {
   const node = document.createElement('div');
   document.body.append(node);

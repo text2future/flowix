@@ -4,8 +4,9 @@
  * 设计要点：
  * - `pointer-events-none`：蒙层仅作视觉指示，不拦截鼠标事件（避免遮蔽命中测试、
  *   不挡 MemoList / DocumentContainer / AgentChat 的 hover/click 行为）。
- * - `z-index` 取 40：高于 LoadingOverlay 的 z-30、低于 bubble menu（如 link-edit-popup
- *   z-9999、drag-context-menu 的 z-999999）—— 蒙层不应挡交互弹层。
+ * - `z-index` 取 40：高于 LoadingOverlay 的 z-30、低于 bubble menu 与拖拽菜单（编辑器
+ *   气泡走 --layer-editor-overlay 档，drag-context-menu 为 z-999999）—— 蒙层不应
+ *   挡交互弹层。
  * - 主题色走 `var(--card)` / `var(--foreground)` / `var(--muted-foreground)`，
  *   各主题自动适配。
  */

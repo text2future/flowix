@@ -26,7 +26,7 @@ vi.mock('./use-document-titlebar-actions', () => ({
   useDocumentTitlebarActions: () => ({
     colors: [], changeColors: vi.fn(), fontSwitch: {}, selectedFontSizeMode: null,
     setEditorFontSizeMode: vi.fn(), confirmVersion: null, setConfirmVersion: vi.fn(),
-    restoringVersionId: null, versionRefreshKey: 0, archiveVersion: vi.fn(),
+    restoringVersionId: null, versionRefreshKey: 0,
     restorePathVersion: vi.fn(), copyFolderPath: vi.fn(), revealFile: vi.fn(),
   }),
 }));
@@ -52,7 +52,7 @@ beforeEach(() => {
       fileIdentity: { path: '/book/a.md', displayId: 'a' }, scopePath: '/book',
       notebookId: 'book', relativePath: 'a.md', indexable: true, isOutsideCurrentNotebook: false,
     } },
-    sidebar: { hidden: true, noteNavigationVisible: false, onToggle: vi.fn() },
+    sidebar: { hidden: true, onToggle: vi.fn() },
     navigation: { title: 'note A', canNavigateBack: true, canNavigateForward: false, onNavigateBack: vi.fn(), onNavigateForward: vi.fn() },
     contentCapabilities: { memoColors: true, copyFullText: true, exportContent: true, saveAsTemplate: true, versionHistory: false },
     actions: { onCopyLink: vi.fn(), onCopyFullText: vi.fn(), onExportMarkdown: vi.fn(), onExportWord: vi.fn(), onExportPdf: vi.fn(), onSaveAsTemplate: vi.fn(), onDeleteExternalFile: vi.fn() },
@@ -72,6 +72,25 @@ for (const [platform, Titlebar] of [['mac', DocumentTitlebarMac], ['windows', Do
       await act(async () => root.render(<Titlebar {...props} />));
       expect(header.style.backgroundColor).toBe('');
       expect(header.style.backgroundImage).toBe('var(--titlebar-gradient)');
+    });
+
+    it('shows the path breadcrumb next to the navigation buttons in place of the plain title', async () => {
+      // Markdown notes never report a title, so the breadcrumb must not depend
+      // on the header identity being present.
+      props.navigation.title = undefined;
+      props.breadcrumb = [
+        { label: '书籍', type: 'folder' },
+        { label: '2026', type: 'folder' },
+        { label: 'a', type: 'file' },
+      ];
+      await act(async () => root.render(<Titlebar {...props} />));
+      const path = container.querySelector('nav[aria-label="breadcrumb.label"]')!;
+      expect(path).not.toBeNull();
+      // The hidden measurement layer repeats every label, so read the visible row only.
+      expect(path.querySelector(':scope > span:not([aria-hidden])')!.textContent).toBe('书籍2026a');
+      expect(path.closest('.work-column-titlebar')).not.toBeNull();
+      expect(container.textContent).not.toContain('note A');
+      expect(container.querySelector('[aria-label="document.titlebar.back"]')).not.toBeNull();
     });
 
     it('keeps collection identity out of the header after runtime title updates', async () => {

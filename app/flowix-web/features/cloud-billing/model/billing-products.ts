@@ -1,14 +1,11 @@
 import type { CloudProduct } from '@platform/tauri/client';
 
 /**
- * One dialog, two shelves: membership plans and credit packs.
+ * One dialog, two shelves: cloud storage plans and AI point subscriptions.
  *
- * The Cloud catalog is the only source of truth. A product belongs to a shelf
- * by its entitlement features, following the same convention the membership
- * plans already use (`membership: true` / `lifetime: true`). Credit packs
- * declare their denomination with `credits` (also accepted as
- * `creditAmount` / `creditsAmount` / `points`), so a new pack needs no client
- * release beyond the catalog entry.
+ * `entitlementKind` is authoritative and comes straight from the Cloud catalog.
+ * Catalogs cached before the two-kind split are still grouped by the credit
+ * denomination, so an old client cache cannot hide a product.
  */
 export type BillingTab = 'membership' | 'credits';
 
@@ -29,10 +26,22 @@ export function creditsOf(product: CloudProduct): number | null {
     ?? featureNumber(features.points);
 }
 
-/** Membership products are subscription/one-time entitlements, never packs. */
+/**
+ * The catalog's kind wins. A cached pre-split entry keeps the old
+ * feature-based classification, and an unclassified legacy entry is ignored
+ * rather than shown on the wrong shelf.
+ */
+function entitlementKindOfProduct(product: CloudProduct): 'storage' | 'ai' | null {
+  if (product.entitlementKind === 'storage' || product.entitlementKind === 'ai') {
+    return product.entitlementKind;
+  }
+  if (creditsOf(product) !== null) return 'ai';
+  return product.entitlement?.features?.membership === true ? 'storage' : null;
+}
+
+/** True for the cloud storage kind; AI point products are never storage plans. */
 export function isMembershipProduct(product: CloudProduct): boolean {
-  if (creditsOf(product) !== null) return false;
-  return product.entitlement?.features?.membership === true;
+  return entitlementKindOfProduct(product) === 'storage';
 }
 
 export interface BillingProductGroups {
@@ -43,8 +52,9 @@ export interface BillingProductGroups {
 export function groupBillingProducts(products: readonly CloudProduct[]): BillingProductGroups {
   const groups: BillingProductGroups = { membership: [], credits: [] };
   products.forEach((product) => {
-    if (creditsOf(product) !== null) groups.credits.push(product);
-    else if (isMembershipProduct(product)) groups.membership.push(product);
+    const kind = entitlementKindOfProduct(product);
+    if (kind === 'ai') groups.credits.push(product);
+    else if (kind === 'storage') groups.membership.push(product);
   });
   return groups;
 }

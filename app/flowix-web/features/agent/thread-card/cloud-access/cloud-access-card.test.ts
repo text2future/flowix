@@ -5,11 +5,11 @@ import { createCloudAccessCard } from './cloud-access-card';
 
 const LABELS: Record<string, string> = {
   'agent.cloudAccess.signedOut.title': '请登录后使用云模型',
-  'agent.cloudAccess.signedOut.description': '模型服务由 Flowix 官方提供，支持主流模型，请在输入框/模型切换使用。',
+  'agent.cloudAccess.signedOut.description': '官方提供，在输入框切换不同模型',
   'agent.cloudAccess.signedOut.action': '登录',
-  'agent.cloudAccess.noCredits.title': '点数不足',
-  'agent.cloudAccess.noCredits.description': '点数余额不足。',
-  'agent.cloudAccess.noCredits.action': '购买点数',
+  'agent.cloudAccess.noCredits.title': '账号点数不足',
+  'agent.cloudAccess.noCredits.description': '升级 AI 套餐，让灵感创作不中断',
+  'agent.cloudAccess.noCredits.action': '升级',
 };
 
 const t = ((key: I18nKey) => LABELS[key] ?? key) as (key: I18nKey) => string;
@@ -41,7 +41,7 @@ describe('createCloudAccessCard', () => {
     expect(card.el.querySelector('.agent-cloud-access__title')?.textContent)
       .toBe('请登录后使用云模型');
     expect(card.el.querySelector('.agent-cloud-access__description')?.textContent)
-      .toBe('模型服务由 Flowix 官方提供，支持主流模型，请在输入框/模型切换使用。');
+      .toBe('官方提供，在输入框切换不同模型');
     card.el.querySelector<HTMLButtonElement>('.agent-cloud-access__action')!.click();
     expect(onSignIn).toHaveBeenCalledOnce();
     expect(onBuyCredits).not.toHaveBeenCalled();
@@ -50,8 +50,10 @@ describe('createCloudAccessCard', () => {
   it('offers the credit purchase for an exhausted balance', () => {
     const { card, onSignIn, onBuyCredits } = mount();
     card.render('no_credits');
-    expect(card.el.querySelector('.agent-cloud-access__title')?.textContent).toBe('点数不足');
-    expect(card.el.querySelector('.agent-cloud-access__action')?.textContent).toBe('购买点数');
+    expect(card.el.querySelector('.agent-cloud-access__title')?.textContent).toBe('账号点数不足');
+    expect(card.el.querySelector('.agent-cloud-access__description')?.textContent)
+      .toBe('升级 AI 套餐，让灵感创作不中断');
+    expect(card.el.querySelector('.agent-cloud-access__action')?.textContent).toBe('升级');
     card.el.querySelector<HTMLButtonElement>('.agent-cloud-access__action')!.click();
     expect(onBuyCredits).toHaveBeenCalledOnce();
     expect(onSignIn).not.toHaveBeenCalled();

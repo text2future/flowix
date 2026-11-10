@@ -44,6 +44,7 @@ describe("Pi model picker provider icons", () => {
       mineLabel: "我的模型",
       emptyLabel: "没有模型",
       personalEmptyLabel: "还没有自定义模型",
+      onAddCustomModel: () => {},
       createModelItem,
     });
 
@@ -75,6 +76,7 @@ describe("Pi model picker provider icons", () => {
       mineLabel: "我的模型",
       emptyLabel: "没有模型",
       personalEmptyLabel: "还没有自定义模型",
+      onAddCustomModel: () => {},
       createModelItem,
     });
 
@@ -120,6 +122,7 @@ describe("Pi model picker provider icons", () => {
       mineLabel: "我的模型",
       emptyLabel: "没有模型",
       personalEmptyLabel: "还没有自定义模型",
+      onAddCustomModel: () => {},
       createModelItem,
     });
 

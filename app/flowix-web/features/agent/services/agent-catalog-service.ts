@@ -3,7 +3,7 @@ import { getFallbackAgentModelOptions } from "@features/agent/config/agent-model
 import { formatModelDisplayLabel } from "@features/agent/config/codex-options";
 import { listCodexSkillCatalog } from "@features/agent/services/codex-slash-command-service";
 import { listPiSkills } from "@features/agent/services/pi-slash-command-service";
-import { withCachedGuestCloudModels } from "@features/agent/services/pi-public-catalog";
+import { byModelOrder, withCachedGuestCloudModels } from "@features/agent/services/pi-public-catalog";
 import {
   type AgentCatalogModel,
   type AgentCatalogSkill,
@@ -117,6 +117,7 @@ async function fetchAgentModelCatalog(agentType: AgentTypeKey): Promise<AgentMod
         label: modelConfig?.name?.trim() || formatModelDisplayLabel(id),
         ...(modelConfig?.subtitle?.trim() ? { subtitle: modelConfig.subtitle.trim() } : {}),
         ...(modelConfig?.creditMultiplier != null ? { creditMultiplier: modelConfig.creditMultiplier } : {}),
+        ...(modelConfig?.sortOrder != null ? { sortOrder: modelConfig.sortOrder } : {}),
         ...(modelConfig?.providerIconUrl || provider?.iconUrl
           ? { iconUrl: modelConfig?.providerIconUrl || provider?.iconUrl }
           : {}),
@@ -125,7 +126,9 @@ async function fetchAgentModelCatalog(agentType: AgentTypeKey): Promise<AgentMod
       }];
     });
     const catalog: AgentModelCatalog = {
-      items,
+      // Native provider order is not Cloud-ranked, so unranked (= 0) models
+      // keep their original order while ranked Cloud models move to the front.
+      items: byModelOrder(items),
       defaultModel: defaultProvider?.defaultModelId ?? "",
       defaultProviderId: defaultProvider?.id,
     };

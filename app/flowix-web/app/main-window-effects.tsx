@@ -19,11 +19,11 @@ import {
 } from "@features/memo/public/app-api";
 // Data modules only: the extension barrels also export TipTap Node views,
 // which pulled ProseMirror into the desktop startup graph.
-import { invalidateMentionNotes } from "@features/editor/extensions/note-mention/note-mention-data";
+import { invalidateMentionNotes } from "@features/editor/public/mention-data-api";
 import {
   invalidateMentionTags,
   setNotebookIdProvider,
-} from "@features/editor/extensions/tag-mention/tag-mention-data";
+} from "@features/editor/public/mention-data-api";
 import { toast } from "@/lib/toast";
 import { handleMainWindowMemoEvent } from "./main-window-memo-event-handler";
 import type { MemoEvent } from "@/types/memo";
@@ -32,10 +32,12 @@ import {
   unmountOpenTargetListener,
 } from "@features/memo/public/app-api";
 import { initializeMainWindowStartup } from './main-window-startup';
+import { runStartupStage3Task } from '@/lib/startup-stage3';
 import { createLogger } from '@/lib/logger';
 import { joinNotebookMemoPath } from '@/lib/path';
 import { acceptWorkspaceDocumentLinkSave } from '@features/memo/public/app-api';
 import { subscribeWorkspaceDocumentSaves } from '@features/document/public/workspace-api';
+import { preloadEditorChunkOnIdle } from '@features/document/public/shell-api';
 import {
   syncAppAgentConversationRestore,
   removeBrowserColumnContentByPath,
@@ -53,6 +55,8 @@ import {
 import { notifyCreatedDocument, removeCreatedDocumentNotices } from './created-document-notices';
 import { mountMainWindowNotebookEvents } from './main-window-notebook-events';
 import { mountMainWindowHeartbeat } from './main-window-heartbeat';
+import { subscribe } from '@platform/tauri/event-bus';
+import type { BillingTab } from '@features/cloud-billing/public/payment-dialog';
 
 const logger = createLogger('main-window-effects');
 const NAVIGATION_FAILURE_NOTICE_ID = 'workspace-navigation-failure';
@@ -61,6 +65,15 @@ export function MainWindowEffects() {
   const { t } = useI18n();
   const mainWindowTitle = t("window.main.title");
   const navigationFailure = useWorkspaceNavigationFailure();
+
+  useEffect(() => subscribe<BillingTab>('billing:open-payment-dialog', (tab) => {
+    if (tab !== 'membership' && tab !== 'credits') return;
+    void import('@features/cloud-billing/public/payment-dialog')
+      .then(({ openPaymentDialog }) => openPaymentDialog(tab))
+      .catch((error: unknown) => {
+        logger.warn('failed to open billing dialog in main window', { error });
+      });
+  }), []);
 
   useEffect(() => {
     if (!navigationFailure) {
@@ -110,6 +123,9 @@ export function MainWindowEffects() {
     void startup.catch((error) => {
       logger.warn('restore workspace failed', { error });
     });
+    // Warm the editor chunk once the shell is interactive: the first document
+    // open would otherwise pay for the lazy chunk inside the open.
+    void runStartupStage3Task('editor-chunk-preload', preloadEditorChunkOnIdle);
     return () => unmountOpenTargetListener();
   }, []);
 

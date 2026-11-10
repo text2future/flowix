@@ -38,20 +38,6 @@ export function useDocumentTitlebarActions(target: DocumentTitlebarTarget) {
   const identity = documentIdentityFromFile(target.fileIdentity);
   const isSamePath = () => findFileDisplayPath(identity.displayId) === filePath;
 
-  const archiveVersion = async () => {
-    if (!target.notebookId || !target.relativePath || !isSamePath()) return;
-    try {
-      if (!await saveDocumentPath(identity, filePath, target.scopePath) || !isSamePath()) {
-        throw new Error('Saving current document failed');
-      }
-      await notes.createVersion(target.notebookId, target.relativePath);
-      if (mounted.current) setVersionRefreshKey((key) => key + 1);
-    } catch (error) {
-      logger.error('archive version failed', { error, filePath });
-      if (mounted.current) toast.error(t('document.version.saveCurrentFailed'));
-    }
-  };
-
   const restorePathVersion = async () => {
     if (!target.notebookId || !target.relativePath || !confirmVersion || restoring.current || !isSamePath()) return;
     restoring.current = true;
@@ -98,6 +84,6 @@ export function useDocumentTitlebarActions(target: DocumentTitlebarTarget) {
   return {
     colors, changeColors, fontSwitch, selectedFontSizeMode, setEditorFontSizeMode,
     confirmVersion, setConfirmVersion, restoringVersionId, versionRefreshKey,
-    archiveVersion, restorePathVersion, copyFolderPath, revealFile,
+    restorePathVersion, copyFolderPath, revealFile,
   };
 }

@@ -87,10 +87,8 @@ vi.mock('@features/editor/extensions/note-link/memo-resolver', () => ({
   invalidateNotebookCache: mocks.invalidateNotebookCache,
   prewarmNotebookCache: mocks.prewarmNotebookCache,
 }));
-vi.mock('@features/editor/extensions/note-mention/note-mention-data', () => ({
+vi.mock('@features/editor/public/mention-data-api', () => ({
   invalidateMentionNotes: mocks.invalidateMentionNotes,
-}));
-vi.mock('@features/editor/extensions/tag-mention/tag-mention-data', () => ({
   invalidateMentionTags: mocks.invalidateMentionTags,
 }));
 vi.mock('@platform/tauri/client', () => ({
@@ -309,7 +307,7 @@ describe('AgentWindowEffects', () => {
       authenticated: true,
       authStatus: 'authenticated' as const,
       account: {
-        user: { id: 'user-1', email: 'member@example.com', displayName: 'Member' },
+        user: { id: 'user-1', email: 'member@example.com', displayName: 'Member', region: 'mainland' as const },
         protocolEpoch: 3 as const,
       },
     };

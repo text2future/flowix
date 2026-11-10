@@ -1,27 +1,24 @@
 'use client';
 
 import { Editor } from '@tiptap/core';
-import { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { hasFormattableTextSelection } from '@features/editor/components/selection-bubble-menu-state';
+import { computeOverlayFrame } from '@features/editor/overlay/compute-overlay-frame';
+import { useEditorOverlayAnchor } from '@features/editor/overlay/use-editor-overlay-anchor';
 import { Tooltip } from '@shared/ui/tooltip';
 import { useI18n } from '@/lib/i18n';
 import { TableStyleControls } from './table-style-controls';
-import { getTableMenuHorizontalLayout } from './table-menu-position';
+import { TableDeleteIcon } from './table-style-icon';
 
 interface TableBubbleMenuProps {
   editor: Editor;
 }
 
-const TABLE_MENU_OFFSET = 4;
-const AGENT_TRASH_ICON_PATH =
-  'M216,48H40a8,8,0,0,0,0,16h8V208a16,16,0,0,0,16,16H192a16,16,0,0,0,16-16V64h8a8,8,0,0,0,0-16ZM192,208H64V64H192ZM80,24a8,8,0,0,1,8-8h80a8,8,0,0,1,0,16H88A8,8,0,0,1,80,24Z';
-
-interface TableMenuPosition {
-  left: number;
-  top: number;
-  maxWidth: number;
-}
+/** 气泡工具条与表格上沿的间距。 */
+const TABLE_MENU_GAP = 4;
+/** 首帧测量前的估算尺寸; 真值由 layout effect 里的实测校正。 */
+const TABLE_MENU_FALLBACK_SIZE = { width: 320, height: 34 };
 
 function getCurrentTableElement(editor: Editor): HTMLElement | null {
   // selectionUpdate 可能在 editor 销毁后还 flush 进来 (transaction 队列里
@@ -40,118 +37,70 @@ function getCurrentTableElement(editor: Editor): HTMLElement | null {
   return null;
 }
 
-function getMenuPosition(editor: Editor, overlayRoot: HTMLElement, menuWidth?: number): TableMenuPosition | null {
-  if (!editor.isEditable || !editor.isActive('table')) return null;
-  if (hasFormattableTextSelection(editor)) return null;
-
-  const tableElement = getCurrentTableElement(editor);
-  if (!tableElement) return null;
-
-  const tableRect = tableElement.getBoundingClientRect();
-  const rootRect = overlayRoot.getBoundingClientRect();
-  const horizontal = getTableMenuHorizontalLayout(
-    tableRect.left + tableRect.width / 2, rootRect, window.innerWidth, menuWidth,
-  );
-  if (!horizontal) return null;
-
-  return {
-    ...horizontal,
-    top: tableRect.top - rootRect.top - TABLE_MENU_OFFSET,
-  };
-}
-
-function AgentTrashIcon({ size = 18 }: { size?: number }) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width={size}
-      height={size}
-      viewBox="0 0 256 256"
-      fill="currentColor"
-      aria-hidden="true"
-    >
-      <path d={AGENT_TRASH_ICON_PATH} />
-    </svg>
-  );
-}
-
+/**
+ * 表格气泡工具条。
+ *
+ * 与选区气泡共用同一套锚点机制 (useEditorOverlayAnchor + computeOverlayFrame):
+ * 锚点是当前表格的包围盒, 用 fixed + 视口坐标落在表格上沿, 跟随内层滚动重算。
+ * 表格滚出面板时工具条贴面板顶停住而不是消失; 面板装不下就溢出到面板外
+ * (宽度固定, 不压缩内容)。
+ *
+ * `flip: false` 是有意的: 表格上沿的气泡翻到下方会盖住首行。
+ */
 export function TableBubbleMenu({ editor }: TableBubbleMenuProps) {
   const { t } = useI18n();
-  const [overlayRoot, setOverlayRoot] = useState<HTMLElement | null>(null);
-  const [position, setPosition] = useState<TableMenuPosition | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  const menuVisible = position !== null;
 
-  // Refine the initial estimate after the panel mounts or its content changes.
-  useLayoutEffect(() => {
-    if (!overlayRoot || !panelRef.current) return;
+  const compute = useCallback((root: HTMLElement) => {
+    if (editor.isDestroyed) return null;
+    if (!editor.isEditable || !editor.isActive('table')) return null;
+    // 有文本选区时交给选区气泡, 两个工具条不叠在一起。
+    if (hasFormattableTextSelection(editor)) return null;
+
+    const tableElement = getCurrentTableElement(editor);
+    if (!tableElement) return null;
+
     const panel = panelRef.current;
-    const update = () => {
-      const next = getMenuPosition(editor, overlayRoot, panel.offsetWidth);
-      setPosition(previous => previous?.left === next?.left && previous?.top === next?.top
-        && previous?.maxWidth === next?.maxWidth ? previous : next);
-    };
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(panel);
-    return () => observer.disconnect();
-  }, [editor, overlayRoot, menuVisible]);
-
-  useEffect(() => {
-    // editor 可能在 effect 排队时已被销毁 (切语言/切文档的卸载路径),
-    // 此时 view.dom 已 detach — 直接 closest 会触发 view-not-available 警告。
-    if (editor.isDestroyed) return;
-    const root = editor.view.dom.closest('.markdown-editor');
-    setOverlayRoot(root instanceof HTMLElement ? root : null);
+    return computeOverlayFrame({
+      anchor: tableElement.getBoundingClientRect(),
+      root: root.getBoundingClientRect(),
+      menu: {
+        width: panel?.offsetWidth || TABLE_MENU_FALLBACK_SIZE.width,
+        height: panel?.offsetHeight || TABLE_MENU_FALLBACK_SIZE.height,
+      },
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      gap: TABLE_MENU_GAP,
+      flip: false,
+    });
   }, [editor]);
 
-  useEffect(() => {
-    if (!overlayRoot) return;
+  const { root, frame, requestUpdate } = useEditorOverlayAnchor(editor, compute);
 
-    let frameId: number | null = null;
+  // 菜单尺寸由内容决定 (样式开关 + 行/列操作), 首帧用估算值, 这里在绘制前校正,
+  // 之后靠 ResizeObserver 跟进。
+  const visible = frame !== null;
+  useLayoutEffect(() => {
+    if (!visible) return;
+    requestUpdate(true);
+    const panel = panelRef.current;
+    if (!panel) return;
+    const observer = new ResizeObserver(() => requestUpdate(true));
+    observer.observe(panel);
+    return () => observer.disconnect();
+  }, [visible, requestUpdate]);
 
-    const updatePosition = () => {
-      if (frameId !== null) return;
-      frameId = window.requestAnimationFrame(() => {
-        frameId = null;
-        setPosition(getMenuPosition(editor, overlayRoot, panelRef.current?.offsetWidth));
-      });
-    };
-
-    updatePosition();
-    editor.on('selectionUpdate', updatePosition);
-    editor.on('transaction', updatePosition);
-    editor.on('focus', updatePosition);
-    editor.on('blur', updatePosition);
-    window.addEventListener('resize', updatePosition);
-    document.addEventListener('scroll', updatePosition, true);
-    const resizeObserver = new ResizeObserver(updatePosition);
-    resizeObserver.observe(overlayRoot);
-
-    return () => {
-      if (frameId !== null) window.cancelAnimationFrame(frameId);
-      editor.off('selectionUpdate', updatePosition);
-      editor.off('transaction', updatePosition);
-      editor.off('focus', updatePosition);
-      editor.off('blur', updatePosition);
-      window.removeEventListener('resize', updatePosition);
-      document.removeEventListener('scroll', updatePosition, true);
-      resizeObserver.disconnect();
-    };
-  }, [editor, overlayRoot]);
-
-  if (!overlayRoot || !position) return null;
+  if (!root || !frame) return null;
 
   return createPortal(
     <div
-      className="table-bubble-menu-anchor"
+      ref={panelRef}
+      className="selection-bubble-menu table-bubble-menu-panel"
       style={{
-        left: `${position.left}px`,
-        top: `${position.top}px`,
-        '--table-menu-max-width': `${position.maxWidth}px`,
-      } as CSSProperties}
+        position: 'fixed',
+        left: `${frame.left}px`,
+        top: `${frame.top}px`,
+      }}
     >
-      <div className="selection-bubble-menu table-bubble-menu-panel" ref={panelRef}>
       <TableStyleControls editor={editor} />
       <span className="table-toolbar-divider" aria-hidden="true" />
       <div className="table-bubble-menu" role="toolbar" aria-label={t('editor.table.operations')}>
@@ -162,14 +111,12 @@ export function TableBubbleMenu({ editor }: TableBubbleMenuProps) {
               editor.chain().focus().deleteTable().run();
             }}
             type="button"
-            className="destructive"
           >
-            <AgentTrashIcon size={16} />
+            <TableDeleteIcon />
           </button>
         </Tooltip>
       </div>
-      </div>
     </div>,
-    overlayRoot,
+    document.body,
   );
 }

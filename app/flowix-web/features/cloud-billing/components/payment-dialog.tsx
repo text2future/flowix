@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Check, ChevronDown, Loader2 } from 'lucide-react';
 
 import { cloud, type CloudProduct } from '@platform/tauri/client';
 import { openUrl } from '@platform/tauri/opener';
@@ -18,12 +18,13 @@ import {
   dialogActionClasses,
 } from '@shared/ui/dialog-styles';
 import {
-  BILLING_TABS,
   creditsOf,
   formatBillingPrice,
   groupBillingProducts,
+  isMembershipProduct,
   type BillingTab,
 } from '../model/billing-products';
+import { getImmediateBillingProducts, loadBillingProducts } from '../public/product-catalog';
 
 export interface PaymentDialogProps {
   initialTab: BillingTab;
@@ -45,11 +46,24 @@ const PAYMENT_DIALOG_CONTENT_CLASS = cn(
 const PURCHASE_ACTION_CLASS = dialogActionClasses('brand');
 const SECONDARY_ACTION_CLASS = dialogActionClasses('secondary');
 
-function cycleLabelKey(product: CloudProduct): 'billing.dialog.perYear' | 'billing.dialog.perOnce' | null {
+function cycleLabelKey(product: CloudProduct): 'billing.dialog.perYear' | 'billing.dialog.perMonth' | 'billing.dialog.perOnce' | null {
   if (product.billingType === 'one_time') return 'billing.dialog.perOnce';
   const duration = product.entitlement?.duration;
   if (duration?.unit === 'year') return 'billing.dialog.perYear';
+  if (duration?.unit === 'month') return 'billing.dialog.perMonth';
   return null;
+}
+
+function formatStorageCapacity(value: number): string {
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let capacity = value;
+  let unitIndex = 0;
+  while (capacity >= 1024 && unitIndex < units.length - 1) {
+    capacity /= 1024;
+    unitIndex += 1;
+  }
+  const formatted = Number.isInteger(capacity) ? String(capacity) : capacity.toFixed(1);
+  return `${formatted} ${units[unitIndex]}`;
 }
 
 /**
@@ -59,24 +73,44 @@ function cycleLabelKey(product: CloudProduct): 'billing.dialog.perYear' | 'billi
  */
 export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
   const { t } = useI18n();
-  const [tab, setTab] = useState<BillingTab>(initialTab);
-  const [products, setProducts] = useState<CloudProduct[] | null>(null);
+  const [products, setProducts] = useState<CloudProduct[] | null>(() => getImmediateBillingProducts());
   const [error, setError] = useState<string | null>(null);
   const [buyingId, setBuyingId] = useState<string | null>(null);
+  const [activeSubscriptionIds, setActiveSubscriptionIds] = useState<Set<string>>(() => new Set());
+  const [activeMembership, setActiveMembership] = useState<Awaited<ReturnType<typeof cloud.refreshMembership>> | null>(null);
   const buyingRef = useRef(false);
   const bodyRef = useRef<HTMLElement | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     setError(null);
-    setProducts(null);
     try {
-      setProducts(await cloud.listProducts());
+      await loadBillingProducts(setProducts, force);
     } catch (value) {
       setError(cloudSyncErrorMessage(value, t, 'errors.friendly.checkout'));
     }
   }, [t]);
 
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    if (typeof cloud.refreshMembership !== 'function' || typeof cloud.listSubscriptions !== 'function') return;
+    let mounted = true;
+    void Promise.all([cloud.refreshMembership(), cloud.listSubscriptions()])
+      .then(([membership, subscriptions]) => {
+        if (!mounted) return;
+        setActiveMembership(membership);
+        setActiveSubscriptionIds(new Set(subscriptions
+          .filter((subscription) => subscription.currentPeriodEnd != null
+            ? subscription.currentPeriodEnd > Date.now()
+            : ['active', 'trialing', 'past_due'].includes(subscription.status))
+          .map((subscription) => subscription.productId)
+          .filter((productId): productId is string => Boolean(productId))));
+      })
+      .catch(() => {
+        // Keep purchase options available if the account state cannot be refreshed.
+      });
+    return () => { mounted = false; };
+  }, []);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -97,7 +131,13 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
     () => groupBillingProducts(products ?? []),
     [products],
   );
-  const activeProducts = tab === 'credits' ? groups.credits : groups.membership;
+  const displayProducts = useMemo(() => [
+    ...groups.credits,
+    ...groups.membership.filter((product) => product.entitlement?.features?.lifetime !== true),
+    ...groups.membership.filter((product) => product.entitlement?.features?.lifetime === true),
+  ], [groups]);
+  const initialFocusProductId = (initialTab === 'credits' ? groups.credits[0] : groups.membership[0])?.id
+    ?? displayProducts[0]?.id;
 
   const buy = async (product: CloudProduct) => {
     if (buyingRef.current) return;
@@ -132,28 +172,7 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
             {t('billing.dialog.title')}
           </DialogTitle>
 
-          <div className="payment-dialog__tabs" role="tablist" aria-label={t('billing.dialog.title')}>
-            {BILLING_TABS.map((value) => {
-              const label = value === 'credits'
-                ? t('billing.dialog.tab.credits')
-                : t('billing.dialog.tab.membership');
-              return (
-                <button
-                  key={value}
-                  type="button"
-                  role="tab"
-                  aria-selected={tab === value}
-                  data-payment-initial-focus={tab === value ? '' : undefined}
-                  className={cn('payment-dialog__tab', tab === value && 'is-active')}
-                  onClick={() => setTab(value)}
-                >
-                  {label}
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="payment-dialog__body" role="tabpanel">
+          <div className="payment-dialog__body">
             {products === null && !error && (
               <div className="payment-dialog__state">
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
@@ -167,59 +186,177 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
                 <button
                   type="button"
                   className={cn(SECONDARY_ACTION_CLASS, 'h-8 min-h-0 px-3 text-xs')}
-                  onClick={() => void load()}
+                  onClick={() => void load(true)}
                 >
                   {t('billing.dialog.retry')}
                 </button>
               </div>
             )}
 
-            {products !== null && activeProducts.length === 0 && (
+            {products !== null && displayProducts.length === 0 && (
               <div className="payment-dialog__state">
-                {t(tab === 'credits' ? 'billing.dialog.empty.credits' : 'billing.dialog.empty.membership')}
+                {t('billing.dialog.empty.all')}
               </div>
             )}
 
-            {activeProducts.length > 0 && (
-              <ul className="payment-dialog__list">
-                {activeProducts.map((product) => {
+            {displayProducts.length > 0 && (
+              <div className="payment-dialog__list-container">
+                <ul className="payment-dialog__list">
+                  {displayProducts.map((product) => {
                   const credits = creditsOf(product);
                   const cycle = cycleLabelKey(product);
+                  const features = product.entitlement?.features ?? {};
+                  // Classification comes from the catalog's entitlementKind
+                  // (with a legacy feature fallback), never from the credit
+                  // denomination alone. `credits` is only a display amount.
+                  const isStoragePlan = isMembershipProduct(product);
+                  const isAiPlan = !isStoragePlan;
+                  const isCurrent = activeSubscriptionIds.has(product.id)
+                    || (isStoragePlan
+                      && features.lifetime === true
+                      && activeMembership?.active === true
+                      && activeMembership.features?.lifetime === true);
+                  const isCoveredByLifetime = isStoragePlan
+                    && features.lifetime !== true
+                    && activeMembership?.active === true
+                    && activeMembership.features?.lifetime === true
+                    && !activeSubscriptionIds.has(product.id);
+                  const productTitle = isAiPlan
+                    ? t('billing.dialog.product.aiMembership')
+                    : features.lifetime === true
+                      ? t('billing.dialog.product.storageLifetime')
+                      : t('billing.dialog.product.storageExperience');
+                  const productDescription = isAiPlan
+                    ? t('billing.dialog.product.aiMembershipDescription')
+                    : features.lifetime === true
+                      ? t('billing.dialog.product.storageLifetimeDescription')
+                      : t('billing.dialog.product.storageExperienceDescription');
+                  const storageCapacity = formatStorageCapacity(product.entitlement?.storageBytes ?? 0);
+                  const benefits = isAiPlan
+                    ? [
+                      ...(credits !== null
+                        ? [t('billing.dialog.aiBenefit.credits', { value: credits.toLocaleString() })]
+                        : []),
+                      t('billing.dialog.aiBenefit.models'),
+                    ]
+                    : [
+                      // 组合商品：云存储主类型同时赠送点数，两条都列出来，别让它看起来只是存储包。
+                      ...(credits !== null
+                        ? [t('billing.dialog.aiBenefit.credits', { value: credits.toLocaleString() })]
+                        : []),
+                      t('preferences.cloud.totalStorage', { capacity: storageCapacity }),
+                      t('preferences.cloud.unlimitedSyncedNotebooks'),
+                      t('preferences.cloud.maximumFileSize', {
+                        size: features.lifetime === true ? '100 MB' : '5 MB',
+                      }),
+                      ...(['memberThemes'] as const)
+                        .map((benefit) => t(`preferences.cloud.plan.benefit.${benefit}`)),
+                      t('billing.dialog.storageBenefit.localAi'),
+                      ...(['mcpCli', 'earlyAccess'] as const)
+                        .map((benefit) => t(`preferences.cloud.plan.benefit.${benefit}`)),
+                      t('billing.dialog.storageBenefit.futureFeatures'),
+                      t('billing.dialog.storageBenefit.permanentData'),
+                    ];
                   return (
-                    <li key={product.id} className="payment-dialog__product">
+                    <li
+                      key={product.id}
+                      className={cn(
+                        'payment-dialog__product',
+                        isAiPlan && 'payment-dialog__product--ai',
+                        isStoragePlan && 'payment-dialog__product--storage',
+                      )}
+                    >
                       <div className="payment-dialog__product-main">
                         <div className="payment-dialog__product-name">
-                          {credits === null
-                            ? product.name
-                            : t('billing.dialog.creditsAmount', { value: credits.toLocaleString() })}
+                          {productTitle}
                         </div>
-                        {product.description && (
-                          <div className="payment-dialog__product-description">{product.description}</div>
-                        )}
+                        <div className="payment-dialog__product-description">
+                          {productDescription}
+                        </div>
                         <div className="payment-dialog__product-price">
                           <span className="payment-dialog__amount">{formatBillingPrice(product.price)}</span>
                           {cycle && <span className="payment-dialog__cycle">{t(cycle)}</span>}
                         </div>
+                        <button
+                          type="button"
+                          className={cn(
+                            PURCHASE_ACTION_CLASS,
+                            'payment-dialog__purchase relative mt-4 flex w-full items-center justify-center',
+                            isStoragePlan && features.lifetime !== true && 'payment-dialog__purchase--white',
+                            isStoragePlan && features.lifetime === true && 'payment-dialog__purchase--storage-long-term',
+                            (isCurrent || isCoveredByLifetime) && 'payment-dialog__purchase--current',
+                          )}
+                          data-payment-initial-focus={product.id === initialFocusProductId ? '' : undefined}
+                          disabled={isCurrent || isCoveredByLifetime || buyingId !== null || product.marketRegion === 'mainland'}
+                          onClick={() => void buy(product)}
+                        >
+                          {buyingId === product.id && <Loader2 className="absolute right-3 h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
+                          {t(isCurrent
+                            ? 'billing.dialog.currentlyActive'
+                            : isCoveredByLifetime
+                              ? 'billing.dialog.downgradeUnsupported'
+                              : product.marketRegion === 'mainland'
+                                ? 'billing.dialog.wechatPending'
+                                : 'billing.dialog.purchase')}
+                        </button>
+                        <div className="payment-dialog__benefits-title">
+                          {t('preferences.cloud.plan.includes')}
+                        </div>
+                        <ul className="payment-dialog__benefits">
+                          {benefits.map((benefit) => (
+                            <li key={benefit}>
+                              <Check aria-hidden="true" />
+                              <span>{benefit}</span>
+                            </li>
+                          ))}
+                        </ul>
+                        {isAiPlan && (
+                          <p className="payment-dialog__ai-note">
+                            {t('billing.dialog.allProductsNote')}
+                          </p>
+                        )}
                       </div>
-                      <button
-                        type="button"
-                        className={cn(PURCHASE_ACTION_CLASS, 'shrink-0')}
-                        disabled={buyingId !== null}
-                        onClick={() => void buy(product)}
-                      >
-                        {buyingId === product.id && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
-                        {t('billing.dialog.purchase')}
-                      </button>
                     </li>
                   );
-                })}
-              </ul>
+                  })}
+                </ul>
+              </div>
             )}
           </div>
 
-          <footer className="payment-dialog__footer">
-            {t(tab === 'credits' ? 'billing.dialog.creditsNote' : 'billing.dialog.membershipNote')}
-          </footer>
+          <section className="payment-dialog__faq" aria-labelledby="payment-dialog-faq-title">
+            <h3 id="payment-dialog-faq-title" className="payment-dialog__faq-title">
+              {t('billing.dialog.faq.title')}
+            </h3>
+            <details className="payment-dialog__faq-item">
+              <summary className="payment-dialog__faq-question">
+                <span>{t('billing.dialog.faq.chooseVersion.question')}</span>
+                <ChevronDown aria-hidden="true" />
+              </summary>
+              <p className="payment-dialog__faq-answer">
+                {t('billing.dialog.faq.chooseVersion.answer')}
+              </p>
+            </details>
+            <details className="payment-dialog__faq-item">
+              <summary className="payment-dialog__faq-question">
+                <span>{t('billing.dialog.faq.credits.question')}</span>
+                <ChevronDown aria-hidden="true" />
+              </summary>
+              <p className="payment-dialog__faq-answer">
+                {t('billing.dialog.faq.credits.answer')}
+              </p>
+            </details>
+            <details className="payment-dialog__faq-item">
+              <summary className="payment-dialog__faq-question">
+                <span>{t('billing.dialog.faq.renewal.question')}</span>
+                <ChevronDown aria-hidden="true" />
+              </summary>
+              <p className="payment-dialog__faq-answer">
+                {t('billing.dialog.faq.renewal.answer')}
+              </p>
+            </details>
+          </section>
+
         </main>
       </DialogContent>
     </Dialog>

@@ -82,10 +82,10 @@ download or document-export controls, or modify the existing export adapters.
 
 Focused tests cover template insertion, keyboard submenu navigation, style
 switching, selection/merged-edge border edits, undo/redo, Markdown and HTML
-round-trips, worker parsing, and comparison-column decorations.
+round-trips, parser-registry parsing, and comparison-column decorations.
 
 ```sh
-npx vitest run app/flowix-web/features/editor/extensions/table app/flowix-web/features/editor/markdown-parser-regressions.test.ts app/flowix-web/features/editor/markdown-worker-dom.test.ts
+npx vitest run app/flowix-web/features/editor/extensions/table app/flowix-web/features/editor/markdown-parser-regressions.test.ts
 npx tsc --noEmit
 npm run check:layers
 npm run check:arch

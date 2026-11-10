@@ -190,7 +190,7 @@ describe('first-run notebook setup', () => {
     expect([...document.body.querySelectorAll('button')].some((item) => item.textContent === '取消')).toBe(false);
     expect(button('创建并开始使用').disabled).toBe(false);
     await click('创建并开始使用');
-    expect(mocks.create).toHaveBeenCalledWith('我的笔记本', undefined, 'notebook_2_fill', false);
+    expect(mocks.create).toHaveBeenCalledWith('我的笔记本', undefined, 'planet_fill', false);
   });
 
   it('keeps the form after cancelling the folder picker', async () => {
@@ -206,7 +206,7 @@ describe('first-run notebook setup', () => {
     await click('选择本地');
     await click('选择本地');
     await click('创建并开始使用');
-    expect(mocks.create).toHaveBeenCalledWith('我的笔记本', '/primary', 'notebook_2_fill', false);
+    expect(mocks.create).toHaveBeenCalledWith('我的笔记本', '/primary', 'planet_fill', false);
     expect(mocks.attachFolder).toHaveBeenCalledWith(notebook.id, '/extra');
     expect(mocks.selectNotebook).toHaveBeenCalledWith(notebook);
   });

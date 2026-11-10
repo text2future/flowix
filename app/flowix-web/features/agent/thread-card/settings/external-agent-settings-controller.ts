@@ -7,6 +7,7 @@ import shieldAlertOutlineSvg from "@/assets/shield-alert-outline.svg?raw";
 import shieldCheckOutlineSvg from "@/assets/shield-check-outline.svg?raw";
 import type { AppLanguage, I18nKey, I18nParams } from "@/lib/i18n";
 import { translate } from "@/lib/i18n";
+import { replayEnterAnimation } from "@/lib/replay-enter-animation";
 import { getWorkspaceAgentRepositories } from "@features/agent/public/workspace-api";
 import type {
   AgentCodexModel,
@@ -1104,6 +1105,7 @@ export class ExternalAgentSettingsController {
     this.kind = null;
     this.anchor = anchor;
     this.popover.hidden = false;
+    this.replayPopoverEnterAnimation();
     this.popover.classList.remove("agent-thread-card__codex-settings-popover--mode");
     this.popover.classList.remove("agent-thread-card__codex-settings-popover--pi-mode");
     this.syncControlOpenState(true, null);
@@ -1112,6 +1114,17 @@ export class ExternalAgentSettingsController {
     this.startPositionTracking();
     document.addEventListener("pointerdown", this.handleOutsidePointer, true);
     this.onPopoverStateChange?.(true, anchor);
+  }
+
+  /**
+   * 重放标准 popover 入场动画类 (`.flowix-popover-enter`)。 transition 在
+   * `display:none` → 可见的同一帧不会触发, 关键帧动画经
+   * `replayEnterAnimation` 重放则每次都完整播放。 打开弹窗 (任何 kind) 和
+   * workspace 内翻页都调用; 增删仓库后的原地重绘 (`rerenderRepositories`)
+   * 与数据刷新重绘不调用 ── 那不是"出现"。
+   */
+  private replayPopoverEnterAnimation(): void {
+    replayEnterAnimation(this.popover);
   }
 
   setSettingsPopoverOpen(
@@ -1147,6 +1160,11 @@ export class ExternalAgentSettingsController {
       "agent-thread-card__codex-settings-popover--pi-mode",
       open && kind === "mode" && this.getTypeKey() === "pi",
     );
+    // 打开时重放入场动画 ── 覆盖模型 / 推理 / 模式 / 权限等所有 kind 的
+    // 打开与 kind 间切换; 关闭无需处理, 下次打开会重新重放。
+    if (open) {
+      this.replayPopoverEnterAnimation();
+    }
     this.syncControlOpenState(open, kind);
 
     // Recheck the shared catalog when a model picker opens. Fresh cached data
@@ -1322,6 +1340,7 @@ export class ExternalAgentSettingsController {
       event.stopPropagation();
       // 翻到第二页而不是跳走; 弹窗保持打开, 外点关闭 / 定位都不需要重算。
       this.workspacePage = "repositories";
+      this.replayPopoverEnterAnimation();
       this.renderWorkspacePopover();
       this.schedulePosition();
     });
@@ -1353,6 +1372,7 @@ export class ExternalAgentSettingsController {
       event.stopPropagation();
       event.preventDefault();
       this.workspacePage = "access";
+      this.replayPopoverEnterAnimation();
       this.renderWorkspacePopover();
       this.schedulePosition();
       backButton.blur();
@@ -2041,6 +2061,7 @@ export class ExternalAgentSettingsController {
       showEmptyState: this.shouldShowPiModelEmptyState(),
       supportsReasoning: this.supportsRuntimeSetting("reasoning"),
       t: (key) => this.t(key),
+      onAddCustomModel: () => void windows.openPreferences("pi"),
       createModelItem: (option) =>
         this.createModelSettingsItem(option, current, currentProviderId),
       onSelectModel: (option) => {

@@ -10,4 +10,5 @@ export {
   PREFERENCE_TAB_GROUPS,
   PREFERENCE_TABS,
   type ActiveSettingsTab,
+  type PreferencesTabGroup,
 } from '@features/preferences/preferences-tab-config';

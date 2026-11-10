@@ -13,10 +13,15 @@ import { browserSessionRuntime, type BrowserColumnEntry, type BrowserColumnWebRu
 import { canonicalUrl } from '@/lib/url';
 import type { WorkspaceSurfaceCapability, SurfaceAppearance, SurfaceHeaderStyle, WorkspaceSurfaceKind } from '@features/workspace/public/surface-api';
 import type { FileBrowserViewSurface } from './file-browser-view';
-import { getWorkspaceSurfaceRendererDefinition, WorkspaceSurfaceRendererView } from './workspace-surface-renderer-registry';
+import {
+  getWorkspaceSurfaceRendererDefinition,
+  workspaceSurfaceInitialLoadingState,
+  workspaceSurfaceRetainsInitialContent,
+  workspaceSurfaceSilentLoading,
+  WorkspaceSurfaceRendererView,
+} from './workspace-surface-renderer-registry';
 import type { ExternalDocumentProps, WorkspaceSurfaceRendererData, WorkspaceWebNavigationPort } from './workspace-surface-renderer-contract';
 import { registerWorkspaceSurfacePresentationOwner, reportWorkspaceSurfacePresentation } from './workspace-surface-runtime';
-import { workspaceSurfaceRetainsInitialContent } from './workspace-surface-renderer-registry';
 import type { SurfacePresentationUpdate } from '@features/workspace/public/surface-api';
 import type { SurfaceLifecycle } from '@features/workspace/public/surface-api';
 import { registerWorkspaceSurfaceLifecycle, registerWorkspaceColumnIdView } from '@features/workspace/public/surface-lifecycle-api';
@@ -91,15 +96,13 @@ interface BrowserColumnSurfaceOptions {
   columnId?: 'column-1' | 'column-2';
   readOnly?: boolean;
   webRuntime?: BrowserColumnWebRuntime | null;
-  toolbarCollapsed?: boolean;
-  onToolbarCollapsedChange?: (collapsed: boolean) => void;
 }
 
 export function resolveBrowserColumnSurface(entry: BrowserColumnEntry & { target: Extract<BrowserColumnEntry['target'], { kind: 'file-browser' }> }, options?: BrowserColumnSurfaceOptions): BrowserFileBrowserSurface;
 export function resolveBrowserColumnSurface(entry: BrowserColumnEntry, options?: BrowserColumnSurfaceOptions): BrowserColumnSurface;
 export function resolveBrowserColumnSurface(
   entry: BrowserColumnEntry,
-  { columnId = 'column-2', readOnly = false, webRuntime = null, toolbarCollapsed = false, onToolbarCollapsedChange }: BrowserColumnSurfaceOptions = {},
+  { columnId = 'column-2', readOnly = false, webRuntime = null }: BrowserColumnSurfaceOptions = {},
 ): BrowserColumnSurface {
   const base = {
     instanceKey: `browser:${entry.id}`,
@@ -139,7 +142,7 @@ export function resolveBrowserColumnSurface(
           externalScopePath: target.scopePath,
           documentSessionMode: 'isolated',
           workspaceHost: columnId,
-          readOnly, toolbarCollapsed, onToolbarCollapsedChange,
+          readOnly,
         },
         onSelectFile: (path) => { if (columnId === 'column-1') selectPrimary(path); else void selectBrowserColumnFile(entry.id, path); },
         onOpenFileInNewTab: (path) => { void openSurfaceAtHost({
@@ -231,16 +234,17 @@ function BrowserRegisteredSurfaceView({ surface, focused, webAddressBarVisible =
       browserSessionRuntime().updateContentMetadata(surface.surfaceId, metadata);
     }
   }, [presentationOwner, surface.surfaceId]);
-  const retainInitialContent = workspaceSurfaceRetainsInitialContent(browserSurfaceData(surface));
+  const data = useMemo(() => browserSurfaceData(surface), [surface]);
+  const retainInitialContent = workspaceSurfaceRetainsInitialContent(data);
+  const silentLoading = workspaceSurfaceSilentLoading(data);
   const registerLifecycle = useCallback((lifecycle: SurfaceLifecycle | null, owner?: object) => {
     registerWorkspaceSurfaceLifecycle(surface.surfaceId, lifecycle, owner);
   }, [surface.surfaceId]);
   useLayoutEffect(() => registerWorkspaceColumnIdView('column-2', surface.surfaceId), [surface.surfaceId]);
   useLayoutEffect(() => registerWorkspaceSurfacePresentationOwner(surface.surfaceId, presentationOwner, {
-    state: { status: 'loading', loadingMode: 'blocking', retainContent: retainInitialContent },
+    state: workspaceSurfaceInitialLoadingState(silentLoading, retainInitialContent),
   }),
-    [presentationOwner, retainInitialContent, surface.surfaceId]);
-  const data = useMemo(() => browserSurfaceData(surface), [surface]);
+    [presentationOwner, retainInitialContent, silentLoading, surface.surfaceId]);
   const context = useMemo(() => ({ sessionEntryId: surface.surfaceId, host: 'column-2' as const, viewId: surface.surfaceId, focused,
       initialFocus: surface.kind === 'file-browser' ? surface.documentProps.initialFocus : undefined,
       webNavigation, webAddressBarVisible, onCollectionActiveViewChange,

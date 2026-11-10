@@ -19,7 +19,7 @@ import { renameMarkdownTitle } from '@features/document/use-cases/local-document
 import { applyLoadedDocumentContent, getDocumentBuffer, recordDocumentEdit } from '@features/document/store/document-session-service';
 import { acceptBackgroundDocumentContent, hasLiveUnsavedDocumentAtPath, subscribeWorkspaceDocumentSaves } from '@features/document/public/workspace-api';
 import { NoteReference } from '@features/editor/extensions/note-link/view-note';
-import { toNoteReferenceAttrs } from '@features/editor/extensions/note-mention/note-mention-data';
+import { toNoteReferenceAttrs } from '@features/editor/public/mention-data-api';
 import { canonicalPath } from '@/lib/path';
 import { rewriteNoteLinkMoves, updateNoteLinksAfterMove, acceptWorkspaceDocumentLinkSave } from './note-link-rewriter';
 import { ensureFileDisplayIdentity, rebaseFileDisplayPath, pinFileDisplayId } from '@/lib/file-display-registry';

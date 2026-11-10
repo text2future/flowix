@@ -2,8 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ subscribe: vi.fn(), notebookPath: vi.fn().mockResolvedValue('/notes') }));
 vi.mock('@platform/tauri/notebook-change-events', () => ({ subscribeNotebookChanges: mocks.subscribe }));
 vi.mock('@features/memo/public/app-api', () => ({ getAppNotebookPath: mocks.notebookPath, refreshAppPathNoteMetadata: vi.fn() }));
-vi.mock('@features/editor/extensions/note-mention/note-mention-data', () => ({ invalidateMentionNotes: vi.fn() }));
-vi.mock('@features/editor/extensions/tag-mention/tag-mention-data', () => ({ invalidateMentionTags: vi.fn() }));
+vi.mock('@features/editor/public/mention-data-api', () => ({
+  invalidateMentionNotes: vi.fn(),
+  invalidateMentionTags: vi.fn(),
+}));
 vi.mock('@features/document/public/workspace-api', () => ({ rebaseStoredRecoveryDraftPaths: vi.fn() }));
 vi.mock('@features/workspace/public/app-api', () => ({ openCreatedDocumentFromNotice: vi.fn(), removeBrowserColumnContentByPath: vi.fn(), applyNotebookPathMove: vi.fn() }));
 vi.mock('@features/workspace/public/shell-api', () => ({ clearWorkspaceTargetForDeletedFile: vi.fn() }));

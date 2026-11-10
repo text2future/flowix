@@ -14,8 +14,8 @@ let root: Root | null = null;
 let container: HTMLDivElement | null = null;
 
 function mountProbe(): {
+  openRepositoryFile: (path: string, scopePath: string) => void;
   openRepositoryFileInBrowser: (path: string, scopePath: string) => void;
-  openRepositoryFileInWork: (path: string, scopePath: string) => void;
 } {
   const handlers: { current: ReturnType<typeof useRepositoryFileOpen> | null } = { current: null };
   const Probe = () => {
@@ -42,24 +42,24 @@ describe('repository file open placement', () => {
     container = null;
   });
 
-  it('opens a row click in the Browser column', () => {
+  it('opens a row click in the Work column', () => {
+    const handlers = mountProbe();
+
+    handlers.openRepositoryFile('/repo/notes/a.md', '/repo');
+
+    expect(openWorkspaceSurface).toHaveBeenCalledWith({
+      index: 0,
+      target: { kind: 'external', path: '/repo/notes/a.md', scopePath: '/repo', transitionId: null },
+    });
+  });
+
+  it('keeps the row menu pointing at the Browser column', () => {
     const handlers = mountProbe();
 
     handlers.openRepositoryFileInBrowser('/repo/notes/a.md', '/repo');
 
     expect(openWorkspaceSurface).toHaveBeenCalledWith({
       index: 1,
-      target: { kind: 'external', path: '/repo/notes/a.md', scopePath: '/repo', transitionId: null },
-    });
-  });
-
-  it('keeps the row menu pointing at the Work column', () => {
-    const handlers = mountProbe();
-
-    handlers.openRepositoryFileInWork('/repo/notes/a.md', '/repo');
-
-    expect(openWorkspaceSurface).toHaveBeenCalledWith({
-      index: 0,
       target: { kind: 'external', path: '/repo/notes/a.md', scopePath: '/repo', transitionId: null },
     });
   });

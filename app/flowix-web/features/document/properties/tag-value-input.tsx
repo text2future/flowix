@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
-import { queryMentionTags, type MentionTagItem } from '@features/editor/extensions/tag-mention/tag-mention-data';
+import { queryMentionTags, type MentionTagItem } from '@features/editor/public/mention-data-api';
 import { normalizeTagInput } from '@features/document/properties/frontmatter-model';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';

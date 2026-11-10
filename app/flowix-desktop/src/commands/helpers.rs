@@ -276,14 +276,62 @@ pub(crate) fn is_registered_notebook_path_with_state(path: &Path, state: &AppSta
 }
 
 pub(crate) fn can_access_document_path(path: &Path, window: &str, state: &State<AppState>) -> bool {
+    can_access_document_path_timed(path, window, state).0
+}
+
+/// Sub-stage timings of the access check so the slow-resolve diagnostics can
+/// attribute `accessMs` to the security bookmark, the registry/database
+/// lookups, or the access list.
+#[derive(Default, Clone, Copy)]
+pub(crate) struct DocumentAccessTimings {
+    pub bookmark_ms: u128,
+    pub registered_ms: u128,
+    pub attached_ms: u128,
+    pub access_list_ms: u128,
+    pub scoped_fallback_ms: u128,
+}
+
+impl DocumentAccessTimings {
+    pub fn summary(&self) -> String {
+        format!(
+            "{{\"bookmarkMs\":{},\"registeredMs\":{},\"attachedMs\":{},\"accessListMs\":{},\"scopedFallbackMs\":{}}}",
+            self.bookmark_ms,
+            self.registered_ms,
+            self.attached_ms,
+            self.access_list_ms,
+            self.scoped_fallback_ms
+        )
+    }
+}
+
+pub(crate) fn can_access_document_path_timed(
+    path: &Path,
+    window: &str,
+    state: &State<AppState>,
+) -> (bool, DocumentAccessTimings) {
+    let mut timings = DocumentAccessTimings::default();
+    let bookmark_started = std::time::Instant::now();
     state.security_bookmarks.start_accessing_for_path(path);
-    let allowed = is_registered_notebook_path(path, state)
-        || is_attached_notebook_directory(path, state)
-        || state.document_access.contains(window, path);
+    timings.bookmark_ms = bookmark_started.elapsed().as_millis();
+
+    let registered_started = std::time::Instant::now();
+    let registered = is_registered_notebook_path(path, state);
+    timings.registered_ms = registered_started.elapsed().as_millis();
+
+    let attached_started = std::time::Instant::now();
+    let attached = !registered && is_attached_notebook_directory(path, state);
+    timings.attached_ms = attached_started.elapsed().as_millis();
+
+    let allowed_so_far = registered || attached;
+    let access_list_started = std::time::Instant::now();
+    let in_access_list = !allowed_so_far && state.document_access.contains(window, path);
+    timings.access_list_ms = access_list_started.elapsed().as_millis();
+
+    let allowed = allowed_so_far || in_access_list;
     if allowed && path.is_dir() {
         state.security_bookmarks.record_accessible_directory(path);
     }
-    allowed
+    (allowed, timings)
 }
 
 pub(crate) fn can_access_scoped_file(

@@ -34,7 +34,7 @@ export function NotebookIconPopover({
           disabled={disabled}
           className={cn(
             variant === 'inline'
-              ? 'flex h-8 w-8 items-center justify-center rounded-md border-0 bg-transparent p-0 transition-colors hover:bg-[var(--muted)]/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--primary)] data-[state=open]:bg-[var(--muted)]/40'
+              ? 'group flex h-8 w-8 items-center justify-center rounded-md border-0 bg-transparent p-0 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--primary)]'
               : 'flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-input bg-[var(--card)] transition-colors hover:bg-[var(--muted)]/40 focus-visible:border-[var(--primary)] focus-visible:outline-none data-[state=open]:border-[var(--primary)]',
             'disabled:cursor-not-allowed disabled:opacity-50',
           )}
@@ -43,7 +43,12 @@ export function NotebookIconPopover({
         >
           <NotebookIcon
             icon={selected.id}
-            className="h-7 w-7 rounded-md bg-[var(--muted)] text-sm font-semibold text-[var(--secondary-foreground)]"
+            className={cn(
+              'h-7 w-7 rounded-md text-sm font-semibold text-[var(--secondary-foreground)]',
+              variant === 'inline'
+                ? 'bg-transparent group-hover:bg-[var(--muted)] group-active:bg-[var(--muted)] group-data-[state=open]:bg-[var(--muted)]'
+                : 'bg-[var(--muted)]',
+            )}
             imageClassName="h-[72%] w-[72%]"
           />
         </button>

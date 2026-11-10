@@ -304,8 +304,46 @@ pub fn run() {
                 };
 
             let cloud_state_app = app.handle().clone();
+            // True initially: a SignedOut state at first notification is the
+            // startup default, not a lost session.
+            let cloud_prev_signed_out = AtomicBool::new(true);
             let cloud_state_notifier: Arc<dyn Fn(flowix_sync::CloudState) + Send + Sync> =
                 Arc::new(move |state| {
+                    // A session can end outside the logout command — an expired
+                    // refresh token or a failed startup restore clears auth in
+                    // the background. The Flowix Cloud model provider holds an
+                    // access credential for a session that no longer exists,
+                    // so dropping it must ride the same transition. The
+                    // disconnect is generation-guarded: racing a fresh login
+                    // is a no-op, and double-running after the logout command
+                    // finds nothing left to delete.
+                    let signed_out = state.auth_status == flowix_sync::CloudAuthStatus::SignedOut;
+                    let entered_signed_out = signed_out && !cloud_prev_signed_out.swap(signed_out, Ordering::Relaxed);
+                    if entered_signed_out {
+                        let app = cloud_state_app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let Some(app_state) = app.try_state::<AppState>() else {
+                                tracing::warn!(
+                                    "cloud session ended before app state was ready; skipping model provider disconnect"
+                                );
+                                return;
+                            };
+                            let api_base = app_state.cloud_environment.api_base().to_string();
+                            let credential_generation = app_state
+                                .cloud_sync
+                                .account()
+                                .ai_credential_session_generation();
+                            if let Err(error) = app_state
+                                .pi
+                                .disconnect_cloud_model_provider(&app, &api_base, credential_generation)
+                                .await
+                            {
+                                tracing::warn!(
+                                    "failed to disconnect cloud model provider after session loss: {error}"
+                                );
+                            }
+                        });
+                    }
                     if let Err(error) = cloud_state_app.emit("cloud-state-changed", state) {
                         tracing::warn!("failed to emit cloud state notification: {error}");
                     }
@@ -545,6 +583,9 @@ pub fn run() {
             commands::cloud::cloud_get_state,
             commands::cloud::cloud_register,
             commands::cloud::cloud_login,
+            commands::cloud::cloud_account_deletion,
+            commands::cloud::cloud_export_account,
+            commands::cloud::cloud_delete_account,
             commands::cloud::cloud_sign_in_with_apple,
             commands::cloud::cloud_start_google_sign_in,
             commands::cloud::cloud_link_apple,
@@ -559,7 +600,6 @@ pub fn run() {
             commands::cloud::cloud_ai_credit_balance,
             commands::cloud::cloud_pi_model_availability,
             commands::cloud::cloud_pi_model_catalog,
-            commands::cloud::cloud_connect_pi_model_provider,
             commands::cloud::cloud_refresh_pi_model_provider_at_startup,
             commands::cloud::cloud_refresh_pi_model_provider,
             commands::cloud::cloud_list_products,
@@ -830,6 +870,7 @@ pub fn run() {
             // window
             commands::window::show_main_window,
             commands::window::open_preferences_window,
+            commands::window::open_payment_dialog_in_main,
             commands::window_health::report_ui_heartbeat,
             commands::window_input::set_window_close_region,
             commands::window_input::native_close_routing_ready,

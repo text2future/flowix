@@ -15,6 +15,10 @@ vi.mock('@platform/tauri/client', () => ({
     listProducts: mocks.listProducts,
     createCheckout: mocks.createCheckout,
   },
+  // `product-catalog.ts` probes both of these at module load time. A vitest
+  // module mock throws on any export that is not declared, even with `?.`.
+  product: undefined,
+  listenToCloudStateChanges: undefined,
 }));
 vi.mock('@platform/tauri/opener', () => ({ openUrl: mocks.openUrl }));
 vi.mock('@/lib/i18n', () => {
@@ -24,30 +28,47 @@ vi.mock('@/lib/i18n', () => {
 
 import { PaymentDialog } from './payment-dialog';
 
-const MEMBERSHIP: CloudProduct = {
-  id: 'member-annual',
-  name: 'Annual membership',
+// The catalog's entitlementKind is authoritative. Deliberately leave the old
+// `membership` feature flag off so a regression to feature-based grouping fails.
+const STORAGE: CloudProduct = {
+  id: 'storage-annual',
+  name: 'Annual cloud storage',
   description: 'Cloud storage and member models',
   price: { amount: 2900, currency: 'usd' },
   billingType: 'subscription',
+  entitlementKind: 'storage',
   entitlement: {
     storageBytes: 5 * 1024 ** 3,
     duration: { unit: 'year', count: 1 },
-    features: { membership: true },
+    features: {},
   },
 };
 
-const CREDITS: CloudProduct = {
-  id: 'credits-5000',
-  name: 'Credit pack',
+const AI: CloudProduct = {
+  id: 'ai-monthly',
+  name: 'AI monthly',
   description: '',
   price: { amount: 1000, currency: 'usd' },
-  billingType: 'one_time',
+  billingType: 'subscription',
+  entitlementKind: 'ai',
   entitlement: {
     storageBytes: 0,
-    duration: { unit: 'day', count: 0 },
+    duration: { unit: 'month', count: 1 },
     features: { credits: 5000 },
   },
+};
+
+/** Pre-split cached catalogs carry no kind and have to fall back to features. */
+const LEGACY_STORAGE: CloudProduct = {
+  ...STORAGE,
+  id: 'legacy-annual',
+  entitlementKind: undefined,
+  entitlement: { ...STORAGE.entitlement, features: { membership: true } },
+};
+const LEGACY_AI: CloudProduct = {
+  ...AI,
+  id: 'legacy-credits',
+  entitlementKind: undefined,
 };
 
 let container: HTMLDivElement;
@@ -69,9 +90,14 @@ function productNames(): string[] {
     .map((node) => node.textContent ?? '');
 }
 
+function productElements(): HTMLElement[] {
+  return Array.from(document.body.querySelectorAll<HTMLElement>('.payment-dialog__product'));
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.listProducts.mockResolvedValue([MEMBERSHIP, CREDITS]);
+  window.localStorage.clear();
+  mocks.listProducts.mockResolvedValue([STORAGE, AI]);
   mocks.createCheckout.mockResolvedValue({ checkoutUrl: 'https://pay.example/1', orderId: 'o1', status: 'pending' });
   mocks.openUrl.mockResolvedValue(undefined);
 });
@@ -83,38 +109,60 @@ afterEach(() => {
 });
 
 describe('PaymentDialog', () => {
-  it('opens on the membership shelf and hides credit packs', async () => {
+  it('shows both entitlement kinds in one list, classified by entitlementKind', async () => {
     await render('membership');
-    expect(productNames()).toEqual(['Annual membership']);
-    expect(document.body.querySelector('.payment-dialog__amount')?.textContent).toBe('$29');
-    expect(document.body.querySelector('.payment-dialog__tab.is-active')?.textContent)
-      .toBe('billing.dialog.tab.membership');
+    expect(productNames()).toEqual([
+      'billing.dialog.product.aiMembership',
+      'billing.dialog.product.storageExperience',
+    ]);
+    expect(productElements()[0].classList.contains('payment-dialog__product--ai')).toBe(true);
+    expect(productElements()[1].classList.contains('payment-dialog__product--storage')).toBe(true);
+    expect(document.body.querySelector('.payment-dialog__amount')?.textContent).toBe('$10');
   });
 
-  it('shows denominations on the credit shelf', async () => {
+  it('keeps an AI product on the AI shelf even without a credit denomination', async () => {
+    const aiWithoutCredits: CloudProduct = {
+      ...AI,
+      entitlement: { ...AI.entitlement, features: {} },
+    };
+    mocks.listProducts.mockResolvedValue([STORAGE, aiWithoutCredits]);
+    await render();
+    expect(productNames()[0]).toBe('billing.dialog.product.aiMembership');
+    expect(productElements()[0].classList.contains('payment-dialog__product--ai')).toBe(true);
+  });
+
+  it('falls back to features for cached catalogs written before the two-kind split', async () => {
+    mocks.listProducts.mockResolvedValue([LEGACY_STORAGE, LEGACY_AI]);
+    await render();
+    expect(productNames()).toEqual([
+      'billing.dialog.product.aiMembership',
+      'billing.dialog.product.storageExperience',
+    ]);
+  });
+
+  it('focuses the AI shelf when opened from a credits notice', async () => {
     await render('credits');
-    expect(productNames()).toEqual(['billing.dialog.creditsAmount']);
-    expect(document.body.querySelector('.payment-dialog__tab.is-active')?.textContent)
-      .toBe('billing.dialog.tab.credits');
+    const focused = document.body.querySelector<HTMLElement>('[data-payment-initial-focus]');
+    expect(focused?.closest('.payment-dialog__product')?.classList.contains('payment-dialog__product--ai')).toBe(true);
   });
 
-  it('starts a checkout from either shelf and closes', async () => {
+  it('starts a checkout and closes', async () => {
     const onClose = await render('credits');
     const buy = document.body.querySelector<HTMLButtonElement>('.payment-dialog__product button');
     await act(async () => {
       buy!.click();
       await Promise.resolve();
     });
-    expect(mocks.createCheckout).toHaveBeenCalledWith('credits-5000');
+    expect(mocks.createCheckout).toHaveBeenCalledWith('ai-monthly');
     expect(mocks.openUrl).toHaveBeenCalledWith('https://pay.example/1');
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('reports an empty shelf instead of an empty list', async () => {
-    mocks.listProducts.mockResolvedValue([MEMBERSHIP]);
+  it('reports an empty catalog instead of an empty list', async () => {
+    mocks.listProducts.mockResolvedValue([]);
     await render('credits');
     expect(document.body.querySelector('.payment-dialog__state')?.textContent)
-      .toBe('billing.dialog.empty.credits');
+      .toBe('billing.dialog.empty.all');
   });
 
   it('surfaces a catalog failure and retries', async () => {
@@ -127,7 +175,7 @@ describe('PaymentDialog', () => {
       await Promise.resolve();
     });
     expect(mocks.listProducts).toHaveBeenCalledTimes(2);
-    expect(productNames()).toEqual(['Annual membership']);
+    expect(productNames()).toHaveLength(2);
   });
 
   it('closes on escape', async () => {

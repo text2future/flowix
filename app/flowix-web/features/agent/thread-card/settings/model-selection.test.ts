@@ -47,13 +47,13 @@ beforeEach(() => {
   useAgentDataStore.getState().setModelCatalog("pi", { items: [localModel], updatedAt: 0 });
 });
 
-it("asks for a sign-in when a logged-out account picks a preview Cloud model", () => {
+it("applies a logged-out preview Cloud model without showing the sign-in card yet", () => {
   const spy = hooks();
 
   selectAgentModel(spy, previewModel);
 
-  expect(spy.onCloudAccessBlocked).toHaveBeenCalledWith("signed_out");
-  expect(spy.apply).not.toHaveBeenCalled();
+  expect(spy.onCloudAccessBlocked).not.toHaveBeenCalled();
+  expect(spy.apply).toHaveBeenCalledWith(previewModel);
   expect(spy.closePopover).toHaveBeenCalledOnce();
 });
 

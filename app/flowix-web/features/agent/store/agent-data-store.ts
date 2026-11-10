@@ -68,6 +68,8 @@ export interface AgentCatalogModel {
   subtitle?: string;
   creditMultiplier?: number;
   iconUrl?: string;
+  /** Cloud directory rank: larger values are shown first. */
+  sortOrder?: number;
   providerId?: string;
   providerName?: string;
   reasoningEfforts?: AgentCodexReasoningEffort[];

@@ -1,10 +1,13 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ClipboardEvent as ReactClipboardEvent, KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { PlusIcon } from '@phosphor-icons/react';
+import { PlusIcon, SmileyIcon } from '@phosphor-icons/react';
 import { MousePointerClick } from 'lucide-react';
 
 import { useI18n } from '@/lib/i18n';
 import { toast } from '@/lib/toast';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('memo-title-editor');
 import { Tooltip } from '@shared/ui/tooltip';
 import { ADDABLE_TABLE_PROPERTY_KINDS, getPropertyTypeDefinition } from '@/lib/property-types';
 import { createPropertyId, createPropertyOptionId } from '@/lib/property-identity';
@@ -25,6 +28,9 @@ import { canonicalizePropertyKey } from '@features/properties/property-key';
 import { getPropertyPresets, usePropertyPresets } from '@features/properties/public-api';
 import { savePropertyPreset, usePropertyPresetStore } from '@features/properties/property-preset-store';
 import { SYSTEM_FRONTMATTER_KEYS } from '@features/document/properties/frontmatter-model';
+import { PropertyIconPickerPanel } from '@features/document/properties/icon-picker-panel';
+import { setDocumentProperties } from '@features/document/public/path-properties';
+import { useNotebookNoteIcon } from '@features/memo/public/shell-api';
 import type { WorkspaceColumnId } from '@features/workspace/public/host-api';
 
 type EditorAddablePropertyType = Exclude<TableFieldType, 'primary' | 'Note'>;
@@ -32,6 +38,8 @@ type EditorAddablePropertyType = Exclude<TableFieldType, 'primary' | 'Note'>;
 interface MemoTitleEditorProps {
   displayId: string;
   filename: string;
+  /** Absolute note path; drives the note icon entry in the property actions bar. */
+  filePath?: string;
   renameTitle: RenameDocumentTitle;
   editable: boolean;
   propertyActionsEnabled?: boolean;
@@ -63,6 +71,7 @@ export interface MemoTitleEditorHandle {
 export const MemoTitleEditor = forwardRef<MemoTitleEditorHandle, MemoTitleEditorProps>(function MemoTitleEditor({
   displayId,
   filename,
+  filePath,
   renameTitle,
   editable,
   propertyActionsEnabled = editable,
@@ -91,6 +100,8 @@ export const MemoTitleEditor = forwardRef<MemoTitleEditorHandle, MemoTitleEditor
   const bodyMergeRef = useRef<Promise<boolean> | null>(null);
   const [propertyPickerOpen, setPropertyPickerOpen] = useState(false);
   const [propertyPickerAnchorRect, setPropertyPickerAnchorRect] = useState<DOMRect | null>(null);
+  const [iconPickerOpen, setIconPickerOpen] = useState(false);
+  const [iconPickerAnchorRect, setIconPickerAnchorRect] = useState<DOMRect | null>(null);
   const [addPropertyOpen, setAddPropertyOpen] = useState(false);
   const [addPropertyAnchorRect, setAddPropertyAnchorRect] = useState<DOMRect | null>(null);
   const [addPropertyName, setAddPropertyName] = useState('');
@@ -120,6 +131,8 @@ export const MemoTitleEditor = forwardRef<MemoTitleEditorHandle, MemoTitleEditor
   const closePropertyPopups = useCallback(() => {
     setPropertyPickerOpen(false);
     setPropertyPickerAnchorRect(null);
+    setIconPickerOpen(false);
+    setIconPickerAnchorRect(null);
     setAddPropertyOpen(false);
     setAddPropertyAnchorRect(null);
     setAddPropertyTypeMenuOpen(false);
@@ -143,6 +156,23 @@ export const MemoTitleEditor = forwardRef<MemoTitleEditorHandle, MemoTitleEditor
     setAddPropertyTypeMenuOpen(false);
     setAddPropertyOpen(true);
   }, []);
+
+  const closeIconPicker = useCallback((open: boolean) => {
+    setIconPickerOpen(open);
+    if (!open) setIconPickerAnchorRect(null);
+  }, []);
+
+  /** 属性横条与标题图标共用：写回 frontmatter flowix_icon（与编辑器共享保存队列）。 */
+  const changeNoteIcon = useCallback((next: string) => {
+    if (!filePath) return;
+    setDocumentProperties(filePath, { flowix_icon: next }).then((saved) => {
+      if (!saved) toast.error(t('media.properties.saveFailed'));
+    }).catch((error) => {
+      logger.error('设置笔记图标失败', { error });
+      toast.error(t('media.properties.saveFailed'));
+    });
+  }, [filePath, t]);
+  const noteIcon = useNotebookNoteIcon(filePath ?? null);
 
   useEffect(() => {
     const handleOpenPropertyPicker = (event: Event) => {
@@ -425,7 +455,7 @@ export const MemoTitleEditor = forwardRef<MemoTitleEditorHandle, MemoTitleEditor
       {showPropertiesToggle && (
         <div
           className="memo-title-property-actions"
-          data-popup-open={String(propertyPickerOpen || addPropertyOpen)}
+          data-popup-open={String(propertyPickerOpen || iconPickerOpen || addPropertyOpen)}
           data-property-area-hovered={String(propertyAreaHovered)}
         >
           {propertyActionsEnabled && (
@@ -460,6 +490,25 @@ export const MemoTitleEditor = forwardRef<MemoTitleEditorHandle, MemoTitleEditor
                   }}
                 >
                   <PlusIcon size={16} weight="bold" aria-hidden="true" />
+                </button>
+              </Tooltip>
+              <Tooltip content={t('document.properties.icon.placeholder')} side="bottom">
+                <button
+                  type="button"
+                  className="memo-title-property-action"
+                  aria-label={t('document.properties.icon.placeholder')}
+                  aria-haspopup="dialog"
+                  aria-expanded={iconPickerOpen}
+                  data-state={iconPickerOpen ? 'open' : 'closed'}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={(event) => {
+                    onActivateProperties?.();
+                    setIconPickerAnchorRect(event.currentTarget.getBoundingClientRect());
+                    setIconPickerOpen(true);
+                  }}
+                >
+                  {/* 与「图标」属性类型同款 svg (presets.ts BUILTIN_PRESETS)。 */}
+                  <SmileyIcon className="h-4 w-4" aria-hidden="true" />
                 </button>
               </Tooltip>
             </>
@@ -525,6 +574,28 @@ export const MemoTitleEditor = forwardRef<MemoTitleEditorHandle, MemoTitleEditor
           void windows.openPreferences('noteSettings');
         }}
       />
+      <Popover open={iconPickerOpen} onOpenChange={closeIconPicker} anchorRect={iconPickerAnchorRect}>
+        <PopoverContent
+          side="right"
+          align="start"
+          sideOffset={0}
+          className="z-[150] w-[280px] rounded-xl border border-[var(--border-popup)] bg-[var(--card)] shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)] p-2"
+        >
+          <PropertyIconPickerPanel
+            value={noteIcon ?? ''}
+            disabled={!propertyActionsEnabled}
+            onSelect={(next) => {
+              changeNoteIcon(next);
+              closeIconPicker(false);
+            }}
+            onClear={() => {
+              changeNoteIcon('');
+              closeIconPicker(false);
+            }}
+            clearLabel={t('document.properties.icon.clear')}
+          />
+        </PopoverContent>
+      </Popover>
       <Popover open={addPropertyOpen} onOpenChange={closeAddPropertyForm} anchorRect={addPropertyAnchorRect}>
         <PopoverContent
           side="right"
@@ -537,6 +608,7 @@ export const MemoTitleEditor = forwardRef<MemoTitleEditorHandle, MemoTitleEditor
           <TableFieldEditorForm
             name={addPropertyName}
             onNameChange={setAddPropertyName}
+            namePlaceholder="填写属性名称"
             onNameSubmit={() => { void saveNewProperty(); }}
             type={addPropertyType}
             typeChoices={ADDABLE_TABLE_PROPERTY_KINDS.filter((type): type is EditorAddablePropertyType => type !== 'Note')}

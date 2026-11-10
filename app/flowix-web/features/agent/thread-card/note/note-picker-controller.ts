@@ -1,4 +1,5 @@
 import type { I18nKey, I18nParams } from '@/lib/i18n';
+import { replayEnterAnimation } from '@/lib/replay-enter-animation';
 import { notes as notesClient } from '@platform/tauri/client';
 import { useNoteStore } from '@features/memo/store/note-store';
 import { createAnchoredPopoverController, type AnchoredPopoverController } from '../anchored-popover-controller';
@@ -65,6 +66,7 @@ export class NotePickerController {
     this.open = open;
     this.options.popover.hidden = !open;
     if (open) {
+      replayEnterAnimation(this.options.popover);
       this.query = '';
       this.composing = false;
       this.hits = [];

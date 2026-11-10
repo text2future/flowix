@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 
 import App from "@app/app";
+import { installAnchorLinkGuard } from "@app/anchor-link-guard";
 import { installDesktopShutdown } from "@app/desktop-shutdown";
 import "@/styles/index.css";
 // sonner 的样式随 app/toast-host 一起按需加载, 不再进入口 CSS。
@@ -29,5 +30,7 @@ try {
 }
 
 installDesktopShutdown();
+// 相对链接的最后一道防线：谁也拦不到时也不要把应用自己的 URL 交给浏览器。
+installAnchorLinkGuard();
 
 createRoot(document.getElementById("root")!).render(<App />);

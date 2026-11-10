@@ -286,6 +286,10 @@ export function useDocumentContent({
         logOpenDocPerf('reloadDocument:start', startedAt, {
           transitionId,
           path: readPath,
+          // Two reloads racing on the same session produce serial duplicate
+          // IPC reads; flag whether this call reused (or could reuse) the
+          // in-flight opening read instead of issuing its own.
+          openingReadShared: session.openingRead?.path === readPath,
         });
         const readStartedAt = performance.now();
         markDocumentOpenTrace(transitionId, 'ipc:read-start', {

@@ -6,7 +6,13 @@ import { MemoListViewTabs } from './memo-list-view-tabs';
 import { ListColumnContent } from '@features/shell/components/list-column-content';
 
 vi.mock('@shared/ui/tooltip', () => ({
-  Tooltip: ({ children }: { children: React.ReactNode }) => children,
+  // 触发元素原样返回，content 渲染到 data 属性供断言。
+  Tooltip: ({ content, children }: { content?: React.ReactNode; children: React.ReactNode }) => (
+    <>
+      {children}
+      <span data-tooltip-content>{content}</span>
+    </>
+  ),
 }));
 
 vi.mock('@/lib/i18n', () => ({
@@ -78,12 +84,18 @@ describe('MemoListViewTabs', () => {
     expect(onChange).toHaveBeenCalledOnce();
     expect(onChange).toHaveBeenCalledWith('folders');
   });
-  it('only shows the file tree and notes tabs', async () => {
+  it('only shows the file tree and notes tabs as icon-only items with hover tooltips', async () => {
     await act(async () => {
       root.render(<MemoListViewTabs activeTab="folders" onChange={vi.fn()} />);
     });
     expect(Array.from(host.querySelectorAll('[role="tab"]')).map((tab) =>
       tab.getAttribute('data-memo-list-view-tab'))).toEqual(['folders', 'cards']);
+    // tab 内不含文案，完整文案只作为无障碍标签（i18n mock 原样返回 key）。
+    expect(host.querySelector('[data-memo-list-view-tab="folders"]')?.getAttribute('aria-label')).toBe('memo.list.viewFolders');
+    expect(host.querySelector('[data-memo-list-view-tab="cards"]')?.getAttribute('aria-label')).toBe('memo.list.viewCards');
+    // hover tooltip 展示短文案（空间 / 笔记）。
+    const tooltipContents = Array.from(host.querySelectorAll('[data-tooltip-content]')).map((node) => node.textContent);
+    expect(tooltipContents).toEqual(['memo.list.viewFoldersShort', 'memo.list.viewCardsShort']);
   });
 
   it('keeps file-tree navigation selected while showing the conversation content page', async () => {
@@ -91,7 +103,6 @@ describe('MemoListViewTabs', () => {
     await act(async () => {
       root.render(
         <ListColumnContent activeView="conversations" onViewChange={onViewChange}
-          navigationDrawerOpen={false} onToggleNavigationDrawer={vi.fn()}
           conversationList={<div data-conversation-drawer />}>
           <div data-conversation-page />
         </ListColumnContent>,
@@ -118,7 +129,6 @@ describe('MemoListViewTabs', () => {
     const renderPage = async (activeView: 'folders' | 'conversations') => {
       await act(async () => root.render(
         <ListColumnContent activeView={activeView} onViewChange={vi.fn()}
-          navigationDrawerOpen={false} onToggleNavigationDrawer={vi.fn()}
           conversationList={<div data-cached-conversations />}>
           <div />
         </ListColumnContent>,

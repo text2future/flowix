@@ -12,6 +12,12 @@ use super::types::NotebookConfig;
 pub(super) struct NotebookRegistry {
     pub(super) config_dir: PathBuf,
     pub(super) configs_cache: std::sync::RwLock<Option<Vec<NotebookConfig>>>,
+    /// 进程内已完成一次完整的 registry 开库校验/迁移。该校验流程每次 open
+    /// 要付出 8+ 次文件系统 stat、PRAGMA/schema 检查与全表投影对比（实测
+    /// 40-100ms/次），而每次读文档 IPC 的作用域校验都要 open 一到两次。
+    /// 完成一次后，热路径 open 只做 `Connection::open` + 连接级 PRAGMA；
+    /// journal_mode=WAL 是 DB 持久属性，真实查询仍能看到其他进程的最新提交。
+    validated: std::sync::atomic::AtomicBool,
 }
 
 impl NotebookRegistry {
@@ -19,6 +25,7 @@ impl NotebookRegistry {
         Self {
             config_dir,
             configs_cache: std::sync::RwLock::new(None),
+            validated: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -43,6 +50,30 @@ impl NotebookRegistry {
         run_legacy_migrations: bool,
         allow_missing_notebooks: bool,
     ) -> std::io::Result<Connection> {
+        // 热路径快开：进程内已通过一次完整校验/迁移，跳过全部 stat 与
+        // schema/migration 检查。只保留一次 DB 存在性 stat（防 DB 被删后
+        // Connection::open 静默建空库），其余防护属于启动期职责。
+        if self
+            .validated
+            .load(std::sync::atomic::Ordering::Relaxed)
+            && !run_legacy_migrations
+        {
+            let path = self.db_path();
+            if !path.try_exists()? {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "notebook registry is missing; restore or migrate the existing registry before opening",
+                ));
+            }
+            let mut database = Connection::open(&path).map_err(sqlite_to_io)?;
+            database
+                .busy_timeout(Duration::from_secs(10))
+                .map_err(sqlite_to_io)?;
+            database
+                .execute_batch("PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;")
+                .map_err(sqlite_to_io)?;
+            return Ok(database);
+        }
         if let Some(parent) = self.db_path().parent() {
             fs::create_dir_all(parent)?;
         }
@@ -253,6 +284,10 @@ impl NotebookRegistry {
             ));
         }
         conn.commit().map_err(sqlite_to_io)?;
+        // 到这里 schema 必然完备（CREATE TABLE IF NOT EXISTS notebooks 已执行），
+        // 后续热路径 open 可以走快路径。
+        self.validated
+            .store(true, std::sync::atomic::Ordering::Relaxed);
         let initialized = self.config_dir.join("notebook-registry-initialized");
         if !initialized.try_exists()? {
             super::atomic_write_bytes(&initialized, b"1")?;

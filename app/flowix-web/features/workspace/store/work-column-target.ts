@@ -24,6 +24,15 @@ export function workColumnTargetFilePath(target: WorkColumnTarget): string | nul
 }
 
 export const EMPTY_WORK_COLUMN_TARGET = { kind: 'empty' } as const satisfies WorkColumnTarget;
+
+/**
+ * Markdown paints its own note skeleton, so opening it must not flash the
+ * work-column blocking loader over the document area.
+ */
+export function workColumnTargetShowsBlockingLoading(target: WorkColumnTarget): boolean {
+  return !(target.kind === 'external' && /\.(md|markdown)$/i.test(target.path));
+}
+
 export type WorkColumnNavigationFailure = SessionNavigationFailure;
 export interface WorkColumnNavigationState extends Omit<SessionNavigationTransaction, 'showBlockingLoading'> {
   showWorkColumnLoading: boolean;

@@ -1,47 +1,53 @@
 import { Editor, type JSONContent } from '@tiptap/core';
+import { MarkdownManager } from '@tiptap/markdown';
 import { OrderedList, TaskList } from '@tiptap/extension-list';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { createMarkdownEditorExtensions } from './markdown-editor-extensions';
-import { createMarkdownParserExtensions } from './markdown-parser-extensions';
 import { FLOWIX_AGENT_THREAD_CARD_MARKER } from '@features/agent/thread-card/agent-thread-card-markdown';
 
-type Request = { id: number; markdown: string };
-type Reply = { ok: boolean; document?: JSONContent; error?: string };
-let receive: (event: MessageEvent<Request>) => void;
-let reply: Reply;
-const editors: Editor[] = [];
+const editorContext = {
+  getOwnerPath: () => undefined,
+  getAttachmentNotebookId: () => undefined,
+  workspaceHost: 'column-1' as const,
+  getPlaceholder: () => '',
+};
 
-beforeAll(async () => {
-  vi.stubGlobal('self', {
-    addEventListener: (_type: string, callback: typeof receive) => { receive = callback; },
-    postMessage: (value: Reply) => { reply = value; },
-  });
-  await import('./markdown-parser.worker');
+/**
+ * Parse through the same registry the editor mounts, but as JSON only: the
+ * manager never builds views, so cases that need a Tauri-backed NodeView
+ * (images) can still be asserted here.
+ */
+const manager = new MarkdownManager({
+  extensions: createMarkdownEditorExtensions(editorContext),
+  markedOptions: { gfm: true, breaks: true },
 });
 
-afterEach(() => editors.splice(0).forEach(editor => editor.destroy()));
-afterAll(() => vi.unstubAllGlobals());
+const editors: Editor[] = [];
 
-function parseInWorker(markdown: string): JSONContent {
-  reply = { ok: false };
-  receive({ data: { id: 1, markdown } } as MessageEvent<Request>);
-  expect(reply.ok, reply.error).toBe(true);
-  return reply.document!;
+afterEach(() => editors.splice(0).forEach(editor => editor.destroy()));
+
+function parseMarkdown(markdown: string): JSONContent {
+  return manager.parse(markdown);
 }
 
 function createEditor(content: string | JSONContent): Editor {
   const editor = new Editor({
-    extensions: createMarkdownEditorExtensions({
-      getOwnerPath: () => undefined,
-      getAttachmentNotebookId: () => undefined,
-      workspaceHost: 'column-1',
-      getPlaceholder: () => '',
-    }),
+    extensions: createMarkdownEditorExtensions(editorContext),
     content,
     contentType: typeof content === 'string' ? 'markdown' : 'json',
   });
   editors.push(editor);
   return editor;
+}
+
+function nodeTypes(document: JSONContent): string[] {
+  return (document.content ?? []).map(node => node.type ?? '');
+}
+
+function documentText(node: JSONContent | undefined): string {
+  if (!node) return '';
+  if (typeof node.text === 'string') return node.text;
+  return (node.content ?? []).map(child => documentText(child)).join('');
 }
 
 const cardMetadata = JSON.stringify({
@@ -52,9 +58,9 @@ const cardMetadata = JSON.stringify({
   fullscreen: false,
 });
 
-describe('worker parses content that previously forced the browser parser', () => {
+describe('Markdown parsing of constructs that previously needed the browser parser', () => {
   it('registers guarded list tokenizers instead of the stock ones', () => {
-    const extensions = createMarkdownParserExtensions();
+    const extensions = createMarkdownEditorExtensions(editorContext);
     const ordered = extensions.filter(extension => extension.name === 'orderedList');
     const task = extensions.filter(extension => extension.name === 'taskList');
     // Registering both the stock and the guarded extension runs the expensive
@@ -66,7 +72,7 @@ describe('worker parses content that previously forced the browser parser', () =
   });
 
   it('keeps a new-form Agent Thread Card as a node', () => {
-    const document = parseInWorker(
+    const document = parseMarkdown(
       `Before\n\n<!-- ${FLOWIX_AGENT_THREAD_CARD_MARKER} ${cardMetadata} -->\n\nAfter`,
     );
     const card = document.content?.find(node => node.type === 'agentThreadCard');
@@ -75,7 +81,7 @@ describe('worker parses content that previously forced the browser parser', () =
   });
 
   it('keeps a legacy Agent Thread Card as a node', () => {
-    const document = parseInWorker(
+    const document = parseMarkdown(
       'Before\n\n::agent-thread-card{threadId="thread-legacy" agentType="codex"}\n\nAfter',
     );
     const card = document.content?.find(node => node.type === 'agentThreadCard');
@@ -83,23 +89,26 @@ describe('worker parses content that previously forced the browser parser', () =
     expect(JSON.stringify(card)).toContain('thread-legacy');
   });
 
-  it.each([
-    ['block html', 'Before\n\n<div>keep me</div>\n\nAfter'],
-    ['inline html', 'a <span class="x">keep</span> b'],
-    ['hard break', 'line one\n<br>\nline two'],
-    ['void html', 'Before\n\n<img src="a.png" alt="pic">\n\nAfter'],
-    ['html comment', 'Before\n\n<!-- secret -->\n\nAfter'],
-    ['escaped html table', 'Before\n\n&lt;table&gt;&lt;tbody&gt;&lt;tr&gt;&lt;td&gt;&lt;p&gt;&lt;/p&gt;&lt;p&gt;哈哈好&lt;/p&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;\n\nAfter'],
-    ['html table', 'Before\n\n<table><thead><tr><th>h</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table>\n\nAfter'],
-    ['styled html table', '<table data-flowix-table-style="hk-financial"><tr data-flowix-row-role="total"><td data-flowix-column-role="amount"><p>(9,700)</p><p>unchanged</p></td></tr></table>'],
-    ['html table borders', '<table><tr><th colspan="2" data-flowix-border-top="double" data-flowix-border-bottom="none"><p>Header</p></th></tr><tr><td data-flowix-border-bottom="single"><p>01</p></td><td data-flowix-border-top="invalid" data-flowix-border-bottom="double"><p>(9,700)</p></td></tr></table>'],
-  ])('parses raw HTML (%s) instead of rejecting the note', (_name, source) => {
-    const workerDocument = parseInWorker(source);
-    expect(createEditor(workerDocument).getJSON()).toEqual(createEditor(source).getJSON());
+  it.each<[string, string, { types?: string[]; text?: string[] }]>([
+    ['block html', 'Before\n\n<div>keep me</div>\n\nAfter', { text: ['keep me'] }],
+    ['inline html', 'a <span class="x">keep</span> b', { text: ['a keep b'] }],
+    ['hard break', 'line one\n<br>\nline two', { text: ['line one', 'line two'] }],
+    ['void html', 'Before\n\n<img src="a.png" alt="pic">\n\nAfter', { types: ['paragraph', 'paragraph', 'paragraph'] }],
+    ['html comment', 'Before\n\n<!-- secret -->\n\nAfter', { types: ['paragraph', 'paragraph', 'paragraph'] }],
+    ['escaped html table', 'Before\n\n&lt;table&gt;&lt;tbody&gt;&lt;tr&gt;&lt;td&gt;&lt;p&gt;&lt;/p&gt;&lt;p&gt;哈哈好&lt;/p&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;\n\nAfter', { types: ['paragraph', 'table', 'paragraph'], text: ['哈哈好'] }],
+    ['html table', 'Before\n\n<table><thead><tr><th>h</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table>\n\nAfter', { types: ['paragraph', 'table', 'paragraph'] }],
+    ['styled html table', '<table data-flowix-table-style="hk-financial"><tr data-flowix-row-role="total"><td data-flowix-column-role="amount"><p>(9,700)</p><p>unchanged</p></td></tr></table>', { types: ['table'], text: ['(9,700)', 'unchanged'] }],
+    ['html table borders', '<table><tr><th colspan="2" data-flowix-border-top="double" data-flowix-border-bottom="none"><p>Header</p></th></tr><tr><td data-flowix-border-bottom="single"><p>01</p></td><td data-flowix-border-top="invalid" data-flowix-border-bottom="double"><p>(9,700)</p></td></tr></table>', { types: ['table'], text: ['Header', '01', '(9,700)'] }],
+  ])('parses raw HTML (%s) instead of rejecting the note', (_name, source, expected) => {
+    const document = parseMarkdown(source);
+    if (expected.types) expect(nodeTypes(document)).toEqual(expected.types);
+    for (const fragment of expected.text ?? []) {
+      expect(documentText(document)).toContain(fragment);
+    }
   });
 
   it('still parses flowix reference markers', () => {
-    const document = parseInWorker([
+    const document = parseMarkdown([
       'Before',
       '',
       '<!-- flowix:table-reference {"version":1,"path":"a.md"} -->',
@@ -108,41 +117,37 @@ describe('worker parses content that previously forced the browser parser', () =
       '',
       'After',
     ].join('\n'));
-    const types = (document.content ?? []).map(node => node.type);
-    expect(types).toContain('tableReference');
-    expect(types).toContain('mediaLibraryReference');
+    expect(nodeTypes(document)).toContain('tableReference');
+    expect(nodeTypes(document)).toContain('mediaLibraryReference');
   });
 
-  // The worker bounds each block tokenizer's `start()` scan to a prefix of the
+  // The guarded tokenizers bound each block's `start()` scan to a prefix of the
   // remaining document. These cases guard that every construct is still found.
   it.each([
-    ['math block', 'Before\n\n$$\nx^2 + y^2\n$$\n\nAfter'],
-    ['web card', 'Before\n\n::webcard[{"url":"https://example.com","title":"Example"}]\n\nAfter'],
-    ['table metadata', '<!-- flowix:table {"version":1,"columns":[{"width":120}]} -->\n\n| a |\n| --- |\n| 1 |'],
-    ['table presentation', '<!-- flowix:table {"version":1,"columns":[{"width":120}],"styleId":"three-line","rows":["body","total"],"cells":[["amount"],["amount"]]} -->\n\n| a |\n| --- |\n| (9,700) |'],
-    ['table borders without a row header', '<!-- flowix:table {"version":1,"columns":[{"width":120}],"rowHeader":false,"borders":[[{"top":"none","bottom":"double"}],[{"top":"single"}]]} -->\n\n|  |\n| --- |\n| (9,700) |\n| 01 |'],
-    ['table widths', '<!-- flowix:table-widths=120,80 -->\n\n| a | b |\n| --- | --- |\n| 1 | 2 |'],
-    ['table reference', 'Before\n\n<!-- flowix:table-reference {"version":1,"path":"a.md"} -->\n\nAfter'],
-    ['media reference', 'Before\n\n<!-- flowix:media-library-reference {"version":1,"path":"a.png"} -->\n\nAfter'],
-    ['task list', '- [ ] todo\n- [x] done'],
-    ['bullet list', '- one\n- two\n\nplain'],
-    ['ordered list', '1. one\n2. two'],
-  ])('parses %s identically on both paths', (_name, source) => {
-    const workerDocument = parseInWorker(source);
-    expect(createEditor(workerDocument).getJSON()).toEqual(createEditor(source).getJSON());
+    ['math block', 'Before\n\n$$\nx^2 + y^2\n$$\n\nAfter', ['paragraph', 'mathBlock', 'paragraph']],
+    ['web card', 'Before\n\n::webcard {"url":"https://example.com","title":"Example"}\n\nAfter', ['paragraph', 'webCard', 'paragraph']],
+    ['table metadata', '<!-- flowix:table {"version":1,"columns":[{"width":120}]} -->\n\n| a |\n| --- |\n| 1 |', ['table']],
+    ['table presentation', '<!-- flowix:table {"version":1,"columns":[{"width":120}],"styleId":"three-line","rows":["body","total"],"cells":[["amount"],["amount"]]} -->\n\n| a |\n| --- |\n| (9,700) |', ['table']],
+    ['table borders without a row header', '<!-- flowix:table {"version":1,"columns":[{"width":120}],"rowHeader":false,"borders":[[{"top":"none","bottom":"double"}],[{"top":"single"}]]} -->\n\n|  |\n| --- |\n| (9,700) |\n| 01 |', ['table']],
+    ['table widths', '<!-- flowix:table-widths=120,80 -->\n\n| a | b |\n| --- | --- |\n| 1 | 2 |', ['table']],
+    ['table reference', 'Before\n\n<!-- flowix:table-reference {"version":1,"path":"a.md"} -->\n\nAfter', ['paragraph', 'tableReference', 'paragraph']],
+    ['media reference', 'Before\n\n<!-- flowix:media-library-reference {"version":1,"path":"a.png"} -->\n\nAfter', ['paragraph', 'mediaLibraryReference', 'paragraph']],
+    ['task list', '- [ ] todo\n- [x] done', ['taskList']],
+    ['bullet list', '- one\n- two\n\nplain', ['bulletList', 'paragraph']],
+    ['ordered list', '1. one\n2. two', ['orderedList']],
+  ])('parses %s', (_name, source, expectedTypes) => {
+    expect(nodeTypes(parseMarkdown(source))).toEqual(expectedTypes);
   });
 
-  // These two mount NodeViews that need the Tauri runtime, so the comparison
-  // stays at the parsed JSON level.
   it('finds media style comments ahead of an image', () => {
-    const document = parseInWorker(
+    const document = parseMarkdown(
       'Before\n\n<!-- flowix:media {"flowix":"media","version":1,"style":{"width":"60%"}} -->\n![x](asset://image-key)\n\nAfter',
     );
     expect(JSON.stringify(document)).toContain('"image"');
   });
 
   it('finds inline note references', () => {
-    const document = parseInWorker('See [[wiki note]] inline.');
+    const document = parseMarkdown('See [[wiki note]] inline.');
     expect(JSON.stringify(document)).toContain('noteReference');
   });
 });
@@ -151,8 +156,6 @@ describe('ordered list continuation text preservation', () => {
   it.each(['1) 第一项\n2) 第二项', '7) 第一项\n8) 第二项'])(
     'continues to parse parenthesized ordered list markers: %s', source => {
       const editor = createEditor(source);
-      const worker = parseInWorker(source);
-      expect(editor.getJSON()).toEqual(createEditor(worker).getJSON());
       expect(editor.state.doc.firstChild?.type.name).toBe('orderedList');
       expect(editor.state.doc.firstChild?.attrs.start).toBe(Number.parseInt(source, 10));
       expect(editor.state.doc.textContent).toContain('第一项');
@@ -166,9 +169,7 @@ describe('ordered list continuation text preservation', () => {
   ))('preserves Chinese initials with $indent indentation and $newline endings', ({ indent, newline }) => {
     const lines = ['业务组件：凭证引擎', '能力中心：表单', '基础框架：门户'];
     const source = ['3. 三大稳态', ...lines.map(line => indent + line)].join(newline);
-    const worker = parseInWorker(source);
     const editor = createEditor(source);
-    expect(editor.getJSON()).toEqual(createEditor(worker).getJSON());
     for (const line of lines) expect(editor.state.doc.textContent).toContain(line);
     const saved = editor.getMarkdown();
     const restored = createEditor(saved);
@@ -190,7 +191,6 @@ describe('ordered list continuation text preservation', () => {
       '    ```',
     ].join('\n');
     const editor = createEditor(source);
-    expect(editor.getJSON()).toEqual(createEditor(parseInWorker(source)).getJSON());
     const first = editor.state.doc.firstChild!;
     expect(first.attrs.start).toBe(10);
     expect(first.firstChild!.lastChild!.type.name).toBe('orderedList');

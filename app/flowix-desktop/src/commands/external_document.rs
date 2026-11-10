@@ -206,6 +206,7 @@ pub(crate) fn exact_existing_external_path(
     window: &str,
     state: &State<'_, AppState>,
 ) -> Result<PathBuf, String> {
+    let resolve_started = std::time::Instant::now();
     let requested = PathBuf::from(file_path);
     if !requested.is_absolute() {
         return Err("external document must be an absolute path".to_string());
@@ -216,16 +217,41 @@ pub(crate) fn exact_existing_external_path(
             requested.display()
         ));
     }
-    if !can_access_document_path(&requested, window, state)
-        && !can_access_scoped_file(&requested, scope_path, state)
-    {
+    let stat_ms = resolve_started.elapsed().as_millis();
+    let access_started = std::time::Instant::now();
+    let (primary_allowed, mut access_timings) =
+        crate::commands::helpers::can_access_document_path_timed(&requested, window, state);
+    let scoped_started = std::time::Instant::now();
+    let allowed =
+        primary_allowed || can_access_scoped_file(&requested, scope_path, state);
+    access_timings.scoped_fallback_ms = scoped_started.elapsed().as_millis();
+    if !allowed {
         return Err("external document is outside its authorized scope".to_string());
     }
+    let access_ms = access_started.elapsed().as_millis();
+    let text_started = std::time::Instant::now();
     if !supported_text_document_path(&requested) {
         return Err("external document is not a supported text file".to_string());
     }
-    dunce::canonicalize(&requested)
-        .map_err(|error| format!("failed to resolve {}: {error}", requested.display()))
+    let text_ms = text_started.elapsed().as_millis();
+    let canonicalize_started = std::time::Instant::now();
+    let resolved = dunce::canonicalize(&requested)
+        .map_err(|error| format!("failed to resolve {}: {error}", requested.display()))?;
+    let canonicalize_ms = canonicalize_started.elapsed().as_millis();
+    let total_ms = resolve_started.elapsed().as_millis();
+    tracing::info!(target: "document_io", operation = "external_path_resolve",
+        total_ms, stat_ms, access_ms, text_ms, canonicalize_ms,
+        access_detail = access_timings.summary());
+    // tracing does not reach app.log; mirror slow resolves so a user report
+    // pinpoints which stage of the scope check is expensive.
+    if total_ms >= 40 {
+        let payload = format!(
+            "{{\"totalMs\":{total_ms},\"statMs\":{stat_ms},\"accessMs\":{access_ms},\"textMs\":{text_ms},\"canonicalizeMs\":{canonicalize_ms},\"access\":{}}}",
+            access_timings.summary()
+        );
+        crate::runtime_log::record_event("warn", "slow-external-resolve", payload);
+    }
+    Ok(resolved)
 }
 
 fn document_read_error(path: &Path, error: std::io::Error) -> String {

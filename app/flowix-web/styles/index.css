@@ -9,7 +9,8 @@
  *   - editor-mermaid           mermaid SVG 渲染样式 (字号 / 对齐 / 主题 ──
  *                              全屏 / 非全屏统一管理, 通过 .mermaid-surface
  *                              类共享)
- *   - editor-link-tooltip      链接 hover tooltip (render to body)
+ *   - editor-link-tooltip      链接 hover tooltip (render to body; 复用
+ *                              editor-bubble-menus 的气泡外观, 必须后加载)
  *   - editor-bubble-menus      selection / table / link / slash 浮层
  *   - editor-attachment-link   附件 (file/video/image) + 上传卡片 + 正文链接 */
 @import './editor.css';
@@ -20,8 +21,8 @@
 @import './editor-note-reference.css';
 @import './editor-code-block.css';
 @import './editor-mermaid.css';
-@import './editor-link-tooltip.css';
 @import './editor-bubble-menus.css';
+@import './editor-link-tooltip.css';
 @import './editor-table-presentation.css';
 @import './editor-attachment-link.css';
 @import './editor-video-embed.css';
@@ -36,6 +37,7 @@
 @import './created-document-notices.css';
 @import './work-column-selection.css';
 @import './cloud-status-icon.css';
+@import './note-content-icon.css';
 @import './payment-dialog.css';
 @import './plugin-markmap.css';
 @import './agent-icon.css';
@@ -274,6 +276,17 @@ html.flowix-drag-drop-active * {
 		var(--background) 50%,
 		var(--background) 100%
 	);
+}
+
+/* 深色 / Mist 主题卡片: 整卡按主题自身深色背景渲染, 骨架线改白色形式。
+ * 置于上方 dark 覆盖之后, 同优先级下后写胜出, 应用深浅模式下表现一致。 */
+[data-theme-preview-dark='true'] .theme-card__preview-accent {
+	background: color-mix(in oklch, #ffffff 14%, transparent);
+}
+
+[data-theme-preview-dark='true'] .theme-card__preview-surface {
+	background: color-mix(in oklch, #ffffff 7%, var(--theme-preview-surface));
+	border-color: color-mix(in oklch, #ffffff 18%, transparent);
 }
 
 
@@ -689,6 +702,30 @@ html.flowix-drag-drop-active * {
 		transition-timing-function: var(--flowix-motion-easing);
 	}
 
+	/* Browser column (column-2) expand/collapse from the work-column header.
+	 * Only mounted during the transition window (see useBrowserColumnAnimation,
+	 * BROWSER_COLUMN_ANIMATION_MS = 200) so drags and viewport resizes snap. */
+	.document-columns-layout--animating {
+		transition: grid-template-columns 200ms var(--flowix-motion-easing);
+	}
+
+	/* Dual columns never show their own horizontal scrollbar: when the two
+	 * minimum-width tracks (2 x BROWSER_COLUMN_MIN_WIDTH) exceed the viewport,
+	 * scrolling stays available (trackpad/swipe) but the bar itself is hidden. */
+	[data-document-columns-layout='split'] {
+		scrollbar-width: none;
+	}
+
+	[data-document-columns-layout='split']::-webkit-scrollbar {
+		display: none;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.document-columns-layout--animating {
+			transition: none;
+		}
+	}
+
 	/* Popover presence lifecycle: mount invisibly, position before paint, then
 	 * enter on the next frame. Closing content remains mounted until animation
 	 * completion. Per-popup variables customize distance, scale and duration. */
@@ -751,6 +788,21 @@ html.flowix-drag-drop-active * {
 	.flowix-popover-content[data-motion-state='closing'] {
 		pointer-events: none;
 		animation: flowix-popover-out var(--flowix-popover-exit-duration, 140ms) ease-in both;
+	}
+
+	/* 手搓 DOM 弹窗 (不走 flowix-popover-content 的 data-motion-state 生命周
+	 * 期) 的统一入场动画: 与标准 popover 入场同源, fade + scale 0.97 + 180ms。
+	 * 条件渲染的 React 菜单挂上即播; 用 hidden 属性切换显示的命令式弹窗需要
+	 * 配合 `lib/replay-enter-animation.ts` 重放类才能在每次打开时都播放
+	 * (transition 在 display:none → 可见的同一帧不会触发)。 */
+	.flowix-popover-enter {
+		animation: flowix-popover-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.flowix-popover-enter {
+			animation: none;
+		}
 	}
 
 	.flowix-notebook-selector-popup {

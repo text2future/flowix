@@ -738,7 +738,7 @@ export function NotebookFileTree({
     else toast.success(message);
   }, [selectedFilePaths, treeItemByPath, notebookPath, onDeleteFile, t, updateSelection]);
 
-  const { openRepositoryFileInBrowser, openRepositoryFileInWork } = useRepositoryFileOpen();
+  const { openRepositoryFile, openRepositoryFileInBrowser } = useRepositoryFileOpen();
   const handleTogglePinnedFolder = useCallback(async (folderPath: string) => {
     if (!notebookId) return;
     const relativePath = notebookRelativeDirectoryPath(notebookPath, folderPath);
@@ -1307,8 +1307,8 @@ export function NotebookFileTree({
               onRemoveRepository={(repository) => { void handleRemoveRepository(repository); }}
               onExpandRepository={() => {}}
               canAddRepository={Boolean(notebookId)}
-              onOpenFile={openRepositoryFileInBrowser}
-              onOpenFileInMainColumn={openRepositoryFileInWork}
+              onOpenFile={openRepositoryFile}
+              onOpenFileInBrowserColumn={openRepositoryFileInBrowser}
               viewMode="links"
               onOpenRepositoryList={() => setRepositoriesPageOpen(true)}
             />
@@ -1420,8 +1420,8 @@ export function NotebookFileTree({
               onRemoveRepository={(repository) => { void handleRemoveRepository(repository); }}
               onExpandRepository={() => {}}
               canAddRepository={Boolean(notebookId)}
-              onOpenFile={openRepositoryFileInBrowser}
-              onOpenFileInMainColumn={openRepositoryFileInWork}
+              onOpenFile={openRepositoryFile}
+              onOpenFileInBrowserColumn={openRepositoryFileInBrowser}
               hideSectionHeader
             />
           </div>

@@ -1,19 +1,19 @@
 [data-theme="dark"] {
 	--neutral-hue: 265;
-	/* 深色主题品牌色对齐 rock: 暖陶土色。品牌衍生的链接与标签颜色
-	 * 继续沿用这组色相。 */
-	--brand-hue: 22;
-	--brand-chroma: 0.120;
+	/* 深色主题品牌色 = 偏好面板预览卡的金黄 (#e4bf46 ≈ oklch 0.816 0.142 91.7)。
+	 * 品牌衍生的链接与标签颜色继续沿用这组色相。 */
+	--brand-hue: 91.7;
+	--brand-chroma: 0.142;
 
-	/* 主色与品牌色使用同一暖陶土色；配浅色前景保持按钮文字对比。 */
-	--primary: oklch(0.550 var(--brand-chroma) var(--brand-hue));
-	--primary-foreground: oklch(0.970 0.007 var(--neutral-hue));
-	--brand: oklch(0.550 var(--brand-chroma) var(--brand-hue));
+	/* 主色与品牌色使用同一金黄；亮度高 (L≈0.82)，按钮前景翻成深色保持对比。 */
+	--primary: oklch(0.816 var(--brand-chroma) var(--brand-hue));
+	--primary-foreground: oklch(0.173 0.009 var(--neutral-hue));
+	--brand: oklch(0.816 var(--brand-chroma) var(--brand-hue));
 	--text-hint: #0F8C25;
 
 	--background: oklch(0.173 0.009 var(--neutral-hue));
 	--frame-bg: var(--background);
-	--foreground: oklch(0.68 0.013 265);
+	--foreground: oklch(0.82 0.013 265);
 	--card: oklch(0.240 0.013 var(--neutral-hue));
 	/* Memo 列表独立于 card, 保持比编辑区更深一档的层次。 */
 	--list-bg: oklch(0.200 0.013 265);
@@ -48,7 +48,7 @@
 	--bg-titlebar: oklch(0.173 0.009 var(--neutral-hue));
 	/* 文档: 在 background 上提一档亮度, 与 .tiptap 纸面形成"暗桌+纸边"层级 */
 	--document-bg: oklch(0.160 0.013 265);
-	--document-foreground: oklch(0.68 0.013 265);
+	--document-foreground: oklch(0.82 0.013 265);
 	/* 链接直接跟随品牌色; hover 由 color-mix 派生提亮。 */
 	--document-link: var(--brand);
 	--document-highlight-bg: oklch(0.800 0.182 152);

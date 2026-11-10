@@ -6,9 +6,8 @@ import { moveNameAndDescriptionPresetsToEnd, type PropertyPreset } from '@featur
 import { Popover, PopoverContent, PopoverTrigger } from '@shared/ui/popover';
 import { POPUP_SEPARATOR_CLASS } from '@shared/ui/popup-separator';
 import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
-import { FlowixCheckbox } from '@shared/ui/flowix-checkbox';
+import { cn } from '@/lib/utils';
 import type { I18nKey } from '@/lib/i18n';
-import { getPropertyTypeDefinition } from '@/lib/property-types';
 
 export function PropertyPresetMenu({
   triggerLabel = '预设属性',
@@ -88,10 +87,20 @@ export function PropertyPresetMenu({
         title={preset.label}
       >
         <span className="min-w-0 flex-1 truncate">{preset.label}</span>
-        <span className="shrink-0 text-right text-xs text-[var(--muted-foreground)]">
-          {t(getPropertyTypeDefinition(preset.kind).labelKey)}
+        <span
+          aria-hidden="true"
+          className={cn(
+            'relative h-5 w-9 shrink-0 rounded-full transition-colors',
+            added ? 'bg-[var(--primary)]' : 'bg-[var(--muted)]',
+          )}
+        >
+          <span
+            className={cn(
+              'absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-[var(--card)] shadow-sm transition-transform',
+              added ? 'translate-x-4' : 'translate-x-0',
+            )}
+          />
         </span>
-        <FlowixCheckbox checked={added} interactive={false} className="pointer-events-none shrink-0" />
       </button>;
     })}</section>;
 

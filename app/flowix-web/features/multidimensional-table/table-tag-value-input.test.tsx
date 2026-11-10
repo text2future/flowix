@@ -7,8 +7,8 @@ vi.mock('@shared/ui/popover', () => ({
   PopoverTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
   PopoverContent: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
-vi.mock('@features/editor/extensions/tag-mention/tag-mention-data', () => ({ queryMentionTags: vi.fn() }));
-import { queryMentionTags } from '@features/editor/extensions/tag-mention/tag-mention-data';
+vi.mock('@features/editor/public/mention-data-api', () => ({ queryMentionTags: vi.fn() }));
+import { queryMentionTags } from '@features/editor/public/mention-data-api';
 import { TableTagValueInput } from './table-tag-value-input';
 
 let root: Root;

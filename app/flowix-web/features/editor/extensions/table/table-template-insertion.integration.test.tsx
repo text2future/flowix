@@ -1,11 +1,8 @@
 import { act } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
 import { Editor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from '@tiptap/markdown';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { I18nProvider } from '@/lib/i18n';
-import { EditorToolbar } from '../../components/editor-toolbar';
 import { isSlashMenuOpen, SlashMenu } from '../slash-menu';
 import { createTablePlugin } from './table-plugin';
 import { insertTableTemplate } from './table-templates';
@@ -19,7 +16,6 @@ vi.mock('@features/agent/public/runtime-status-api', () => ({
 }));
 
 const editors: Editor[] = [];
-const roots: { root: Root; element: HTMLElement }[] = [];
 
 function createEditor(content = '<p>before</p><p></p><p>after</p>') {
   vi.spyOn(window, 'scrollBy').mockImplementation(() => {});
@@ -60,7 +56,6 @@ function clickSlashOption(label: string) {
 
 afterEach(async () => {
   await act(async () => {
-    roots.splice(0).forEach(({ root, element }) => { root.unmount(); element.remove(); });
     editors.splice(0).forEach(editor => {
       const element = editor.options.element as HTMLElement;
       editor.destroy();
@@ -150,33 +145,5 @@ describe('table templates in the real editor menus', () => {
     await act(async () => { press(editor, 'Enter'); });
     expect(editor.getJSON()).toEqual(original);
     expect(isSlashMenuOpen(editor.view)).toBe(false);
-  });
-
-  it('inserts the default table directly from the bottom toolbar without opening a style picker', async () => {
-    const editor = createEditor();
-    const element = document.createElement('div');
-    document.body.appendChild(element);
-    const root = createRoot(element);
-    roots.push({ root, element });
-    await act(async () => {
-      root.render(<I18nProvider language="zh-CN"><EditorToolbar editor={editor} /></I18nProvider>);
-    });
-    const trigger = element.querySelector<HTMLButtonElement>('[aria-label="插入表格"]')!;
-    await act(async () => { trigger.click(); });
-    expect(document.querySelector('.table-style-menu')).toBeNull();
-    expect(document.querySelector('[role="menu"]')).toBeNull();
-    expect(editor.state.doc.child(1).type.name).toBe('table');
-    expect(editor.state.doc.child(1).attrs.styleId).toBe('default');
-    expect(editor.state.doc.child(1).childCount).toBe(3);
-    expect(editor.state.doc.child(1).firstChild?.childCount).toBe(3);
-    expect(trigger.disabled).toBe(true);
-    expect(editor.state.doc.child(0).textContent).toBe('before');
-    expect(editor.state.doc.child(2).textContent).toBe('after');
-    await act(async () => { editor.commands.undo(); });
-    expect(editor.state.doc.child(1).type.name).toBe('paragraph');
-    expect(editor.state.doc.childCount).toBe(3);
-    expect(trigger.disabled).toBe(false);
-    await act(async () => { editor.setEditable(false); });
-    expect(trigger.disabled).toBe(true);
   });
 });

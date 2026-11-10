@@ -305,6 +305,12 @@ function DropdownMenuContent({
 	const belongsToListColumnPreview = Boolean(
 		triggerRef.current?.closest("[data-memo-list-hover-preview]")
 	);
+	// 入场缩放的 transform-origin 跟随弹出方向 ── 从触发器那一侧长出来。
+	const enterOrigin = side === "top"
+		? "bottom center"
+		: side === "right"
+			? "center left"
+			: "top center";
 
 	return createPortal(
 		<div
@@ -314,11 +320,15 @@ function DropdownMenuContent({
 			data-flowix-menu-child={keepParentMenuOpen ? "" : undefined}
 			onMouseEnter={onMouseEnter}
 			onMouseLeave={onMouseLeave}
+			// `animate-in fade-in-0 zoom-in-95` 曾依赖 tw-animate-css 插件, 该
+			// 插件在 Tailwind v3 下不生成任何 class (死类)。 统一改用共享关键帧
+			// 类 `.flowix-popover-enter` (styles/index.css), 条件渲染挂载即播。
 			className={cn(
-				"fixed z-[150] min-w-[160px] bg-[var(--card)] border border-[var(--border-popup)] rounded-lg shadow-lg py-1 animate-in fade-in-0 zoom-in-95",
+				"fixed z-[150] min-w-[160px] bg-[var(--card)] border border-[var(--border-popup)] rounded-lg shadow-lg py-1 flowix-popover-enter",
 				className
 			)}
 			style={{
+				transformOrigin: enterOrigin,
 				...style,
 				top: position.top,
 				left: position.left,

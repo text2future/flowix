@@ -1,10 +1,12 @@
 /* 编辑器附件 & 文档内链接样式
  *
- * 覆盖以下四类视觉, 它们共享 --document-link token 设计:
+ * 覆盖以下四类视觉:
  *   - 视频附件  (.editor-video-attachment)
  *   - 文件附件  (.editor-file-attachment)
  *   - 图片附件  (.editor-image-attachment)
- *   - 正文链接  (.tiptap a, .tiptap a:hover)
+ *   - 正文链接  (.tiptap a, .tiptap a:hover) —— 这三种"对象型"附件/引用用
+ *     --document-link 标记品牌色; 正文链接改用前景色 60%, 与文字同一色系、
+ *     只降一档, 避免通篇链接都染成品牌色。
  */
 
 
@@ -305,20 +307,26 @@ body.is-image-resizing {
 }
 
 .markdown-editor .tiptap:not(.agent-composer__input-content) a:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
-  /* 链接文字: 改用 --document-link token 化, 颜色随主题切换:
-   * - light: 紫 (273) → 与品牌同色相
-   * - dark:  亮紫 → 高对比可读
-   * - rock:  熔岩橙 (22) → 适配岩灰底
-   * 此前硬编码 #5262DC (hue 240 indigo) 跟任何主题都脱节. */
-  color: var(--document-link);
-  text-decoration: none;
+  /* 链接文字: 前景色的 60% 透明档 —— 比正文淡一档, 靠「更亮/更暗一档 +
+   * hover 加深下划线 + 细下划线」表达可点击, 不再占用品牌色
+   * (--document-link 仍留给附件卡片 / 笔记引用这类"对象型"内容)。
+   * 用 color-mix 而不是写死 rgba: 前景色随主题切换, 深色主题自动变成浅灰。 */
+  color: color-mix(in oklch, var(--foreground) 60%, transparent);
+  /* 下划线是"这是链接"的主要信号: 1px + 离开字底线一点, 比浏览器默认的
+   * auto 更细更轻, 不会把密排正文压得很脏。文字色已经压到 60%, 下划线取
+   * 当前文字色的 80%(≈48% 前景色) —— 再低就几乎看不见了。 */
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in oklch, currentColor 80%, transparent);
+  text-underline-offset: 0.18em;
   cursor: pointer;
-  transition: color 0.12s ease;
+  transition:
+    color 0.12s ease,
+    text-decoration-color 0.12s ease;
 }
 
 .markdown-editor .tiptap:not(.agent-composer__input-content) a:where(:not(.agent-conversation-surface, .agent-conversation-surface *)):hover {
-  /* hover 状态不单独维护 token, 直接基于 --document-link 与白色 20% 混色提亮:
-   * - 单一来源: --document-link 决定基色, hover 由派生公式统一管理
-   * - 跨主题一致: 各主题共享同一公式, 不会有"某主题的 hover 没设计"的问题 */
-  color: color-mix(in oklch, var(--document-link), white 20%);
+  /* hover 只加深下划线 (到满前景色), 文字颜色保持 60% 不动:
+   * 反馈落在"被指到的那条线"上, 整段文字不会跟着跳亮, 密集链接段落更稳。 */
+  text-decoration-color: var(--foreground);
 }

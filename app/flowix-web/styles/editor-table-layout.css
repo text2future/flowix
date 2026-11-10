@@ -1,8 +1,10 @@
 /* Markdown table layout only. Load after overlay-scrollbar.css. Presentation
  * borders/colors stay in editor-table-presentation.css; saved widths stay in
- * table-fixed-widths.ts. The rail reserves 28px right/below for the 24px square
+ * table-fixed-widths.ts. The rail reserves 28px below for the 24px square
  * insert controls plus a 4px gap; the scrollbar starts 6px below the table
- * (28 - 22 = 6). */
+ * (28 - 22 = 6). The right side reserves 60px: the same 24px square + 4px gap,
+ * plus 32px breathing space so the column button's right edge is not flush
+ * with the rail's boundary. */
 /* Markdown tables share the product overlay scrollbar without reserving a gutter. */
 .markdown-editor .markdown-table-scrollbar:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   position: relative;
@@ -22,15 +24,17 @@
   --overlay-scrollbar-horizontal-end: 0px;
 }
 
-/* 14px above/left hosts the row/column drag grips; 28px right/below hosts the
- * square insert controls (24px button + 4px gap). The bottom also carries the
- * horizontal scrollbar, whose top is offset to stay 6px below the final row. */
+/* 14px above/left hosts the row/column drag grips; 28px below hosts the
+ * square insert controls (24px button + 4px gap) and the horizontal
+ * scrollbar; 60px right = the same 28px plus 32px breathing space past the
+ * column button's outer edge. The bottom also carries the horizontal
+ * scrollbar, whose top is offset to stay 6px below the final row. */
 .markdown-editor .markdown-table-rail:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   position: relative;
   box-sizing: border-box;
   width: max-content;
   min-width: 100%;
-  padding: 14px 28px 28px 14px;
+  padding: 14px 60px 28px 14px;
 }
 
 /* 28px bottom padding - 22px = 6px between the final table border and the

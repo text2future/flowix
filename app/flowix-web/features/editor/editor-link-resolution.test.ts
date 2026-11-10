@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decodeEditorHref, resolveEditorLocalHref } from './editor-link-resolution';
+import { decodeEditorHref, isRelativePathHref, resolveEditorLocalHref } from './editor-link-resolution';
 
 // 案例文档：课程与实验/水循环D组材料复试/任务记录.md
 const DOCUMENT_PATH = '/Notes/开发任务管理/个人流程选题/科学课程/课程与实验/水循环D组材料复试/任务记录.md';
@@ -115,5 +115,52 @@ describe('decodeEditorHref', () => {
   it('decodes valid sequences and keeps malformed ones intact', () => {
     expect(decodeEditorHref('%E8%AE%A1%E5%88%92%E8%A1%A8.csv')).toBe('计划表.csv');
     expect(decodeEditorHref('计划表%2.csv')).toBe('计划表%2.csv');
+  });
+});
+
+// 相对路径 ≠ 域名：`skills/a.md` 指向同级文件，只有 web 形态才配加上协议。
+describe('isRelativePathHref', () => {
+  it.each([
+    'skills/RESOLVER.md',
+    'skills/RESOLVER.md#section',
+    './notes/a.md',
+    '../notes/a.md',
+    'README.md',
+    'notes/2024.计划/a.md',
+    'images/pic.png',
+    'skills/',
+  ])('treats a path-shaped reference as a sibling path: %s', href => {
+    expect(isRelativePathHref(href)).toBe(true);
+  });
+
+  it.each([
+    'https://example.com/a.md',
+    'http://example.com',
+    'mailto:a@b.com',
+    'flowix://open?b=Book&f=a.md',
+    'example.com',
+    'example.com/docs',
+    '//example.com/a.md',
+    '/Users/rop/notes/a.md',
+    'D:\\notes\\a.md',
+    '#heading',
+    '?query=1',
+    'skills',
+    '',
+    '   ',
+  ])('keeps other hrefs out of the sibling-path rule: %s', href => {
+    expect(isRelativePathHref(href)).toBe(false);
+  });
+
+  it('ignores query and fragment when classifying the path', () => {
+    expect(isRelativePathHref('skills/a.md?v=2')).toBe(true);
+    expect(isRelativePathHref('example.com/docs?v=2')).toBe(false);
+  });
+
+  // 与编辑器既有解析保持一致：`resolveEditorLocalHref` 只在扩展名不可用（无法
+  // 判定为文档）时才把裸域名当 web，因此 `example.com/a.md` 仍按本地路径处理。
+  it('stays consistent with the editor resolver for host-shaped paths with a file extension', () => {
+    expect(isRelativePathHref('example.com/a.md')).toBe(true);
+    expect(resolveEditorLocalHref('example.com/a.md', DOCUMENT_PATH)).not.toBeNull();
   });
 });

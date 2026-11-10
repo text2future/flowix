@@ -35,7 +35,7 @@ import {
   type Notebook,
 } from '@features/memo/public/workspace-api';
 import { useWorkColumnStore } from '@features/workspace/store/work-column-store';
-import { EMPTY_WORK_COLUMN_TARGET, workColumnTargetFilePath } from '@features/workspace/store/work-column-target';
+import { EMPTY_WORK_COLUMN_TARGET, workColumnTargetFilePath, workColumnTargetShowsBlockingLoading } from '@features/workspace/store/work-column-target';
 import type { WorkColumnTarget } from '@features/workspace/store/work-column-target';
 import type { FolderCollectionSurfaceTarget } from '../model/surface-target';
 import type { LegacyFolderListTarget } from '../model/legacy-folder-list';
@@ -582,7 +582,7 @@ async function runNavigation(
   retry: RetryAction,
   rollback?: (requestId: number) => Promise<void>,
   preservePreviousTarget = false,
-  showWorkColumnLoading = true,
+  showWorkColumnLoading = workColumnTargetShowsBlockingLoading(pendingTarget),
 ): Promise<void> {
   const requestId = beginNavigation(
     pendingTarget, retry, preservePreviousTarget, showWorkColumnLoading,

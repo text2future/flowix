@@ -241,12 +241,13 @@ export function NoteFilterMenu({ defaultFieldId = '', fields: autoCollectFields 
       data-state={folderPickerOpen ? 'open' : 'closed'}
       onMouseEnter={openFolderPickerOnHover}
       onMouseLeave={(event) => handleHoverLeave(event, () => changeFolderPickerOpen(false))}
-      className={`group flex min-w-0 items-center gap-0 rounded-lg transition-colors ${saving || !notebookPath || fixedFolderPath !== undefined ? '' : embedded ? 'hover:bg-[var(--brand)] data-[state=open]:bg-[var(--brand)]' : 'hover:bg-[var(--hover-bg)] data-[state=open]:bg-[var(--hover-bg)]'}`}
+      /* 行外观与「标签」item 同规范：h-7 + pl-[6px] pr-2，hover/open 都用中性 hover-bg。 */
+      className={`group flex h-7 min-w-0 items-center gap-0 rounded-lg py-0 pl-[6px] pr-2 transition-colors ${saving || !notebookPath || fixedFolderPath !== undefined ? '' : 'hover:bg-[var(--hover-bg)] data-[state=open]:bg-[var(--hover-bg)]'}`}
     >
       <PopoverTrigger asChild>
-        <button type="button" disabled={saving || !notebookPath || fixedFolderPath !== undefined} className={`flex h-8 min-w-0 flex-1 items-center justify-between gap-2 rounded-lg pl-1.5 text-left text-sm disabled:opacity-50 ${embedded ? 'group-hover:text-[var(--primary-foreground)] group-data-[state=open]:text-[var(--primary-foreground)]' : ''}`}>
+        <button type="button" disabled={saving || !notebookPath || fixedFolderPath !== undefined} className="flex h-7 min-w-0 flex-1 items-center justify-between gap-2 text-left text-sm disabled:opacity-50">
           <span className="flex min-w-0 items-center gap-2">{folderIcon}<span className="truncate">{resolvedFolderLabel}</span></span>
-          <span className={`flex min-w-0 flex-1 items-center justify-end ${embedded ? 'text-[var(--muted-foreground)] group-hover:text-[var(--primary-foreground)] group-data-[state=open]:text-[var(--primary-foreground)]' : 'text-[var(--muted-foreground)]'}`}>
+          <span className="flex min-w-0 flex-1 items-center justify-end text-[var(--muted-foreground)]">
             {folderPathLabel && <span title={fixedFolderPath !== undefined ? `固定：${folderPathLabel}` : folderPathLabel} className="max-w-[150px] truncate text-right text-xs">{folderPathLabel}</span>}
           </span>
         </button>
@@ -260,10 +261,10 @@ export function NoteFilterMenu({ defaultFieldId = '', fields: autoCollectFields 
           event.stopPropagation();
           void savePathImmediately('');
         }}
-        className={`inline-flex h-6 w-4 shrink-0 items-center justify-center rounded-md pl-1 text-[var(--muted-foreground)] transition-colors disabled:opacity-50 ${embedded ? 'group-hover:text-[var(--primary-foreground)] group-data-[state=open]:text-[var(--primary-foreground)] hover:text-[var(--primary-foreground)]' : 'hover:text-[var(--foreground)]'}`}
+        className="inline-flex h-6 w-4 shrink-0 items-center justify-center rounded-md pl-1 text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] disabled:opacity-50"
       ><X className="h-3 w-3" aria-hidden="true" /></button>}
       <PopoverTrigger asChild>
-        <button type="button" aria-label={resolvedFolderLabel} disabled={saving || !notebookPath || fixedFolderPath !== undefined} className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--muted-foreground)] disabled:opacity-50 ${embedded ? 'group-hover:text-[var(--primary-foreground)] group-data-[state=open]:text-[var(--primary-foreground)]' : ''}`}>
+        <button type="button" aria-label={resolvedFolderLabel} disabled={saving || !notebookPath || fixedFolderPath !== undefined} className="inline-flex h-6 w-5 shrink-0 items-center justify-center text-[var(--muted-foreground)] disabled:opacity-50">
           <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
         </button>
       </PopoverTrigger>
@@ -357,9 +358,9 @@ export function NoteFilterMenu({ defaultFieldId = '', fields: autoCollectFields 
   >
         <Popover open={autoCollectMenuOpen} onOpenChange={changeFilterOpen}>
           <PopoverTrigger asChild>
-            <button type="button" disabled={saving} className={`group flex h-8 w-full items-center justify-between rounded-lg px-1.5 text-left text-sm disabled:opacity-50 ${embedded ? 'hover:bg-[var(--brand)] data-[state=open]:bg-[var(--brand)] hover:text-[var(--primary-foreground)] data-[state=open]:text-[var(--primary-foreground)]' : 'hover:bg-[var(--hover-bg)] data-[state=open]:bg-[var(--hover-bg)] hover:text-[var(--foreground)] data-[state=open]:text-[var(--foreground)]'}`}>
+            <button type="button" disabled={saving} className="group flex h-7 w-full items-center justify-between rounded-lg py-0 pl-[6px] pr-2 text-left text-sm text-[var(--foreground)] hover:bg-[var(--hover-bg)] data-[state=open]:bg-[var(--hover-bg)] hover:text-[var(--foreground)] data-[state=open]:text-[var(--foreground)] disabled:opacity-50">
               <span className="flex min-w-0 items-center gap-2">{filterIcon}<span className="truncate">{filterLabel ?? t('multidimensionalTable.autoCollect.dataConditions')}</span></span>
-              <span className={`flex items-center gap-1 text-xs ${embedded ? 'text-[var(--muted-foreground)] group-hover:text-[var(--primary-foreground)] group-data-[state=open]:text-[var(--primary-foreground)]' : 'text-[var(--muted-foreground)]'}`}>
+              <span className="flex items-center gap-1 text-xs text-[var(--muted-foreground)]">
                 {dataSelectionConfigured ? '已设置' : '未设置'}
                 <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
               </span>

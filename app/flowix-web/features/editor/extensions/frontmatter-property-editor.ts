@@ -1,6 +1,7 @@
 import { createElement as createReactElement, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { translate, type I18nKey } from '@/lib/i18n';
+import { replayEnterAnimation } from '@/lib/replay-enter-animation';
 import { getPropertyTypeDefinition } from '@/lib/property-types';
 import { stableTextHue } from '@/lib/color';
 import { NOTE_COLORS, NOTE_COLOR_HEX } from '@features/memo/store/note-store';
@@ -298,7 +299,7 @@ export class FrontmatterPropertyEditor {
       const chevron = createElement('span', 'frontmatter-property__edit-option-chevron');
       chevron.append(createPropertyTypeChevron());
       trigger.append(triggerValue, chevron);
-      const menu = createElement('div', 'frontmatter-property__edit-option-list');
+      const menu = createElement('div', 'frontmatter-property__edit-option-list flowix-popover-enter');
       let selectedValue = value;
       trigger.type = 'button';
       trigger.setAttribute('aria-haspopup', 'listbox');
@@ -334,6 +335,7 @@ export class FrontmatterPropertyEditor {
       };
       trigger.addEventListener('click', () => {
         menu.hidden = !menu.hidden;
+        if (!menu.hidden) replayEnterAnimation(menu);
         trigger.setAttribute('aria-expanded', String(!menu.hidden));
         trigger.dataset.state = menu.hidden ? 'closed' : 'open';
       });
@@ -454,7 +456,7 @@ export class FrontmatterPropertyEditor {
         const iconControl = createElement('div', 'frontmatter-property__edit-icon');
         let iconValue = value.trim().replace(/\.svg$/i, '');
         const trigger = createElement('button', 'frontmatter-property__edit-icon-trigger');
-        const menu = createElement('div', 'frontmatter-property__edit-icon-menu');
+        const menu = createElement('div', 'frontmatter-property__edit-icon-menu flowix-popover-enter');
         trigger.type = 'button';
         trigger.setAttribute('aria-haspopup', 'dialog');
         trigger.setAttribute('aria-expanded', 'false');
@@ -517,6 +519,7 @@ export class FrontmatterPropertyEditor {
             // 每次展开都用当前值重渲染: 清除 × 之后选中高亮要跟着清掉;
             // 面板内部的包/分类浏览位置由组件 state 保留, 不受影响。
             iconMenu.render(iconValue);
+            replayEnterAnimation(menu);
           }
           menu.hidden = !open;
           trigger.setAttribute('aria-expanded', String(open));
@@ -607,7 +610,7 @@ export class FrontmatterPropertyEditor {
           const chevron = createElement('span', 'frontmatter-property__edit-option-chevron');
           chevron.append(createPropertyTypeChevron());
           trigger.append(triggerValue, chevron);
-          const menu = createElement('div', 'frontmatter-property__edit-option-list');
+          const menu = createElement('div', 'frontmatter-property__edit-option-list flowix-popover-enter');
           const selected = new Set(value.split(',').map((item) => item.trim()).filter(Boolean));
           trigger.type = 'button';
           trigger.setAttribute('aria-haspopup', 'listbox');
@@ -643,6 +646,7 @@ export class FrontmatterPropertyEditor {
           };
           trigger.addEventListener('click', () => {
             menu.hidden = !menu.hidden;
+            if (!menu.hidden) replayEnterAnimation(menu);
             trigger.setAttribute('aria-expanded', String(!menu.hidden));
             trigger.dataset.state = menu.hidden ? 'closed' : 'open';
           });
@@ -1001,7 +1005,7 @@ export class FrontmatterPropertyEditor {
       typeChevron.append(createPropertyTypeChevron());
       typeTrigger.append(typeLabel, typeChevron);
 
-      const typeMenu = createElement('div', 'frontmatter-property__edit-type-menu');
+      const typeMenu = createElement('div', 'frontmatter-property__edit-type-menu flowix-popover-enter');
       typeMenu.hidden = true;
       typeMenu.setAttribute('role', 'listbox');
       const closeTypeMenu = () => {
@@ -1046,6 +1050,7 @@ export class FrontmatterPropertyEditor {
       });
       typeTrigger.addEventListener('click', () => {
         const open = typeMenu.hidden;
+        if (open) replayEnterAnimation(typeMenu);
         typeMenu.hidden = !open;
         typeTrigger.setAttribute('aria-expanded', String(open));
       });

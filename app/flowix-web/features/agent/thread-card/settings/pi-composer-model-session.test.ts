@@ -21,7 +21,7 @@ const {
     authenticated: true,
     authStatus: "authenticated" as const,
     account: {
-      user: { id: "user-1", email: "member@example.com", displayName: "Member" },
+      user: { id: "user-1", email: "member@example.com", displayName: "Member", region: "mainland" as const },
       protocolEpoch: 3 as const,
     },
     membership: {
@@ -146,7 +146,7 @@ describe("Pi composer model dropdown Cloud session updates", () => {
       authenticated: true,
       authStatus: "authenticated",
       account: {
-        user: { id: "user-1", email: "member@example.com", displayName: "Member" },
+        user: { id: "user-1", email: "member@example.com", displayName: "Member", region: "mainland" as const },
         protocolEpoch: 3,
       },
       membership: {
@@ -304,7 +304,7 @@ describe("Pi composer model dropdown Cloud session updates", () => {
       authenticated: true,
       authStatus: "authenticated",
       account: {
-        user: { id: "user-1", email: "member@example.com", displayName: "Member" },
+        user: { id: "user-1", email: "member@example.com", displayName: "Member", region: "mainland" as const },
         protocolEpoch: 3,
       },
       membership: {
@@ -341,7 +341,7 @@ describe("Pi composer model dropdown Cloud session updates", () => {
     const opening = loadPiCloudModelCatalog();
     await syncPiCloudModelCatalog({
       revision: 2, authenticated: true, authStatus: "authenticated",
-      account: { user: { id: "user-1", email: "member@example.com", displayName: "Member" }, protocolEpoch: 3 },
+      account: { user: { id: "user-1", email: "member@example.com", displayName: "Member", region: "mainland" as const }, protocolEpoch: 3 },
     });
     finish({ revision: 1, authenticated: false, authStatus: "signed_out" });
     await opening;

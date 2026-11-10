@@ -1,4 +1,20 @@
-/* render 到 document.body 以避免被面板裁剪 */
+/* 链接相关浮层 (hover 气泡 + 链接输入态) 的样式。
+ *
+ * 表面样式直接复用编辑器气泡体系: 容器与选区 / 表格气泡共享
+ * editor-bubble-menus.css 里的 .selection-bubble-menu 声明组 (毛玻璃底、10px
+ * 圆角、投影), 按钮同理共享 .selection-bubble-button 组 (26px / 8px 圆角 /
+ * 中性 hover 态)。本文件负责:
+ *   1. hover 气泡的定位、进出场动画、单行截断的 URL 文案;
+ *   2. 链接输入态 —— 无外框地址框 + 保存: hover 气泡的「编辑」与选区气泡的
+ *      「添加 / 编辑链接」都切到这一个形态 (link-inline-editor)。
+ *
+ * 依赖加载顺序: index.css 严格把 editor-link-tooltip.css 排在
+ * editor-bubble-menus.css 之后, 因此这里的单类规则能覆盖共享声明组。
+ *
+ * 优先次序: 选区气泡 > 链接气泡。两者同时命中时由
+ * selection-bubble-menu-state 的可见性广播让链接气泡让位, 叠层上再把链接
+ * 气泡降到 --layer-editor-link-tooltip 作兜底。 */
+
 @keyframes editor-link-tooltip-in {
   from {
     opacity: 0;
@@ -25,33 +41,19 @@
 
 .editor-link-hover-tooltip {
   position: fixed;
-  display: flex;
-  align-items: center;
+  /* 叠层次序: 选区 / 表格气泡 (--layer-editor-overlay) 在上, 链接气泡在其下一层。
+   * 共享声明组先给了 overlay 档, 这里显式降到链接档。 */
+  z-index: var(--layer-editor-link-tooltip);
+  /* URL 文案和操作按钮之间留 8px, 比气泡内按钮之间的 2px 更宽松,
+   * 让「读地址」和「点按钮」在视觉上分成两段。 */
   gap: 8px;
-  background: var(--floating-bg);
-  /* 浮层文字统一用 --floating-foreground (柔和白), 不沿用 --primary-foreground:
-   * 后者在 dark 主题里是深色 (oklch 0.173), 套到深色浮层上就是"深在深上"
-   * → 黑图标/黑文字. --floating-foreground 在各主题下都是浅色, 配对
-   * 始终深色的 --floating-bg 形成稳定的高对比文本对. */
-  color: var(--floating-foreground);
-  /* padding 缩到 4/4/4/8 (上/右/下/左):
-   * - 上下各 4px → 浮层高度从 34px 降到 30px, 减少对正文的遮挡压迫感
-   * - 右侧 4px → 与 22px 按钮贴合更紧, hover 时 14% 亮色背景覆盖到按钮边缘
-   * - 左侧保留 8px → URL 文字距圆角边更远, 视觉上不被"压角" */
-  padding: 4px 4px 4px 8px;
-  /* 圆角从 4px 提到 8px: 让浮层视觉上读作"气泡/胶囊"而非"矩形",
-   * 配合 30px 高度, 圆角比 ≈ 27%, 接近 iOS/macOS 系统气泡的视觉风格. */
-  border-radius: 8px;
-  font-size: 12px;
-  line-height: 1.4;
   max-width: min(380px, calc(100vw - 16px));
+  /* 共享气泡默认 pointer-events: none (选区气泡不拦截命中)。链接气泡
+   * 自身要接住指针: 否则从链接移到气泡的瞬间 mouseleave 就触发, 气泡
+   * 会在指针到达按钮之前消失。 */
   pointer-events: auto;
   transform-origin: top center;
   animation: editor-link-tooltip-in 0.14s ease-out both;
-  z-index: 90;
-  /* 阴影改用 oklch(0 0 0 / .18) 而非 rgba(0,0,0,.18): 在 color-scheme 切换时
-   * 不会因 sRGB 空间外推丢失色相信息, 跟弹窗的 --floating-bg 保持中性灰调一致. */
-  box-shadow: 0 8px 20px oklch(0 0 0 / 0.18);
 }
 
 .editor-link-hover-tooltip.is-hiding {
@@ -66,13 +68,13 @@
 }
 
 .editor-link-hover-tooltip-text {
-  /* 气泡里的 URL 固定为浅灰, 不随主题切换:
-   * - 浮层底色 (--floating-bg) 在各主题下都是深色, 浅灰 (L=0.7) 在上面
-   *   始终保持高对比, 不会出现 --foreground 在 light/rock 上"深叠深"的问题
-   * - 不用 token: 这是"浮层里的次要信息"专属视觉, 不参与主题色板
-   * - 选 oklch(0.7 0 0) 而非 #9ca3af: 保持项目 OKLCH 统一, 中性无色相
-   *   不会与品牌色 / 链接色产生任何"暗合"的视觉干扰 */
-  color: oklch(0.7 0 0);
+  /* URL 是气泡里的次要信息: 用次级前景色, 与气泡菜单里的辅助文案同一档;
+   * 底色是 --popover 派生的浅/深浮层, 这个 token 在各主题下都能保证对比度。 */
+  color: var(--muted-foreground);
+  /* Tailwind text-xs 档 (0.75rem / 1rem): 气泡比正文小一号, 长 URL 不会
+   * 在正文旁边显得臃肿, 也与气泡菜单里的快捷键/辅助文案同一字号。 */
+  font-size: 0.75rem;
+  line-height: 1rem;
   min-width: 0;
   flex: 1 1 auto;
   overflow: hidden;
@@ -87,30 +89,79 @@
   flex: 0 0 auto;
 }
 
-.editor-link-hover-tooltip-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: 0;
-  border-radius: 4px;
-  /* 图标颜色: 同容器思路, 改用 --floating-foreground 派生半透明白.
-   * 之前 84% 透明白在 light/rock 没问题, 但 dark 主题因 primary-foreground
-   * 本身就是深色 → 算出深色 → 黑图标, 修复后各主题都显示为亮图标. */
-  color: color-mix(in oklch, var(--floating-foreground) 84%, transparent);
-  background: transparent;
-  cursor: pointer;
-}
-
-.editor-link-hover-tooltip-button:hover {
-  color: var(--floating-foreground);
-  background: color-mix(in oklch, var(--floating-foreground) 14%, transparent);
-}
-
+/* 图标尺寸统一 15px。上色方式由各图标自己声明: 复制 / 移除链接 / 已复制勾选
+ * 都是 Lucide 描边图标 (stroke="currentColor", fill="none"), 所以这里不统一
+ * 定义上色。 */
 .editor-link-hover-tooltip-button svg {
-  width: 14px;
-  height: 14px;
-  fill: currentColor;
+  width: 15px;
+  height: 15px;
+}
+
+/* 复制成功后的勾选图标 (描边) 短暂换成成功色: 不额外弹 toast, 避免在气泡
+ * 旁边再压一层浮层。混入 --foreground 让描边跟着主题明暗反转, 浅色主题不发
+ * 灰、深色主题不发暗。选择器要比共享按钮的 hover 组更具体, 否则指针停在按钮
+ * 上时绿色会被中性的 --foreground 顶掉。 */
+.editor-link-hover-tooltip .editor-link-hover-tooltip-button.is-copied,
+.editor-link-hover-tooltip .editor-link-hover-tooltip-button.is-copied:hover,
+.editor-link-hover-tooltip .editor-link-hover-tooltip-button.is-copied:active {
+  color: color-mix(in oklch, var(--success) 76%, var(--foreground));
+}
+
+/* ── 链接输入控件 (编辑器里的链接输入只有这一套) ──
+ * 文字按钮 (气泡里的「编辑」与链接输入的「保存」共用): 无底色,
+ * 26px 高 / 8px 圆角 / text-xs, 与图标按钮齐平, hover 走气泡的中性底色。 */
+.editor-link-hover-tooltip-text-button {
+  width: auto;
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 0.75rem;
+  line-height: 1rem;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+/* 地址输入框: 无外框、无 focus ring —— 直接读作气泡里的一行文字,
+ * 靠气泡本身的留白区分输入区。 */
+.editor-link-hover-tooltip-input {
+  flex: 1 1 auto;
+  max-width: 100%;
+  height: 26px;
+  box-sizing: border-box;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 0.75rem;
+  line-height: 1rem;
+  outline: none;
+}
+
+.editor-link-hover-tooltip-input::placeholder {
+  color: var(--muted-foreground);
+}
+
+/* 没有外框可染色, 非法地址改成文字色提示。 */
+.editor-link-hover-tooltip-input[aria-invalid='true'] {
+  color: var(--destructive, #ef4444);
+}
+
+/* ── 链接输入态 ──
+ * hover 气泡的「编辑」与选区气泡的链接按钮都把气泡换成: 无外框的地址输入框 +
+ * 保存 (放弃编辑走 Esc / 点气泡外)。比 hover 态高一档叠层 (和选区 / 表格气泡
+ * 同档), 因为它是可输入的交互面。 */
+.editor-link-inline-editor {
+  z-index: var(--layer-editor-overlay);
+  gap: 6px;
+}
+
+.editor-link-inline-editor .editor-link-hover-tooltip-input {
+  width: 220px;
 }

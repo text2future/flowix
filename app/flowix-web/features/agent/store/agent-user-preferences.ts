@@ -1,4 +1,6 @@
 import type { AgentHarnessPreset, AgentTypeKey, RuntimeConfig } from "@/types/agent";
+import { isFlowixCloudModel } from "@features/agent/config/agent-model-source";
+import { FLOWIX_CLOUD_PREVIEW_PROVIDER_ID } from "@features/agent/config/cloud-access";
 import { modelPreferenceKey, useAgentDataStore } from "./agent-data-store";
 
 /**
@@ -15,8 +17,21 @@ export function resolveAgentPreferenceRuntimeConfig(
 ): RuntimeConfig {
   const agent = useAgentDataStore.getState().agents[agentType];
   const preference = agent.user;
-  const preferenceModel = preference.model
-    ? { key: preference.model.id, ...(preference.model.providerId ? { providerId: preference.model.providerId } : {}) }
+  const savedModel = preference.model;
+  const memberModel = agentType === "pi"
+    && savedModel?.providerId === FLOWIX_CLOUD_PREVIEW_PROVIDER_ID
+    ? agent.catalog.models.items.find((item) =>
+        item.id === savedModel.id
+        && isFlowixCloudModel(item)
+        && item.providerId !== FLOWIX_CLOUD_PREVIEW_PROVIDER_ID,
+      )
+    : undefined;
+  const effectiveProviderId = memberModel?.providerId ?? savedModel?.providerId;
+  const preferenceModel = savedModel
+    ? {
+        key: savedModel.id,
+        ...(effectiveProviderId ? { providerId: effectiveProviderId } : {}),
+      }
     : undefined;
   const model = agentType === "pi"
     ? preferenceModel ?? runtimeConfig.model

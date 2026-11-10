@@ -37,28 +37,31 @@ const MAX_NEW_FILE_LINES = 1000;
 //     1061→1081：测试文件按上述先例对齐实测（新增的是断言，不是待拆逻辑）。
 // 2026-11-06：agent-session-actions.test.ts 3158→3212，同样只是新增一条发送
 // 前置检查的断言（blocked Cloud send 的用户消息与登录卡片），非待拆逻辑。
+// 2026-11-10：markdown-editor.tsx 941→859，同样是拆分（序列化策略抽成
+// useDeferredMarkdownSerialization，另删除未使用的 initialParsedContent
+// 预解析入口），不是放宽门槛。
 // 若将来生产文件再超限，唯一合法出路仍是拆分，不得在这里改大数字。
 const FROZEN_FILES = {
-  'features/multidimensional-table/table-document-view.tsx': 1929,
-  'features/agent/thread-card/settings/external-agent-settings-controller.ts': 2383,
-  'lib/i18n/messages.en-US.ts': { lines: 2374, exempt: true },
-  'lib/i18n/messages.zh-CN.ts': { lines: 2346, exempt: true },
+  'features/multidimensional-table/table-document-view.tsx': 1931,
+  'features/agent/thread-card/settings/external-agent-settings-controller.ts': 2404,
+  'lib/i18n/messages.en-US.ts': { lines: 2371, exempt: true },
+  'lib/i18n/messages.zh-CN.ts': { lines: 2345, exempt: true },
   'features/preferences/sections/agent.tsx': 2085,
-  'features/agent/thread-card/agent-thread-card-view.tsx': 2016,
-  'features/memo/components/notebook-file-tree.tsx': 1427,
+  'features/agent/thread-card/agent-thread-card-view.tsx': 2017,
+  'features/memo/components/notebook-file-tree.tsx': 1431,
   'features/memo/components/notebook-file-tree.test.tsx': 1556,
-  'features/memo/components/memo-list.tsx': 1359,
+  'features/memo/components/memo-list.tsx': 1361,
   'features/workspace/use-cases/workspace-navigation.ts': 1356,
-  'features/agent/thread-card/settings/notebook-agent-settings-dialog.tsx': 1261,
+  'features/agent/thread-card/settings/notebook-agent-settings-dialog.tsx': 1276,
   'features/editor/extensions/frontmatter-property.test.ts': 1238,
   'features/editor/extensions/codeblock-shiki/codeblock-shiki-view.ts': 1192,
-  'features/editor/extensions/frontmatter-property-editor.ts': 1084,
+  'features/editor/extensions/frontmatter-property-editor.ts': 1089,
   'features/shell/main-layout.tsx': 592,
   'features/editor/extensions/frontmatter-node-view.ts': 1084,
   'features/agent/store/thread-history.ts': 977,
   'features/editor/markdown-editor.select-all.test.tsx': 1081,
   'features/agent/store/session-reducer/reduce-projection.test.ts': 1020,
-  'features/editor/markdown-editor.tsx': 941,
+  'features/editor/markdown-editor.tsx': 859,
   'features/agent/thread-card/agent-thread-card.test.ts': 4483,
   'features/agent/store/agent-session-actions.test.ts': 3212,
 };

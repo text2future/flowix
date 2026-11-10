@@ -17,11 +17,10 @@ export interface ModelSelectionHooks {
 /**
  * Apply a model picked from the settings list.
  *
- * Two Cloud rules live here rather than in the frozen controller: a signed-out
- * catalog entry is a preview with no local provider (selecting it would bind a
- * model the next run cannot resolve), and a stale member item from a previous
- * session must not be written. Credit access is checked atomically by Cloud
- * when a request starts.
+ * A preview entry can be selected while signed out; the send preflight then
+ * places the sign-in card in the transcript as the reply to that prompt. A
+ * stale member item from a previous session must not be written. Credit access
+ * is checked atomically by Cloud when a request starts.
  */
 export function selectAgentModel(
   hooks: ModelSelectionHooks,
@@ -29,7 +28,7 @@ export function selectAgentModel(
 ): void {
   if (hooks.typeKey === 'pi' && isFlowixCloudModelOption(option)) {
     if ((option.providerId ?? '') === FLOWIX_CLOUD_PREVIEW_PROVIDER_ID) {
-      hooks.onCloudAccessBlocked?.('signed_out');
+      hooks.apply(option);
       hooks.closePopover();
       return;
     }

@@ -114,7 +114,10 @@ class MediaLibraryReferenceNodeView implements ProseMirrorNodeView {
   destroy() {
     this.destroyed = true;
     this.view.dom.removeEventListener('flowix:editor-editability-change', this.handleEditabilityChange);
-    this.root.unmount();
+    // 同 table-reference-node：EditorView 重建期间的同步 destroy 可能撞上
+    // React 渲染期，unmount 推迟到宏任务。
+    const { root } = this;
+    window.setTimeout(() => root.unmount(), 0);
   }
 }
 

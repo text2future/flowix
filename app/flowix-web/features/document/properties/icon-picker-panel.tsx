@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
-import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
+import { OverlayScrollbar, type OverlayScrollbarHandle } from '@shared/ui/overlay-scrollbar';
 import {
   PROPERTY_ICON_CATEGORY_LABEL_KEY,
   PROPERTY_ICON_PACK_LABEL_KEY,
@@ -24,6 +24,10 @@ interface PropertyIconPickerPanelProps {
   disabled?: boolean;
   /** 选中某个图标。 */
   onSelect: (next: string) => void;
+  /** 提供时在面板下方渲染「清除」按钮区 (边框分隔 + 靠右, 样式同集合图标设置)。 */
+  onClear?: () => void;
+  /** 清除按钮文案 (与 onClear 成对提供)。 */
+  clearLabel?: string;
   className?: string;
 }
 
@@ -51,12 +55,16 @@ export function PropertyIconPickerPanel({
   value,
   disabled = false,
   onSelect,
+  onClear,
+  clearLabel,
   className,
 }: PropertyIconPickerPanelProps) {
   const { t } = useI18n();
   const rootRef = useRef<HTMLDivElement>(null);
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
+  const onClearRef = useRef(onClear);
+  onClearRef.current = onClear;
   const selected = getPropertyIconOption(value);
   const [pack, setPack] = useState<PropertyIconPackId>(
     () => selected?.pack ?? getDefaultPropertyIconPack(),
@@ -67,6 +75,13 @@ export function PropertyIconPickerPanel({
   const packEntry = PROPERTY_ICON_PACKS.find((entry) => entry.id === pack)
     ?? PROPERTY_ICON_PACKS[0];
   const options = getPropertyIconCategoryOptions(pack, category);
+  const scrollbarRef = useRef<OverlayScrollbarHandle>(null);
+
+  // 分类吸顶后用户常在滚动中途切换分类/包, 滚动位置必须归零,
+  // 否则会落在新分类列表的中间 (新列表更短时还会被浏览器 clamp 出怪异状态)。
+  useEffect(() => {
+    scrollbarRef.current?.getScroller()?.scrollTo({ top: 0 });
+  }, [pack, category]);
 
   useEffect(() => {
     const root = rootRef.current;
@@ -93,7 +108,16 @@ export function PropertyIconPickerPanel({
         return;
       }
       const categoryButton = target.closest<HTMLButtonElement>('button[data-icon-category]');
-      if (!categoryButton) return;
+      if (!categoryButton) {
+        // 清除按钮也走同一套原生事件委托 (WKWebView 下 React 合成 click 不可靠)。
+        const clearButton = target.closest<HTMLButtonElement>('button[data-icon-clear]');
+        if (!clearButton) return;
+        if (clearButton.disabled) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onClearRef.current?.();
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
       const next = categoryButton.dataset.iconCategory as PropertyIconCategoryId | undefined;
@@ -104,7 +128,10 @@ export function PropertyIconPickerPanel({
   }, [pack]);
 
   return (
-    <div ref={rootRef} className={cn('flex h-[300px] flex-col gap-2', className)}>
+    // 外层只做纵向排布并把清除按钮区纳入 rootRef 的事件委托范围;
+    // 定高的 300px 区域只包 picker 本体, 清除区贴在其下 (无边距, 同集合图标设置)。
+    <div ref={rootRef} className={cn('flex flex-col', className)}>
+      <div className="flex h-[300px] flex-col gap-2">
       {PROPERTY_ICON_PACKS.length > 1 && (
         <div
           role="tablist"
@@ -135,15 +162,22 @@ export function PropertyIconPickerPanel({
         </div>
       )}
       <OverlayScrollbar
+        ref={scrollbarRef}
         observeContent
-        className="min-h-0 flex-1"
-        scrollerClassName="h-full"
+        /* 滚动条贴边: 宿主弹窗都是 p-2 (8px), 框架 -mx-2 拉到弹窗内缘,
+         * 滚动区内容 px-2 补回, 视觉不动, 自绘滑块贴住弹窗右缘。 */
+        className="min-h-0 flex-1 -mx-2"
+        scrollerClassName="h-full px-2"
       >
         {packEntry && packEntry.categories.length > 1 && (
           <div
             role="tablist"
             aria-label={t('document.properties.icon.categories')}
-            className="flex flex-wrap gap-1 pb-2"
+            /* 分类条吸顶: sticky 于滚动容器顶部, 不透明底色盖住滚过的图标。
+             * 刻意不设 z-index ── sticky 是定位元素, z-auto 就能盖过静态网格,
+             * 同时画在自绘滑块 (z-2) / 轨道 (z-1) 之下, 不遮右缘滚动条
+             * (同 overlay-scrollbar.css 里集合页吸顶条的结论)。 */
+            className="sticky top-0 flex flex-wrap gap-1 bg-[var(--card)] pb-2"
           >
             {packEntry.categories.map((entry) => {
               const active = entry.id === category;
@@ -168,7 +202,9 @@ export function PropertyIconPickerPanel({
             })}
           </div>
         )}
-        <div className="grid grid-cols-5 gap-1">
+        {/* 1fr 轨道比 40px 按钮宽（弹窗 280/300px），固定尺寸子项在 stretch 下
+            会退化为起点对齐（贴格子左侧），必须显式居中。 */}
+        <div className="grid grid-cols-5 justify-items-center gap-1">
           {options.map((option) => {
             const active = option.value === value;
             return (
@@ -197,6 +233,19 @@ export function PropertyIconPickerPanel({
           })}
         </div>
       </OverlayScrollbar>
+      </div>
+      {onClear && (
+        <div className="flex items-center justify-end border-t border-[var(--border)] pt-2">
+          <button
+            type="button"
+            disabled={disabled}
+            data-icon-clear=""
+            className="rounded-md px-2 py-1 text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--hover-bg)] hover:text-[var(--foreground)]"
+          >
+            {clearLabel}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

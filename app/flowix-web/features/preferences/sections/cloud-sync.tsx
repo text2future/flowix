@@ -1,9 +1,10 @@
 'use client';
 
 import { friendlyErrorMessage } from '@/lib/friendly-error-message';
+import { consumeAccountRestoreNotice } from '@/lib/cloud-account';
 
 import { useEffect, useState } from 'react';
-import { Check, Cloud, Info, Loader2 } from 'lucide-react';
+import { Ellipsis, Loader2 } from 'lucide-react';
 
 import googleLogo from '@/assets/google.svg';
 import { useI18n } from '@/lib/i18n';
@@ -13,17 +14,19 @@ import { cloudSyncErrorMessage } from '@platform/tauri/errors';
 import { subscribe } from '@platform/tauri/event-bus';
 import {
   cloud,
-  type CloudProduct,
+  dialogs,
   type CloudOrder,
   type CloudSubscription,
   type CloudState,
+  windows,
 } from '@platform/tauri/client';
 import { Button } from '@shared/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@shared/ui/dialog';
 import { Tooltip } from '@shared/ui/tooltip';
-import { Popover, PopoverContent, PopoverTrigger } from '@shared/ui/popover';
-import { SectionHeader } from '@features/preferences/sections/primitives';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@shared/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { useCloudAccountState } from '@features/preferences/hooks/use-cloud-account-state';
+import { DeleteAccountDialog } from '@features/preferences/sections/delete-account-dialog';
 import { PiCloudModelsSection } from '@features/preferences/sections/pi-cloud-models-section';
 import { useMembershipAccess } from '@features/preferences/public/membership';
 
@@ -54,13 +57,14 @@ function formatMembershipDate(value: number): string {
 export function CloudSyncSection() {
   const { t } = useI18n();
   const { state, loadError: stateLoadError, loading: loadingLoginState, applyState, membershipLoading, membershipError, refreshMembership } = useCloudAccountState();
-  const [products, setProducts] = useState<CloudProduct[]>([]);
   const [busy, setBusy] = useState(false);
-  const [productsLoadError, setProductsLoadError] = useState<string | null>(null);
-  const [productsLoading, setProductsLoading] = useState(true);
+  const [activeAccountSection, setActiveAccountSection] = useState<'ai' | 'storage'>('ai');
   const [orders, setOrders] = useState<CloudOrder[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [ordersLoadError, setOrdersLoadError] = useState<string | null>(null);
+  const [ordersDialogOpen, setOrdersDialogOpen] = useState(false);
+  const [deleteAccountDialogOpen, setDeleteAccountDialogOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [subscriptions, setSubscriptions] = useState<CloudSubscription[]>([]);
   const [subscriptionsLoading, setSubscriptionsLoading] = useState(false);
   const [subscriptionsLoadError, setSubscriptionsLoadError] = useState<string | null>(null);
@@ -69,16 +73,8 @@ export function CloudSyncSection() {
   const [orderCheckFailedId, setOrderCheckFailedId] = useState<string | null>(null);
   const [resumingOrderId, setResumingOrderId] = useState<string | null>(null);
 
-  const hasPendingOrder = orders.some((order) => order.status === 'pending');
   const storageExpiresAt = state?.membership?.storageExpiresAt ?? state?.membership?.expiresAt;
   const { active: hasMembership, lifetime: hasLifetimeMembership, loading: memberAccessLoading } = useMembershipAccess();
-  const membershipProducts = products.filter((product) => {
-    if (product.entitlement.features.membership !== true) return false;
-    if (product.entitlement.features.lifetime === true) return product.billingType === 'one_time';
-    return product.billingType === 'subscription'
-      && product.entitlement.duration.unit === 'year'
-      && product.entitlement.duration.count === 1;
-  });
   const annualMembershipSubscription = subscriptions.find((subscription) =>
     subscription.isAnnualMembership
       && ['active', 'trialing', 'past_due'].includes(subscription.status)
@@ -120,23 +116,14 @@ export function CloudSyncSection() {
 
   useEffect(() => {
     let active = true;
-    void cloud.listProducts().then((next) => {
-      if (active) setProducts(next);
-    }).catch((error) => {
-      if (active) setProductsLoadError(friendlyErrorMessage(error, t, 'errors.friendly.productsLoad'));
-    }).finally(() => {
-      if (active) setProductsLoading(false);
-    });
-    return () => { active = false; };
-  }, []);
-
-  useEffect(() => {
-    let active = true;
     if (!state?.authenticated) {
       setOrders([]);
       setOrdersLoadError(null);
+      setOrdersLoading(false);
+      setOrdersDialogOpen(false);
       return () => { active = false; };
     }
+    if (!ordersDialogOpen) return () => { active = false; };
     setOrdersLoading(true);
     setOrdersLoadError(null);
     void cloud.listBillingOrders().then((next) => {
@@ -147,7 +134,7 @@ export function CloudSyncSection() {
       if (active) setOrdersLoading(false);
     });
     return () => { active = false; };
-  }, [state?.authenticated, state?.account?.user.id]);
+  }, [state?.authenticated, state?.account?.user.id, ordersDialogOpen, t]);
 
   useEffect(() => {
     let active = true;
@@ -244,6 +231,37 @@ export function CloudSyncSection() {
     }
   };
 
+  const copyAccountId = async () => {
+    const accountId = state?.account?.user.id;
+    if (!accountId) return;
+    try {
+      await navigator.clipboard.writeText(accountId);
+      toast.success(t('preferences.cloud.accountIdCopied'));
+    } catch {
+      toast.error(t('preferences.cloud.accountIdCopyFailed'));
+    }
+  };
+
+  const exportAccountData = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const document = await cloud.exportAccount();
+      const stamp = new Date().toISOString().slice(0, 10);
+      const target = await dialogs.saveFile(`flowix-account-${stamp}.json`, [
+        { name: 'JSON', extensions: ['json'] },
+      ]);
+      if (!target) return;
+      const written = await dialogs.writeExportFile(target, JSON.stringify(document, null, 2));
+      if (written) toast.success(t('preferences.cloud.exportSuccess'));
+      else toast.error(t('preferences.cloud.exportFailed'));
+    } catch {
+      toast.error(t('preferences.cloud.exportFailed'));
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const startGoogleSignIn = async () => {
     if (loadingLoginState || busy || state?.authenticated) return;
     setBusy(true);
@@ -260,10 +278,15 @@ export function CloudSyncSection() {
     toast.error(cloudSyncErrorMessage(message, t));
   }), [t]);
 
+  // A sign-in can revive a deleted account (OAuth completes immediately, so the
+  // server restores instead of refusing). The notice is shared with the
+  // notebook login dialog so it appears once no matter where the user signed in.
+  useEffect(() => {
+    if (consumeAccountRestoreNotice(state)) toast.info(t('preferences.cloud.restored'));
+  }, [state, t]);
+
   return (
     <div className="space-y-5 pb-8">
-      <SectionHeader title={t('preferences.cloud.title')} description={t('preferences.cloud.description')} />
-
       {(stateLoadError ?? state?.authError) && (
         <p className="break-words text-sm text-[var(--destructive)]">
           {cloudSyncErrorMessage(stateLoadError ?? state?.authError, t, 'errors.friendly.accountLoad')}
@@ -282,151 +305,181 @@ export function CloudSyncSection() {
         </Button>
       ) : (
         <>
-          <div className="space-y-4 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--muted)]">
-                <Cloud className="h-5 w-5" />
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[color-mix(in_oklch,var(--brand)_10%,transparent)] text-base font-medium text-[var(--foreground)]">
+              {state.account?.user.email?.trim().charAt(0).toUpperCase() || '?'}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-medium">
+                {state.account?.user.displayName}
               </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex min-w-0 items-center gap-2">
-                  <div className="truncate text-sm font-medium">
-                    {state.account?.user.displayName}
-                  </div>
-                  {state.membership && <span className={cn(
-                    'shrink-0 rounded-md px-1.5 py-0.5 text-xs',
-                    hasMembership
-                      ? 'bg-[color-mix(in_oklch,var(--success)_15%,transparent)] text-[var(--success)]'
-                      : 'bg-[color-mix(in_oklch,var(--warning)_15%,transparent)] text-[var(--warning)]',
-                  )}>
-                    {hasMembership
-                      ? t(hasLifetimeMembership ? 'preferences.cloud.member.lifetimeBadge' : 'preferences.cloud.member.annualBadge')
-                      : t('preferences.cloud.member.regular')}
-                  </span>}
-                  {membershipLoading && (
-                    <span className="flex shrink-0 items-center gap-1 whitespace-nowrap text-sm text-[var(--muted-foreground)]">
-                      <Loader2 className="h-3.5 w-3.5 flowix-spin" aria-hidden="true" />
-                      {t('preferences.cloud.membershipLoading')}
-                    </span>
-                  )}
-                </div>
-                <div className="truncate text-sm text-[var(--muted-foreground)]">
-                  {state.account?.user.email}
-                </div>
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="rounded-xl text-sm"
-                  disabled={busy}
-                  onClick={() => void run(() => cloud.logout())}
-                >
-                  {t('preferences.cloud.logout')}
-                </Button>
+              <div className="truncate text-sm text-[var(--muted-foreground)]">
+                {state.account?.user.email}
               </div>
             </div>
+          </div>
 
-            <div className="space-y-3 border-t border-[var(--border)] pt-4">
-              <div className="flex flex-wrap items-center gap-x-1 gap-y-1">
-                <div className="text-sm font-medium">{t('preferences.cloud.membership')}</div>
-                {state.membership && state.membership.quotaBytes > 0 && (
-                  <div className="ml-auto flex flex-wrap items-center gap-x-2 text-sm text-[var(--muted-foreground)]">
-                    <span>
-                      {t('preferences.cloud.usage')} {formatMembershipBytes(state.membership.usedBytes)} / {formatMembershipBytes(state.membership.quotaBytes)}
+          <div className="grid grid-cols-2 gap-0.5 rounded-xl border border-[var(--border)] bg-[var(--card)] p-1">
+            {([
+              ['ai', t('preferences.cloud.section.ai')],
+              ['storage', t('preferences.cloud.section.storage')],
+            ] as const).map(([section, label]) => (
+              <Button
+                key={section}
+                type="button"
+                size="sm"
+                variant={activeAccountSection === section ? 'secondary' : 'ghost'}
+                className="rounded-lg"
+                aria-pressed={activeAccountSection === section}
+                onClick={() => setActiveAccountSection(section)}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+
+          {activeAccountSection === 'ai' ? (
+            <PiCloudModelsSection authenticated />
+          ) : (
+            <div className="space-y-1.5">
+            <div className="text-sm font-medium text-[var(--foreground)]">{t('preferences.cloud.storage.title')}</div>
+            <section className="space-y-4 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
+              <div className="space-y-3">
+                <div className="grid grid-cols-[5em_minmax(0,1fr)] items-center gap-x-3 gap-y-3 text-sm">
+                  <div className="text-[var(--muted-foreground)]">{t('preferences.cloud.storage.type')}</div>
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <span className={cn(
+                      'shrink-0 rounded-md px-1.5 py-0.5 text-xs',
+                      hasMembership
+                        ? 'bg-[color-mix(in_oklch,var(--success)_15%,transparent)] text-[var(--success)]'
+                        : 'bg-[color-mix(in_oklch,var(--warning)_15%,transparent)] text-[var(--warning)]',
+                    )}>
+                      {hasMembership
+                        ? t(hasLifetimeMembership ? 'preferences.cloud.member.lifetimeBadge' : 'preferences.cloud.member.annualBadge')
+                        : t('preferences.cloud.member.regular')}
                     </span>
-                    {storageExpiresAt != null && (
-                      <>
-                        <span aria-hidden="true">｜</span>
-                        <span>
-                          {t('preferences.cloud.expires')}{' '}
-                          {hasLifetimeMembership && new Date(storageExpiresAt).getUTCFullYear() >= 9999
-                            ? t('preferences.cloud.lifetime')
-                            : formatMembershipDate(storageExpiresAt)}
-                        </span>
-                      </>
+                    {membershipLoading && (
+                      <span className="flex items-center gap-1 whitespace-nowrap text-[var(--muted-foreground)]">
+                        <Loader2 className="h-3.5 w-3.5 flowix-spin" aria-hidden="true" />
+                        {t('preferences.cloud.membershipLoading')}
+                      </span>
                     )}
-                  </div>
-                )}
-              </div>
-              {membershipError && <div className="space-y-2">
-                <p className="text-sm text-[var(--destructive)]">{t('preferences.cloud.membershipFailed')}</p>
-                <Button variant="outline" className="px-3" disabled={membershipLoading} onClick={() => void refreshMembership()}>
-                  {t('preferences.cloud.retry')}
-                </Button>
-              </div>}
-              {(subscriptionsLoading || subscriptionsLoadError || (
-                annualMembershipSubscription && !annualMembershipSubscription.cancelAtPeriodEnd
-              )) && (
-                <div className="space-y-2">
-                  {subscriptionsLoading ? (
-                    <div aria-hidden="true" className="h-5 animate-pulse rounded bg-[var(--muted)]" />
-                  ) : subscriptionsLoadError ? (
-                    <div className="space-y-2">
-                      <p className="break-words text-sm text-[var(--destructive)]">
-                        {subscriptionsLoadError}
-                      </p>
-                      <Button variant="outline" size="sm" className="rounded-lg" onClick={() => void loadSubscriptions()}>
-                        {t('preferences.cloud.retry')}
-                      </Button>
-                    </div>
-                  ) : annualMembershipSubscription && !annualMembershipSubscription.cancelAtPeriodEnd ? (
-                    <div className="flex flex-wrap items-center gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm text-[var(--muted-foreground)]">
-                          {t('preferences.cloud.subscription.renewal', {
-                            date: annualMembershipSubscription.currentPeriodEnd == null
-                              ? t('preferences.cloud.subscription.periodEnd')
-                              : formatMembershipDate(annualMembershipSubscription.currentPeriodEnd),
-                          })}
-                        </div>
-                      </div>
+                    {!memberAccessLoading && !hasLifetimeMembership && (
                       <Button
                         type="button"
                         variant="outline"
                         size="sm"
-                        className="rounded-lg"
-                        disabled={cancelingSubscriptionId !== null}
-                        onClick={() => void cancelAnnualSubscription(annualMembershipSubscription)}
+                        className="ml-auto h-7 shrink-0 rounded-lg px-2 text-xs"
+                        disabled={busy || membershipLoading}
+                        onClick={() => void windows.openPaymentDialogInMain('membership').catch((error) => {
+                          toast.error(cloudSyncErrorMessage(error, t, 'errors.friendly.checkout'));
+                        })}
                       >
-                        {cancelingSubscriptionId === annualMembershipSubscription.id
-                          ? t('preferences.cloud.subscription.canceling')
-                          : t('preferences.cloud.subscription.cancel')}
+                        {t('preferences.cloud.member.upgrade')}
                       </Button>
+                    )}
+                  </div>
+                  {state.membership && state.membership.quotaBytes > 0 && <>
+                    <div className="text-[var(--muted-foreground)]">{t('preferences.cloud.storage.space')}</div>
+                    <div className="flex flex-wrap items-center gap-x-2 text-[var(--foreground)]">
+                      <span>{t('preferences.cloud.storage.used')} {formatMembershipBytes(state.membership.usedBytes)}</span>
+                      <span aria-hidden="true" className="text-[var(--muted-foreground)]">/</span>
+                      <span>{t('preferences.cloud.usage')} {formatMembershipBytes(state.membership.quotaBytes)}</span>
                     </div>
-                  ) : null}
+                  </>}
+                  {storageExpiresAt != null && <>
+                    <div className="text-[var(--muted-foreground)]">{t('preferences.cloud.expires')}</div>
+                    <div className="font-mono text-[var(--foreground)]">
+                      {hasLifetimeMembership && new Date(storageExpiresAt).getUTCFullYear() >= 9999
+                        ? t('preferences.cloud.lifetime')
+                        : formatMembershipDate(storageExpiresAt)}
+                    </div>
+                  </>}
                 </div>
-              )}
-            </div>
+                {membershipError && <div className="space-y-2">
+                  <p className="text-sm text-[var(--destructive)]">{t('preferences.cloud.membershipFailed')}</p>
+                  <Button variant="outline" className="px-3" disabled={membershipLoading} onClick={() => void refreshMembership()}>
+                    {t('preferences.cloud.retry')}
+                  </Button>
+                </div>}
+                {(subscriptionsLoading || subscriptionsLoadError || (
+                  annualMembershipSubscription && !annualMembershipSubscription.cancelAtPeriodEnd
+                )) && (
+                  <div className="space-y-2">
+                    {subscriptionsLoading ? (
+                      <div aria-hidden="true" className="h-5 animate-pulse rounded bg-[var(--muted)]" />
+                    ) : subscriptionsLoadError ? (
+                      <div className="space-y-2">
+                        <p className="break-words text-sm text-[var(--destructive)]">
+                          {subscriptionsLoadError}
+                        </p>
+                        <Button variant="outline" size="sm" className="rounded-lg" onClick={() => void loadSubscriptions()}>
+                          {t('preferences.cloud.retry')}
+                        </Button>
+                      </div>
+                    ) : annualMembershipSubscription && !annualMembershipSubscription.cancelAtPeriodEnd ? (
+                      <div className="flex flex-wrap items-center gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm text-[var(--muted-foreground)]">
+                            {t('preferences.cloud.subscription.renewal', {
+                              date: annualMembershipSubscription.currentPeriodEnd == null
+                                ? t('preferences.cloud.subscription.periodEnd')
+                                : formatMembershipDate(annualMembershipSubscription.currentPeriodEnd),
+                            })}
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="rounded-lg"
+                          disabled={cancelingSubscriptionId !== null}
+                          onClick={() => void cancelAnnualSubscription(annualMembershipSubscription)}
+                        >
+                          {cancelingSubscriptionId === annualMembershipSubscription.id
+                            ? t('preferences.cloud.subscription.canceling')
+                            : t('preferences.cloud.subscription.cancel')}
+                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+            </section>
           </div>
+          )}
 
-          <PiCloudModelsSection authenticated />
-
-          {(ordersLoading || ordersLoadError || orders.length > 0) && (
-            <div className="space-y-3">
-              {ordersLoading ? (
-                <div aria-hidden="true" className="h-5 w-24 animate-pulse rounded bg-[var(--muted)]" />
-              ) : (
-                <div className="text-sm font-medium">{t('preferences.cloud.order.title')}</div>
-              )}
-              {ordersLoading ? (
-                <div aria-hidden="true" className="h-20 animate-pulse rounded-xl bg-[var(--muted)]" />
-              ) : (
-                <div className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
-                  {ordersLoadError ? (
-                    <div className="space-y-2">
-                      <p className="break-words text-sm text-[var(--destructive)]">{ordersLoadError}</p>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="rounded-lg"
-                        disabled={ordersLoading}
-                        onClick={() => void loadOrders()}
-                      >
-                        {t('preferences.cloud.retry')}
-                      </Button>
-                    </div>
-                  ) : (
-                    <ul className="divide-y divide-[var(--border)]">
+          <Dialog open={ordersDialogOpen} onOpenChange={setOrdersDialogOpen}>
+            <DialogContent className="max-h-[80vh] max-w-2xl overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>{t('preferences.cloud.order.title')}</DialogTitle>
+              </DialogHeader>
+          {ordersDialogOpen && (ordersLoading ? (
+              <div aria-hidden="true" className="h-20 animate-pulse rounded-xl bg-[var(--muted)]" />
+            ) : (
+              <div>
+                {ordersLoadError ? (
+                  <div className="space-y-2">
+                    <p className="break-words text-sm text-[var(--destructive)]">{ordersLoadError}</p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="rounded-lg"
+                      disabled={ordersLoading}
+                      onClick={() => void loadOrders()}
+                    >
+                      {t('preferences.cloud.retry')}
+                    </Button>
+                  </div>
+                ) : orders.length === 0 ? (
+                  <p className="text-sm text-[var(--muted-foreground)]">{t('preferences.cloud.order.empty')}</p>
+                ) : (
+                  <ul className="divide-y divide-[var(--border)]">
+                      <li aria-hidden="true" className="grid grid-cols-[minmax(0,1fr)_6rem_4rem] gap-x-3 pb-2 text-xs text-[var(--muted-foreground)]">
+                        <span>{t('preferences.cloud.order.productName')}</span>
+                        <span className="font-mono text-right">{t('preferences.cloud.order.price')}</span>
+                        <span>{t('preferences.cloud.order.statusLabel')}</span>
+                      </li>
                       {orders.map((order) => {
                         const checkable = ['pending', 'paid'].includes(order.status);
                         const statusLabel = order.status === 'pending'
@@ -440,186 +493,153 @@ export function CloudSyncSection() {
                           : t('preferences.cloud.order.status.unknown');
 
                         return (
-                          <li key={order.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3 first:pt-0 last:pb-0">
-                            <div className="min-w-0 flex-1">
-                              <div className="truncate text-sm font-medium text-[var(--foreground)]">{order.productName}</div>
-                              <div className="mt-1 text-sm text-[var(--muted-foreground)]">
-                                {new Date(order.createdAt).toLocaleString()} · {new Intl.NumberFormat(undefined, {
+                          <li key={order.id} className="space-y-1.5 py-3 last:pb-0">
+                            <div className="grid grid-cols-[minmax(0,1fr)_6rem_4rem] items-center gap-x-3 text-sm">
+                              <div className="min-w-0">
+                                <div className="truncate font-medium text-[var(--foreground)]">{order.productName}</div>
+                                <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                                  <span className="whitespace-nowrap font-mono text-xs text-[var(--muted-foreground)]">
+                                    {new Date(order.createdAt).toLocaleString(undefined, {
+                                      year: 'numeric',
+                                      month: '2-digit',
+                                      day: '2-digit',
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                    })}
+                                  </span>
+                                  {checkable && (
+                                    <Tooltip content={t('preferences.cloud.order.checkTooltip')}>
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="xs"
+                                        className="h-auto min-h-6 rounded-md px-1 text-xs text-[var(--muted-foreground)] hover:bg-transparent hover:text-[var(--foreground)]"
+                                        disabled={checkingOrderId !== null || resumingOrderId !== null}
+                                        onClick={() => void checkOrder(order.id)}
+                                      >
+                                        {checkingOrderId === order.id
+                                          ? t('preferences.cloud.order.checking')
+                                          : orderCheckFailedId === order.id
+                                          ? t('preferences.cloud.retry')
+                                          : t('preferences.cloud.order.check')}
+                                      </Button>
+                                    </Tooltip>
+                                  )}
+                                  {order.status === 'pending' && (
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="xs"
+                                      className="h-auto min-h-6 rounded-md px-1 text-xs text-[var(--muted-foreground)] hover:bg-transparent hover:text-[var(--foreground)]"
+                                      disabled={checkingOrderId !== null || resumingOrderId !== null}
+                                      onClick={() => void resumeCheckout(order)}
+                                    >
+                                      {resumingOrderId === order.id
+                                        ? t('preferences.cloud.order.resumingPayment')
+                                        : t('preferences.cloud.order.continuePayment')}
+                                    </Button>
+                                  )}
+                                </div>
+                              </div>
+                              <span className="whitespace-nowrap font-mono text-right text-xs text-[var(--muted-foreground)]">
+                                {new Intl.NumberFormat(undefined, {
                                   style: 'currency', currency: order.currency.toUpperCase(),
                                 }).format(order.amount / 100)}
-                              </div>
+                              </span>
+                              <span className={cn(
+                                'w-fit whitespace-nowrap rounded-md px-1.5 py-0.5 text-xs',
+                                order.status === 'paid'
+                                  ? 'bg-[color-mix(in_oklch,var(--success)_15%,transparent)] text-[var(--success)]'
+                                  : 'bg-[color-mix(in_oklch,var(--warning)_15%,transparent)] text-[var(--warning)]',
+                              )}>{statusLabel}</span>
                             </div>
-                            {checkable && (
-                              <Tooltip content={t('preferences.cloud.order.checkTooltip')}>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  className="rounded-lg"
-                                  disabled={checkingOrderId !== null || resumingOrderId !== null}
-                                  onClick={() => void checkOrder(order.id)}
-                                >
-                                  {checkingOrderId === order.id
-                                    ? t('preferences.cloud.order.checking')
-                                    : orderCheckFailedId === order.id
-                                    ? t('preferences.cloud.retry')
-                                    : t('preferences.cloud.order.check')}
-                                </Button>
-                              </Tooltip>
-                            )}
-                            {order.status === 'pending' && (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                className="rounded-lg"
-                                disabled={checkingOrderId !== null || resumingOrderId !== null}
-                                onClick={() => void resumeCheckout(order)}
-                              >
-                                {resumingOrderId === order.id
-                                  ? t('preferences.cloud.order.resumingPayment')
-                                  : t('preferences.cloud.order.continuePayment')}
-                              </Button>
-                            )}
-                            <span className={cn(
-                              'rounded-md px-1.5 py-0.5 text-xs',
-                              order.status === 'paid'
-                                ? 'bg-[color-mix(in_oklch,var(--success)_15%,transparent)] text-[var(--success)]'
-                                : 'bg-[color-mix(in_oklch,var(--warning)_15%,transparent)] text-[var(--warning)]',
-                            )}>{statusLabel}</span>
                           </li>
                         );
                       })}
-                    </ul>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {!hasMembership && !memberAccessLoading && !membershipError && (
-            <div className="space-y-3">
-              <div>
-                <div className="text-sm font-medium">{t('preferences.cloud.member.title')}</div>
+                  </ul>
+                )}
               </div>
-              {hasPendingOrder && !productsLoading && (
-                <p role="status" className="text-sm text-[var(--muted-foreground)]">
-                  {t('preferences.cloud.order.pendingCheckout')}
-                </p>
-              )}
-              {productsLoadError && (
-                <p className="break-words text-sm text-[var(--destructive)]">{productsLoadError}</p>
-              )}
-              {productsLoading ? (
-                <div aria-hidden="true" className="h-48 animate-pulse rounded-xl bg-[var(--muted)]" />
-              ) : (
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  {membershipProducts.map((product) => {
-                    const lifetime = product.entitlement.features.lifetime === true;
-                    const storageCapacity = formatStorageCapacity(product.entitlement.storageBytes);
-                    const [storagePrefix, storageSuffix] = t('preferences.cloud.totalStorage', {
-                      capacity: storageCapacity,
-                    }).split(storageCapacity);
+            ))}
+            </DialogContent>
+          </Dialog>
 
-                    return (
-                      <div
-                        key={product.id}
-                        className="flex h-full min-h-[480px] flex-col rounded-xl border border-[var(--border)] bg-[var(--card)] p-2.5 pt-4 transition-colors hover:border-[var(--primary)]/40 sm:p-3 sm:pt-[18px]"
-                      >
-                        <div className="min-w-0">
-                          <div className="text-[22px] font-semibold leading-7 tracking-tight text-[var(--foreground)]">
-                            {lifetime
-                              ? t('preferences.cloud.member.lifetimePlan')
-                              : t('preferences.cloud.member.yearPlan')}
-                          </div>
-                        </div>
-                        <div className="mt-1 flex flex-wrap items-baseline gap-x-1.5 gap-y-1 text-[var(--foreground)]" style={{ fontFamily: 'ui-monospace' }}>
-                          <span className="text-[32px] font-normal leading-10 tracking-tight tabular-nums">
-                            {new Intl.NumberFormat(undefined, {
-                              style: 'currency', currency: product.price.currency.toUpperCase(),
-                            }).format(product.price.amount / 100)}
-                          </span>
-                          {!lifetime && (
-                            <span className="text-sm leading-5 text-[var(--muted-foreground)]">
-                              {t('preferences.cloud.pricePeriod.yearly')}
-                            </span>
-                          )}
-                        </div>
-                        <div className="my-5 border-t border-[var(--border)]" />
-                        <div className="mb-3 text-sm font-medium leading-5 text-[var(--foreground)]">
-                          {t('preferences.cloud.plan.includes')}
-                        </div>
-                        <ul className="space-y-2.5 text-sm leading-5 text-[var(--muted-foreground)]">
-                          <li className="flex items-start gap-1.5">
-                            <Check className="mt-1 h-3 w-3 shrink-0" aria-hidden="true" />
-                            <span>
-                              {storagePrefix}<span className="font-medium text-[var(--brand)]">{storageCapacity}</span>{storageSuffix}
-                            </span>
-                          </li>
-                          <li className="flex items-start gap-1.5">
-                            <Check className="mt-1 h-3 w-3 shrink-0" aria-hidden="true" />
-                            <span>{t('preferences.cloud.unlimitedSyncedNotebooks')}</span>
-                          </li>
-                          <li className="flex items-start gap-1.5">
-                            <Check className="mt-1 h-3 w-3 shrink-0" aria-hidden="true" />
-                            <span>{t('preferences.cloud.maximumFileSize', { size: '5 MB' })}</span>
-                          </li>
-                          {(['memberThemes', 'piByok', 'localAgents', 'mcpCli', 'earlyAccess'] as const).map((benefit) => (
-                            <li key={benefit} className="flex items-start gap-1.5">
-                              <Check className="mt-1 h-3 w-3 shrink-0" aria-hidden="true" />
-                              <span>{t(`preferences.cloud.plan.benefit.${benefit}`)}</span>
-                              {benefit === 'localAgents' && (
-                                <div className="-ml-1.5">
-                                  <Popover>
-                                    <PopoverTrigger asChild>
-                                      <button
-                                        type="button"
-                                        aria-label={t('preferences.cloud.plan.benefit.localAgentsInfo')}
-                                        className="flex h-5 w-5 items-center justify-center rounded-md text-[var(--muted-foreground)] hover:text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)]"
-                                      >
-                                        <Info className="h-3 w-3" aria-hidden="true" />
-                                      </button>
-                                    </PopoverTrigger>
-                                    <PopoverContent side="top" align="center" className="max-w-[240px] px-3 py-2 text-sm leading-5">
-                                      {t('preferences.cloud.plan.benefit.localAgentsInfo')}
-                                    </PopoverContent>
-                                  </Popover>
-                                </div>
-                              )}
-                            </li>
-                          ))}
-                        </ul>
-                        <div className="mt-auto pt-5">
-                          <Button
-                            size="lg"
-                            className="h-10 w-full rounded-xl bg-[var(--brand)] text-base font-medium text-[var(--primary-foreground)] hover:bg-[color-mix(in_oklch,var(--brand)_90%,black)]"
-                            disabled={busy || membershipLoading || memberAccessLoading || ordersLoading || ordersLoadError !== null || hasPendingOrder}
-                            onClick={() => {
-                              if (busy || membershipLoading || memberAccessLoading || ordersLoading || ordersLoadError !== null || hasPendingOrder) return;
-                              setBusy(true);
-                              void cloud.createCheckout(product.id)
-                                .then((checkout) => openUrl(checkout.checkoutUrl))
-                                .catch((error) => toast.error(cloudSyncErrorMessage(error, t, 'errors.friendly.checkout')))
-                                .finally(async () => {
-                                  await loadOrders();
-                                  setBusy(false);
-                                });
-                            }}
-                          >
-                            {busy ? t('preferences.cloud.working') : t('preferences.cloud.member.purchase')}
-                          </Button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {!productsLoadError && membershipProducts.length === 0 && (
-                    <p className="text-sm text-[var(--muted-foreground)]">{t('preferences.cloud.member.unavailable')}</p>
-                  )}
+          <div className="flex justify-end gap-3">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-auto min-h-0 rounded-none p-0 text-sm text-[var(--muted-foreground)] hover:bg-transparent hover:text-[var(--foreground)]"
+              onClick={() => {
+                setOrdersLoading(true);
+                setOrdersDialogOpen(true);
+              }}
+            >
+              {t('preferences.cloud.order.title')}
+            </Button>
+            <span aria-hidden="true" className="h-4 w-px self-center bg-[var(--border)]" />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-auto min-h-0 rounded-none p-0 text-sm text-[var(--muted-foreground)] hover:bg-transparent hover:text-[var(--foreground)]"
+              disabled={busy}
+              onClick={() => void run(() => cloud.logout())}
+            >
+              {t('preferences.cloud.logout')}
+            </Button>
+            <span aria-hidden="true" className="h-4 w-px self-center bg-[var(--border)]" />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="size-7 rounded-full p-0 text-[var(--muted-foreground)] hover:bg-transparent hover:text-[var(--foreground)]"
+                  aria-label={t('preferences.cloud.accountMore')}
+                  title={t('preferences.cloud.accountMore')}
+                >
+                  <Ellipsis className="size-4" aria-hidden="true" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-[180px] max-w-[calc(100vw-16px)] rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+                <div className="flex min-w-0 items-center gap-2 px-2 py-1.5 text-xs">
+                  <span className="shrink-0 text-[var(--muted-foreground)]">{t('preferences.cloud.accountId')}</span>
+                  <code className="min-w-0 flex-1 truncate font-mono text-[var(--foreground)]" title={state?.account?.user.id}>
+                    {state?.account?.user.id}
+                  </code>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 shrink-0 px-1.5 text-xs text-[var(--muted-foreground)] hover:bg-transparent hover:text-[var(--foreground)]"
+                    onClick={() => void copyAccountId()}
+                  >
+                    {t('preferences.cloud.copy')}
+                  </Button>
                 </div>
-              )}
-            </div>
-          )}
+                <DropdownMenuItem
+                  className="rounded-lg"
+                  disabled={exporting}
+                  onClick={() => void exportAccountData()}
+                >
+                  {exporting ? t('preferences.cloud.exporting') : t('preferences.cloud.export')}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="rounded-lg text-[var(--destructive)] focus:text-[var(--destructive)]"
+                  onClick={() => setDeleteAccountDialogOpen(true)}
+                >
+                  {t('preferences.cloud.deleteAccount')}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
 
+          <DeleteAccountDialog
+            open={deleteAccountDialogOpen}
+            onOpenChange={setDeleteAccountDialogOpen}
+            email={state?.account?.user.email ?? ''}
+            onExport={() => void exportAccountData()}
+            exporting={exporting}
+          />
 
         </>
       )}

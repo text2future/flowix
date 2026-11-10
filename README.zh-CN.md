@@ -1,34 +1,25 @@
-<p align="right">
-  <a href="./README.en.md">English</a> | <a href="./README.md"><b>简体中文</b></a>
-</p>
+English | **简体中文**
 
-<p align="center">
-  <img src="./docs/images/app-icon.png" width="120" alt="Flowix" />
-</p>
+&nbsp;
 
-<h1 align="center">你的笔记，<br />AI 的记忆。</h1>
+# 你的笔记，  
+AI 的记忆。
 
-<p align="center"><strong>本地 Markdown 笔记本，让你的写作无缝成为 Agent 可以持续使用的上下文。</strong></p>
+**本地 Markdown 笔记本，让你的写作无缝成为 Agent 可以持续使用的上下文。**
 
-<p align="center">
-  Markdown · 开源 · 多 Agent · MCP 与 CLI
-</p>
+Markdown · 开源 · 多 Agent · MCP 与 CLI
 
-<p align="center">
-  <a href="https://flowix-memo.com/"><b>立即下载</b></a> ·
-  <a href="https://flowix-memo.com/"><b>官网</b></a> ·
-  <a href="https://flowix-memo.com/docs/"><b>文档</b></a>
-</p>
+**立即下载** · **官网** · **文档**
 
 ---
 
-<img src="./docs/images/readme-introduce.gif" width="100%" alt="Flowix" />
+&nbsp;
 
 ## Flowix 让笔记成为持续工作的记忆
 
 用 Markdown 记录内容，把需要的上下文交给 Agent，再将结果写回同一篇笔记，方便检查、修改和下次继续使用。
 
-<img src="./docs/images/home-write.png" width="100%" alt="Flowix 笔记在浅色与深色主题中的界面" />
+&nbsp;
 
 ---
 
@@ -36,14 +27,16 @@
 
 把产品、开发、研究和个人知识放在一起，让 Agent 不必每次从头开始。
 
-| 场景 | 说明 |
-| --- | --- |
-| **产品工作** | 集中管理需求、反馈和决策，让产品文档保持最新。 |
-| **软件开发** | 保存项目背景和约束，让编码 Agent 接着推进。 |
-| **课题研究** | 将资料、分析和结论放在一起，方便追溯和复用。 |
+<!-- flowix:table {"version":1,"columns":[{"width":271},{"width":271}]} -->
+| 场景       | 说明                          |
+| -------- | --------------------------- |
+| **产品工作** | 集中管理需求、反馈和决策，让产品文档保持最新。     |
+| **软件开发** | 保存项目背景和约束，让编码 Agent 接着推进。   |
+| **课题研究** | 将资料、分析和结论放在一起，方便追溯和复用。      |
 | **个人知识** | 让笔记、计划和个人偏好成为 Agent 可用的上下文。 |
 
-<p align="center"><img src="./docs/images/home-nav.png" width="60%" alt="Flowix 中的笔记、对话、任务与标签导航" /></p>
+
+&nbsp;
 
 ---
 
@@ -51,7 +44,7 @@
 
 你可以在 Flowix 内使用 Agent，也可以连接 **Codex**、**Claude Code**、**OpenCode**、**Hermes** 及其他 MCP 或 CLI 工具，让它们基于同一套笔记和上下文工作。
 
-<p align="center"><img src="./docs/images/home-agent.png" width="60%" alt="Flowix 将 Codex、Claude Code、OpenCode、Hermes 和 Flowix Agent 连接到同一篇笔记" /></p>
+&nbsp;
 
 ---
 
@@ -59,7 +52,7 @@
 
 扫描下方二维码加入交流群，一起交流和讨论 Flowix。
 
-<p align="center"><img src="./docs/images/community-qr.png" width="240" alt="Flowix 交流群二维码" /></p>
+&nbsp;
 
 ---
 
@@ -107,11 +100,13 @@ Flowix 将笔记保存为本地 Markdown 文件。你决定 Agent 能看到什�
 
 ## 产品预览
 
-| | |
-| --- | --- |
-| <img src="./docs/images/gh-detail-1.png" width="100%" alt="笔记列表与标签组织" /><br/>*笔记列表与标签组织* | <img src="./docs/images/gh-detail-2.png" width="100%" alt="笔记详情与 Agent 预设" /><br/>*笔记详情与 Agent 预设* |
-| <img src="./docs/images/gh-detail-3.png" width="100%" alt="Agent 模型选择" /><br/>*Agent 模型选择* | <img src="./docs/images/gh-detail-4.png" width="100%" alt="全文与文件搜索" /><br/>*全文与文件搜索* |
-| <img src="./docs/images/gh-detail-5.png" width="100%" alt="Provider 与 MCP 配置" /><br/>*Provider 与 MCP 配置* | <img src="./docs/images/gh-detail-6.png" width="100%" alt="代码文件浏览与编辑" /><br/>*代码文件浏览与编辑* |
+<!-- flowix:table {"version":1,"columns":[{"width":271},{"width":271}]} -->
+|                            |                         |
+| -------------------------- | ----------------------- |
+| &nbsp; *笔记列表与标签组织*         | &nbsp; *笔记详情与 Agent 预设* |
+| &nbsp; *Agent 模型选择*        | &nbsp; *全文与文件搜索*        |
+| &nbsp; *Provider 与 MCP 配置* | &nbsp; *代码文件浏览与编辑*      |
+
 
 ---
 

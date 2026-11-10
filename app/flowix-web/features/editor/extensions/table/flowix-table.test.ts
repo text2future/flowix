@@ -586,8 +586,8 @@ describe('renderer boundaries', () => {
       node: JSONContent, helpers: unknown, ctx: unknown,
     ) => string;
 
-    // The parser worker path has no schema, so it cannot emit the HTML the
-    // table needs. Failing loud beats silently dropping merged cells.
+    // This base renderer has no schema, so it cannot emit the HTML the table
+    // needs. Failing loud beats silently dropping merged cells.
     expect(() => renderMarkdown(mergedCellTable(), {}, {})).toThrow(/needs HTML/);
   });
 

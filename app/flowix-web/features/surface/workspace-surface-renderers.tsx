@@ -1,6 +1,6 @@
 'use client';
 
-import { lazy, useCallback, useEffect } from 'react';
+import { lazy, useCallback, useEffect, useState } from 'react';
 
 import { useExternalFileContentDetection } from '@features/editor/use-external-file-content-detection';
 import { externalFileViewKind } from '@features/editor/public/code-file';
@@ -8,6 +8,7 @@ import { workspaceSurfaceAppearance, workspaceSurfaceContentPresentation } from 
 
 import { LazyAgentConversationDetail } from '@features/agent/components/lazy-agent-conversation-detail';
 import { LazyPluginDocumentView, LazyPluginWorkbench } from '@features/plugin/public/surface-api';
+import { NoteDocumentLoadingSkeleton } from '@shared/ui/note-document-loading-skeleton';
 
 import type { WorkspaceSurfaceRendererData, WorkspaceSurfaceRenderContext } from './workspace-surface-renderer-registry';
 import { WorkspaceSurfaceStateView } from './workspace-surface-state-view';
@@ -29,13 +30,14 @@ function fileHeaderTitle(path: string): string {
 function publishDocumentContentState(
   reportPresentation: WorkspaceSurfaceRenderContext['reportPresentation'],
   contentState: DocumentContentStatus,
+  silentLoading = false,
 ) {
   if (!reportPresentation) return;
   switch (contentState.status) {
     case 'loading':
-      reportPresentation({ state: {
-        status: 'loading', loadingMode: 'blocking', retainContent: contentState.retainContent,
-      } });
+      reportPresentation({ state: silentLoading
+        ? { status: 'loading', loadingMode: 'background', retainContent: true }
+        : { status: 'loading', loadingMode: 'blocking', retainContent: contentState.retainContent } });
       break;
     case 'error':
       reportPresentation({ state: {
@@ -87,18 +89,28 @@ type RendererProps<K extends WorkspaceSurfaceRendererData['kind']> = {
 };
 
 export function MarkdownRenderer({ surface, context }: RendererProps<'file-markdown'>) {
+  // Markdown never blocks: see workspaceSurfaceSilentLoading. While the
+  // document session resolves, the surface paints its own note skeleton
+  // instead of the common centered loader.
+  const [contentLoading, setContentLoading] = useState(true);
   const onContentStateChange = useCallback((state: DocumentContentStatus) => {
-    publishDocumentContentState(context.reportPresentation, state);
+    setContentLoading(state.status === 'loading');
+    publishDocumentContentState(context.reportPresentation, state, true);
   }, [context.reportPresentation]);
-  return <MarkdownDocumentSurface
-    fileIdentity={surface.fileIdentity}
-    documentProps={{ ...surface.documentProps, workspaceHost: context.host,
-      initialFocus: context.initialFocus ?? surface.documentProps.initialFocus,
-      onContentStateChange: context.reportPresentation ? onContentStateChange : undefined }}
-    navigationViewId={context.host === 'column-2' ? context.viewId : undefined}
-    reportPresentation={context.reportPresentation}
-    registerLifecycle={context.registerLifecycle}
-  />;
+  return <div className="relative flex h-full min-h-0 w-full flex-col">
+    <MarkdownDocumentSurface
+      fileIdentity={surface.fileIdentity}
+      documentProps={{ ...surface.documentProps, workspaceHost: context.host,
+        initialFocus: context.initialFocus ?? surface.documentProps.initialFocus,
+        onContentStateChange: context.reportPresentation ? onContentStateChange : undefined }}
+      navigationViewId={context.host === 'column-2' ? context.viewId : undefined}
+      reportPresentation={context.reportPresentation}
+      registerLifecycle={context.registerLifecycle}
+    />
+    {contentLoading && <div className="pointer-events-none absolute inset-0 z-10 bg-[var(--document-bg)]">
+      <NoteDocumentLoadingSkeleton />
+    </div>}
+  </div>;
 }
 
 export function CodeRenderer({ surface, context }: RendererProps<'file-code'>) {
@@ -260,7 +272,7 @@ export function MediaResourceRenderer({ surface, context }: RendererProps<'media
 }
 
 export function AgentConversationRenderer({ surface, context }: RendererProps<'agent-conversation'>) {
-  return <LazyAgentConversationDetail instanceId={surface.instanceId} reportPresentation={context.reportPresentation} />;
+  return <LazyAgentConversationDetail instanceId={surface.instanceId} host={context.host} reportPresentation={context.reportPresentation} />;
 }
 
 export function PluginDocumentRenderer({ surface, context }: RendererProps<'mindmap' | 'plugin-artifact'>) {

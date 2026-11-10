@@ -193,11 +193,53 @@ export function normalizeBackendInstance(
   };
 }
 
+/**
+ * A list/search snapshot is a *read model*: it can be older than the registry
+ * entry the columns are rendering (stale `threadId`, blanked title, dropped
+ * `runtimeConfig`). Opening a row may only fill facts the registry still
+ * misses — never overwrite them — and must return the existing object when
+ * nothing is missing, because a replaced instance re-renders the conversation
+ * surface of every column showing it.
+ */
+export function mergeConversationSnapshot(
+  existing: AgentConversationInstance,
+  snapshot: AgentConversationInstance,
+): AgentConversationInstance {
+  const threadId = existing.threadId ?? snapshot.threadId;
+  const providerSessionId = existing.providerSessionId ?? snapshot.providerSessionId ?? null;
+  const runtimeConfig = existing.runtimeConfig ?? snapshot.runtimeConfig ?? null;
+  const title = existing.title?.trim() ? existing.title : snapshot.title || existing.title;
+  const hasMessages = existing.hasMessages || snapshot.hasMessages;
+  if (
+    threadId === existing.threadId
+    && providerSessionId === (existing.providerSessionId ?? null)
+    && runtimeConfig === (existing.runtimeConfig ?? null)
+    && title === existing.title
+    && hasMessages === existing.hasMessages
+  ) {
+    return existing;
+  }
+  return {
+    ...existing,
+    threadId,
+    providerSessionId,
+    runtimeConfig,
+    title,
+    ...(hasMessages === undefined ? {} : { hasMessages }),
+  };
+}
+
 export interface ConversationSlice {
   conversationRegistry: AgentConversationRegistry;
   setConversationRegistry(
     updater: (registry: AgentConversationRegistry) => AgentConversationRegistry,
   ): void;
+  /**
+   * Register a conversation that arrived from a read model (list page, search
+   * hit, file-tree row). Idempotent: an already-registered conversation is only
+   * completed with missing facts, and an unchanged one keeps its identity.
+   */
+  ensureInstance(snapshot: AgentConversationInstance): AgentConversationInstance;
   hydrateFromBackend(): Promise<void>;
   hydrateInstance(instanceId: string): Promise<AgentConversationInstance | null>;
   createInstance(input: CreateAgentConversationInstanceInput): AgentConversationInstance;
@@ -247,6 +289,33 @@ export function createConversationSlice(
       set((state) => ({
         conversationRegistry: updater(state.conversationRegistry),
       })),
+    ensureInstance: (snapshot) => {
+      const existing = get().conversationRegistry.instances[snapshot.instanceId];
+      if (!existing) {
+        set((state) => ({
+          conversationRegistry: {
+            ...state.conversationRegistry,
+            instances: {
+              ...state.conversationRegistry.instances,
+              [snapshot.instanceId]: snapshot,
+            },
+          },
+        }));
+        return snapshot;
+      }
+      const merged = mergeConversationSnapshot(existing, snapshot);
+      if (merged === existing) return existing;
+      set((state) => ({
+        conversationRegistry: {
+          ...state.conversationRegistry,
+          instances: {
+            ...state.conversationRegistry.instances,
+            [snapshot.instanceId]: merged,
+          },
+        },
+      }));
+      return merged;
+    },
     hydrateFromBackend: async () => {
       try {
         const instances = await agentClient.listConversationInstances();

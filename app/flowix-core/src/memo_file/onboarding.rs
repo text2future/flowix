@@ -236,27 +236,22 @@ mod tests {
         assert!(intro.is_file());
         let intro_html = fs::read_to_string(&intro).unwrap();
         assert!(intro_html.contains("<!DOCTYPE html>"));
-        // 封面主张：把知识库放回自己的文件夹。
+        // 页面主张（title）：把知识库放回你自己的文件夹。
         assert!(intro_html.contains("把知识库"));
-        assert!(intro_html.contains("你的文件夹"));
-        assert!(intro_html.contains("安全优势"));
-        assert!(intro_html.contains("管理优势"));
-        assert!(intro_html.contains("价格优势"));
-        // 内容分区：笔记 / 资料的关系，以及两种记录方式。
-        assert!(intro_html.contains("理解笔记"));
-        assert!(intro_html.contains("理解资料"));
-        assert!(intro_html.contains("静态资料"));
-        assert!(intro_html.contains("完整的 AI 知识库"));
-        assert!(intro_html.contains("简洁记录"));
-        assert!(intro_html.contains("文件树管理"));
+        assert!(intro_html.contains("你自己的文件夹"));
+        // 内容分区：封面主张 / 示例工作台 / 产品理由 / 笔记与 AI 记忆。
+        assert!(intro_html.contains("管理 Agent 的项目文档"));
+        assert!(intro_html.contains("小红书运营工作台"));
+        assert!(intro_html.contains("为什么选择 flowix"));
+        assert!(intro_html.contains("你的笔记，AI的记忆"));
         // 页面是纵向排列的 HTML 幻灯片：内联样式与脚本，不依赖任何外部资源。
         assert!(intro_html.contains("<style>"));
         assert!(intro_html.contains("<script>"));
         assert!(intro_html.contains("scroll-snap-type"));
         assert!(intro_html.contains("16 / 9"));
-        // 五页：封面 / 结构 + 公式 / 内容模型 / 三个理由 / 三步开始。
+        // 四页：封面 / 示例 / 理由 / 笔记与 AI 记忆。
         // 首屏阅读本该短——加页前先问是不是在重复同一件事。
-        assert_eq!(intro_html.matches("<section class=\"slide").count(), 5);
+        assert_eq!(intro_html.matches("<section class=\"slide").count(), 4);
         assert!(!intro_html.contains("<link"));
         assert!(!intro_html.contains("rel=\"stylesheet\""));
         assert!(!filenames.contains(&ONBOARDING_INTRO_PAGE.filename.to_string()));

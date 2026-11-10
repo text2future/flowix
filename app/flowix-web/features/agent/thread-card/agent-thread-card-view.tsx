@@ -806,7 +806,8 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
         },
         source: { kind: "dedicated", notebookId: source?.source.notebookId ?? null },
       });
-      await openWorkspaceSurface({ index: 1, target: { kind: 'agent-conversation', instanceId: fork.instanceId } });
+      // fork 出的新会话与「新建会话」同默认：开进第一列（侧边栏打开同款落点）。
+      await openWorkspaceSurface({ index: 0, target: { kind: 'agent-conversation', instanceId: fork.instanceId, blankIfMissing: true } });
     } catch (error) {
       logger.error(`Failed to fork ${this.typeKey} conversation`, { error });
       toast.error(error instanceof Error ? error.message : String(error));

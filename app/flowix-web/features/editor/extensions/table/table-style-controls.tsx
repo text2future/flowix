@@ -1,19 +1,20 @@
 import type { Editor } from '@tiptap/core';
 import { useEditorState } from '@tiptap/react';
-import { CaretDownIcon, CheckIcon, TextAUnderlineIcon, RowsIcon, RowsPlusTopIcon, RowsPlusBottomIcon, ColumnsPlusLeftIcon, ColumnsPlusRightIcon, TrashSimpleIcon } from '@phosphor-icons/react';
+import { CaretDownIcon, CheckIcon, TextAUnderlineIcon } from '@phosphor-icons/react';
 import { Fragment, useState, type ReactNode } from 'react';
 import { useI18n } from '@/lib/i18n';
 import type { I18nKey } from '@/lib/i18n/locales';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@shared/ui/dropdown-menu';
 import { POPUP_SEPARATOR_CLASS } from '@shared/ui/popup-separator';
 import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
+import { Tooltip } from '@shared/ui/tooltip';
 import { TABLE_STYLE_ROW_ROLES, type TableBorderStyle, type TableColumnRole, type TableRowRole, type TableStyleId } from './table-presentation';
 import { getBorderExtendsHint, getTablePresentationSelection, setTableCellBorder, setTableColumnRole, setTableRowRole, setTableStyle } from './table-style-commands';
 import { TABLE_TEMPLATE_OPTIONS } from './table-templates';
 import { flowixHighlightBackground, isFlowixTextColor } from '../flowix-text-colors';
 import { FlowixBackgroundPalette } from '../../components/flowix-background-palette';
 import { setTableBackground } from './table-background-commands';
-import { TableBorderIcon, TableBordersIcon, TableStyleIcon } from './table-style-icon';
+import { TableBorderIcon, TableBordersIcon, TableDeleteColumnIcon, TableDeleteRowIcon, TableInsertColumnIcon, TableInsertRowIcon, TableOperationsIcon, TableStyleIcon } from './table-style-icon';
 
 interface TableMenuOption<T extends string> {
   value: T;
@@ -44,11 +45,22 @@ function optionEntries<T extends string>(
  * The trigger shows `triggerText` when it has a stable label (a menu name) and
  * hides it when the button must collapse to an icon, but the accessible name is
  * always `label` plus the current value, so screen readers and tests can both
- * find it by value.
+ * find it by value. Icon-only triggers also drop the caret: a 16px glyph next
+ * to another 10px glyph reads as clutter, and only the labelled theme button
+ * needs an "expandable" hint.
+ *
+ * The trigger uses the product `Tooltip`, not a native `title`: a native title
+ * would stack a second, delayed hint on top and would expose the current value
+ * instead of the product wording. `aria-label` keeps `label` + current value.
+ *
+ * `palette` swaps the scrollable list frame for the selection bubble's highlight
+ * panel frame: both colour pickers then share one border / radius / shadow /
+ * swatch geometry instead of drifting apart.
  */
 function TableMenuShell({
   label, statusLabel, triggerText, icon, open, onOpenChange,
-  widthClass = 'min-w-[190px]', scrollerClass = 'max-h-[min(360px,55vh)]', heading, children,
+  widthClass = 'min-w-[190px]', scrollerClass = 'max-h-[min(360px,55vh)]', heading,
+  palette = false, tooltip, children,
 }: {
   label: string;
   statusLabel?: string;
@@ -60,25 +72,43 @@ function TableMenuShell({
   widthClass?: string;
   scrollerClass?: string;
   heading?: ReactNode;
+  /** Colour-picker menus: reuse `.editor-highlight-palette` instead of a menu frame. */
+  palette?: boolean;
+  /** Product wording for the trigger's hover tooltip. */
+  tooltip?: ReactNode;
   children: ReactNode;
 }) {
   const title = statusLabel ? `${label}: ${statusLabel}` : label;
+  const hasTriggerText = triggerText !== null && triggerText !== undefined;
+  const triggerButton = (
+    <button type="button" className={`toolbar-button flex h-7 items-center justify-center whitespace-nowrap${open ? ' active' : ''}`}
+      aria-label={title} aria-haspopup="true" aria-expanded={open}
+      onMouseDown={event => event.preventDefault()}>
+      {icon}
+      {hasTriggerText ? <span>{triggerText}</span> : null}
+      {hasTriggerText && <CaretDownIcon size={10} weight="bold" className="opacity-50" />}
+    </button>
+  );
   return (
     <DropdownMenu className="table-style-menu-trigger" open={open} onOpenChange={onOpenChange}>
-      <DropdownMenuTrigger asChild>
-        <button type="button" className={`toolbar-button flex h-7 items-center justify-center whitespace-nowrap${open ? ' active' : ''}`}
-          aria-label={title} aria-haspopup="true" aria-expanded={open} title={title}
-          onMouseDown={event => event.preventDefault()}>
-          {icon}
-          {triggerText === null || triggerText === undefined ? null : <span>{triggerText}</span>}
-          <CaretDownIcon size={10} weight="bold" className="opacity-50" />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent side="bottom" sideOffset={5} align="start"
-        className={`table-style-menu ${widthClass} rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]`}>
+      {tooltip
+        // Tooltip needs a real DOM wrapper when the child also merges refs and
+        // handlers; same arrangement as the selection bubble's highlight trigger.
+        ? <Tooltip content={tooltip}>
+          <span className="inline-flex">
+            <DropdownMenuTrigger asChild>{triggerButton}</DropdownMenuTrigger>
+          </span>
+        </Tooltip>
+        : <DropdownMenuTrigger asChild>{triggerButton}</DropdownMenuTrigger>}
+      <DropdownMenuContent side="bottom" sideOffset={palette ? 4 : 5} align="start"
+        className={palette
+          ? 'table-style-menu table-style-menu--palette'
+          : `table-style-menu ${widthClass} rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]`}>
         {heading}
-        <OverlayScrollbar className="table-style-menu-scroll-frame"
-          scrollerClassName={`table-style-menu-scroller ${scrollerClass}`}>{children}</OverlayScrollbar>
+        {palette
+          ? <div className="editor-highlight-palette">{children}</div>
+          : <OverlayScrollbar className="table-style-menu-scroll-frame"
+            scrollerClassName={`table-style-menu-scroller ${scrollerClass}`}>{children}</OverlayScrollbar>}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -233,19 +263,19 @@ export function TableStyleControls({ editor }: { editor: Editor }) {
     operations: Array<{ label: string; icon: ReactNode; can: () => boolean; run: () => void }>;
   }> = [
     { label: t('editor.table.rowOperations'), operations: [
-      { label: t('editor.table.insertRowBefore'), icon: <RowsPlusTopIcon size={16} weight="regular" />,
+      { label: t('editor.table.insertRowBefore'), icon: <TableInsertRowIcon placement="above" />,
         can: () => editor.can().addRowBefore(), run: () => editor.chain().focus().addRowBefore().run() },
-      { label: t('editor.table.insertRowAfter'), icon: <RowsPlusBottomIcon size={16} weight="regular" />,
+      { label: t('editor.table.insertRowAfter'), icon: <TableInsertRowIcon placement="below" />,
         can: () => editor.can().addRowAfter(), run: () => editor.chain().focus().addRowAfter().run() },
-      { label: t('editor.table.deleteRow'), icon: <TrashSimpleIcon size={16} weight="regular" />,
+      { label: t('editor.table.deleteRow'), icon: <TableDeleteRowIcon />,
         can: () => editor.can().deleteRow(), run: () => editor.chain().focus().deleteRow().run() },
     ] },
     { label: t('editor.table.columnOperations'), operations: [
-      { label: t('editor.table.insertColumnBefore'), icon: <ColumnsPlusLeftIcon size={16} weight="regular" />,
+      { label: t('editor.table.insertColumnBefore'), icon: <TableInsertColumnIcon placement="left" />,
         can: () => editor.can().addColumnBefore(), run: () => editor.chain().focus().addColumnBefore().run() },
-      { label: t('editor.table.insertColumnAfter'), icon: <ColumnsPlusRightIcon size={16} weight="regular" />,
+      { label: t('editor.table.insertColumnAfter'), icon: <TableInsertColumnIcon placement="right" />,
         can: () => editor.can().addColumnAfter(), run: () => editor.chain().focus().addColumnAfter().run() },
-      { label: t('editor.table.deleteColumn'), icon: <TrashSimpleIcon size={16} weight="regular" />,
+      { label: t('editor.table.deleteColumn'), icon: <TableDeleteColumnIcon />,
         can: () => editor.can().deleteColumn(), run: () => editor.chain().focus().deleteColumn().run() },
     ] },
   ];
@@ -254,7 +284,8 @@ export function TableStyleControls({ editor }: { editor: Editor }) {
     <div className="editor-toolbar table-style-controls" role="toolbar" aria-label={t('editor.table.theme')}>
       <TableMenuShell label={t('editor.table.theme')} statusLabel={currentStyleLabel}
         triggerText={selected.style === 'default' ? t('editor.table.theme') : currentStyleLabel}
-        icon={<TableStyleIcon styleId={selected.style} compact />}
+        icon={<TableStyleIcon styleId={selected.style} />}
+        tooltip={t('editor.table.theme')}
         open={openMenu === 'theme'} onOpenChange={open => setOpenMenu(open ? 'theme' : null)}
         widthClass="min-w-[172px]" scrollerClass="max-h-[min(320px,55vh)] space-y-0.5"
         heading={(
@@ -267,7 +298,8 @@ export function TableStyleControls({ editor }: { editor: Editor }) {
       </TableMenuShell>
       <span className="toolbar-divider table-toolbar-divider" aria-hidden="true" />
       <TableMenuShell label={t('editor.table.borders')} statusLabel={borderStatus}
-        triggerText={t('editor.table.borders')} icon={<TableBordersIcon />}
+        triggerText={null} icon={<TableBordersIcon />}
+        tooltip={t('editor.table.borderStyle')}
         open={openMenu === 'border'} onOpenChange={open => setOpenMenu(open ? 'border' : null)}>
         <TableMenuSection label={t('editor.table.borderTop')} value={selected.borderTop}
           options={borders.map(option => ({ ...option, icon: <TableBorderIcon edge="top" style={option.value} /> }))}
@@ -281,6 +313,7 @@ export function TableStyleControls({ editor }: { editor: Editor }) {
       </TableMenuShell>
       <TableMenuShell label={t('editor.table.font')} statusLabel={fontStatus} triggerText={null}
         icon={<TextAUnderlineIcon size={16} weight="bold" />}
+        tooltip={t('editor.table.rowColumnStyle')}
         open={openMenu === 'font'} onOpenChange={open => setOpenMenu(open ? 'font' : null)}>
         <div className="space-y-0.5">
           <TableHeaderToggle label={t('editor.table.headerColumn')} checked={selected.columnHeader}
@@ -299,19 +332,22 @@ export function TableStyleControls({ editor }: { editor: Editor }) {
             onSelect={value => setTableColumnRole(editor, value)} />
         </TableMenuGroup>
       </TableMenuShell>
-      <TableMenuShell label={t('editor.table.color')} triggerText={null}
+      <TableMenuShell label={t('editor.table.color')} triggerText={null} palette
         icon={<span aria-hidden="true" className="h-4 w-4 shrink-0 rounded-[4px] border border-[var(--border)]"
           style={{ backgroundColor: backgroundColor ? flowixHighlightBackground(backgroundColor) : 'white' }} />}
+        tooltip={t('editor.table.rowColumnBackground')}
         open={openMenu === 'color'} onOpenChange={open => setOpenMenu(open ? 'color' : null)}>
+        {/* 与选区气泡的高亮面板同款: 两组标题直接分隔, 不再插分隔线。 */}
         <TableMenuGroup label={t('editor.table.rowBackground')}>
           <FlowixBackgroundPalette showLabel={false} value={selected.rowBackground} onChange={color => setTableBackground(editor, 'row', color)} />
         </TableMenuGroup>
-        <TableMenuGroup label={t('editor.table.columnBackground')} separatorBefore>
+        <TableMenuGroup label={t('editor.table.columnBackground')}>
           <FlowixBackgroundPalette showLabel={false} value={selected.columnBackground} onChange={color => setTableBackground(editor, 'column', color)} />
         </TableMenuGroup>
       </TableMenuShell>
       <TableMenuShell label={t('editor.table.rowColumnOperations')} triggerText={null}
-        icon={<RowsIcon size={18} weight="regular" />}
+        icon={<TableOperationsIcon />}
+        tooltip={t('editor.table.rowColumnOperations')}
         open={openMenu === 'operations'} onOpenChange={open => setOpenMenu(open ? 'operations' : null)}>
         {operationGroups.map((group, index) => (
           <TableMenuGroup key={group.label} label={group.label} separatorBefore={index > 0}>

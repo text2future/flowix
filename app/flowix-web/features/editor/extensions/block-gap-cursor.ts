@@ -81,7 +81,19 @@ const BlockGapInput = Extension.create({
       Backspace: () => {
         const { state, view } = this.editor;
         const { selection } = state;
-        if (!this.editor.isEditable || !(selection instanceof TextSelection) || !selection.empty) return false;
+        if (!this.editor.isEditable) return false;
+        // Tiptap's list keymaps join by reading `$anchor.before()`, which is
+        // invalid on a top-level gap and throws ("There is no position before
+        // the top-level node") — surfacing as an uncaught error toast. Nothing
+        // sits above the document to join, so the key is a no-op there.
+        // A gap right below a divider is owned by HorizontalRuleBackspace
+        // (priority 1100), which crosses the divider instead; leave it the key.
+        if (selection instanceof GapCursor) {
+          const divider = selection.from > 0 ? state.doc.resolve(selection.from).nodeBefore : null;
+          if (divider?.type.name === 'horizontalRule') return false;
+          return selection.$from.depth === 0;
+        }
+        if (!(selection instanceof TextSelection) || !selection.empty) return false;
         const { $from } = selection;
         if ($from.parent.type.name !== 'paragraph' || $from.parent.content.size !== 0) return false;
         const start = $from.before();

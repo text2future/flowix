@@ -1,5 +1,5 @@
 import { Extension, type MarkdownToken, type JSONContent } from '@tiptap/core';
-import { boundedIndexOf } from '@features/editor/markdown-tokenizer-start';
+import { boundedIndexOf } from '@features/editor/markdown-tokenizer-source';
 import { normalizeVideoInfo } from './providers';
 
 const EMBED_RE = /^<!--[ \t]*flowix:video-embed[ \t]+([^\n]*?)[ \t]*-->\r?\n\[视频\]\((https?:\/\/[^\s)]+)\)(?:\r?\n|$)/;

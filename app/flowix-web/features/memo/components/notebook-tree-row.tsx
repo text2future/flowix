@@ -36,7 +36,7 @@ import { NotebookCopyContextMenu } from '@features/memo/components/notebook-copy
 import { noteRepository } from '@features/memo/services/note-repository';
 import { NOTE_COLOR_HEX, noteIndexFor, noteLookupKey, useNoteStore } from '@features/memo/store/note-store';
 import type { NoteColor, NoteListItem } from '@/types/note-item';
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger, useContextMenuContext } from '@shared/ui/context-menu';
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSubmenu, ContextMenuTrigger, useContextMenuContext } from '@shared/ui/context-menu';
 import { POPUP_SEPARATOR_CLASS } from '@shared/ui/popup-separator';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@shared/ui/dialog';
 import folderIcon from '@/assets/folder-outline.svg?raw';
@@ -745,6 +745,12 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
           <PencilSimpleIcon className="mr-2 h-4 w-4" />
           {t('memo.fileTree.rename')}
         </ContextMenuItem>
+        {isFolder && item.indexExcluded !== true && toggleFolderPin && (
+          <ContextMenuItem onClick={toggleFolderPin} className={TREE_MENU_ITEM_CLASS}>
+            <PushPin weight={isPinnedFolderItem ? 'fill' : 'regular'} className="mr-2 h-4 w-4" aria-hidden="true" />
+            {t(isPinnedFolderItem ? 'memo.action.unpin' : 'memo.action.pin')}
+          </ContextMenuItem>
+        )}
         {!isFolder && !isNote && onTogglePinned && (
           <ContextMenuItem
             className={TREE_MENU_ITEM_CLASS}
@@ -777,17 +783,15 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
             {t('memo.fileTree.reveal')}
           </ContextMenuItem>
         )}
-        {isFolder && onSetDefaultFolder && (
-          <ContextMenuItem onClick={() => onSetDefaultFolder(item.fullPath)} className={TREE_MENU_ITEM_CLASS}>
-            <MapPinSimpleAreaIcon className="mr-2 h-4 w-4" aria-hidden="true" />
-            {t(isDefaultFolder ? 'memo.fileTree.clearDefaultCreateFolder' : 'memo.fileTree.setDefaultCreateFolder')}
-          </ContextMenuItem>
-        )}
-        {isFolder && toggleFolderPin && (
-          <ContextMenuItem onClick={toggleFolderPin} className={TREE_MENU_ITEM_CLASS}>
-            <PushPin weight={isPinnedFolderItem ? 'fill' : 'regular'} className="mr-2 h-4 w-4" aria-hidden="true" />
-            {t(isPinnedFolderItem ? 'memo.fileTree.unpinFolder' : 'memo.fileTree.pinFolder')}
-          </ContextMenuItem>
+        {isFolder && item.indexExcluded !== true && onSetDefaultFolder && (
+          <ContextMenuSubmenu
+            label={t('memo.fileTree.folderUsageSubmenu')}
+            icon={<MapPinSimpleAreaIcon className="h-4 w-4" aria-hidden="true" />}
+          >
+            <ContextMenuItem onClick={() => onSetDefaultFolder(item.fullPath)} className={TREE_MENU_ITEM_CLASS}>
+              {t(isDefaultFolder ? 'memo.fileTree.unsetAsNotesFolder' : 'memo.fileTree.setAsNotesFolder')}
+            </ContextMenuItem>
+          </ContextMenuSubmenu>
         )}
         {isTableDocument && tableDocumentIdentity?.identityConflict && (
           <ContextMenuItem onClick={tableDocumentIdentity.onMakeIdentityUnique} disabled={!tableDocumentIdentity.onMakeIdentityUnique} className={TREE_MENU_ITEM_CLASS}>

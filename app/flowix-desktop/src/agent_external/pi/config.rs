@@ -19,6 +19,9 @@ pub struct PiModelEntry {
     pub credit_multiplier: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_icon_url: Option<String>,
+    /// Cloud directory rank: larger values are shown first in the picker.
+    #[serde(default)]
+    pub sort_order: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api: Option<String>,
     #[serde(default)]
@@ -439,6 +442,10 @@ pub fn list() -> Result<Vec<PiProviderConfig>, String> {
                                 .and_then(|item| item.get("providerIconUrl"))
                                 .and_then(Value::as_str)
                                 .map(str::to_string),
+                            sort_order: metadata
+                                .and_then(|item| item.get("sortOrder"))
+                                .and_then(Value::as_i64)
+                                .unwrap_or(0),
                             api: entry.get("api").and_then(Value::as_str).map(str::to_string),
                             reasoning: entry
                                 .get("reasoning")
@@ -618,6 +625,11 @@ pub fn save(mut config: PiProviderConfig, app: &AppHandle) -> Result<(), String>
             .filter(|value| !value.trim().is_empty())
         {
             metadata.insert("providerIconUrl".into(), json!(icon_url.trim()));
+        }
+        // Zero is the default, so omitting it keeps the metadata compact while
+        // still letting a rank be cleared on the next credential refresh.
+        if model.sort_order != 0 {
+            metadata.insert("sortOrder".into(), json!(model.sort_order));
         }
         if !metadata.is_empty() {
             model_metadata.insert(model.id.clone(), Value::Object(metadata));
@@ -919,6 +931,7 @@ pub fn save_cloud_credential(
                         provider_icon_url: model
                             .provider_icon_url
                             .filter(|url| !url.trim().is_empty()),
+                        sort_order: model.sort_order.unwrap_or(0),
                         api: None,
                         reasoning: false,
                         vision: false,
@@ -1058,6 +1071,10 @@ pub async fn discover_models(config: PiProviderConfig) -> Result<Vec<PiModelEntr
                 subtitle: None,
                 credit_multiplier: None,
                 provider_icon_url: None,
+                sort_order: entry
+                    .get("sort_order")
+                    .and_then(Value::as_i64)
+                    .unwrap_or(0),
                 reasoning: false,
                 vision: false,
                 api: None,

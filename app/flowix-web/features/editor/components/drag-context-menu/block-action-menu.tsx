@@ -159,8 +159,10 @@ export function BlockActionMenu({
         onKeyDown(event)
       }}
       onMouseLeave={scheduleSubmenuClose}
-      className="fixed z-[150] rounded-xl border border-[var(--border-popup)] bg-[var(--card)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]"
-      style={{ ...style, outline: 'none' }}
+      // 块手柄点击后条件渲染挂载 → 挂共享入场类即播。内部 hover 展开的
+      // SubmenuPanel 刻意不加（指针扫过会频繁挂载，每次播动画会闪）。
+      className="flowix-popover-enter fixed z-[150] rounded-xl border border-[var(--border-popup)] bg-[var(--card)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]"
+      style={{ ...style, outline: 'none', transformOrigin: 'top left' }}
     >
       <div ref={scrollerRef}>
         {actions.map((action, index) => {
@@ -184,15 +186,17 @@ export function BlockActionMenu({
                 aria-expanded={hasChildren ? submenuOpen : undefined}
                 onMouseMove={(event) => handleItemMouseMove(event, index, hasChildren)}
                 onClick={() => handleItemClick(action, hasChildren, index)}
-                className={`group relative flex ${itemHeightClassName} w-full items-center justify-start gap-3 rounded-lg px-2 py-0 text-left text-sm text-[var(--foreground)] transition-colors${mouseHoverEnabled ? ' hover:bg-[var(--hover-bg)]' : ''}${index === selectedIndex ? ' bg-[var(--hover-bg)] text-[var(--foreground)]' : ''}`}
+                // 文案节奏对齐 bubble 块样式下拉 (selection-bubble-dropdown-item):
+                // 13px 字号; 主文案恒为前景色, 快捷键 Kbd 保持次级弱化色。
+                className={`group relative flex ${itemHeightClassName} w-full items-center justify-start gap-3 rounded-lg px-2 py-0 text-left text-[13px] transition-colors${mouseHoverEnabled ? ' hover:bg-[var(--hover-bg)]' : ''}${index === selectedIndex ? ' bg-[var(--hover-bg)]' : ''}`}
                 style={{ outline: 'none', boxShadow: 'none' }}
               >
                 {action.icon}
-                <span className="min-w-0 flex-1">{action.label}</span>
+                <span className="min-w-0 flex-1 text-[var(--foreground)]">{action.label}</span>
                 {action.shortcut && (
                   <Kbd
                     chord={action.shortcut}
-                    className={`shrink-0 ${index === selectedIndex ? 'text-[var(--muted-foreground)]' : 'text-[var(--muted-foreground)] group-hover:text-[var(--foreground)]'}`}
+                    className={`shrink-0 ${index === selectedIndex ? 'text-[var(--foreground)]' : 'text-[var(--muted-foreground)] group-hover:text-[var(--foreground)]'}`}
                   />
                 )}
                 {action.trailingIcon && (
@@ -329,12 +333,13 @@ function SubmenuPanel({
             title={action.disabledReason}
             onClick={() => { if (!action.disabled) action.onSelect() }}
             // `gap-3` is applied only when a leading icon exists, otherwise an
-            // absent icon would still indent the label.
-            className={`group flex h-7 min-h-7 w-full items-center justify-start rounded-lg px-2 py-0 text-left text-sm text-[var(--foreground)] transition-colors${action.disabled ? ' cursor-default opacity-40' : ' hover:bg-[var(--hover-bg)]'}${action.icon ? ' gap-3' : ''}`}
+            // absent icon would still indent the label. 主文案恒为前景色
+            // (对齐 bubble 块样式下拉)。
+            className={`group flex h-7 min-h-7 w-full items-center justify-start rounded-lg px-2 py-0 text-left text-[13px] text-[var(--foreground)] transition-colors${action.disabled ? ' cursor-default opacity-40' : ' hover:bg-[var(--hover-bg)]'}${action.icon ? ' gap-3' : ''}`}
             style={{ outline: 'none', boxShadow: 'none' }}
           >
             {action.icon}
-            <span className="min-w-0 flex-1 truncate">{action.label}</span>
+            <span className="min-w-0 flex-1 truncate text-[var(--foreground)]">{action.label}</span>
             {action.checked && (
                 <span className="ml-auto shrink-0 text-[var(--brand)] group-hover:text-[var(--foreground)]">
                 {action.trailingIcon}

@@ -10,6 +10,7 @@ type PiModelPickerProps = {
   mineLabel: string;
   emptyLabel: string;
   personalEmptyLabel: string;
+  onAddCustomModel: () => void;
   createModelItem: (model: AgentModelOption) => HTMLElement;
 };
 
@@ -119,19 +120,20 @@ function createModelCategory(
   const category = document.createElement("section");
   category.className = "agent-pi-model-picker__category";
 
-  const heading = document.createElement("div");
-  heading.className = "agent-thread-card__codex-settings-title agent-pi-model-picker__category-label";
-  heading.setAttribute("role", "heading");
-  heading.setAttribute("aria-level", "3");
-  heading.textContent = label;
-  category.append(heading);
-
   if (models.length > 0) {
+    const heading = document.createElement("div");
+    heading.className = "agent-thread-card__codex-settings-title agent-pi-model-picker__category-label";
+    heading.setAttribute("role", "heading");
+    heading.setAttribute("aria-level", "3");
+    heading.textContent = label;
+    category.append(heading);
     category.append(createModelGroups(models, props, providerLabelPlacement));
   } else if (emptyLabel) {
-    const empty = document.createElement("div");
+    const empty = document.createElement("button");
+    empty.type = "button";
     empty.className = "agent-pi-model-picker__empty agent-pi-model-picker__empty--category";
     empty.textContent = emptyLabel;
+    empty.addEventListener("click", props.onAddCustomModel);
     category.append(empty);
   }
 

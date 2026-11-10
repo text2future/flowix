@@ -1,6 +1,13 @@
 /* Shared overlay defaults. Keep relative ordering and existing visuals stable. */
 :root {
   --layer-document-notice: 100;
+  /* 编辑器气泡工具条 (选区 / 表格): portal 在 body 上, 挂到与文档通知同一档;
+   * 必须低于 dialog/popover —— 工具条里的下拉、高亮调色板是 body 上的弹层。 */
+  --layer-editor-overlay: 120;
+  /* 链接 hover 气泡排在选区 / 表格气泡之后: 两者可能叠在同一位置 (例如选中
+   * 带链接的文字), 约定文字操作条在上、链接气泡在下; 平时链接气泡靠
+   * selection-bubble-menu-state 的可见性广播直接让位, 这里只是叠层兜底。 */
+  --layer-editor-link-tooltip: 118;
   --layer-dialog: 130;
   --layer-popover: 150;
   --layer-notice: 2147483647;

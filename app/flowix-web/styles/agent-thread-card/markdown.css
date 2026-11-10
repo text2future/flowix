@@ -739,7 +739,7 @@
 .agent-conversation-surface .agent-thread-card__message-content th,
 .agent-conversation-surface .agent-thread-card__message-content td {
   padding: 6px 10px;
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in srgb, var(--foreground) 12%, var(--background));
   color: var(--foreground);
   font-weight: 400;
   text-align: left;
@@ -1406,6 +1406,10 @@
   width: 180px;
 }
 
+/* 可访问 / 仓库管理 / 模型 / 权限等手搓设置弹窗的入场动画不再在这里定义 ──
+ * 统一走共享类 `.flowix-popover-enter` (index.css), 由控制器在打开与翻页时
+ * 经 `lib/replay-enter-animation.ts` 重放。 */
+
 /* Codex keeps the model list scrollable above a persistent reasoning control. */
 .agent-thread-card__codex-settings-popover--model-picker {
   display: flex;
@@ -1647,15 +1651,35 @@
 }
 
 .agent-thread-card__codex-settings-settings {
-  justify-content: flex-start;
+  position: relative;
+  justify-content: center;
   gap: 4px;
+  height: 1.75rem;
+  min-height: 1.75rem;
+  margin-top: 8px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
   color: var(--muted-foreground);
+  text-align: center;
   transition: none;
+}
+
+/* 按钮上方的分割线 ── 参照 pi 模型下拉列表「添加自定义模型」分类的
+ * `.agent-pi-model-picker__category--custom::before` 画法: 左右缩进 8px,
+ * 颜色走 `var(--border)`。 */
+.agent-thread-card__codex-settings-settings::before {
+  position: absolute;
+  top: -4px;
+  right: 8px;
+  left: 8px;
+  border-top: 1px solid var(--border);
+  content: "";
 }
 
 .agent-thread-card__codex-settings-settings:hover,
 .agent-thread-card__codex-settings-settings:focus-visible {
-  background: transparent;
+  background: var(--hover-bg);
   color: var(--foreground);
 }
 

@@ -8,9 +8,10 @@
  * shelves below are payment-specific. */
 
 .payment-dialog.payment-dialog {
-  width: min(520px, calc(90vw - 1.8rem));
-  max-width: none;
-  max-height: min(640px, calc(100dvh - 2rem));
+  width: 72vw;
+  max-width: calc(100vw - 2rem);
+  height: auto;
+  max-height: 650px;
   overflow-y: auto;
   scrollbar-width: none;
 }
@@ -19,37 +20,8 @@
   display: none;
 }
 
-.payment-dialog__tabs {
-  display: flex;
-  gap: 6px;
-  padding: 0 0 14px;
-}
-
-.payment-dialog__tab {
-  height: 32px;
-  padding: 0 14px;
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  background: transparent;
-  color: var(--muted-foreground);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
-}
-
-.payment-dialog__tab:hover {
-  color: var(--foreground);
-}
-
-.payment-dialog__tab.is-active {
-  border-color: color-mix(in srgb, var(--brand) 45%, var(--border));
-  background: color-mix(in srgb, var(--brand) 12%, transparent);
-  color: var(--brand);
-}
-
 .payment-dialog__body {
-  min-height: 120px;
+  min-height: 0;
 }
 
 .payment-dialog__state {
@@ -66,39 +38,91 @@
 }
 
 .payment-dialog__list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 2px 0 6px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 12px 0.25rem;
+  padding: 0;
   margin: 0;
   list-style: none;
 }
 
+.payment-dialog__list-container {
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--foreground) 2%, transparent);
+}
+
 .payment-dialog__product {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 18px;
   padding: 14px;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: color-mix(in srgb, var(--foreground) 2%, transparent);
 }
 
+.payment-dialog__product--ai {
+  padding: 15px;
+  border: 0;
+  background: transparent;
+}
+
+.payment-dialog__product--ai .payment-dialog__purchase {
+  border: 0;
+}
+
+.payment-dialog__product--storage {
+  background: #fff;
+}
+
 .payment-dialog__product-main {
   min-width: 0;
+  flex: 1;
 }
 
 .payment-dialog__product-name {
-  font-size: 13.5px;
+  font-size: 1rem;
   font-weight: 600;
 }
 
 .payment-dialog__product-description {
-  margin-top: 3px;
+  margin-top: 4px;
   color: var(--muted-foreground);
   font-size: 12px;
   line-height: 1.45;
+}
+
+.payment-dialog__product .payment-dialog__purchase--white {
+  border-color: var(--border);
+  background: #fff;
+  color: #171717;
+}
+
+.payment-dialog__product .payment-dialog__purchase--white:hover {
+  background: #f3f4f6;
+}
+
+.payment-dialog__product .payment-dialog__purchase--storage-long-term {
+  border-color: color-mix(in srgb, var(--foreground) 90%, transparent);
+  background: color-mix(in srgb, var(--foreground) 90%, transparent);
+  color: var(--background);
+}
+
+.payment-dialog__product .payment-dialog__purchase--storage-long-term:hover {
+  background: color-mix(in srgb, var(--foreground) 95%, transparent);
+}
+
+.payment-dialog__product .payment-dialog__purchase--current,
+.payment-dialog__product .payment-dialog__purchase--current:hover {
+  border-color: var(--border);
+  background: color-mix(in srgb, var(--foreground) 6%, transparent);
+  color: var(--muted-foreground);
+  cursor: default;
+  opacity: 1;
 }
 
 .payment-dialog__product-price {
@@ -108,9 +132,54 @@
   margin-top: 8px;
 }
 
+.payment-dialog__benefits-title {
+  padding-top: 14px;
+  margin-top: 16px;
+  border-top: 1px solid var(--border);
+  color: var(--foreground);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.payment-dialog__benefits {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0;
+  margin: 10px 0 0;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+  line-height: 1.45;
+  list-style: none;
+}
+
+.payment-dialog__benefits li {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.payment-dialog__benefits svg {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--brand);
+}
+
+.payment-dialog__ai-note {
+  margin: 12px 0 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .payment-dialog__amount {
-  font-size: 16px;
-  font-weight: 650;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 1.875rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 2rem;
   letter-spacing: -0.01em;
 }
 
@@ -119,9 +188,65 @@
   font-size: 12px;
 }
 
-.payment-dialog__footer {
-  margin-top: 6px;
+.payment-dialog__faq {
+  padding-top: 14px;
+  margin-top: 16px;
+}
+
+.payment-dialog__faq-title {
+  margin: 0 0 12px;
+  color: var(--foreground);
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.025em;
+  text-align: left;
+}
+
+.payment-dialog__faq-question {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--foreground) 2%, transparent);
+  cursor: pointer;
+  list-style: none;
+  color: var(--foreground);
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.payment-dialog__faq-item + .payment-dialog__faq-item {
+  margin-top: 0.5rem;
+}
+
+.payment-dialog__faq-question::-webkit-details-marker {
+  display: none;
+}
+
+.payment-dialog__faq-question svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  transition: transform 150ms ease;
+}
+
+.payment-dialog__faq-item[open] .payment-dialog__faq-question svg {
+  transform: rotate(180deg);
+}
+
+.payment-dialog__faq-answer {
+  margin: 8px 12px 0;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: 0.875rem;
   line-height: 1.5;
+}
+
+@media (max-width: 760px) {
+  .payment-dialog__list {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

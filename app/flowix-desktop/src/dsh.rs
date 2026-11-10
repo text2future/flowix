@@ -1813,6 +1813,11 @@ mod tests {
             "export {};",
         )
         .unwrap();
+        std::fs::write(
+            source.join("node_modules/dsh-flowix-memory/launcher.mjs"),
+            "export {};",
+        )
+        .unwrap();
         std::fs::write(source.join("package.json"), br#"{"name":"dsh-profile-flowix","private":true,"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","dsh-appserver","dsh-flowix-memory"]}}}"#).unwrap();
         let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
         let patch_source = repo.join("scripts/dsh-dev-profile.patch.yml");

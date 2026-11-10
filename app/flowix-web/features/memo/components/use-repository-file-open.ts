@@ -11,12 +11,13 @@ type RepositoryFileHost = 0 | 1;
 const logger = createLogger('notebook-repositories-open');
 
 /**
- * Repository (资料文件夹) documents default to the Browser column, matching the
- * 对话 section in the file tree; the row menu opens them in Work instead.
+ * Repository (资料文件夹) documents default to the Work column, matching notes
+ * and collections in the file tree; the row menu opens them in the Browser
+ * column instead.
  */
 export function useRepositoryFileOpen(): {
+  openRepositoryFile: (path: string, scopePath: string) => void;
   openRepositoryFileInBrowser: (path: string, scopePath: string) => void;
-  openRepositoryFileInWork: (path: string, scopePath: string) => void;
 } {
   const { t } = useI18n();
   const open = useCallback((path: string, scopePath: string, index: RepositoryFileHost) => {
@@ -29,11 +30,11 @@ export function useRepositoryFileOpen(): {
     });
   }, [t]);
   return {
+    openRepositoryFile: useCallback((path: string, scopePath: string) => {
+      open(path, scopePath, 0);
+    }, [open]),
     openRepositoryFileInBrowser: useCallback((path: string, scopePath: string) => {
       open(path, scopePath, 1);
-    }, [open]),
-    openRepositoryFileInWork: useCallback((path: string, scopePath: string) => {
-      open(path, scopePath, 0);
     }, [open]),
   };
 }

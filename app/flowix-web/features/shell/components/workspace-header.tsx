@@ -10,6 +10,7 @@ import { TITLEBAR_ICON_BUTTON_CLASS } from '@shared/ui/titlebar-icon-button';
 import { useWorkspaceHeader } from '../hooks/use-workspace-header';
 import { WorkspaceColumnContextMenu } from './workspace-column-context-menu';
 import { WorkspaceHeaderShell } from './workspace-header-shell';
+import { WorkspaceHeaderBreadcrumb, type WorkspaceHeaderBreadcrumbItem } from './workspace-header-breadcrumb';
 import { WorkspaceHeaderIdentity } from './workspace-header-identity';
 import { WorkspaceHeaderNavigation } from './workspace-header-navigation';
 import { WorkColumnBrowserExpandButton } from './work-column-browser-expand-button';
@@ -30,6 +31,13 @@ export interface WorkspaceHeaderProps {
   onToggleWebAddressBar?: () => void;
   agent?: (beforeMoreMenu: ReactNode) => ReactNode;
   icon?: ReactNode;
+  /** Path breadcrumb for documents; replaces the plain identity title when set. */
+  breadcrumb?: WorkspaceHeaderBreadcrumbItem[] | null;
+  /**
+   * Column-local opener for a file picked inside a folder breadcrumb popover.
+   * Omitted = the breadcrumb stays display-only (nothing owns the destination).
+   */
+  onBreadcrumbFileOpen?: (filePath: string, scopePath: string) => void;
   actions?: (header: WorkspaceHeaderModel, iconButtonClass: string) => ReactNode;
   onCloseColumn?: () => void;
   onCreateNote?: (templateId?: string) => void;
@@ -39,7 +47,7 @@ export interface WorkspaceHeaderProps {
 
 /** One header composition for every session, content kind and physical column. */
 export function WorkspaceHeader({ columnId, isWindows, presentation, sidebar, navigation,
-  reserveWindowsControls, webAddressBarVisible = false, onToggleWebAddressBar, agent, icon, actions,
+  reserveWindowsControls, webAddressBarVisible = false, onToggleWebAddressBar, agent, icon, breadcrumb, onBreadcrumbFileOpen, actions,
   onCloseColumn, onCreateNote, onCreateAgentConversation, className = '',
 }: WorkspaceHeaderProps) {
   const { fullscreen, model: header } = useWorkspaceHeader(columnId, presentation);
@@ -57,9 +65,14 @@ export function WorkspaceHeader({ columnId, isWindows, presentation, sidebar, na
         columnId={columnId} onCloseColumn={onCloseColumn} />
       <div className="flex min-w-0 flex-1 self-stretch items-center gap-2" data-tauri-drag-region>
         {fullscreen ? <AgentThreadCardFullscreenIdentity host={columnId} /> : agent?.(expandButton) ?? (
-          header.identity && <WorkspaceHeaderIdentity title={header.identity.title}
-            icon={icon ?? <SurfaceHeaderIcon icon={header.identity.icon} web={Boolean(onToggleWebAddressBar)} />}
-            className="font-medium" />
+          breadcrumb && breadcrumb.length > 0
+            ? <>
+              {icon ?? <SurfaceHeaderIcon icon={header.identity?.icon ?? null} web={Boolean(onToggleWebAddressBar)} />}
+              <WorkspaceHeaderBreadcrumb items={breadcrumb} onOpenFile={onBreadcrumbFileOpen} />
+            </>
+            : header.identity && <WorkspaceHeaderIdentity title={header.identity.title}
+              icon={icon ?? <SurfaceHeaderIcon icon={header.identity.icon} web={Boolean(onToggleWebAddressBar)} />}
+              className="font-medium" />
         )}
       </div>
       {(fullscreen || !agent) && <div data-tauri-drag-region className="ml-auto flex shrink-0 items-center gap-1 pr-2">

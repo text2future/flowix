@@ -24,7 +24,7 @@ import { TagIcon, TagSvgIcon } from '@shared/ui/tag-icon';
 const MEMO_NAVIGATION_MENU_CLASS =
   'w-[190px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]';
 const MEMO_NAVIGATION_MENU_ITEM_CLASS =
-  'group flex h-7 cursor-pointer items-center justify-between rounded-lg py-0 pl-[6px] pr-2 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]';
+  'group flex h-7 cursor-pointer items-center justify-between rounded-lg py-0 pl-[6px] pr-2 text-left hover:bg-[var(--hover-bg)] hover:text-[var(--foreground)]';
 
 export type MemoNavigationTarget = 'all' | 'todos' | 'tags';
 
@@ -147,9 +147,9 @@ export function MemoNavigationSubmenu({
         aria-expanded={open}
         className={cn(
           'memo-navigation-submenu-trigger flex h-7 w-full cursor-pointer items-center justify-between rounded-lg py-0 pl-[6px] pr-2 text-sm text-[var(--foreground)] outline-none transition-colors',
-          open
-            ? 'bg-[var(--brand)] text-[var(--primary-foreground)] hover:bg-[var(--brand)]'
-            : 'hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]',
+          // 第一层级行 hover 即展开：hover 与展开态统一用中性 hover-bg。
+          'hover:bg-[var(--hover-bg)]',
+          open && 'bg-[var(--hover-bg)]',
         )}
         onClick={() => {
           onClick?.();
@@ -171,7 +171,7 @@ export function MemoNavigationSubmenu({
         </span>
       </button>
       {open && (
-        <div ref={submenuRef} style={{ ...submenuPosition, maxWidth: 'calc(100vw - 16px)' }} className={cn('absolute z-[151] flex max-h-[min(var(--memo-submenu-max-height,560px),calc(100vh-16px))] w-[220px] flex-col overflow-hidden rounded-xl border border-[var(--border-popup)] bg-[var(--card)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]', submenuClassName)}>
+        <div ref={submenuRef} style={{ ...submenuPosition, maxWidth: 'calc(100vw - 16px)', transformOrigin: 'top left' }} className={cn('flowix-popover-enter absolute z-[151] flex max-h-[min(var(--memo-submenu-max-height,560px),calc(100vh-16px))] w-[220px] flex-col overflow-hidden rounded-xl border border-[var(--border-popup)] bg-[var(--card)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]', submenuClassName)}>
           {!hideHeader && (
             <div
               className="mention-note-header"
@@ -378,16 +378,13 @@ export function MemoNavigationDropdown({
         >
           <DropdownMenuItem
             onClick={() => handleNavigate('todos')}
-            className={cn(
-              MEMO_NAVIGATION_MENU_ITEM_CLASS,
-              isActive('todos') && 'hover:bg-[var(--brand)]',
-            )}
+            className={MEMO_NAVIGATION_MENU_ITEM_CLASS}
           >
             <span className="flex min-w-0 items-center gap-2">
               <ListTodo className="h-4 w-4 shrink-0" aria-hidden="true" />
               <span>{t('memo.list.filterTasks')}</span>
             </span>
-            {isActive('todos') && <Check className="h-3.5 w-3.5 shrink-0 text-[var(--brand)] group-hover:text-[var(--primary-foreground)]" aria-hidden="true" />}
+            {isActive('todos') && <Check className="h-3.5 w-3.5 shrink-0 text-[var(--brand)] group-hover:text-[var(--foreground)]" aria-hidden="true" />}
           </DropdownMenuItem>
           <MemoNavigationSubmenu
             label={t('memo.navigation.tags')}

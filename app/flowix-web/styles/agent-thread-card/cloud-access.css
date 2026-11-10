@@ -1,9 +1,9 @@
 /* In-conversation Cloud access card (signed out / no credits).
  *
  * Visual language borrowed from the list-column guide card a new user sees in
- * the sidebar: translucent popup-bordered panel, 15px semibold title, body copy
- * and one primary action on the left. Placement stays owned by the message
- * stream (see message-stream-slot). */
+ * the sidebar: translucent panel with the standard `--border` hairline, 15px
+ * semibold title, body copy and one primary action on the left. Placement stays
+ * owned by the message stream (see message-stream-slot). */
 
 /* The notice is a row of the message stream, so it sits on the same centred
  * track as the message list and keeps the list's row rhythm. */
@@ -33,16 +33,16 @@
   display: none;
 }
 
-/* The panel itself: rounded-2xl, popup border, card fill at 96% over a blur and
- * 14px padding — the guide card's proportions. It reads as the assistant's
- * answer to the turn, so it starts on the transcript's left edge. */
+/* The panel itself: rounded-2xl, `--border` hairline, card fill at 96% over a
+ * blur and 14px padding — the guide card's proportions. It reads as the
+ * assistant's answer to the turn, so it starts on the transcript's left edge. */
 .agent-cloud-access {
   box-sizing: border-box;
   width: 100%;
   max-width: 360px;
   margin-inline: 0;
   padding: 14px;
-  border: 1px solid var(--border-popup);
+  border: 1px solid var(--border);
   border-radius: 16px;
   background: color-mix(in oklch, var(--card) 96%, transparent);
   backdrop-filter: blur(24px);

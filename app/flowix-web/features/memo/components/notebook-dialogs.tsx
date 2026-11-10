@@ -6,6 +6,9 @@ import { Input } from '@shared/ui/input';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
 } from '@shared/ui/dialog';
 import {
   DropdownMenu,
@@ -34,6 +37,7 @@ import type { Notebook } from '@features/memo/store/note-store';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n';
 import type { CloudNotebook, ObsidianVaultRecord } from '@platform/tauri/client';
+import googleLogo from '@/assets/google.svg';
 import {
   ArrowLeft,
   Check,
@@ -60,6 +64,9 @@ interface NotebookDialogsProps {
   onNewNotebookIconChange: (icon: string | null) => void;
   isCreatingNotebook: boolean;
   cloudSyncAvailable: boolean;
+  createNotebookCloudSync: boolean;
+  onCreateNotebookCloudSyncChange: (enabled: boolean) => void;
+  onCreateNotebookCloudSyncUnavailable: () => void;
   createMode: 'create' | 'cloud';
   remoteNotebooks: CloudNotebook[];
   remoteNotebooksLoading: boolean;
@@ -99,6 +106,10 @@ interface NotebookDialogsProps {
   editNotebookStorageChanged: boolean;
   editStorageStatus: 'loading' | 'ready' | 'error';
   onRetryEditStorage: () => void;
+  loginOpen: boolean;
+  onLoginOpenChange: (open: boolean) => void;
+  googleSignInBusy: boolean;
+  onGoogleSignIn: () => void;
 }
 
 function normalizeNotebookIconId(icon: string | null | undefined): string {
@@ -126,7 +137,7 @@ function NotebookStorageLocationSelector({
           type="button"
           disabled={disabled}
           aria-label={t('notebook.edit.pathLabel')}
-          className="inline-flex shrink-0 items-center gap-1 rounded-md text-sm font-normal text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex shrink-0 items-center gap-0.5 rounded-md text-sm font-normal text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-50"
         >
           {checked ? (
             <Cloud className="h-4 w-4" aria-hidden="true" />
@@ -179,6 +190,9 @@ export function NotebookDialogs({
   onNewNotebookIconChange,
   isCreatingNotebook,
   cloudSyncAvailable,
+  createNotebookCloudSync,
+  onCreateNotebookCloudSyncChange,
+  onCreateNotebookCloudSyncUnavailable,
   createMode,
   remoteNotebooks,
   remoteNotebooksLoading,
@@ -217,6 +231,10 @@ export function NotebookDialogs({
   editNotebookStorageChanged,
   editStorageStatus,
   onRetryEditStorage,
+  loginOpen,
+  onLoginOpenChange,
+  googleSignInBusy,
+  onGoogleSignIn,
 }: NotebookDialogsProps) {
   const { t } = useI18n();
   const experimental = useExperimentalMode();
@@ -328,13 +346,22 @@ export function NotebookDialogs({
                     name={newNotebookName}
                     onNameChange={onNewNotebookNameChange}
                     nameLabel={t('notebook.create.namePlaceholder')}
-                    namePlaceholder={t('notebook.create.namePlaceholder')}
+                    namePlaceholder={t('notebook.nameInputPlaceholder')}
                     pathLabel={t('notebook.create.pathLabel')}
                     pathLocationLabel={t('notebook.create.pathLocationDevice')}
+                    pathLocationControl={(
+                      <NotebookStorageLocationSelector
+                        checked={createNotebookCloudSync}
+                        available={cloudSyncAvailable}
+                        disabled={isCreatingNotebook}
+                        onChange={onCreateNotebookCloudSyncChange}
+                        onUnavailableClick={onCreateNotebookCloudSyncUnavailable}
+                      />
+                    )}
                     emptyPathPrimaryPrompt={t('notebook.create.emptyPathPrimaryPrompt')}
                     emptyPathAlternativePrompt={t('notebook.create.emptyPathAlternativePrompt')}
                     addFolderLabel={t('notebook.create.addFolder')}
-                    importLabel={t('memo.fileTree.import')}
+                    importLabel={t('notebook.create.readAiSpace')}
                     importWorkBuddyProjectLabel={t('notebook.create.importWorkBuddyProject')}
                     importCodexProjectLabel={t('notebook.create.importCodexProject')}
                     onImportProject={(source) => void onImportProjectDirectory(source)}
@@ -421,7 +448,7 @@ export function NotebookDialogs({
                     <div className="relative min-w-0">
                       <Input
                         id="flowix-edit-notebook-name"
-                        placeholder={t('notebook.edit.namePlaceholder')}
+                        placeholder={t('notebook.nameInputPlaceholder')}
                         value={editNotebookName}
                         disabled={editSaving}
                         onChange={(event) => onEditNotebookNameChange(event.target.value)}
@@ -490,26 +517,28 @@ export function NotebookDialogs({
               busyLabel={t('notebook.edit.saving')}
               cancelLabel={t('notebook.edit.cancel')}
               onCancel={onCancelEdit}
-              leadingAction={editingNotebook ? (
-                <Button
-                  type="button"
-                  disabled={editSaving}
-                  onClick={() => {
-                    const target = editingNotebook;
-                    // 复用 main-layout 已有的 NotebookDeleteDialog:
-                    // 先关闭当前弹窗，再派发全局事件打开删除确认。
-                    onCancelEdit();
-                    window.dispatchEvent(
-                      new CustomEvent<Notebook>('flowix:request-delete-notebook', { detail: target })
-                    );
-                  }}
-                  variant="outline"
-                >
-                  {t('notebook.edit.remove')}
-                </Button>
-              ) : undefined}
             />
           </main>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={loginOpen} onOpenChange={onLoginOpenChange}>
+        <DialogContent className="w-[min(92vw,400px)] rounded-2xl p-6">
+          <div className="space-y-5">
+            <DialogHeader className="mb-0 space-y-2 text-left">
+              <DialogTitle className="text-lg font-semibold tracking-tight">{t('notebook.cloudLogin.title')}</DialogTitle>
+              <DialogDescription className="text-sm leading-relaxed">{t('notebook.cloudLogin.description')}</DialogDescription>
+            </DialogHeader>
+            <Button
+              type="button"
+              variant="outline"
+              className="flex h-10 w-full gap-2 rounded-lg bg-[var(--card)] text-[var(--foreground)]"
+              disabled={googleSignInBusy}
+              onClick={onGoogleSignIn}
+            >
+              <img src={googleLogo} alt="" aria-hidden="true" className="h-4 w-4 object-contain" />
+              {googleSignInBusy ? t('preferences.cloud.loggingIn') : t('notebook.cloudLogin.googleSignIn')}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </>

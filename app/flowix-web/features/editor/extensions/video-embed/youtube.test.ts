@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 import { Editor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
-import { Markdown, MarkdownManager } from '@tiptap/markdown';
+import { Markdown } from '@tiptap/markdown';
 import { web } from '@platform/tauri/client';
 import { VideoEmbed } from './node';
 import { isVideoReady, normalizeVideoInfo, parseVideoUrl, videoEmbedUrl } from './providers';
@@ -9,7 +9,6 @@ import { resolveVideo } from './resolve';
 import type { YouTubeVideoInfo } from './providers/youtube';
 import type { BilibiliVideoInfo } from './providers/bilibili';
 import { pasteClipboardSnapshot } from '../paste-rules';
-import { createMarkdownParserExtensions } from '../../markdown-parser-extensions';
 
 vi.mock('@platform/tauri/client', async importOriginal => {
   const actual = await importOriginal<typeof import('@platform/tauri/client')>();
@@ -92,22 +91,21 @@ describe('shared video node', () => {
     e.commands.undo();
     expect(e.getText()).toBe(url);
   });
-  it('round trips both providers through Markdown, worker parsing, and HTML', () => {
+  it('round trips both providers through Markdown and HTML', () => {
     const e = editor();
     const youtube = parseVideoUrl(`https://youtu.be/${id}?t=90`)!;
     const bilibili = { ...parseVideoUrl('https://www.bilibili.com/video/BV1TGnP6VE2f?p=2')!, aid: 123, cid: 42 };
     e.commands.setContent({ type: 'doc', content: [youtube, bilibili].map(attrs => ({ type: 'videoEmbed', attrs })) });
     const markdown = e.getMarkdown();
-    const parsed = new MarkdownManager({ extensions: createMarkdownParserExtensions() }).parse(markdown);
-    expect(parsed.content?.map(node => node.attrs?.provider)).toEqual(['youtube', 'bilibili']);
-    expect(parsed.content?.[0].attrs).toMatchObject(youtube);
-    expect(parsed.content?.[1].attrs).toMatchObject(bilibili);
     const html = e.getHTML();
     e.commands.setContent(html);
     expect(e.getJSON().content?.[0].attrs).toMatchObject(youtube);
     expect(e.getJSON().content?.[1].attrs).toMatchObject(bilibili);
     e.commands.setContent(markdown, { contentType: 'markdown' });
+    expect(e.getJSON().content?.filter(node => node.type === 'videoEmbed')
+      .map(node => node.attrs?.provider)).toEqual(['youtube', 'bilibili']);
     expect(e.getJSON().content?.[0].attrs).toMatchObject(youtube);
+    expect(e.getJSON().content?.[1].attrs).toMatchObject(bilibili);
   });
   it('still reads older Bilibili HTML attributes', () => {
     const e = editor();

@@ -4,7 +4,7 @@ import type { I18nKey, I18nParams } from '@/lib/i18n';
 import { createLogger } from '@/lib/logger';
 const logger = createLogger('platform/tauri/errors');
 const FLOWIX_MEMBERSHIP_ERROR =
-  /^\s*(?:Error:\s*)?cloud API error\s+403\s+MEMBERSHIP_REQUIRED\b/i;
+  /^\s*(?:Error:\s*)?cloud API error\s+(?:402|403)\s+MEMBERSHIP_REQUIRED\b/i;
 
 /**
  * Tauri IPC 错误格式化。
@@ -57,6 +57,9 @@ export function cloudSyncErrorMessage(error: unknown, t: Translate, fallback: I1
   if (isInvalidRefreshTokenError(error) || /cloud API error\s+401\b/i.test(message)) return t('errors.friendly.session');
   if (hasTauriErrorCode(error, 'MEMBERSHIP_ALREADY_ACTIVE')) {
     return t('preferences.cloud.member.alreadyActive');
+  }
+  if (hasTauriErrorCode(error, 'WECHAT_PAY_NOT_AVAILABLE')) {
+    return t('billing.dialog.wechatUnavailable');
   }
   if (hasTauriErrorCode(error, 'STORAGE_PLAN_REQUIRED')) {
     return t('preferences.cloud.storagePlanRequired');

@@ -17,7 +17,7 @@ function Columns() {
   const navigation = useWorkColumnStore((state) => state.navigation);
   return <div>
     <section data-work-state={navigation.phase}>{navigation.pendingTarget?.kind ?? navigation.target.kind}</section>
-    <BrowserColumn width={500} layoutKey="split" onResize={noop} toolbarCollapsed={false} onToolbarCollapsedChange={noop} />
+    <BrowserColumn width={500} layoutKey="split" onResize={noop} />
   </div>;
 }
 

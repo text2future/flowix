@@ -9,6 +9,7 @@ import {
   hasDocumentUnsavedChanges,
 } from '@features/document/store/document-session-service';
 import { useDocumentStore } from '@features/document/store/document-store';
+import { markDocumentOpenTrace } from '@/lib/document-open-perf';
 import {
   setDocumentEditorMode,
   useDocumentEditorMode,
@@ -59,7 +60,7 @@ import {
   isExternalDocumentRenameInProgress,
 } from '@features/document/store/external-document-operation';
 import { rebaseActiveDocumentPath } from '@features/document/store/document-session-service';
-import type { Editor, JSONContent } from '@tiptap/core';
+import type { Editor } from '@tiptap/core';
 import { replaceExternalDocumentPath } from '@features/workspace/public/note-navigation-api';
 import { openDocumentLocalLink } from '@features/document/use-cases/open-document-local-link';
 import {
@@ -68,15 +69,6 @@ import {
   peekAgentLocationRequest,
   subscribeAgentLocationRequest,
 } from '@features/document/use-cases/agent-location-navigation';
-import { parseMarkdownInWorker } from '@features/editor/markdown-parser';
-import { markDocumentOpenTrace } from '@/lib/document-open-perf';
-
-type ParsedMarkdownDocument = {
-  key: string;
-  source: string;
-  /** `null` keeps the editor's compatibility fallback after Worker failure. */
-  document: JSONContent | null;
-};
 
 export function DocumentContainer({
   fileIdentity,
@@ -87,8 +79,6 @@ export function DocumentContainer({
   externalEditorMode = 'code',
   searchPanelOpen = false,
   onSearchPanelOpenChange,
-  toolbarCollapsed = false,
-  onToolbarCollapsedChange,
   documentSessionMode = 'main',
   workspaceHost,
   navigationViewId,
@@ -148,7 +138,6 @@ export function DocumentContainer({
   const [codeEditorReadyFor, setCodeEditorReadyFor] = useState<string | null>(null);
   const richEditorMountReadyFor = richEditorMount?.key ?? null;
   const richEditorReadyFor = richEditorMount?.ready ? richEditorMount.key : null;
-  const [parsedMarkdownDocument, setParsedMarkdownDocument] = useState<ParsedMarkdownDocument | null>(null);
   const titleEditorRef = useRef<MemoTitleEditorHandle | null>(null);
   const memoFilename = fileNameFromPath(filePath);
   const renameInProgressRef = useRef(false);
@@ -175,75 +164,18 @@ export function DocumentContainer({
   });
 
   const [, refreshMountSource] = useState(0);
-  const contentForMount = getBuffer(documentIdentity)?.content ?? '';
-  const markdownParserKey = JSON.stringify([documentInstanceKey, filePath]);
-  const parsedMarkdownMatches = parsedMarkdownDocument?.key === markdownParserKey
-    && parsedMarkdownDocument.source === contentForMount;
   const shouldMountRichEditor = state.isLoaded && !state.isLoading && !state.error && !usesCodeEditor;
-  const needsWorkerMarkdownParse = richEditorMountReadyFor !== documentInstanceKey
-    && !parsedMarkdownMatches;
-  const canMountRichEditor = shouldMountRichEditor && !needsWorkerMarkdownParse;
   const editorIsReady = state.isLoaded && !state.isLoading && !state.error
     && (usesCodeEditor ? codeEditorReadyFor === documentInstanceKey : richEditorReadyFor === documentInstanceKey);
 
   useEffect(() => {
-    if (!shouldMountRichEditor
-      || richEditorMountReadyFor === documentInstanceKey || parsedMarkdownMatches) return;
-
-    let cancelled = false;
-    const source = contentForMount;
-    const startedAt = performance.now();
-    markDocumentOpenTrace(transitionId, 'editor:markdown-worker-start', {
-      contentChars: source.length,
-      path: filePath,
-    });
-    const finishWith = (document: JSONContent | null, error?: string, workerMs?: number) => {
-      if (cancelled) return;
-      const elapsedMs = Math.round((performance.now() - startedAt) * 10) / 10;
-      setParsedMarkdownDocument({ key: markdownParserKey, source, document });
-      console.info('[perf:open-doc]', 'MarkdownParser:worker', {
-        elapsedMs,
-        workerMs,
-        contentChars: source.length,
-        success: !error,
-        ...(error ? { error } : {}),
-      });
-      markDocumentOpenTrace(transitionId, error ? 'editor:markdown-worker-error' : 'editor:markdown-worker-ready', {
-        elapsedMs,
-        workerMs,
-        contentChars: source.length,
-        error,
-      });
-    };
-
-    void parseMarkdownInWorker(source).then((reply) => {
-      finishWith(reply.document ?? null, undefined, reply.workerMs);
-    }).catch((error) => {
-      finishWith(null, error instanceof Error ? error.message : String(error));
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    documentInstanceKey,
-    filePath,
-    markdownParserKey,
-    parsedMarkdownMatches,
-    richEditorMountReadyFor,
-    shouldMountRichEditor,
-    contentForMount,
-    transitionId,
-  ]);
-
-  useEffect(() => {
-    if (!canMountRichEditor) {
+    if (!shouldMountRichEditor) {
       setRichEditorMount(null);
       return;
     }
     if (richEditorMountReadyFor === documentInstanceKey) return;
     setRichEditorMount({ key: documentInstanceKey, ready: false });
-  }, [canMountRichEditor, documentInstanceKey, richEditorMountReadyFor]);
+  }, [shouldMountRichEditor, documentInstanceKey, richEditorMountReadyFor]);
 
   useEffect(() => {
     if (!onContentStateChange) return;
@@ -538,6 +470,10 @@ export function DocumentContainer({
       return;
     }
 
+    // 拆「navigation→content load」空窗：本 effect 是挂载后首个内容加载触发点，
+    // 与 navigation:external-start 的差值 = openExternalDocument 余量 + React
+    // 渲染 + container 挂载；与 reloadDocument:start 的差值 ≈ 0。
+    markDocumentOpenTrace(transitionId, 'container:initial-load-effect');
     const loadedDocumentInstanceKey = loadedDocumentInstanceKeyRef.current;
     const instanceKeyChanged = loadedDocumentInstanceKey !== documentInstanceKey;
     const pathChanged = previousFilePathRef.current !== filePath;
@@ -607,6 +543,7 @@ export function DocumentContainer({
       titleRef={titleEditorRef}
       displayId={displayId}
       filename={memoFilename}
+      filePath={filePath}
       renameTitle={renameTitle}
       updatedAt={state.updatedAtDate}
       editable={
@@ -658,7 +595,7 @@ export function DocumentContainer({
             {...searchPanelControlProps}
           />
         )}
-        {canMountRichEditor && richEditorMountReadyFor === documentInstanceKey && (
+        {shouldMountRichEditor && richEditorMountReadyFor === documentInstanceKey && (
           <LazyDocumentEditor
             ownerPath={documentIdentity.path}
             getAttachmentOwnerPath={getAttachmentOwnerPath}
@@ -671,7 +608,6 @@ export function DocumentContainer({
             ref={editorHandleRef}
             key={documentInstanceKey}
             content={content}
-            initialParsedContent={parsedMarkdownMatches && parsedMarkdownDocument?.source === content ? parsedMarkdownDocument.document ?? undefined : undefined}
             header={documentHeader}
             editable={!readOnly}
             onDirty={handleDirty}
@@ -694,10 +630,6 @@ export function DocumentContainer({
             onBeforeCreate={(editor: Editor) => {
               onEditorReady?.(editor);
               setRichEditorMount({ key: documentInstanceKey, ready: true });
-              // The editor has consumed the initial tree; release the duplicate.
-              setParsedMarkdownDocument((parsed) => (
-                parsed?.key === markdownParserKey ? null : parsed
-              ));
               setEditorReadyTick((tick) => tick + 1);
             }}
             imageContext={{
@@ -709,8 +641,6 @@ export function DocumentContainer({
               documentPath: filePath,
               openLocalPath: (target) => openDocumentLocalLink(target, externalScopePath),
             }}
-            toolbarCollapsed={toolbarCollapsed}
-            onToolbarCollapsedChange={onToolbarCollapsedChange}
           />
         )}
         </>}</DocumentContentBoundary>

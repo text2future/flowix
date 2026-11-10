@@ -1232,6 +1232,10 @@ mod tests {
         .unwrap();
         fs::remove_dir_all(config_dir.join("db")).unwrap();
         // Keep the same in-memory MemoFile, as with an already open Dev window.
+        // Startup rebuilds the missing runtime dependency via the runtime
+        // initialization path (the registry itself is never silently replaced);
+        // afterwards reads degrade to an empty registry and creation works.
+        memo.initialize_runtime_registry_storage().unwrap();
         assert!(memo.read_notebook_configs().unwrap().is_empty());
         assert!(memo.read_selected_notebook_id().unwrap().is_none());
         assert!(memo.read_notebook_workspace().unwrap().notebooks.is_empty());

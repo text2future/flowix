@@ -12,7 +12,7 @@ export function sanitizeTheme(v: unknown, fallback: ThemeId = DEFAULT_THEME_ID):
   return typeof v === 'string' && VALID.has(v as ThemeId) ? (v as ThemeId) : fallback;
 }
 
-/** 'system' 模式: 跟随系统外观解析成具体主题 (dark 或 light)。 */
+/** 'system' 模式: 跟随系统外观解析成具体主题 (浅色外观→rock / 深色外观→dark)。 */
 export function resolveSystemTheme(prefersDark: boolean): ResolvedThemeId {
-  return prefersDark ? 'dark' : 'light';
+  return prefersDark ? 'dark' : 'rock';
 }

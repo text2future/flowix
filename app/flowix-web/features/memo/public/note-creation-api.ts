@@ -3,6 +3,8 @@ import { useNoteStore } from '../store/note-store';
 import { noteRepository } from '../services/note-repository';
 import { notes as noteApi, type NoteTemplate } from '@platform/tauri/client';
 export type { NoteTemplate };
+/** View kinds a notebook document can be created as, shared with the shell menus. */
+export { MEMO_CREATE_VIEW_OPTIONS } from '../components/memo-create-view-options';
 
 export function useShellSelectedNotebook() {
   return useNoteStore((state) => state.selectedNotebook);

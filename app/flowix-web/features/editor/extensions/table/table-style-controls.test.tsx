@@ -157,7 +157,39 @@ describe('table style toolbar menus', () => {
     },
   );
 
-  it.each(['主题: 默认网格', '边框: 默认', '字体', '颜色', '行列操作'])('uses an overlay scrollbar revealed only while scrolling in %s', async label => {
+  it('exposes the product tooltip wording for every table bubble trigger', async () => {
+    await renderControls();
+    for (const label of ['主题: 默认网格', '边框: 默认', '字体', '颜色', '行列操作']) {
+      const button = trigger(label);
+      // 产品 Tooltip 挂在真实 DOM 包裹层上, 不再叠一个原生 title。
+      expect(button.parentElement?.tagName).toBe('SPAN');
+      expect(button.hasAttribute('title')).toBe(false);
+    }
+    expect([
+      translate('zh-CN', 'editor.table.theme'),
+      translate('zh-CN', 'editor.table.borderStyle'),
+      translate('zh-CN', 'editor.table.rowColumnStyle'),
+      translate('zh-CN', 'editor.table.rowColumnBackground'),
+      translate('zh-CN', 'editor.table.rowColumnOperations'),
+      translate('zh-CN', 'editor.table.deleteTable'),
+    ]).toEqual(['主题', '边框样式', '行列样式', '行列背景', '行列操作', '删除表格']);
+  });
+
+  it('keeps icon-only triggers to one glyph and drops the border label', async () => {
+    await renderControls();
+    // 主题是唯一带文案的触发按钮: 图标 + 文案 + 下拉箭头。
+    expect(trigger('主题: 默认网格').children.length).toBe(3);
+    // 边框 / 字体 / 颜色 / 行列操作只留图标, 既没有可见文案也没有下拉箭头。
+    for (const label of ['边框: 默认', '字体', '颜色', '行列操作']) {
+      const button = trigger(label);
+      expect(button.textContent).toBe('');
+      expect(button.children.length).toBe(1);
+    }
+  });
+
+  // 「颜色」不是列表型菜单: 它复用选区气泡的高亮面板外壳 (固定 160px、两组
+  // 色板), 不需要滚动容器, 由下面单独的用例护栏。
+  it.each(['主题: 默认网格', '边框: 默认', '字体', '行列操作'])('uses an overlay scrollbar revealed only while scrolling in %s', async label => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame', 'Date'] });
     await renderControls();
     await act(async () => trigger(label).click());
@@ -178,6 +210,24 @@ describe('table style toolbar menus', () => {
     expect(frame.dataset.scrolling).toBe('true');
     await act(async () => { vi.advanceTimersByTime(800); });
     expect(frame.dataset.scrolling).not.toBe('true');
+  });
+
+  it('renders the color menu in the same panel frame as the selection highlight palette', async () => {
+    await renderControls();
+    await act(async () => trigger('颜色').click());
+    const menu = document.querySelector<HTMLElement>('.table-style-menu.table-style-menu--palette');
+    expect(menu).not.toBeNull();
+    // 边框 / 圆角 / 底色 / 投影都由内层 .editor-highlight-palette 提供。
+    expect(menu!.querySelector('.editor-highlight-palette')).not.toBeNull();
+    // 高亮面板没有滚动容器, 也不靠分隔线分组, 两组标题直接分隔。
+    expect(menu!.querySelector('.overlay-scrollbar-frame')).toBeNull();
+    expect(menu!.querySelector('.table-style-menu-scroll-frame')).toBeNull();
+    const sections = [...menu!.querySelectorAll('.table-style-menu-section')];
+    expect(sections.map(section => section.querySelector('.table-style-menu-heading')?.textContent))
+      .toEqual(['行背景', '列背景']);
+    for (const section of sections) {
+      expect(section.querySelectorAll('.editor-highlight-palette__swatch')).toHaveLength(10);
+    }
   });
 
   it('toggles header row and column independently inside the font menu without closing it', async () => {

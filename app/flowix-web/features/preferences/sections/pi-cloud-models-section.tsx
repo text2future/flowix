@@ -3,49 +3,44 @@
 import { friendlyErrorMessage } from '@/lib/friendly-error-message';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Loader2 } from 'lucide-react';
-import {
-  cloud,
-  piModels,
-  type PiProviderConfig,
-} from '@platform/tauri/client';
-import { cloudModelAccessErrorMessage } from '@platform/tauri/errors';
+import { Loader2, RotateCw } from 'lucide-react';
+import { cloud, windows } from '@platform/tauri/client';
 import { useI18n } from '@/lib/i18n';
 import { toast } from '@/lib/toast';
 import { refreshAgentModelCatalog } from '@features/agent/services/agent-catalog-service';
 import { Button } from '@shared/ui/button';
 
-const FLOWIX_CLOUD_SOURCE = 'flowix-cloud';
+function formatResetDate(value: number, language: string): { date: string; time: string } {
+  const date = new Intl.DateTimeFormat(language, {
+    timeZone: 'Asia/Shanghai',
+    month: 'numeric',
+    day: 'numeric',
+  }).format(new Date(value));
+  const time = new Intl.DateTimeFormat(language, {
+    timeZone: 'Asia/Shanghai',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(new Date(value));
+  return { date, time };
+}
 
 export function PiCloudModelsSection({ authenticated }: { authenticated: boolean }) {
-  const { t } = useI18n();
-  const [providers, setProviders] = useState<PiProviderConfig[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [balance, setBalance] = useState<number | null>(null);
+  const { t, language } = useI18n();
+  const [monthlyBalance, setMonthlyBalance] = useState<number | null>(null);
+  const [permanentBalance, setPermanentBalance] = useState<number | null>(null);
+  const [monthlyExpiresAt, setMonthlyExpiresAt] = useState<number | null>(null);
   const [balanceError, setBalanceError] = useState<string | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
   const [modelCatalogLoading, setModelCatalogLoading] = useState(false);
   const balanceRequest = useRef(0);
 
-  const reload = useCallback(async () => {
-    setError(null);
-    try {
-      setProviders(await piModels.list());
-    } catch (value) {
-      setError(friendlyErrorMessage(value, t, 'errors.friendly.modelsRefresh'));
-    } finally {
-      setLoading(false);
-    }
-  }, [t]);
-
-  useEffect(() => { void reload(); }, [reload]);
-
   const refreshBalance = useCallback(async (notifyError = false) => {
     const request = ++balanceRequest.current;
     if (!authenticated) {
-      setBalance(null);
+      setMonthlyBalance(null);
+      setPermanentBalance(null);
+      setMonthlyExpiresAt(null);
       setBalanceError(null);
       setBalanceLoading(false);
       return;
@@ -54,7 +49,9 @@ export function PiCloudModelsSection({ authenticated }: { authenticated: boolean
     try {
       const result = await cloud.getAiCreditBalance();
       if (request !== balanceRequest.current) return;
-      setBalance(Math.ceil(result.balanceMicrocredits / 1_000_000));
+      setMonthlyBalance(result.monthlyBalanceMicrocredits / 1_000_000);
+      setPermanentBalance(result.permanentBalanceMicrocredits / 1_000_000);
+      setMonthlyExpiresAt(result.monthlyExpiresAt);
       setBalanceError(null);
     } catch (value) {
       if (request !== balanceRequest.current) return;
@@ -90,46 +87,57 @@ export function PiCloudModelsSection({ authenticated }: { authenticated: boolean
     }
   }, [refreshBalance, t]);
 
-  const provider = providers.find((item) => item.source === FLOWIX_CLOUD_SOURCE);
-  const connect = async () => {
-    setBusy(true);
-    try {
-      await cloud.connectPiModelProvider();
-      await reload();
-      await refreshAgentModelCatalog('pi');
-      toast.success(t('preferences.pi.cloudConnected'));
-    } catch (value) {
-      toast.error(cloudModelAccessErrorMessage(value, t, 'errors.friendly.cloudConnect'));
-    } finally {
-      setBusy(false);
-    }
-  };
-
   return (
-    <div className="space-y-3">
+    <div className="space-y-1.5">
       <div className="text-sm font-medium text-[var(--foreground)]">{t('preferences.pi.cloudTitle')}</div>
       <section className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
-        {error && <p className="text-xs text-[var(--destructive)]">{error}</p>}
-
-        {authenticated && <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="text-sm text-[var(--foreground)]" title={balanceError ?? undefined}>
-            {t('preferences.pi.cloudCreditsBalance')}: <span className="font-semibold">
-              {balance === null
-                ? balanceLoading ? t('preferences.pi.cloudCreditsLoading') : t('preferences.pi.cloudCreditsUnavailable')
-                : `${balance.toLocaleString('zh-CN', { maximumFractionDigits: 0 })} ${t('preferences.pi.cloudCreditsUnit')}`}
-            </span>
+        {authenticated && <div className="grid grid-cols-[5em_minmax(0,1fr)] items-center gap-x-3 gap-y-2 text-sm">
+          <div className="text-[var(--muted-foreground)]">{t('preferences.pi.cloudCreditsBalance')}</div>
+          <div className="flex min-w-0 items-center justify-between gap-2 text-[var(--foreground)]" title={balanceError ?? undefined}>
+            <div className="inline-flex min-w-0 items-center gap-0.5">
+              <div className="inline-flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span>{t('preferences.pi.cloudCreditsMonthly')} <span className="font-mono font-semibold">
+                  {monthlyBalance === null
+                    ? balanceLoading ? t('preferences.pi.cloudCreditsLoading') : t('preferences.pi.cloudCreditsUnavailable')
+                    : monthlyBalance.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span></span>
+                <span>{t('preferences.pi.cloudCreditsPermanent')} <span className="font-mono font-semibold">
+                  {permanentBalance === null
+                    ? balanceLoading ? t('preferences.pi.cloudCreditsLoading') : t('preferences.pi.cloudCreditsUnavailable')
+                    : permanentBalance.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span></span>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                className="rounded-full text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                aria-label={t('preferences.pi.cloudCreditsRefresh')}
+                title={t('preferences.pi.cloudCreditsRefresh')}
+                disabled={balanceLoading || modelCatalogLoading}
+                onClick={() => void refreshBalanceAndModels()}
+              >
+                {(balanceLoading || modelCatalogLoading)
+                  ? <Loader2 className="size-3 flowix-spin" aria-hidden="true" />
+                  : <RotateCw className="size-3" aria-hidden="true" />}
+              </Button>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 shrink-0 rounded-lg px-2 text-xs"
+              onClick={() => void windows.openPaymentDialogInMain('credits')}
+            >
+              {t('preferences.pi.cloudCreditsPurchase')}
+            </Button>
           </div>
-          <Button type="button" variant="ghost" className="h-8" disabled={balanceLoading || modelCatalogLoading} onClick={() => void refreshBalanceAndModels()}>
-            {(balanceLoading || modelCatalogLoading) && <Loader2 className="mr-2 size-3.5 flowix-spin" />}
-            {t('preferences.pi.cloudCreditsRefresh')}
-          </Button>
-        </div>}
-
-        {!provider && <div className="flex justify-end">
-          <Button type="button" variant="outline" className="h-8" disabled={!authenticated || loading || busy} onClick={() => void connect()}>
-            {(loading || busy) && <Loader2 className="mr-2 size-3.5 flowix-spin" />}
-            {t('preferences.pi.cloudConnect')}
-          </Button>
+          <div className="text-[var(--muted-foreground)]">{t('preferences.pi.cloudCreditsResetDay')}</div>
+          <div className="text-sm text-[var(--foreground)]">
+            {monthlyExpiresAt === null
+              ? balanceLoading ? t('preferences.pi.cloudCreditsLoading') : t('preferences.pi.cloudCreditsNoResetDate')
+              : t('preferences.pi.cloudCreditsResetAt', formatResetDate(monthlyExpiresAt, language))}
+          </div>
         </div>}
       </section>
     </div>

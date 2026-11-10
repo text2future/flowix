@@ -16,4 +16,4 @@ export const NOTEBOOK_DELETE_DIALOG_WIDTH_CLASS = 'w-[min(380px,calc(90vw-1.8rem
 
 export const NOTEBOOK_FORM_DIALOG_HEADING_CLASS = DIALOG_HEADING_CLASS;
 
-export const NOTEBOOK_FORM_DIALOG_TITLE_CLASS = `${NOTEBOOK_FORM_DIALOG_HEADING_CLASS} mb-2 pr-10 text-[var(--onboarding-ink)]`;
+export const NOTEBOOK_FORM_DIALOG_TITLE_CLASS = `${NOTEBOOK_FORM_DIALOG_HEADING_CLASS} mb-3 pr-10 text-[var(--onboarding-ink)]`;

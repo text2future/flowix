@@ -47,24 +47,34 @@ export function createSessionMetaSlice(
     threadId: string | undefined,
     activateAgent: boolean,
   ) => {
-    set((state) => ({
-      sessionMeta: {
-        ...state.sessionMeta,
-        ...(activateAgent ? { activeAgentTypeKey: typeKey } : {}),
-        activeThreadIds: {
-          ...state.sessionMeta.activeThreadIds,
-          [typeKey]: threadId,
+    set((state) => {
+      const meta = state.sessionMeta;
+      // Opening a conversation that is already the active thread of its agent
+      // type must not mint a new sessionMeta object: every column reading it
+      // would re-render even though nothing changed.
+      const unchanged = meta.activeThreadIds[typeKey] === threadId
+        && (!activateAgent || meta.activeAgentTypeKey === typeKey)
+        && (!threadId || meta.threadTypes[threadId] === typeKey);
+      if (unchanged) return state;
+      return {
+        sessionMeta: {
+          ...meta,
+          ...(activateAgent ? { activeAgentTypeKey: typeKey } : {}),
+          activeThreadIds: {
+            ...meta.activeThreadIds,
+            [typeKey]: threadId,
+          },
+          ...(threadId
+            ? {
+                threadTypes: {
+                  ...meta.threadTypes,
+                  [threadId]: typeKey,
+                },
+              }
+            : {}),
         },
-        ...(threadId
-          ? {
-              threadTypes: {
-                ...state.sessionMeta.threadTypes,
-                [threadId]: typeKey,
-              },
-            }
-          : {}),
-      },
-    }));
+      };
+    });
   };
 
   return {

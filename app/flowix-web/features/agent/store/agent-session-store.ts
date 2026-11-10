@@ -362,6 +362,12 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
             if (options?.rejectOnFailure) throw err;
           }
         },
+        /**
+         * @deprecated Column-blind: it stops whatever thread the shared runtime
+         * slot points at, which is the wrong thread when both columns show a
+         * conversation of the same agent type. Surfaces stop their own thread
+         * with `stopThreadRun(threadId)`; there are no remaining callers.
+         */
         stopStream: async () => {
           const meta = get().sessionMeta;
           const type = getAgentType(meta.activeAgentTypeKey);

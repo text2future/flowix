@@ -12,25 +12,57 @@ export interface EditableBodyStart {
   position: number;
 }
 
+/** Top-level node types that render editor chrome instead of document content. */
+export const FRONTMATTER_NODE_TYPE = 'frontmatter';
+export const AGENT_CARD_NODE_TYPE = 'agentThreadCard';
+
+export interface FirstBlock {
+  node: ProseMirrorNode;
+  index: number;
+  from: number;
+  to: number;
+}
+
+/**
+ * Range of the first top-level block whose type is not in `skippedTypes`.
+ *
+ * Callers intentionally skip different chrome: body navigation skips the
+ * frontmatter row only, while the first-block CSS marks also skip a leading
+ * agent card (the card carries its own top offset, but the gap above it still
+ * needs the caret compensation). Each caller owns its skip set; this stays the
+ * single traversal over the document.
+ */
+export function findFirstBlock(
+  doc: ProseMirrorNode,
+  skippedTypes: ReadonlySet<string>,
+): FirstBlock | null {
+  let from = 0;
+  for (let index = 0; index < doc.childCount; index += 1) {
+    const node = doc.child(index);
+    if (!skippedTypes.has(node.type.name)) {
+      return { node, index, from, to: from + node.nodeSize };
+    }
+    from += node.nodeSize;
+  }
+  return null;
+}
+
+const BODY_START_SKIPS: ReadonlySet<string> = new Set([FRONTMATTER_NODE_TYPE]);
+
 /**
  * Find the first real body block without treating the protected frontmatter
  * node (which renders the tag row) as document content.
  */
 export function getEditableBodyStart(editor: Editor): EditableBodyStart {
-  let position = 0;
-  for (let index = 0; index < editor.state.doc.childCount; index += 1) {
-    const block = editor.state.doc.child(index);
-    if (block.type.name !== 'frontmatter') {
-      return { block, blockIndex: index, position };
-    }
-    position += block.nodeSize;
+  const first = findFirstBlock(editor.state.doc, BODY_START_SKIPS);
+  if (!first) {
+    return {
+      block: null,
+      blockIndex: editor.state.doc.childCount,
+      position: editor.state.doc.content.size,
+    };
   }
-
-  return {
-    block: null,
-    blockIndex: editor.state.doc.childCount,
-    position,
-  };
+  return { block: first.node, blockIndex: first.index, position: first.from };
 }
 
 export function isBlankEditorDocument(editor: Editor): boolean {

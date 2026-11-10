@@ -40,6 +40,7 @@ import { selectAndOpenAgentConversation } from './agent-conversation-navigation'
 import { browserColumnTargetIdentity, workColumnTargetIdentity, findWorkspaceContentForNavigation } from './workspace-content-activation';
 import { flushBrowserViewBeforeOpeningWork } from './prepare-browser-document-for-work';
 import { NavigationCancelledError } from '@/lib/navigation-cancelled-error';
+import { markDocumentOpenJourney } from '@/lib/document-open-perf';
 
 const navigationLogger = createLogger('workspace-navigation');
 let navigationSequence = 0;
@@ -302,6 +303,7 @@ async function performWorkspaceSurfaceOpen(
       if (!await flushBrowserViewBeforeOpeningWork({ kind: 'external', path: target.path })) {
         return cancelWork('save-refused');
       }
+      markDocumentOpenJourney(target.path, 'journey:browser-flush-done');
       // A later click can finish its save barrier before this request does.
       // Do not let the older request begin a new lower-level transaction.
       if (!workIntentCurrent()) return cancelWork('superseded');

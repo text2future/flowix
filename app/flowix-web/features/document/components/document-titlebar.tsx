@@ -1,6 +1,6 @@
 'use client';
 
-import { WorkspaceHeader, WorkspaceHeaderContentActions, WorkspaceHeaderFallbackMenu, WorkspaceDocumentHeaderActions } from '@features/shell/public/work-column-api';
+import { WorkspaceHeader, WorkspaceHeaderContentActions, WorkspaceDocumentHeaderActions } from '@features/shell/public/work-column-api';
 import { resolveWorkspaceFileSurfaceKind } from '@features/workspace/public/surface-api';
 import type { DocumentTitlebarProps } from './document-titlebar-model';
 
@@ -10,6 +10,8 @@ export function DocumentTitlebar({ platform, ...props }: DocumentTitlebarProps &
   return <WorkspaceHeader columnId="column-1" isWindows={platform === 'windows'}
     presentation={{ chrome: surfaceChrome, backgroundColor: props.headerBackgroundColor,
       collection: Boolean(collectionDisplay), identity: navigation }}
+    breadcrumb={props.breadcrumb}
+    onBreadcrumbFileOpen={props.onBreadcrumbFileOpen}
     sidebar={sidebar} navigation={navigation} reserveWindowsControls={props.reserveWindowsControls}
     webAddressBarVisible={props.webAddressBarVisible} onToggleWebAddressBar={props.onToggleWebAddressBar}
     actions={(_, iconButtonClass) => props.document.isolated && target ? <WorkspaceDocumentHeaderActions
@@ -20,7 +22,6 @@ export function DocumentTitlebar({ platform, ...props }: DocumentTitlebarProps &
         showEditorFontSwitcher: Boolean(props.showEditorFontSwitcher), showEditorModeToggle: Boolean(props.showEditorModeToggle) }}
     /> : <WorkspaceHeaderContentActions iconButtonClass={iconButtonClass}
       collection={collectionDisplay}
-      fallback={props.onToggleWebAddressBar ? undefined : <WorkspaceHeaderFallbackMenu columnId="column-1" iconButtonClass={iconButtonClass} />}
       media={surfaceChrome === 'media' ? props.mediaActions : undefined}
       document={target && surfaceChrome !== 'media' ? {
         target, capabilities: props.contentCapabilities, actions: props.actions,
