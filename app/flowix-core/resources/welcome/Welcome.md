@@ -1,6 +1,6 @@
 ---
 status: Complete
-flowix_icon: carrot
+flowix_icon: sandwich
 flowix_property_types:
   keywords: MultiSelect
 keywords:
@@ -12,171 +12,177 @@ keywords:
   - ai-agent
 ---
 
-Flowix is a ==document workspace for AI agents==<!-- flowix:text {"bg":null,"fg":"blue"} -->. It helps address common problems when working with AI agents:
 
-- Prompts and instructions are scattered across different places and hard to manage.
-- Agents keep making the same mistakes because they lose track of context.
-- Workflows that succeed in a conversation are hard to capture and reuse.
+# ++flowix keeps the document base behind your Agent visible, editable, and fixable++
 
-Ask AI to capture your workflows, recurring issues, and preferences in Flowix, so you can refer to them in future tasks.
+An AI Agent's performance usually comes down to a document base you never see.
 
-Your everyday notes can become useful source material, too.
+It may have read a stale source, skipped a rule that mattered, or kept repeating the same mistake for lack of context. You see the answers — not the reasoning behind them.
 
----
+flowix brings that hidden context into view. Built around a document base, it lets you browse the sources and rules your Agent relies on, review what it produces, and go back into the documents to fix what went wrong.
 
-## 1. Product philosophy
-
-In agent clients, document libraries often sit in the background of projects and conversations. Flowix puts your library at the center and organizes conversations around it.
-
-You can build workflows around your documents, so writing, research, organizing information, and agent tasks all draw on the same source material.
-
-A Flowix notebook can also serve as a project in an agent client, letting you use the same document library across different tools.
+Working with an Agent stops being an endless loop of prompt tweaking, and becomes an ongoing effort to improve what it works from.
 
 ---
 
-## 2. Get started
+## 1. The idea behind flowix
 
-### 2.1 Create and manage notebooks
+With most Agent clients, the document base sits out of sight behind the chat. You rarely know what the Agent read, which rules it followed, or what context it missed — and when the output is wrong, it's hard to tell where the fault lies.
 
-A notebook is a local folder, and each note is a Markdown file inside it. When you create a notebook, you can use the default Documents folder or choose a custom folder.
+flowix puts that hidden context in plain sight. Centered on a document base, it lets you browse the notes, rules, and outputs your Agent depends on, the same way you'd organize project materials — and when something's off, edit the sources and adjust the rules directly, so the next task goes better.
 
-- **File Tree and Notes List:** The File Tree gives you access to all documents, including Markdown notes, Word files, and images. The Notes List shows all Markdown notes in the notebook.
-- **Default location for new notes:** Choose the folder where notes created from Notes List mode should go.
-- **Views:** In File Tree mode, create views for notes or other files and resources to make them easier to browse.
-- **Pinning:** In File Tree mode, pin any note, view, or resource file for quick access.
+flowix isn't just about letting AI read your documents. It's about letting you understand and steer what AI works from.
 
-### 2.2 Use AI features
+> ### What it fixes
+>
+> - **You can't see what the Agent works from**: no visibility into which sources it read or which rules it follows.
+> - **Context is scattered**: sources, prompts, rules, and workflows live in different places — hard to organize, harder to keep current.
+> - **Failures are hard to trace**: when the output misses the mark, you can't pinpoint why, let alone fix how the Agent works.
+>
+> flowix takes you from trial and error to steadily improving what the Agent works from.
 
-Choose one of these three ways to connect an agent. Before you begin, install, sign in to, and configure the client or model service you plan to use.
+---
 
-1. **Use a local client:** Chat with an agent using a local installation of ChatGPT, Claude Code, or OpenCode. If you use the DeepSeek Harness client, install the Flowix connector plugin from Preferences first.
-2. **Use flowix AI with a custom model:** After configuring a model provider, use flowix AI in document mode or code mode. The current integration does not support web search, image generation, or video generation. Available features may vary by version.
-3. **Use another agent client:** Open the notebook folder as a project, or connect the document library through the CLI or MCP so your agent can read, search, and update its contents. Configure the connection before using the CLI or MCP.
+## 2. Getting started
 
-### 2.3 Set up an AI knowledge base
+### 2.1 Creating and managing notebooks
 
-Tell your agent what you want to accomplish, then ask it to build a folder structure and guidelines around your needs. You can start with this prompt:
+A notebook is just a local folder, and notes are the Markdown files inside it. When you create one, take the default Documents location or pick your own.
+
+- **File tree and note list**: the file tree (Access Space) manages every document — Markdown notes, Word files, images, and more. The note list covers only the Markdown notes in the current notebook.
+- **Where new notes land**: set the folder used when creating notes in note list mode.
+- **Views**: in file tree mode, build views over notes and other materials to browse and search them from different angles.
+- **Pinning**: pin any note, view, or material file to keep it within reach.
+
+### 2.2 Using AI features
+
+Take whichever of these three routes suits you. Either way, install, sign in to, and configure the client or model service first.
+
+- **Local clients**: chat through clients you already have installed — ChatGPT, Claude Code, OpenCode, and others. Using DeepSeek Harness? Install the flowix connector plugin in Preferences first.
+- **flowix AI with your own model**: once a model service is configured, work in document mode or code mode. Web search and image or video generation aren't supported yet; exactly what you get depends on your version.
+- **Third-party Agent clients**: open the notebook folder as a project, or hook the document base up over CLI / MCP, so the Agent can read, search, and update your content. Set up the connection first.
+
+### 2.3 Setting up an AI knowledge base
+
+Tell the Agent what you're after, and let it shape the folder structure and ground rules around your actual needs. This prompt is a good starting point:
 
 ```plaintext
-My primary goal is: [describe it in one sentence]
-Set up an AI document library in the current notebook:
-- Design the smallest folder structure that supports this goal.
-- Create an AGENTS.md file that explains what each folder is for, how to work in the notebook, and how to maintain it.
-- Add or import skills only when needed, and put them in .agents/skills/.
-- Keep existing content. Avoid overwriting files or creating duplicates.
-- Create only what is necessary, then explain how to get started.
+What I need: [one sentence on the goal]
+
+Please set up an AI document base in this notebook:
+- Design the smallest folder structure that meets the goal.
+- Write AGENTS.md covering what each folder is for, how work gets done, and how to maintain it.
+- Only create or import skills when there's a real need, and keep them in .agents/skills/.
+- Leave existing content intact — don't overwrite or duplicate anything.
+- Build only what's necessary, then tell me how to start using it.
 ```
 
-### 2.4 Manage notes
+### 2.4 Managing notes
 
-- **Tags:** Add tags in the note body, such as #idea, #meeting, #todo, #prompt, or #agent. Flowix detects them automatically.
-- **Views:** Browse and manage notes with table, calendar, kanban, and gallery views.
-- **Note properties:** Add details such as source, rating, location, or priority. You can create reusable properties in Settings, then fill in values on your notes.
+- **Tags**: mark up documents in the body with tags like #idea, #meeting, #todo, #prompt, #agent.
+- **Views**: browse and manage notes as tables, calendars, boards, or galleries.
+- **Note properties**: attach properties such as source, rating, location, and priority. Create the preset properties in Settings first, then fill in values for individual notes.
 
 ---
 
-## 3. What you can do with Flowix
+## 3. Use cases
 
-The folder structures below are examples you can adapt. Flowix does not require a particular layout.
+The folder layouts below are examples you can reshape to fit — flowix doesn't require any of them.
 
-### 3.1 Build a personal AI knowledge base
+### ==3.1 A personal AI knowledge base==<!-- flowix:text {"bg":"purple","fg":"purple"} -->
 
-Keep reading notes, travel plans, work logs, and personal writing in one place. Flowix supports everyday note-taking, organizing reference material, and building a lasting knowledge base.
+Turn books, papers, courses, and day-to-day notes into a structured document base, so the Agent can cite sources you can actually trace whenever it answers, writes, or researches.
 
-Add your requirements, source material, and reference links to documents. An agent can use them to summarize, rewrite, answer questions, break work into tasks, or write code. Save the results back to your documents so you can review, edit, and reuse them. Each round of work adds context that you and your agents can use again.
-
-For example, you can organize books, papers, and courses with a Karpathy-style knowledge base:
-
-```
-My Notebook/
-├── Reference Library/      ← Original materials; keep them unchanged
-├── wiki/                   ← Knowledge maintained by an LLM
-│   ├── index.md            ← Main index
-│   ├── log.md              ← Change log
-│   ├── concepts/           ← Concept pages
-│   ├── entities/           ← People, organizations, and other entities
-│   ├── sources/            ← Source summaries
-│   └── synthesis/          ← Syntheses and analysis
-├── Generated/              ← Generated output
-└── AGENTS.md               ← Knowledge base structure and maintenance rules
-```
-
-### 3.2 Create a content workspace for X
-
-Build an ongoing workflow for creating content on X. Use each post’s metrics and replies to guide future topics and drafts, and keep a record of what works.
-
-- The agent can help with ideas, research, drafts, image prompts, publishing checks, and performance reviews.
-- You set the direction and visual style, make the key editorial calls, and decide what to publish.
-
-```
-X Content Workspace/
-├── Profile/
-│   ├── Positioning.md          ← Account focus, target audience, and what sets you apart
-│   └── Voice and Style.md      ← Tone, phrases to avoid, and how you present yourself
-├── Research/
-│   ├── Trends/                 ← Emerging topics, search terms, and conversations
-│   ├── Benchmarks/             ← Accounts to learn from and high-performing posts
-│   └── Audience/               ← Audience profiles, reply insights, and recurring questions
-├── Content Ideas/
-│   ├── Ideas.md                ← Idea backlog and priorities
-│   └── Scoring Criteria.md     ← How to evaluate ideas
-├── Content/
-│   ├── Drafts/                 ← AI-assisted drafts
-│   ├── Final Copy/             ← Approved posts ready to publish
-│   ├── Published/              ← Published posts and final versions
-│   ├── Media/                  ← Images, video, and scripts
-│   └── Calendar.md             ← Content calendar
-├── Analytics/
-│   ├── Posts/                  ← Metrics for individual posts
-│   ├── Weekly Review.md        ← Weekly performance review
-│   └── What Works.md           ← Patterns worth reusing
-└── AGENTS.md                   ← Agent roles, guidelines, and workflows
-```
-
-### 3.3 Develop products with Spec-Driven Development (SDD / Vibe Coding)
-
-With Spec-Driven Development (SDD), you first define what to build, why it matters, and the acceptance criteria. An agent then produces the technical plan, task list, code, and tests. You review the specifications, plan, and code changes at key points.
+Check the sources whenever you like, correct conclusions, and write the Agent's output back into the documents. The knowledge base grows with use, becoming a work basis you can audit, edit, and reuse.
 
 ```plaintext
-My Product/
+my-notebook/
+├── sources/          ← raw material, read-only
+├── wiki/             ← knowledge layer maintained by the LLM
+│   ├── index.md      ← master index
+│   ├── log.md        ← change log
+│   ├── concepts/     ← concept pages
+│   ├── entities/     ← entity pages
+│   ├── sources/      ← source summaries
+│   └── synthesis/    ← cross-source analysis
+├── output/           ← generated deliverables
+└── AGENTS.md         ← knowledge base structure and maintenance rules
+```
+
+### ==3.2 A document workbench for Xiaohongshu==<!-- flowix:text {"bg":"purple","fg":"purple"} -->
+
+Keep positioning, audience insight, topic rules, content assets, and performance reviews in one place, so the Agent can ideate, write, and review from the same context.
+
+The Agent picks topics, gathers research, drafts, writes cover prompts, runs pre-publish checks, and reviews the numbers. You own positioning, taste, the judgment calls, and the final publish. Every post's metrics and comments become input for the next round of ideas.
+
+```plaintext
+xiaohongshu-workbench/
+├── account/
+│   ├── positioning.md    ← positioning, target audience, differentiation
+│   └── brand-voice.md    ← tone, banned phrasing, persona boundaries
+├── market/
+│   ├── trends/           ← hot topics, search terms, platform hashtags
+│   ├── benchmarks/       ← comparable accounts and viral post teardowns
+│   └── personas/         ← personas, comment insights, recurring questions
+├── topics/
+│   ├── backlog.md        ← topic ideas and priorities
+│   └── scoring.md        ← how topics are scored
+├── content/
+│   ├── drafts/           ← AI first drafts
+│   ├── final/            ← human-finalized versions
+│   ├── published/        ← live posts and their final versions
+│   ├── assets/           ← covers, images, video scripts
+│   └── calendar.md       ← content calendar
+├── reviews/
+│   ├── posts/            ← per-post metrics
+│   ├── weekly.md         ← weekly review
+│   └── what-works.md     ← reusable patterns behind hits
+└── AGENTS.md             ← Agent roles, rules, and workflows
+```
+
+### ==3.3 Product development: spec-driven development (SDD / vibe coding)==<!-- flowix:text {"bg":"purple","fg":"purple"} -->
+
+Capture requirements, acceptance criteria, technical design, interface contracts, and task lists as structured documents, so the Agent can produce plans and code by the rules.
+
+You review the gaps between spec and build at key checkpoints — less rework, fewer surprises, and a development process you can trace and reuse.
+
+```plaintext
+my-product/
 ├── .specify/
-│   ├── constitution.md         ← Tech stack, conventions, and security principles
-│   └── templates/              ← Templates for specs, plans, and tasks
+│   ├── constitution.md       ← stack, conventions, security principles
+│   └── templates/            ← spec, plan, and tasks templates
 ├── specs/
 │   └── 001-user-auth/
-│       ├── spec.md             ← Requirements and acceptance criteria
-│       ├── clarifications.md   ← Clarification notes
-│       ├── plan.md             ← Architecture and technical plan
-│       ├── data-model.md       ← Entities, fields, and migrations
-│       ├── contracts/          ← API, event, and interface contracts
-│       ├── research.md         ← Technical research and alternatives
-│       ├── checklist.md        ← Pre-release checklist
-│       └── tasks.md            ← Actionable task list
+│       ├── spec.md           ← requirements and acceptance criteria
+│       ├── clarifications.md ← open questions and answers
+│       ├── plan.md           ← architecture and technical approach
+│       ├── data-model.md     ← entities, fields, migrations
+│       ├── contracts/        ← API / event / interface contracts
+│       ├── research.md       ← technical research and alternatives
+│       ├── checklist.md      ← pre-release checklist
+│       └── tasks.md          ← actionable task list
 ├── tests/
-└── AGENTS.md                   ← Agent roles, boundaries, and working rules
+└── AGENTS.md                 ← Agent roles, boundaries, and working rules
 ```
 
-Use **Repositories** in the sidebar to manage multiple code repositories while you work on a product.
+For product work, manage multiple code repositories from Repositories in the sidebar.
 
 ---
 
-## 4. Agent instructions and skills
+## 4. Conventional files and folders
 
-Depending on the agent and workflow you use, your document library may include files and folders such as:
+Depending on the Agent and workflow conventions you use, a document base may include:
 
-- `AGENTS.md`: Gives agents that support this convention the project background, folder structure, working practices, and maintenance rules.
-- `.agents/skills/`: Holds reusable agent skills. Whether a client loads them automatically depends on that client's features and configuration.
+- **AGENTS.md**: tells Agents that follow this convention about project background, folder structure, how work gets done, and how to maintain things.
+- **.agents/skills/**: reusable Agent skills.
 
-These files and folders define how an agent works and what context it can use. Learn what they do before changing them. Deleting them or changing their structure may affect agents and workflows that rely on them. Update the rules as your needs change.
+These files and folders hold the Agent's operating rules, capability definitions, and project context. Keep the rules in them current as your needs change.
 
----
-
-## 5. More resources
+## 5. References
 
 - Website: [https://flowix.cc/](https://flowix.cc/)
-- Documentation: [https://flowix.cc/docs/](https://flowix.cc/docs/)
 - GitHub: [https://github.com/text2future/flowix](https://github.com/text2future/flowix)
 
----
-
 #flowix #gettingstarted #agent #setup
+
+&nbsp;

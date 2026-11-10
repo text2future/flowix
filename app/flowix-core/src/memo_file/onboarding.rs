@@ -223,11 +223,11 @@ mod tests {
 
         let chinese = fs::read_to_string(mf.get_memo_base().join("欢迎文档.md")).unwrap();
         // 正文不再带 H1（标题由文件名派生），开头的 YAML 属性块直接进入正文。
-        assert!(chinese.contains("flowix_icon: carrot"));
+        assert!(chinese.contains("flowix_icon: sandwich"));
         assert!(chinese.contains("status: 完成"));
-        assert!(chinese.contains("AI Agents 的文档空间"));
+        assert!(chinese.contains("让 Agent 背后的文档库可管理、可修正"));
         assert!(chinese.contains("## 2. 快速上手"));
-        assert!(chinese.contains("https://flowix.cc/docs/"));
+        assert!(chinese.contains("https://github.com/text2future/flowix"));
 
         // The introduction page is seeded as a plain file, not as a note: the
         // Markdown-only index must not project it.
