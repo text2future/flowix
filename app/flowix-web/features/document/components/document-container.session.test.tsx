@@ -137,6 +137,22 @@ describe('real document container session lifecycle', () => {
     expect(container.querySelector('[role="status"]')).toBeNull();
   });
 
+  it('finishes opening a note whose file moved while its read was in flight', async () => {
+    const onContentStateChange = vi.fn();
+    const doc = setup(false, { onContentStateChange });
+    let finishRead!: (content: string) => void;
+    mocks.read.mockImplementationOnce(() => new Promise((resolve) => { finishRead = resolve; }));
+    await act(async () => { doc.render(); });
+    expect(onContentStateChange).toHaveBeenLastCalledWith({ status: 'loading', retainContent: true });
+    // Moving A → B reconciles runtime identities from the column stores, whose
+    // snapshot can still describe A. A surface that is already opening must keep
+    // its identity, or its first load is dropped and it stays on the skeleton.
+    await act(async () => { reconcileFileDisplays([]); });
+    await act(async () => { finishRead('Moved body'); });
+    expect(doc.editors.left).toBeDefined();
+    expect(onContentStateChange).toHaveBeenLastCalledWith({ status: 'ready' });
+  });
+
   it('switches a rich Markdown view to source and consumes a pending Agent location after load', async () => {
     const doc = setup(false);
     mocks.read.mockResolvedValue('first\nsecond\nthird');

@@ -10,6 +10,7 @@ import {
 } from '@features/document/store/document-session-service';
 import { useDocumentStore } from '@features/document/store/document-store';
 import { markDocumentOpenTrace } from '@/lib/document-open-perf';
+import { pinFileDisplayId } from '@/lib/file-display-registry';
 import {
   setDocumentEditorMode,
   useDocumentEditorMode,
@@ -114,6 +115,11 @@ export function DocumentContainer({
   const documentIdentity = getDocumentSession(
     documentIdentityFromFile({ path: filePath, displayId }),
   ).identity;
+  // An open surface owns its runtime file identity. Reconciliation derives the
+  // live set from the column stores, which still describe the old path while a
+  // move (A → B) settles; reclaiming this identity would drop the load already
+  // in flight and strand the editor on its skeleton. The release re-runs it.
+  useEffect(() => pinFileDisplayId(displayId), [displayId]);
   const propertyTargetId = documentPropertyTargetId(displayId, hostId);
   const [propertyAreaHoverTargetId, setPropertyAreaHoverTargetId] = useState<string | null>(null);
   const propertyAreaHovered = propertyAreaHoverTargetId === propertyTargetId;
