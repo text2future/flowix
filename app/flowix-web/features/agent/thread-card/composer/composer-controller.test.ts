@@ -239,7 +239,7 @@ describe("ComposerController note references", () => {
     draft.flush();
 
     expect(controller.getPrompt()).toBe(
-      "before [reference](flowix://open?notebookId=notebook-a&relativePath=reference.md) after",
+      "before [reference](flowix://open?notebookId=notebook-a&f=reference.md) after",
     );
     expect(editor.getJSON().content?.[0]?.content).toEqual(
       expect.arrayContaining([
@@ -247,7 +247,7 @@ describe("ComposerController note references", () => {
       ]),
     );
     expect(getPersistedDraft()).toBe(
-      "before [reference](flowix://open?notebookId=notebook-a&relativePath=reference.md) after",
+      "before [reference](flowix://open?notebookId=notebook-a&f=reference.md) after",
     );
   });
 

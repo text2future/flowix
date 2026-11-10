@@ -21,7 +21,7 @@ vi.mock('@features/memo/store/note-store', () => ({
   }) },
 }));
 
-import { rewriteLinksInNotebooks, rewriteNoteLinkMoves, updateNoteLinksAfterMove } from './note-link-rewriter';
+import { prepareMovedDocumentForRead, rewriteLinksInNotebooks, rewriteNoteLinkMoves, updateNoteLinksAfterMove } from './note-link-rewriter';
 
 describe('background link update', () => {
   beforeEach(() => {
@@ -40,14 +40,15 @@ describe('background link update', () => {
       : [{ type: 'document', fullPath: 'C:/Notes/Projects/Index.md', name: 'Index.md' }]);
     const content = '[Old](flowix://open?book=Work&file=Old.md)';
     readDocument.mockResolvedValue(content);
-    const updated = '[New](flowix://open?b=Work&f=New.md)';
+    // Same notebook as the moved note: the reference drops the notebook key.
+    const updated = '[New](flowix://open?f=New.md)';
     writeDocument.mockResolvedValue({ path: 'C:/Notes/Projects/Index.md', content: updated });
 
     await rewriteLinksInNotebooks('C:/Notes/Old.md', 'C:/Notes/New.md');
 
     expect(writeDocument).toHaveBeenCalledWith({
       filePath: 'C:/Notes/Projects/Index.md',
-      content: '[New](flowix://open?b=Work&f=New.md)',
+      content: '[New](flowix://open?f=New.md)',
       expectedContent: content,
     });
     expect(acceptBackgroundDocumentContent).toHaveBeenCalledWith('C:/Notes/Projects/Index.md', updated);
@@ -72,21 +73,75 @@ describe('background link update', () => {
     expect(writeDocument).toHaveBeenCalledTimes(2);
   });
 
-  it('updates A in the affected notebook before any unrelated notebook scan', async () => {
+  it('never reads a notebook that owns no moved note', async () => {
     notebooks.unshift({ id: 'slow', name: 'Slow', path: 'C:/Slow' });
-    getDirChildren.mockImplementation(async (path: string) => {
-      if (path === 'C:/Slow') {
-        expect(writeDocument).toHaveBeenCalledTimes(1);
-        return [];
-      }
-      return [{ type: 'document', fullPath: 'C:/Notes/A.md', name: 'A.md' }];
-    });
+    getDirChildren.mockImplementation(async (path: string) => path === 'C:/Slow'
+      ? [{ type: 'document', fullPath: 'C:/Slow/B.md', name: 'B.md' }]
+      : [{ type: 'document', fullPath: 'C:/Notes/A.md', name: 'A.md' }]);
     readDocument.mockResolvedValue('[B](flowix://open?b=Work&f=B.md)');
     writeDocument.mockImplementation(async (request) => ({ path: request.filePath, content: request.content }));
     expect(await rewriteLinksInNotebooks('C:/Notes/B.md', 'C:/Notes/B2.md')).toBe(true);
-    expect(getDirChildren.mock.calls[0][0]).toBe('C:/Notes');
-    expect(acceptBackgroundDocumentContent).toHaveBeenCalledWith('C:/Notes/A.md', '[B2](flowix://open?b=Work&f=B2.md)');
+    // Only the notebook holding the move is walked; the rest of the library is
+    // never read.
+    expect(getDirChildren.mock.calls.map(([path]) => path)).toEqual(['C:/Notes']);
+    expect(acceptBackgroundDocumentContent).toHaveBeenCalledWith('C:/Notes/A.md', '[B2](flowix://open?f=B2.md)');
   });
+  it('resolves a document in a nested notebook against its own root', async () => {
+    notebooks.splice(0, notebooks.length,
+      { id: 'root', name: 'Notes', path: 'C:/Notes' },
+      { id: 'nested', name: 'Nested', path: 'C:/Notes/Book' });
+    getDirChildren.mockImplementation(async (path: string) => path === 'C:/Notes/Book'
+      ? [{ type: 'document', fullPath: 'C:/Notes/Book/A.md', name: 'A.md' }]
+      : [{ type: 'folder', fullPath: 'C:/Notes/Book', name: 'Book' }]);
+    readDocument.mockResolvedValue('[B](flowix://open?f=Y.md)');
+    writeDocument.mockImplementation(async (request) => ({ path: request.filePath, content: request.content }));
+
+    expect(await rewriteLinksInNotebooks('C:/Notes/Book/Y.md', 'C:/Notes/Book/Y2.md')).toBe(true);
+
+    // A `?f=` link in the nested notebook means "inside Nested", so it is
+    // rewritten — and the unrelated root notebook is never walked.
+    expect(getDirChildren.mock.calls.map(([path]) => path)).toEqual(['C:/Notes/Book']);
+    expect(acceptBackgroundDocumentContent).toHaveBeenCalledWith('C:/Notes/Book/A.md', '[Y2](flowix://open?f=Y2.md)');
+  });
+
+  it('rewrites a document under overlapping roots only once', async () => {
+    notebooks.splice(0, notebooks.length,
+      { id: 'root', name: 'Notes', path: 'C:/Notes' },
+      { id: 'nested', name: 'Nested', path: 'C:/Notes/Book' });
+    getDirChildren.mockImplementation(async (path: string) => path === 'C:/Notes/Book'
+      ? [{ type: 'document', fullPath: 'C:/Notes/Book/A.md', name: 'A.md' }]
+      : [{ type: 'folder', fullPath: 'C:/Notes/Book', name: 'Book' }]);
+    readDocument.mockResolvedValue('plain');
+    writeDocument.mockResolvedValue({ content: 'plain' });
+
+    expect(await rewriteNoteLinkMoves([
+      { oldPath: 'C:/Notes/X.md', newPath: 'C:/Notes/X2.md' },
+      { oldPath: 'C:/Notes/Book/Y.md', newPath: 'C:/Notes/Book/Y2.md' },
+    ])).toBe(true);
+
+    expect(getDirChildren.mock.calls.map(([path]) => path).sort()).toEqual(['C:/Notes', 'C:/Notes/Book']);
+    expect(readDocument.mock.calls.filter(([path]) => path === 'C:/Notes/Book/A.md')).toHaveLength(1);
+  });
+
+  it('does not read a nested notebook document when only its parent moved a file', async () => {
+    notebooks.splice(0, notebooks.length,
+      { id: 'root', name: 'Notes', path: 'C:/Notes' },
+      { id: 'nested', name: 'Nested', path: 'C:/Notes/Book' });
+    getDirChildren.mockImplementation(async (path: string) => path === 'C:/Notes'
+      ? [
+        { type: 'folder', fullPath: 'C:/Notes/Book', name: 'Book' },
+        { type: 'document', fullPath: 'C:/Notes/A.md', name: 'A.md' },
+      ]
+      : [{ type: 'document', fullPath: 'C:/Notes/Book/B.md', name: 'B.md' }]);
+    readDocument.mockResolvedValue('plain');
+    writeDocument.mockResolvedValue({ content: 'plain' });
+
+    expect(await rewriteLinksInNotebooks('C:/Notes/X.md', 'C:/Notes/X2.md')).toBe(true);
+
+    // The walk reaches Book/ but its documents belong to another notebook.
+    expect(readDocument.mock.calls.map(([path]) => path)).toEqual(['C:/Notes/A.md']);
+  });
+
   it('updates relative image references without a Flowix URL in the document', async () => {
     getDirChildren.mockResolvedValue([{ type: 'document', fullPath: 'C:/Notes/Index.md', name: 'Index.md' }]);
     readDocument.mockResolvedValue('![chart](./old.png)');
@@ -177,6 +232,48 @@ describe('background link update', () => {
     await vi.waitFor(() => expect(JSON.parse(localStorage.getItem('flowix:pending-note-link-moves') ?? '[]')).toEqual([]));
     expect(disk).toBe('[asset](../A/asset.png)');
     expect(writeDocument).toHaveBeenCalledTimes(1);
+  });
+
+  it('catches up only the opened document, never the whole library', async () => {
+    getDirChildren.mockImplementation(async () => {
+      throw new Error('the opened document must not trigger a library scan');
+    });
+    const moved = 'C:/Notes/Projects/Sub/New.md';
+    readDocument.mockResolvedValue('[asset](./new.png)');
+    writeDocument.mockImplementation(async request => ({ content: request.content }));
+
+    updateNoteLinksAfterMove('C:/Notes/Projects/Old.md', 'C:/Notes/Projects/Sub/New.md');
+    await prepareMovedDocumentForRead(moved);
+
+    // The opened document still gets its own relative references recomputed…
+    expect(writeDocument).toHaveBeenCalledWith({
+      filePath: moved,
+      content: '[asset](../new.png)',
+      expectedContent: '[asset](./new.png)',
+    });
+    // …but opening never depended on a library walk: the tree walker throws
+    // here and nothing outside the opened document is read.
+    expect(readDocument.mock.calls[0]).toEqual([moved, 'C:/Notes']);
+    expect(readDocument.mock.calls.filter(([path]) => path !== moved)).toHaveLength(0);
+    // The shared checkpoint advanced, so the next open re-reads nothing.
+    await prepareMovedDocumentForRead(moved);
+    expect(readDocument.mock.calls.filter(([path]) => path === moved)).toHaveLength(1);
+  });
+
+  it('opens a moved document while another rewrite is stalled', async () => {
+    let releaseScan!: () => void;
+    const scanGate = new Promise<void>((resolve) => { releaseScan = resolve; });
+    getDirChildren.mockImplementation(async () => {
+      await scanGate;
+      return [{ type: 'document', fullPath: 'C:/Notes/Index.md', name: 'Index.md' }];
+    });
+    readDocument.mockResolvedValue('[Old](flowix://open?b=Work&f=Old.md)');
+    writeDocument.mockResolvedValue({ content: 'rewritten' });
+    updateNoteLinksAfterMove('C:/Notes/Projects/Old.md', 'C:/Notes/Projects/New.md');
+
+    await expect(prepareMovedDocumentForRead('C:/Notes/Projects/New.md')).resolves.toBeUndefined();
+    releaseScan();
+    await vi.waitFor(() => expect(JSON.parse(localStorage.getItem('flowix:pending-note-link-moves') ?? '[]')).toEqual([]));
   });
 
 });

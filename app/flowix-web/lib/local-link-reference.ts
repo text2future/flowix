@@ -27,13 +27,22 @@ export function localLinkReference(raw: string, context: LocalLinkContext): (Res
     try {
       const url = new URL(text);
       if (url.hostname !== 'open' || (url.pathname && url.pathname !== '/')) return null;
-      const books = context.notebooks.filter(book => book.name === url.searchParams.get('b'));
-      const file = url.searchParams.get('f') ?? '';
-      if (books.length !== 1 || books[0].id !== current.id || !file
+      const params = url.searchParams;
+      const file = params.get('f') ?? params.get('file') ?? params.get('relativePath') ?? '';
+      // The notebook is named by ID (cross-notebook) or by name (historical), and
+      // a same-notebook address names none at all.
+      const named = params.get('b') ?? params.get('book');
+      const id = params.get('notebookId');
+      const notebooks = id
+        ? context.notebooks.filter(book => book.id === id)
+        : named
+          ? context.notebooks.filter(book => book.name === named)
+          : [current];
+      if (notebooks.length !== 1 || notebooks[0].id !== current.id || !file
         || file.startsWith('/') || file.includes('\\') || file.split('/').some(part => !part || part === '.' || part === '..')
         || hasControls(file)) return null;
       path = `${canonicalPath(current.path).replace(/\/+$/, '')}/${file}`;
-      anchor = url.searchParams.get('heading') ?? (url.hash ? decodeURIComponent(url.hash.slice(1)) : null);
+      anchor = params.get('heading') ?? (url.hash ? decodeURIComponent(url.hash.slice(1)) : null);
     } catch { return null; }
   } else {
     // Plain filesystem paths keep literal #, ? and percent characters in filenames.

@@ -401,6 +401,8 @@
   padding-right: 0.25rem;
 }
 
+/* 叠层不在这里声明: 表格气泡走 --layer-editor-table-overlay (低于链接 hover
+ * 气泡), 规则和理由都在 editor-bubble-menus.css。 */
 .table-bubble-menu-panel {
   display: flex;
   width: max-content;

@@ -1,6 +1,8 @@
-import { canonicalPath } from '@/lib/path';
+import {
+  canonicalDirectoryPath, canonicalPath, isPathInDirectory, joinNotebookMemoPath,
+  notebookForPath, pathComparisonKey,
+} from '@/lib/path';
 import { createNoteLinkRewriteProgress, mergeDocumentRewriteStages, pathBeforeMoves, type NoteLinkMoveJob } from './note-link-rewrite-progress';
-import { buildNoteOpenLinkFromPath } from '@platform/open-target/path-link';
 import { externalDocuments, notes } from '@platform/tauri/client';
 import { files } from '@platform/tauri/client/desktop';
 import { useNoteStore } from '@features/memo/store/note-store';
@@ -39,13 +41,35 @@ export function acceptWorkspaceDocumentLinkSave(notice: { path: string; linkStag
   resumePendingNoteLinkUpdates();
 }
 
-/** Change Flowix note destinations and their filename-based display names. */
+/** Change Flowix note destinations and their filename-based display names.
+ *
+ * `sourceNotebook` is the notebook that owns the document being rewritten, and
+ * it decides everything here:
+ *
+ * - Only references written inside that notebook are maintained. A move never
+ *   rewrites cross-notebook references, because finding them would require
+ *   reading every other notebook in the library.
+ * - A bare `?f=` link means "inside my own notebook", so it belongs to that
+ *   document's notebook by definition.
+ * - New links are written in canonical form: `?f=` inside the notebook,
+ *   `notebookId=&f=` when the note moved into another notebook. Neither
+ *   carries a notebook name.
+ */
 export async function rewriteMovedNoteLinks(
   content: string,
   before: { book: string; file: string; notebookId: string; path: string },
-  after: { book: string; file: string },
+  after: { file: string; notebookId?: string },
   folder = false,
+  sourceNotebook: Notebook | null = null,
 ): Promise<string> {
+  // Without a known owner, fall back to the moved note's own notebook: the
+  // scan only visits notebooks that own a moved note.
+  const owner = sourceNotebook ?? {
+    id: before.notebookId,
+    name: before.book,
+    path: before.path.slice(0, before.path.length - before.file.length - 1),
+  };
+  const targetNotebookId = after.notebookId ?? before.notebookId;
   const { mapMarkdownLinks } = await import('@/lib/markdown-path-references');
   return mapMarkdownLinks(content, link => {
     const href = link.href;
@@ -58,21 +82,36 @@ export async function rewriteMovedNoteLinks(
       if (folder && file?.startsWith(`${before.file}/`)) return `${after.file}${file.slice(before.file.length)}`;
       return null;
     };
-    const matchesBookPath = params.get('b') === before.book && movedFile(params.get('f')) !== null;
-    const matchesLegacyBookPath = params.get('book') === before.book && movedFile(params.get('file')) !== null;
-    const matchesOldIdPath = params.get('notebookId') === before.notebookId
-      && movedFile(params.get('relativePath')) !== null;
+    const linkNotebookId = params.get('notebookId');
+    const linkBook = params.get('b') ?? params.get('book');
+    const linkFile = params.get('f') ?? params.get('file') ?? params.get('relativePath');
     const physical = params.get('path');
+    // Only references that resolve inside the notebook owning this document are
+    // maintained: a bare `?f=` means "my notebook", and naming another notebook
+    // (by ID or historical name) puts the reference out of scope.
+    const sameNotebook = linkNotebookId
+      ? linkNotebookId === owner.id
+      : linkBook
+        ? linkBook === owner.name
+        : true;
+    const resolved = sameNotebook && linkFile ? joinNotebookMemoPath(owner.path, linkFile) : null;
+    const matchesNotebook = resolved !== null && (
+      pathComparisonKey(resolved) === pathComparisonKey(before.path)
+      || (folder && isPathInDirectory(resolved, before.path))
+    );
     const matchesPhysicalPath = physical === before.path || (folder && physical?.startsWith(`${before.path}/`));
-    if (!matchesBookPath && !matchesLegacyBookPath && !matchesOldIdPath && !matchesPhysicalPath) return link;
-    const targetFile = movedFile(params.get('f') ?? params.get('file') ?? params.get('relativePath'))
-      ?? (matchesPhysicalPath && physical ? `${after.file}${physical.slice(before.path.length)}` : after.file);
+    if (!matchesNotebook && !matchesPhysicalPath) return link;
+    const targetFile = movedFile(linkFile)
+      ?? (matchesPhysicalPath && physical ? `${after.file}${physical.slice(before.path.length)}` : null);
+    if (targetFile === null) return link;
+    params.delete('b');
     params.delete('book');
+    params.delete('f');
     params.delete('file');
     params.delete('notebookId');
     params.delete('relativePath');
     params.delete('path');
-    params.set('b', after.book);
+    if (targetNotebookId !== owner.id) params.set('notebookId', targetNotebookId);
     params.set('f', targetFile);
     const label = displayTitleFromFilename(targetFile).replace(/\\/g, '\\\\').replace(/\[/g, '\\[').replace(/\]/g, '\\]');
     // url.hash is the heading anchor fragment (e.g. `#目标与范围`); searchParams
@@ -105,8 +144,10 @@ export function updateNoteLinksAfterMove(oldPath: string, newPath: string, folde
   resumePendingNoteLinkUpdates();
   const { rewrite } = createBatchRewrite(jobs, useNoteStore.getState().notebooks);
   return { id: jobs[0].id, through: jobs.length,
-    rewriteSource: (content: string, path: string, applied: number) =>
-      rewrite(content, pathBeforeMoves(path, jobs.slice(applied)), path, applied),
+    rewriteSource: (content: string, path: string, applied: number) => {
+      const source = notebookForPath(path, useNoteStore.getState().notebooks) ?? null;
+      return rewrite(content, pathBeforeMoves(path, jobs.slice(applied)), path, applied, source);
+    },
   };
 }
 
@@ -143,31 +184,161 @@ export async function rewriteLinksInNotebooks(oldPath: string, newPath: string, 
   return rewriteNoteLinkMoves([{ oldPath, newPath, folder }]);
 }
 
+/** Notebook that owns a path, with the notebook-relative file inside it. */
+function notebookAddress(path: string, notebooks: readonly Notebook[]): { notebook: Notebook; file: string } | null {
+  const notebook = notebookForPath(path, notebooks);
+  if (!notebook) return null;
+  const file = canonicalPath(path).slice(canonicalDirectoryPath(notebook.path).length + 1);
+  return file && !file.startsWith('/') ? { notebook, file } : null;
+}
+
 function createBatchRewrite(jobs: MoveJob[], notebooks: readonly Notebook[]) {
+  // Notebooks that any endpoint of a move lives in. A destination outside every
+  // notebook still needs its source notebook scanned for relative references.
+  const scope = new Set<string>();
+  for (const { oldPath, newPath } of jobs) {
+    for (const path of [oldPath, newPath]) {
+      const notebook = notebookForPath(path, notebooks);
+      if (notebook) scope.add(notebook.id);
+    }
+  }
   const moves = jobs.flatMap(({ oldPath, newPath, folder }, index) => {
-    const beforeLink = buildNoteOpenLinkFromPath(oldPath, notebooks);
-    const afterLink = buildNoteOpenLinkFromPath(newPath, notebooks);
-    if (!beforeLink || !afterLink) return [];
-    const beforeUrl = new URL(beforeLink);
-    const afterUrl = new URL(afterLink);
-    const book = beforeUrl.searchParams.get('b')!;
-    const notebook = notebooks.find((item) => item.name === book)!;
+    const before = notebookAddress(oldPath, notebooks);
+    const after = notebookAddress(newPath, notebooks);
+    if (!before || !after) return [];
     return [{
       index,
-      before: { book, file: beforeUrl.searchParams.get('f')!, notebookId: notebook.id, path: canonicalPath(oldPath) },
-      after: { book: afterUrl.searchParams.get('b')!, file: afterUrl.searchParams.get('f')! },
+      before: {
+        book: before.notebook.name,
+        notebookId: before.notebook.id,
+        file: before.file,
+        path: canonicalPath(oldPath),
+      },
+      after: { file: after.file, notebookId: after.notebook.id },
       folder,
     }];
   });
-  const rewrite = async (content: string, sourceBefore: string, sourceAfter: string, applied: number) => {
+  const rewrite = async (
+    content: string,
+    sourceBefore: string,
+    sourceAfter: string,
+    applied: number,
+    sourceNotebook: Notebook | null = null,
+  ) => {
     const { rewriteDocumentPathLinks } = await import('@/lib/markdown-path-references');
     let value = await rewriteDocumentPathLinks(content, sourceBefore, sourceAfter, jobs.slice(applied));
     for (const move of moves) {
-      if (move.index >= applied) value = await rewriteMovedNoteLinks(value, move.before, move.after, move.folder);
+      if (move.index < applied) continue;
+      value = await rewriteMovedNoteLinks(value, move.before, move.after, move.folder, sourceNotebook);
     }
     return value;
   };
-  return { moves, rewrite };
+  return { moves, rewrite, scope };
+}
+
+interface ReferenceRewriteContext {
+  jobs: MoveJob[];
+  notebooks: readonly Notebook[];
+  rewrite: (
+    content: string,
+    sourceBefore: string,
+    sourceAfter: string,
+    applied: number,
+    sourceNotebook: Notebook | null,
+  ) => Promise<string>;
+  progress: ReturnType<typeof createNoteLinkRewriteProgress>;
+  shouldYield: () => boolean;
+  acceptBackgroundDocumentContent: (path: string, content: string) => boolean;
+  hasLiveUnsavedDocumentAtPath: (path: string) => boolean;
+  getWorkspaceDocumentLinkStage: (path: string, batchId: string, savedContent?: string) => number | undefined;
+}
+
+/**
+ * Catch ONE document up with the queued moves.
+ *
+ * Every write keeps the queue's checkpoint (`applied`) and compare-and-swap
+ * contract, so the same document can be retried by the background scan without
+ * duplicating work. Returns false when the document still needs a later pass
+ * (dirty buffer, concurrent move, write conflict).
+ */
+async function rewriteDocumentReferences(
+  context: ReferenceRewriteContext,
+  fullPath: string,
+  scanningNotebook: Notebook,
+): Promise<boolean> {
+  const { jobs, rewrite, progress, shouldYield, acceptBackgroundDocumentContent,
+    hasLiveUnsavedDocumentAtPath, getWorkspaceDocumentLinkStage } = context;
+  // Nested notebooks overlap: a document below another notebook's root belongs
+  // to the most specific one, and only that one may resolve its `?f=` links.
+  const notebook = notebookForPath(fullPath, context.notebooks) ?? scanningNotebook;
+  try {
+    if (hasLiveUnsavedDocumentAtPath(fullPath)) return false;
+    let content = await externalDocuments.read(fullPath, notebook.path);
+    if (content === null) return false;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (shouldYield() || hasLiveUnsavedDocumentAtPath(fullPath)) return false;
+      const canonicalStage = jobs[0].id ? getWorkspaceDocumentLinkStage(fullPath, jobs[0].id, content) : undefined;
+      const document = await progress.open(fullPath, content, canonicalStage);
+      if (!document) return false;
+      const updated = await rewrite(content, document.sourcePath, fullPath, document.applied, notebook);
+      if (shouldYield()) return false;
+      if (updated === content) {
+        document.commit(false);
+        return acceptBackgroundDocumentContent(fullPath, content);
+      }
+      await document.prepare(updated);
+      // Input or a later move may have arrived while hashing the write intent.
+      if (shouldYield() || hasLiveUnsavedDocumentAtPath(fullPath)) {
+        document.rollback();
+        return false;
+      }
+      const result = await notes.writeDocument({ filePath: fullPath, content: updated, expectedContent: content });
+      if (result) {
+        document.commit();
+        return acceptBackgroundDocumentContent(fullPath, result.content);
+      }
+      document.rollback();
+      if (attempt === 1) return false;
+      const latest = await externalDocuments.read(fullPath, notebook.path);
+      if (latest === null) return false;
+      content = latest;
+    }
+  } catch (error) {
+    logger.warn('background reference update deferred', { path: fullPath, error });
+  }
+  return false;
+}
+
+/** Load the rewrite machinery once per batch (document sessions must be initialized). */
+async function createReferenceRewriteContext(
+  jobs: MoveJob[],
+  persistProgress: () => void,
+  shouldYield: () => boolean,
+  notebooks: readonly Notebook[],
+): Promise<{ context: ReferenceRewriteContext; scope: Set<string> }> {
+  // The save pipeline imports this scheduler. Load document sessions only when
+  // executing a job, after their module-level subscriptions are initialized.
+  const { acceptBackgroundDocumentContent, hasLiveUnsavedDocumentAtPath, getWorkspaceDocumentLinkStage } = await import('@features/document/public/workspace-api');
+  const { rewrite, scope } = createBatchRewrite(jobs, notebooks);
+  return {
+    scope,
+    context: {
+      jobs,
+      notebooks,
+      rewrite,
+      progress: createNoteLinkRewriteProgress(jobs, persistProgress),
+      shouldYield,
+      acceptBackgroundDocumentContent,
+      hasLiveUnsavedDocumentAtPath,
+      getWorkspaceDocumentLinkStage,
+    },
+  };
+}
+
+async function readNotebooks(): Promise<Notebook[]> {
+  const state = useNoteStore.getState();
+  if (!state.notebooksInitialized) await state.loadNotebooks();
+  return useNoteStore.getState().notebooks;
 }
 
 export async function rewriteNoteLinkMoves(
@@ -176,29 +347,23 @@ export async function rewriteNoteLinkMoves(
   persistProgress: () => void = () => {},
 ): Promise<boolean> {
   if (!jobs.length) return true;
-  const progress = createNoteLinkRewriteProgress(jobs, persistProgress);
-  // The save pipeline imports this scheduler. Load document sessions only when
-  // executing a job, after their module-level subscriptions are initialized.
-  const { acceptBackgroundDocumentContent, hasLiveUnsavedDocumentAtPath, getWorkspaceDocumentLinkStage } = await import('@features/document/public/workspace-api');
-  const state = useNoteStore.getState();
-  if (!state.notebooksInitialized) await state.loadNotebooks();
-  const notebooks: Notebook[] = useNoteStore.getState().notebooks;
-  const { moves, rewrite } = createBatchRewrite(jobs, notebooks);
+  const notebooks = await readNotebooks();
+  const { context, scope } = await createReferenceRewriteContext(jobs, persistProgress, shouldYield, notebooks);
 
   let complete = true;
 
-  // Update references in the affected notebook before scanning unrelated books.
-  const preferredBooks = [...moves].reverse().map((move) => move.before.notebookId);
-  const priority = (book: Notebook) => {
-    const index = preferredBooks.indexOf(book.id);
-    return index < 0 ? preferredBooks.length : index;
-  };
-  const orderedNotebooks = [...notebooks].sort((a, b) =>
-    priority(a) - priority(b));
-  for (const notebook of orderedNotebooks) {
+  // Only notebooks that own one end of a move can hold references it affects:
+  // a `?f=` link means "inside my own notebook". Every other notebook is left
+  // unread, so one rename no longer walks the whole library.
+  const scanned = new Set<string>();
+  // Nested roots overlap, so both the directory walk and the documents it
+  // yields are shared across notebooks: every document is rewritten once, with
+  // the notebook that actually owns it.
+  const visited = new Set<string>();
+  for (const notebook of notebooks) {
+    if (!scope.has(notebook.id)) continue;
     if (shouldYield()) return false;
     const directories = [notebook.path];
-    const visited = new Set<string>();
     while (directories.length > 0) {
       if (shouldYield()) return false;
       const directory = directories.shift()!;
@@ -214,6 +379,12 @@ export async function rewriteNoteLinkMoves(
           continue;
         }
         if (!/\.(?:md|markdown)$/i.test(entry.name)) continue;
+        // Roots can nest, so a directory walk may reach documents that belong to
+        // another notebook. Those are out of scope: only the notebooks that own
+        // a moved file are read.
+        const owner = notebookForPath(entry.fullPath, notebooks);
+        if (!owner || !scope.has(owner.id)) continue;
+        if (scanned.has(canonicalPath(entry.fullPath))) continue;
         documents.push(entry);
       }
       // Bound I/O concurrency, and avoid read_document's per-file index lookup.
@@ -223,44 +394,8 @@ export async function rewriteNoteLinkMoves(
         while (next < documents.length) {
           if (shouldYield()) { complete = false; return; }
           const entry = documents[next++];
-          try {
-            if (hasLiveUnsavedDocumentAtPath(entry.fullPath)) { complete = false; continue; }
-            let content = await externalDocuments.read(entry.fullPath, notebook.path);
-            if (content === null) { complete = false; continue; }
-            for (let attempt = 0; attempt < 2; attempt++) {
-              if (shouldYield() || hasLiveUnsavedDocumentAtPath(entry.fullPath)) { complete = false; break; }
-              const canonicalStage = jobs[0].id ? getWorkspaceDocumentLinkStage(entry.fullPath, jobs[0].id, content) : undefined;
-              const document = await progress.open(entry.fullPath, content, canonicalStage);
-              if (!document) { complete = false; break; }
-              const updated = await rewrite(content, document.sourcePath, entry.fullPath, document.applied);
-              if (shouldYield()) { complete = false; break; }
-              if (updated === content) {
-                document.commit(false);
-                if (!acceptBackgroundDocumentContent(entry.fullPath, content)) complete = false;
-                break;
-              }
-              await document.prepare(updated);
-              // Input or a later move may have arrived while hashing the write intent.
-              if (shouldYield() || hasLiveUnsavedDocumentAtPath(entry.fullPath)) {
-                document.rollback();
-                complete = false; break;
-              }
-              const result = await notes.writeDocument({ filePath: entry.fullPath, content: updated, expectedContent: content });
-              if (result) {
-                document.commit();
-                if (!acceptBackgroundDocumentContent(entry.fullPath, result.content)) complete = false;
-                break;
-              }
-              document.rollback();
-              if (attempt === 1) { complete = false; break; }
-              const latest = await externalDocuments.read(entry.fullPath, notebook.path);
-              if (latest === null) { complete = false; break; }
-              content = latest;
-            }
-          } catch (error) {
-            complete = false;
-            logger.warn('background reference update deferred', { path: entry.fullPath, error });
-          }
+          scanned.add(canonicalPath(entry.fullPath));
+          if (!await rewriteDocumentReferences(context, entry.fullPath, notebook)) complete = false;
         }
       }));
       // No-op documents also advance; batch their progress after bounded I/O.
@@ -270,22 +405,33 @@ export async function rewriteNoteLinkMoves(
   return complete;
 }
 
-/** A closed moved source must catch up before its first editable body is published. */
+/**
+ * A closed moved source must catch up before its first editable body is published.
+ *
+ * Only the opened document is rewritten here: publishing a body depends on that
+ * document's own references, not on the rest of the library. Spreading the move
+ * to every other note stays with the serialized background scan, which a large
+ * library (thousands of Markdown files) turns into minutes of work.
+ */
 export async function prepareMovedDocumentForRead(path: string): Promise<void> {
   const queued = readJobs();
-  if (!queued.length || pathBeforeMoves(path, queued) === canonicalPath(path)) return;
-  const { getWorkspaceDocumentLinkStage } = await import('@features/document/public/workspace-api');
-  if (queued[0].id && (getWorkspaceDocumentLinkStage(path, queued[0].id) ?? 0) >= queued.length) return;
-  const ready = pending.then(async () => {
-    const jobs = readJobs();
-    if (!jobs.length || pathBeforeMoves(path, jobs) === canonicalPath(path)) return;
-    const persist = () => persistQueuedProgress(jobs);
-    const complete = await rewriteNoteLinkMoves(jobs, () => readJobs().length > jobs.length, persist);
-    const caughtUp = createNoteLinkRewriteProgress(jobs, persist).stage(path) >= jobs.length;
-    if (complete && readJobs().length === jobs.length) writeJobs([]);
-    if (!caughtUp) throw new Error('Document references are still being reconciled; retry opening this document');
-  });
-  // Both loading and background scans share the same serialized persistence owner.
-  pending = ready.catch(() => {});
-  await ready;
+  const target = canonicalPath(path);
+  if (!queued.length || pathBeforeMoves(target, queued) === target) return;
+  const notebooks = await readNotebooks();
+  const notebook = notebookAddress(target, notebooks)?.notebook;
+  if (!notebook) return;
+  const persist = () => persistQueuedProgress(queued);
+  const { context } = await createReferenceRewriteContext(
+    queued,
+    persist,
+    () => readJobs().length > queued.length,
+    notebooks,
+  );
+  if (context.progress.stage(target) >= queued.length) return;
+  if (!await rewriteDocumentReferences(context, target, notebook)) {
+    // Never block the open: the background scan owns the rest and hands its
+    // result to a live buffer through `acceptBackgroundDocumentContent`.
+    logger.warn('moved document catch-up deferred', { path: target });
+  }
+  resumePendingNoteLinkUpdates();
 }

@@ -74,6 +74,19 @@
   -webkit-user-select: none;
 }
 
+/* 表格气泡让出链接 hover 气泡。
+ *
+ * 链接气泡默认落在链接正上方 (floating-bubble-position 的 placement: 'above'),
+ * 而表格气泡就压在表头上沿同一个位置: 表头单元格里的链接一 hover, 两者完全
+ * 重叠。共享声明组给的是 --layer-editor-overlay, 同档时后者盖住前者, 链接气泡
+ * 既看不见、按钮也点不到。表格气泡降到自己一档 (低于链接气泡), 链接气泡在
+ * 表头场景始终可见可点。选区气泡 (文字操作条) 仍保持在链接气泡之上。
+ * 选择器用复合写法而非单类, 不依赖本文件与 editor-table-presentation.css
+ * 的加载顺序。 */
+.table-bubble-menu-panel.selection-bubble-menu {
+  z-index: var(--layer-editor-table-overlay);
+}
+
 /* Popover 组件会给 trigger 强制包一层 div.relative（shared/ui/popover.tsx）。
  * 在 flex 工具条里这层块级 div 参与布局, 内部的 inline-flex 按钮按文字基线
  * 落位而非几何居中, 背景区域会比相邻按钮偏高 ~1px（descender 空间垫在按钮

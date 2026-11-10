@@ -189,11 +189,16 @@ class TableEdgeInsertView {
 
   private handleButtonMouseDown(event: MouseEvent, kind: EdgeKind): void {
     if (this.isDestroyed) return;
+    // A read-only pane only advertises the control. Let the press through
+    // instead of swallowing it, so the surrounding document can claim edit
+    // focus from the neighbouring column and the next press inserts.
+    if (!this.editor.isEditable) return;
+
     event.preventDefault();
     event.stopPropagation();
 
     const cellPos = kind === 'column' ? this.currentColumnCellPos : this.currentRowCellPos;
-    if (cellPos === null || !this.editor.isEditable) return;
+    if (cellPos === null) return;
 
     positionSelectionInCell(this.view, cellPos);
 
@@ -243,7 +248,11 @@ class TableEdgeInsertView {
   };
 
   private updateEdgeControls(eventTarget: EventTarget | null): void {
-    if (!this.editor.isEditable || this.view.dom.hasAttribute('data-table-reordering')) {
+    // Read-only documents keep the controls on hover: the panes in a two-column
+    // workspace are only editable while their column owns focus, and vanishing
+    // chrome reads as "the table lost its insert buttons". They stay visible
+    // but inert — handleButtonMouseDown bails on !isEditable.
+    if (this.view.dom.hasAttribute('data-table-reordering')) {
       this.hide();
       return;
     }

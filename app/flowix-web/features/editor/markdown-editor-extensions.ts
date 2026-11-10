@@ -15,7 +15,7 @@ import { Tag } from '@features/editor/extensions/tag';
 import MarkdownPaste from '@features/editor/extensions/markdown-paste';
 import ManagedPasteRules from '@features/editor/extensions/paste-rules';
 import { LinkSelectionHighlight, MarkdownLink } from '@features/editor/extensions/markdown-link';
-import { NoteReference } from '@features/editor/extensions/note-link';
+import { createNoteReferenceExtension } from '@features/editor/extensions/note-link';
 import { NoteMention, WikiNoteMention } from '@features/editor/extensions/note-mention';
 import { TagMention } from '@features/editor/extensions/tag-mention';
 import { CodeBlockShikiBase } from '@features/editor/extensions/codeblock-shiki/codeblock-shiki-base';
@@ -406,7 +406,9 @@ export function createMarkdownEditorExtensions({
       onViewSourceMode,
       getAttachmentNotebookId,
     }),
-    NoteReference,
+    // Note references serialize same-notebook links without a notebook key, so
+    // the node needs the notebook that owns this document.
+    createNoteReferenceExtension('document', { getOwnerNotebookId: getAttachmentNotebookId }),
     NoteMention,
     WikiNoteMention,
     TagMention,

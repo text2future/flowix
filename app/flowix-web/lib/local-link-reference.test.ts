@@ -9,6 +9,13 @@ describe('localLinkReference', () => {
       .toMatchObject({ href: '../%E8%B5%84%E6%96%99/%E8%AF%B4%E6%98%8E.md', label: '说明' });
     expect(localLinkReference('/book/项目/report.pdf', context)).toMatchObject({ href: './report.pdf', label: 'report.pdf' });
   });
+  it('accepts same-notebook and ID-addressed links inside the current notebook', () => {
+    expect(localLinkReference('flowix://open?f=资料%2F说明.md', context)?.href)
+      .toBe('../%E8%B5%84%E6%96%99/%E8%AF%B4%E6%98%8E.md');
+    expect(localLinkReference('flowix://open?notebookId=a&f=资料%2F说明.md', context)?.href)
+      .toBe('../%E8%B5%84%E6%96%99/%E8%AF%B4%E6%98%8E.md');
+    expect(localLinkReference('flowix://open?notebookId=b&f=资料%2F说明.md', context)).toBeNull();
+  });
   it('keeps filename delimiters separate from heading anchors', () => {
     expect(localLinkReference('/book/a#b?.png', context)?.href).toBe('../a%23b%3F.png');
     expect(localLinkReference('flowix://open?b=Book&f=a%23b.md&heading=Hello%20World', context)?.href)

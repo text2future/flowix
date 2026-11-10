@@ -2,7 +2,9 @@ import type { Editor } from '@tiptap/core';
 import { getExtensionField } from '@tiptap/core';
 import { Table } from '@tiptap/extension-table';
 import { Lexer } from 'marked';
-import type { Command } from '@tiptap/pm/state';
+import type { Command, Plugin, PluginKey } from '@tiptap/pm/state';
+import type { EditorView } from '@tiptap/pm/view';
+import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import {
   addRowAfter,
   addRowBefore,
@@ -238,6 +240,11 @@ function inheritColumnRoles(addRow: Command, before: boolean): Command {
 const addRowBeforeWithColumnRoles = inheritColumnRoles(addRowBefore, true);
 const addRowAfterWithColumnRoles = inheritColumnRoles(addRowAfter, false);
 
+/** `PluginKey.key` is a runtime field that prosemirror-state's typings omit. */
+function pluginKeyName(key: PluginKey | undefined): string | undefined {
+  return (key as unknown as { key?: string } | undefined)?.key;
+}
+
 /**
  * The editor's table. It adds the resize plugin, the column-role commands, and
  * an HTML fallback for tables pipe syntax cannot express.
@@ -254,21 +261,40 @@ export function createEditorTable() {
   return Table.extend({
     ...FlowixTable.config,
     addProseMirrorPlugins() {
-      const plugins = this.parent?.() ?? [];
-      // Editors survive read-only/editable transitions. The resize plugin must
-      // exist from initialization; its event handlers already check view.editable.
-      if (!this.options.resizable || plugins.some(plugin => plugin.spec.key === columnResizingPluginKey)) return plugins;
+      // This method now owns resizing only; the table's node view lives in
+      // `addNodeView` below. tiptap >= 3.23 registers its own columnResizing
+      // when `resizable && editor.isEditable` holds at construction time, so an
+      // editor built read-only never gets one and can never start resizing
+      // later. Rebuild it here without that gate: the plugin's handlers already
+      // check `view.editable` on their own.
+      //
+      // Compare keys by their string name, not by object identity: a Vite dev
+      // server can hand out two copies of @tiptap/pm, and the identity check
+      // then misses the parent's plugin and leaves two resize plugins active.
+      const isColumnResizing = (plugin: Plugin) =>
+        pluginKeyName(plugin.spec?.key) === pluginKeyName(columnResizingPluginKey);
+      const plugins = (this.parent?.() ?? []).filter(plugin => !isColumnResizing(plugin));
+      if (!this.options.resizable) return plugins;
       return [columnResizing({
         handleWidth: this.options.handleWidth,
         cellMinWidth: this.options.cellMinWidth,
         defaultCellMinWidth: this.options.cellMinWidth,
-        View: this.options.View,
         lastColumnResizable: this.options.lastColumnResizable,
       }), ...plugins];
     },
     addNodeView() {
-      // The resize plugin supplies the table NodeView in both editing modes.
-      return this.options.resizable ? null : this.parent?.() ?? null;
+      // Own the table node view unconditionally. tiptap's `Table.addNodeView()`
+      // returns null while the table is resizable, deferring to the view that
+      // `columnResizing({ View })` registers, which is why a read-only-built
+      // editor kept the stock DOM table (`renderWrapper` is false, so no
+      // .tableWrapper) for its whole lifetime: no .markdown-table-rail, and
+      // therefore no insert squares and no reorder grips. Extension node views
+      // are handed to EditorView as its `nodeViews` option, so they take
+      // precedence over any plugin's.
+      const View = this.options.View;
+      if (!View) return this.parent?.() ?? null;
+      const cellMinWidth = this.options.cellMinWidth;
+      return ({ node, view }: { node: ProseMirrorNode; view: EditorView }) => new View(node, cellMinWidth, view);
     },
     addCommands() {
       return {

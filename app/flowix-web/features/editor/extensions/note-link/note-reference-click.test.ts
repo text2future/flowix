@@ -9,7 +9,7 @@ const navigationMocks = vi.hoisted(() => ({
 
 vi.mock('@features/memo/public/note-navigation-api', () => navigationMocks);
 
-import { NoteReference } from './view-note';
+import { NoteReference, createNoteReferenceExtension } from './view-note';
 
 function createEditorWithReference(): Editor {
   const editor = new Editor({
@@ -26,6 +26,31 @@ function createEditorWithReference(): Editor {
       originalPath: null,
       linkStyle: 'flowix',
       linkTarget: null,
+      heading: null,
+      stale: false,
+    },
+  });
+  return editor;
+}
+
+/** Same-notebook reference: no notebook of its own, resolved from the document. */
+function createEditorWithRelativeReference(ownerNotebookId: string | null): Editor {
+  const editor = new Editor({
+    extensions: [StarterKit, createNoteReferenceExtension('document', {
+      getOwnerNotebookId: () => ownerNotebookId,
+    })],
+    content: '<p></p>',
+  });
+  editor.commands.insertContent({
+    type: 'noteReference',
+    attrs: {
+      notebookId: null,
+      relativePath: 'Projects/Plan.md',
+      notebookName: '',
+      title: 'Plan',
+      originalPath: null,
+      linkStyle: 'flowix',
+      linkTarget: 'flowix://open?f=Projects%2FPlan.md',
       heading: null,
       stale: false,
     },
@@ -82,6 +107,36 @@ describe('note reference interaction in the document body', () => {
     expect(wrapper?.classList.contains('is-selected')).toBe(false);
     expect(editor.state.selection).not.toBeNull();
     expect(editor.state.selection.constructor.name).not.toBe('NodeSelection');
+    editor.destroy();
+  });
+
+  it('opens a same-notebook reference inside the owning notebook', async () => {
+    navigationMocks.openNoteByNotebookPath.mockClear();
+    const editor = createEditorWithRelativeReference('owner-book');
+
+    cardOf(editor).dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(navigationMocks.openNoteByNotebookPath).toHaveBeenCalledWith(
+      'owner-book',
+      'Projects/Plan.md',
+      null,
+    );
+    editor.destroy();
+  });
+
+  it('falls back to the deep-link opener when no notebook owns the document', async () => {
+    navigationMocks.openNoteByNotebookPath.mockClear();
+    navigationMocks.openNoteByPhysicalPath.mockClear();
+    const editor = createEditorWithRelativeReference(null);
+
+    cardOf(editor).dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // No owner to resolve `f` against: the opener rejects with a clear error,
+    // which the card surfaces as a stale reference.
+    expect(navigationMocks.openNoteByNotebookPath).not.toHaveBeenCalled();
+    expect(navigationMocks.openNoteByPhysicalPath).toHaveBeenCalledWith('flowix://open?f=Projects%2FPlan.md');
     editor.destroy();
   });
 });

@@ -967,7 +967,9 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
 }
 
 /* Fixed h-6 squares past the table's right/bottom edge, positioned rail-locally
- * by table-edge-insert-plugin.ts; the two pseudo-elements below draw the +. */
+ * by table-edge-insert-plugin.ts; the two pseudo-elements below draw the +.
+ * The surface is the card fill, not the header tint: the square floats over the
+ * page gutter, so it must read as a chip lifted off the document. */
 .markdown-editor .table-edge-insert-button:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   position: absolute;
   z-index: 18;
@@ -976,7 +978,7 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
   padding: 0;
   margin: 0;
   border-radius: 6px;
-  background: var(--table-header-fill);
+  background: var(--card, var(--background));
   color: var(--muted-foreground, #6b7280);
   cursor: pointer;
   opacity: 1;
@@ -1024,9 +1026,21 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
   transform: translate(-50%, -50%) rotate(90deg);
 }
 
+/* Hover keeps the card surface and only lifts the glyph, so the chip never
+ * flashes a different fill than its resting state. */
 .markdown-editor .table-edge-insert-button:hover:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
-  background: var(--table-header-fill);
+  background: var(--card, var(--background));
   color: var(--foreground, #111827);
+}
+
+/* A pane that does not own edit focus stays read-only, but its table chrome has
+ * to remain discoverable: the insert squares and the reorder grips keep their
+ * position and shrink to an inert ghost instead of disappearing.
+ * contenteditable is what setEditable() actually flips, so it also covers panes
+ * rendered without the editor component's aria-readonly mirror. */
+.markdown-editor .ProseMirror[contenteditable="false"] :is(.table-edge-insert-button, .table-reorder-handle):where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .markdown-editor .tiptap:not(.agent-composer__input-content) ul li:where(:not(.agent-conversation-surface, .agent-conversation-surface *))::marker {

@@ -119,4 +119,26 @@ describe('note deep links', () => {
     expect(request?.viewId).toBe('tab-note');
     cancelAgentLocationRequest('C:/Notes/Projects/Plan.md');
   });
+
+  it('opens a cross-notebook link by notebook ID', async () => {
+    await openNoteByDeepLink('flowix://open?notebookId=work-id&f=Projects%2FPlan.md');
+    expect(openWorkspaceSurface).toHaveBeenCalledWith({
+      index: 0,
+      target: { kind: 'external', path: 'C:/Notes/Projects/Plan.md', scopePath: 'C:/Notes', transitionId: null },
+    });
+  });
+
+  it('resolves a notebook-relative link inside the referring notebook', async () => {
+    await openNoteByDeepLink('flowix://open?f=Projects%2FPlan.md', null, { ownerNotebookId: 'work-id' });
+    expect(openWorkspaceSurface).toHaveBeenCalledWith({
+      index: 0,
+      target: { kind: 'external', path: 'C:/Notes/Projects/Plan.md', scopePath: 'C:/Notes', transitionId: null },
+    });
+  });
+
+  it('refuses a notebook-relative link with no notebook to resolve it', async () => {
+    await expect(openNoteByDeepLink('flowix://open?f=Projects%2FPlan.md'))
+      .rejects.toThrow('missing its notebook');
+    expect(openWorkspaceSurface).not.toHaveBeenCalled();
+  });
 });

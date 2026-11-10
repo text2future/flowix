@@ -10,7 +10,7 @@ import { openNoteByNotebookPath, openNoteByPhysicalPath } from '@features/memo/p
 import { queryMentionNotes } from '@features/editor/extensions/note-mention/note-mention-data';
 import { parseBooleanAttr, splitDisplay, stripMdSuffix } from '@features/editor/extensions/note-link/markdown';
 import {
-  attrsFromMarkdownNoteLink, attrsFromWikiNoteLink, escapeMarkdownLinkText,
+  attrsFromMarkdownNoteLink, attrsFromWikiNoteLink, escapeMarkdownLinkText, noteReferenceOpenLink,
   parseMarkdownNoteLinkAtStart, parseWikiNoteLinkAtStart, noteReferenceMarkdownSpec,
   type NoteReferenceAttrs, type ParsedWikiNoteLink,
 } from './note-reference-markdown';
@@ -32,7 +32,6 @@ import { notes as notesClient } from '@platform/tauri/client';
 import type { NoteEntry } from '@platform/tauri/client/notes';
 import { useNoteStore } from '@features/memo/store/note-store';
 import { joinNotebookMemoPath } from '@/lib/path';
-import { buildNoteOpenLink } from '@platform/open-target/path-link';
 import { displayTitleFromFilename } from '@/lib/utils';
 import { toast } from '@/lib/toast';
 import {
@@ -57,6 +56,36 @@ function noteReferenceDisplayTitle(attrs: NoteReferenceAttrs): string {
 
 function tKey(key: I18nKey, params?: Record<string, string | number>): string {
   return translate(getCurrentAppLanguage(), key, params);
+}
+
+/**
+ * Notebook that owns the document a note reference is written in.
+ *
+ * Same-notebook references carry no notebook key, so both serialization and
+ * reading need this to know what `relativePath` is relative to.
+ */
+export type OwnerNotebookIdProvider = () => string | null | undefined;
+
+/** Notebook named by a reference's own attrs; null when unknown or ambiguous. */
+function targetNotebookId(attrs: NoteReferenceAttrs): string | null {
+  if (attrs.notebookId) return attrs.notebookId;
+  const { notebookName } = attrs;
+  if (!notebookName) return null;
+  const matches = useNoteStore.getState().notebooks.filter((notebook) => notebook.name === notebookName);
+  return matches.length === 1 ? matches[0].id : null;
+}
+
+/**
+ * Notebook a reference actually resolves inside.
+ *
+ * An explicit notebook wins (even when it is ambiguous, so a broken cross-book
+ * link never silently retargets); otherwise the reference is same-notebook and
+ * inherits the owning document's notebook.
+ */
+function referenceNotebookId(attrs: NoteReferenceAttrs, ownerNotebookId: string | null | undefined): string | null {
+  if (attrs.notebookId) return attrs.notebookId;
+  if (attrs.notebookName) return targetNotebookId(attrs);
+  return attrs.relativePath ? ownerNotebookId ?? null : null;
 }
 
 function findLastMarkdownNoteLink(text: string): InputRuleMatch | null {
@@ -130,7 +159,13 @@ class NoteReferenceView implements ProseMirrorNodeView {
   private lastOpenAt = 0;
   private previewController: NoteReferencePreviewController | null = null;
 
-  constructor(node: ProseMirrorNode, view: EditorView, getPos: (() => number | undefined) | undefined, private readonly presentation: 'document' | 'composer') {
+  constructor(
+    node: ProseMirrorNode,
+    view: EditorView,
+    getPos: (() => number | undefined) | undefined,
+    private readonly presentation: 'document' | 'composer',
+    private readonly getOwnerNotebookId: OwnerNotebookIdProvider | undefined,
+  ) {
     this.node = node;
     this.view = view;
     this.getPos = getPos;
@@ -158,6 +193,11 @@ class NoteReferenceView implements ProseMirrorNodeView {
     // mount 时按笔记本和相对路径校验目标是否仍存在.
   }
 
+  /** Notebook that owns this document, when the host can supply one. */
+  private ownerNotebookId(): string | null {
+    return this.getOwnerNotebookId?.() ?? null;
+  }
+
   private createCard(): HTMLElement {
     // notebookName 不再用于渲染 (见下方 nameSpan 注释), 仍在 attrs 里保留;
     // 这里只解构 UI 需要的字段.
@@ -165,7 +205,7 @@ class NoteReferenceView implements ProseMirrorNodeView {
 
     // 视觉 stale 判定:
     //   - 已 stale (applyAttrs 写入) → 视觉 stale
-    const hasTarget = Boolean((notebookId || notebookName) && relativePath)
+    const hasTarget = Boolean(relativePath && (notebookId || notebookName || this.ownerNotebookId()))
       || Boolean(originalPath || linkTarget);
     const effectiveStale = stale || !hasTarget;
 
@@ -327,6 +367,10 @@ class NoteReferenceView implements ProseMirrorNodeView {
       if (matches.length === 1) notebookId = matches[0].id;
     }
 
+    // Same-notebook references name no notebook at all: they resolve inside the
+    // notebook that owns this document.
+    if (!notebookId && relativePath && !notebookName) notebookId = this.ownerNotebookId();
+
     if (!notebookId || !relativePath) {
       return null;
     }
@@ -391,8 +435,11 @@ class NoteReferenceView implements ProseMirrorNodeView {
       // 本文档）时才在当前编辑器内滚动。
       const sameDocumentHeading = Boolean(attrs.heading)
         && !attrs.linkTarget && !attrs.notebookId && !attrs.relativePath && !attrs.originalPath;
-      if (attrs.notebookId && attrs.relativePath) {
-        await openNoteByNotebookPath(attrs.notebookId, attrs.relativePath, attrs.heading);
+      // A same-notebook reference has no notebook of its own; it means "this
+      // document's notebook".
+      const notebookId = referenceNotebookId(attrs, this.ownerNotebookId());
+      if (notebookId && attrs.relativePath) {
+        await openNoteByNotebookPath(notebookId, attrs.relativePath, attrs.heading);
       } else if (attrs.originalPath) {
         await openNoteByPhysicalPath(attrs.originalPath, attrs.heading);
       } else if (attrs.linkTarget) {
@@ -521,6 +568,22 @@ class NoteReferenceView implements ProseMirrorNodeView {
           if ((this.node.attrs as NoteReferenceAttrs).stale !== stale) this.applyAttrs({ stale });
           return;
         }
+        // Same-notebook reference: validate inside the owning document's
+        // notebook. Without an owner there is nothing to validate against.
+        if (initialAttrs.relativePath && !initialAttrs.notebookId && !initialAttrs.notebookName) {
+          const ownerNotebookId = this.ownerNotebookId();
+          if (!ownerNotebookId) return;
+          let notebook = useNoteStore.getState().notebooks.find((item) => item.id === ownerNotebookId);
+          if (!notebook) {
+            await useNoteStore.getState().loadNotebooks();
+            notebook = useNoteStore.getState().notebooks.find((item) => item.id === ownerNotebookId);
+          }
+          const path = notebook ? joinNotebookMemoPath(notebook.path, initialAttrs.relativePath) : null;
+          const content = path ? await notesClient.readDocument(path) : null;
+          const stale = content === null;
+          if ((this.node.attrs as NoteReferenceAttrs).stale !== stale) this.applyAttrs({ stale });
+          return;
+        }
         const target = initialAttrs.linkTarget!;
         let notebookId: string | null = null;
         let relativePath: string | null = null;
@@ -598,7 +661,20 @@ class NoteReferenceView implements ProseMirrorNodeView {
 
 // ─── Node definition ──────────────────────────────────────────────────────────
 
-function createNoteReferenceExtension(presentation: 'document' | 'composer') {
+export interface NoteReferenceOptions {
+  /** Notebook owning the document being serialized; same-notebook links drop it. */
+  getOwnerNotebookId?: OwnerNotebookIdProvider;
+}
+
+/**
+ * `renderMarkdown` is invoked without tiptap's extension context (no
+ * `this.options`), so the owning notebook is captured in this closure instead
+ * of being configured on the node.
+ */
+export function createNoteReferenceExtension(
+  presentation: 'document' | 'composer',
+  { getOwnerNotebookId }: NoteReferenceOptions = {},
+) {
   return Node.create({
     name: 'noteReference',
     group: 'inline',
@@ -677,20 +753,15 @@ function createNoteReferenceExtension(presentation: 'document' | 'composer') {
         return `[${displayTitle}](${a.linkTarget})`;
       }
       if (a.relativePath) {
-        const notebook = a.notebookId
-          ? useNoteStore.getState().notebooks.find((item) => item.id === a.notebookId)
-          : null;
-        const book = notebook?.name ?? a.notebookName;
-        if (book) {
-          const target = buildNoteOpenLink(book, a.relativePath);
-          return `[${displayTitle}](${target})`;
-        }
+        const target = noteReferenceOpenLink({
+          relativePath: a.relativePath,
+          heading: a.heading,
+          notebookId: targetNotebookId(a),
+          notebookName: a.notebookName,
+        }, getOwnerNotebookId?.());
+        if (target) return `[${displayTitle}](${target})`;
         if (a.linkTarget) {
           return `[${displayTitle}](${a.linkTarget})`;
-        }
-        if (a.notebookId) {
-          const target = `flowix://open?notebookId=${encodeURIComponent(a.notebookId)}&relativePath=${encodeURIComponent(a.relativePath)}`;
-          return `[${displayTitle}](${target})`;
         }
       }
       if (a.linkTarget?.startsWith('flowix://open?') && !a.originalPath) {
@@ -710,7 +781,13 @@ function createNoteReferenceExtension(presentation: 'document' | 'composer') {
     // ─── NodeView ─────────────────────────────────────────────────────────────
 
     addNodeView() {
-      return ({ node, view, getPos }) => new NoteReferenceView(node, view, getPos as () => number | undefined, presentation);
+      return ({ node, view, getPos }) => new NoteReferenceView(
+        node,
+        view,
+        getPos as () => number | undefined,
+        presentation,
+        getOwnerNotebookId,
+      );
     },
 
     // Normalize imported legacy content once, then maintain changed textblocks.

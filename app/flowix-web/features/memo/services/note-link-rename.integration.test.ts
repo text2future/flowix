@@ -18,7 +18,7 @@ vi.mock('@features/memo/store/note-store', () => ({
 import { renameMarkdownTitle } from '@features/document/use-cases/local-document-operations';
 import { applyLoadedDocumentContent, getDocumentBuffer, recordDocumentEdit } from '@features/document/store/document-session-service';
 import { acceptBackgroundDocumentContent, hasLiveUnsavedDocumentAtPath, subscribeWorkspaceDocumentSaves } from '@features/document/public/workspace-api';
-import { NoteReference } from '@features/editor/extensions/note-link/view-note';
+import { createNoteReferenceExtension } from '@features/editor/extensions/note-link/view-note';
 import { toNoteReferenceAttrs } from '@features/editor/public/mention-data-api';
 import { canonicalPath } from '@/lib/path';
 import { rewriteNoteLinkMoves, updateNoteLinksAfterMove, acceptWorkspaceDocumentLinkSave } from './note-link-rewriter';
@@ -42,7 +42,15 @@ afterEach(async () => {
 });
 
 function editor() {
-  const value = new Editor({ extensions: [StarterKit, Markdown, NoteReference], content: '<p></p>' });
+  // The real editor knows which notebook owns the document it is editing.
+  const value = new Editor({
+    extensions: [
+      StarterKit,
+      Markdown,
+      createNoteReferenceExtension('document', { getOwnerNotebookId: () => notebooks[0]?.id }),
+    ],
+    content: '<p></p>',
+  });
   editors.push(value);
   return value;
 }
@@ -103,7 +111,9 @@ describe('rename B updates the Markdown reference in A', () => {
       expect(JSON.parse(localStorage.getItem('flowix:pending-note-link-moves') ?? '[]')).toEqual([]);
     });
     const saved = await readFile(noteA, 'utf8');
-    expect(saved).toContain('[简介2](flowix://open?b=Test+Book&f=%E6%95%99%E5%AD%A6%E6%96%B9%E6%A1%88%2F%E7%AE%80%E4%BB%8B2.md)');
+    // Same notebook: no name and no ID, so the notebook rename cannot break it.
+    expect(saved).toContain('[简介2](flowix://open?f=%E6%95%99%E5%AD%A6%E6%96%B9%E6%A1%88%2F%E7%AE%80%E4%BB%8B2.md)');
+    expect(saved).not.toContain('Test+Book');
     expect(getDocumentBuffer(identity)).toMatchObject({ content: saved, lastSavedContent: saved, saveState: 'clean' });
     const reopened = editor();
     reopened.commands.setContent(getDocumentBuffer(identity).content, { contentType: 'markdown' });
@@ -178,7 +188,14 @@ describe('rename B updates the Markdown reference in A', () => {
     updateNoteLinksAfterMove(oldPath, newPath);
     expect(await localDocumentOperations.read({ path: newPath, scopePath: root })).toBe('[old](../A/old.png)');
     expect(await readFile(newPath, 'utf8')).toBe('[old](../A/old.png)');
-    expect(JSON.parse(localStorage.getItem('flowix:pending-note-link-moves')!)).toEqual([]);
+    // The opened document is settled before its body is published; the durable
+    // queue keeps the move so the rest of the library can follow in the
+    // background.
+    const queued = JSON.parse(localStorage.getItem('flowix:pending-note-link-moves')!) as Array<{
+      documents?: Record<string, { applied: number }>;
+    }>;
+    expect(queued).toHaveLength(1);
+    expect(Object.values(queued[0].documents ?? {})).toEqual([{ applied: 1 }]);
   });
 
 });

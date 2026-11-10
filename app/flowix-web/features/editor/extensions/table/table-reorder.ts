@@ -52,6 +52,7 @@ class ReorderView {
   private marker: HTMLDivElement;
   private readonly preview: TableReorderPreview;
   private target: Target | null = null;
+  private pointerTarget: Element | null = null;
   private pinnedAxis: Axis | null = null;
   private drag: DragState | null = null;
   private readonly doc: Document;
@@ -108,9 +109,13 @@ class ReorderView {
   }
 
   private hover = (event: MouseEvent): void => {
-    if (this.drag || !this.view.editable) return;
+    // Read-only panes still show the grips: a document in the unfocused column
+    // of a two-column workspace is read-only, and hiding the chrome there looks
+    // like the feature was removed. start() keeps blocking the drag itself.
+    if (this.drag) return;
     if (this.syncPinned()) return;
     if (event.target instanceof Element && event.target.closest('.table-reorder-handle')) return;
+    this.pointerTarget = event.target instanceof Element ? event.target : null;
     this.target = this.read(event.target);
     if (!this.target) { this.hide(); return; }
     this.showHandles(this.target);
@@ -225,8 +230,13 @@ class ReorderView {
 
   private end = (): void => {
     const drag = this.drag;
+    // Only a grip drag owns the document-wide mouseup. A plain click anywhere —
+    // including the one that puts the caret into a cell — used to run straight
+    // into cancel()/hide(), so the grips blinked out on click and only came
+    // back on the next mousemove. Hover chrome is not ours to tear down here.
+    if (!drag) return;
     this.cancel();
-    if (drag?.active && drag.valid && this.view.state.doc.nodeAt(drag.target.pos) === drag.target.node) {
+    if (drag.active && drag.valid && this.view.state.doc.nodeAt(drag.target.pos) === drag.target.node) {
       reorderTable(this.view, drag.target.pos, drag.axis, drag.from, drag.to);
       this.view.focus();
     }
@@ -255,8 +265,17 @@ class ReorderView {
   };
 
   private key = (event: KeyboardEvent): void => { if (event.key === 'Escape') this.cancel(); };
-  private leave = (): void => { if (!this.drag) this.hide(); };
-  private scroll = (): void => { if (!this.drag) this.hide(); };
+  private leave = (): void => { this.pointerTarget = null; if (!this.drag) this.hide(); };
+  private scroll = (): void => { this.pointerTarget = null; if (!this.drag) this.hide(); };
+  /** Re-resolve the hovered cell from the pointer position after the document
+   * moved under it, so typing in a cell does not blank chrome the user is still
+   * pointing at. Positions from before the change are discarded, never reused. */
+  private resolvePointer(): void {
+    const pointer = this.pointerTarget;
+    if (!pointer?.isConnected || !this.view.dom.contains(pointer)) return;
+    const target = this.read(pointer);
+    if (target) this.showHandles(target);
+  }
   private hide(): void {
     this.buttons.forEach(button => { button.hidden = true; });
     this.marker.hidden = true;
@@ -276,8 +295,13 @@ class ReorderView {
     // Resizing and selection plugins dispatch view-only transactions during a
     // native drag. Only a content change invalidates our document positions.
     if (previous.doc !== view.state.doc || !view.editable) {
+      const wasVisible = this.buttons.some(button => !button.hidden);
       this.target = null;
       this.cancel();
+      // Editing a cell rewrites the document under a pointer that never moved.
+      // Re-resolve the cell it still points at instead of blanking the grips;
+      // read-only panes keep them too, as a CSS-ghosted hint.
+      if (wasVisible) this.resolvePointer();
     } else if (this.drag && !previous.selection.eq(view.state.selection)) {
       this.cancel();
     } else if (!this.drag) {
@@ -286,6 +310,7 @@ class ReorderView {
   }
   destroy(): void {
     this.pinnedAxis = null;
+    this.pointerTarget = null;
     this.cancel();
     this.view.dom.removeEventListener('mousemove', this.captureReorderMove, true);
     this.view.dom.removeEventListener('mousemove', this.hover);

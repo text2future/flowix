@@ -11,9 +11,11 @@
  * 依赖加载顺序: index.css 严格把 editor-link-tooltip.css 排在
  * editor-bubble-menus.css 之后, 因此这里的单类规则能覆盖共享声明组。
  *
- * 优先次序: 选区气泡 > 链接气泡。两者同时命中时由
- * selection-bubble-menu-state 的可见性广播让链接气泡让位, 叠层上再把链接
- * 气泡降到 --layer-editor-link-tooltip 作兜底。 */
+ * 优先次序: 选区气泡 > 链接气泡 > 表格气泡。选区气泡与链接气泡同时命中时由
+ * selection-bubble-menu-state 的可见性广播让链接气泡让位, 叠层上再把链接气泡
+ * 降到 --layer-editor-link-tooltip 作兜底; 表格气泡与链接气泡重叠时反过来
+ * (表头里的链接), 表格气泡走更低的 --layer-editor-table-overlay —— 见
+ * editor-bubble-menus.css 里的 .table-bubble-menu-panel 规则。 */
 
 @keyframes editor-link-tooltip-in {
   from {
@@ -41,8 +43,9 @@
 
 .editor-link-hover-tooltip {
   position: fixed;
-  /* 叠层次序: 选区 / 表格气泡 (--layer-editor-overlay) 在上, 链接气泡在其下一层。
-   * 共享声明组先给了 overlay 档, 这里显式降到链接档。 */
+  /* 叠层次序: 选区气泡 (--layer-editor-overlay) 在上, 链接气泡在其下一层。
+   * 共享声明组先给了 overlay 档, 这里显式降到链接档。表格气泡再低一档
+   * (--layer-editor-table-overlay), 表头里的链接 hover 时才不会被表格气泡盖住。 */
   z-index: var(--layer-editor-link-tooltip);
   /* URL 文案和操作按钮之间留 8px, 比气泡内按钮之间的 2px 更宽松,
    * 让「读地址」和「点按钮」在视觉上分成两段。 */
@@ -155,8 +158,8 @@
 
 /* ── 链接输入态 ──
  * hover 气泡的「编辑」与选区气泡的链接按钮都把气泡换成: 无外框的地址输入框 +
- * 保存 (放弃编辑走 Esc / 点气泡外)。比 hover 态高一档叠层 (和选区 / 表格气泡
- * 同档), 因为它是可输入的交互面。 */
+ * 保存 (放弃编辑走 Esc / 点气泡外)。比 hover 态高一档叠层 (和选区气泡同档,
+ * 因此也高于表格气泡), 因为它是可输入的交互面。 */
 .editor-link-inline-editor {
   z-index: var(--layer-editor-overlay);
   gap: 6px;

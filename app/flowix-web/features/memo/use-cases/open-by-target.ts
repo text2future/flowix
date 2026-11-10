@@ -25,6 +25,13 @@ export interface OpenNoteDestinationOptions {
   source?: WorkspaceNavigationSource;
   destination?: 0 | 1;
   columnId?: import('@features/workspace/public/surface-api').WorkspaceColumnId;
+  /**
+   * Notebook that owns the document the link was written in.
+   *
+   * Same-notebook links (`flowix://open?f=…`) carry no notebook of their own,
+   * so a caller that has the referring document must supply this.
+   */
+  ownerNotebookId?: string;
 }
 
 /** Cancelled opens have no view location to publish anchors against. */
@@ -101,7 +108,9 @@ export async function openNoteByDeepLink(
   if (/^flowix:\/\/open\?/i.test(url.trim())) {
     const target = new URL(url.trim().replace(/&amp;/gi, '&'));
     const book = target.searchParams.get('b') ?? target.searchParams.get('book');
-    const file = target.searchParams.get('f') ?? target.searchParams.get('file');
+    const file = target.searchParams.get('f')
+      ?? target.searchParams.get('file')
+      ?? target.searchParams.get('relativePath');
     if (book && file) {
       let notebooks = useNoteStore.getState().notebooks;
       if (!notebooks.some((item) => item.name === book)) {
@@ -113,10 +122,14 @@ export async function openNoteByDeepLink(
       await openNoteByNotebookPath(matches[0].id, file, anchor, options);
       return;
     }
-    const notebookId = target.searchParams.get('notebookId');
-    const relativePath = target.searchParams.get('relativePath');
-    if (notebookId && relativePath) {
-      await openNoteByNotebookPath(notebookId, relativePath, anchor, options);
+    // Cross-notebook links name their notebook by ID; same-notebook links name
+    // none and resolve inside the notebook that owns the referring document.
+    const notebookId = target.searchParams.get('notebookId') ?? options?.ownerNotebookId;
+    if (file) {
+      if (!notebookId) {
+        throw new Error(`Notebook-relative note link is missing its notebook: ${url}`);
+      }
+      await openNoteByNotebookPath(notebookId, file, anchor, options);
       return;
     }
     if (!target.searchParams.get('path')) throw new Error(`Invalid note link: ${url}`);

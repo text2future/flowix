@@ -1,5 +1,10 @@
 import { Extension, type MarkdownToken } from '@tiptap/core';
 import { readMarkdownLinkDestination } from '@features/editor/extensions/shared/markdown-link-destination';
+import {
+  buildNoteOpenLink,
+  buildNoteOpenLinkById,
+  buildNotebookRelativeOpenLink,
+} from '@platform/open-target/path-link';
 import { parseBooleanAttr, pickAttr, splitDisplay, unescapeHtml } from './markdown';
 
 export interface NoteReferenceAttrs {
@@ -103,6 +108,13 @@ export function escapeMarkdownLinkText(text: string): string {
     .replace(/\]/g, '\\]');
 }
 
+/** Anchor of a note link: the `#fragment` first, then the generator's `heading` parameter. */
+function headingFromTarget(target: URL | null): string | null {
+  if (!target) return null;
+  const fragment = target.hash ? decodeMarkdownHref(target.hash.replace(/^#/, '')).trim() : '';
+  return fragment || target.searchParams.get('heading')?.trim() || null;
+}
+
 export function attrsFromMarkdownNoteLink(titleText: string, href: string): NoteReferenceAttrs {
   if (!FLOWIX_NOTE_URL_RE.test(href)) {
     const { target, heading } = splitObsidianTarget(href);
@@ -121,9 +133,47 @@ export function attrsFromMarkdownNoteLink(titleText: string, href: string): Note
     originalPath: null,
     linkStyle: 'flowix',
     linkTarget: href,
-    heading: pathTarget?.hash ? decodeMarkdownHref(pathTarget.hash.replace(/^#/, '').trim()) || null : null,
+    heading: headingFromTarget(pathTarget),
     stale: !pathTarget,
   };
+}
+
+export interface NoteReferenceDestination {
+  relativePath?: string | null;
+  heading?: string | null;
+  notebookId?: string | null;
+  notebookName?: string | null;
+}
+
+/**
+ * Destination to persist for a note reference.
+ *
+ * A same-notebook reference carries no notebook key at all: its target is
+ * whatever `relativePath` means inside the notebook that owns the referring
+ * document, so neither rename nor move of the notebook can break it. Every
+ * other reference is cross-notebook and names its notebook by ID, which is the
+ * only target that survives a rename. Links authored before IDs existed keep
+ * their name form.
+ *
+ * Returns null when the reference has no writable form (invalid path, or a
+ * same-notebook reference whose owning notebook is unknown), so the caller can
+ * keep the authored text instead.
+ */
+export function noteReferenceOpenLink(
+  target: NoteReferenceDestination,
+  ownerNotebookId: string | null | undefined,
+): string | null {
+  const file = target.relativePath;
+  if (!file) return null;
+  const heading = target.heading ?? undefined;
+  try {
+    if (target.notebookId && ownerNotebookId && target.notebookId === ownerNotebookId) {
+      return buildNotebookRelativeOpenLink(file, heading);
+    }
+    if (target.notebookId) return buildNoteOpenLinkById(target.notebookId, file, heading);
+    if (target.notebookName) return buildNoteOpenLink(target.notebookName, file, heading);
+  } catch { /* Keep the authored link instead of writing an invalid one. */ }
+  return null;
 }
 
 export function attrsFromWikiNoteLink(parsed: ParsedWikiNoteLink): NoteReferenceAttrs {

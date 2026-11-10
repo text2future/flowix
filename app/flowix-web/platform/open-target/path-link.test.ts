@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { buildNoteOpenLink, buildNoteOpenLinkFromPath } from './path-link';
+import {
+  buildNoteOpenLink,
+  buildNoteOpenLinkById,
+  buildNoteOpenLinkFromPath,
+  buildNotebookRelativeOpenLink,
+} from './path-link';
 
 describe('path deep links', () => {
   it('encodes notebook, nested path, and heading without an ID', () => {
@@ -10,6 +15,20 @@ describe('path deep links', () => {
 
   it('distinguishes a literal # in the filename from a heading', () => {
     expect(buildNoteOpenLink('A', 'Plan#Goals.md')).toBe('flowix://open?b=A&f=Plan%23Goals.md&heading=');
+  });
+
+  it('addresses a same-notebook file without any notebook key', () => {
+    expect(buildNotebookRelativeOpenLink('Projects/Plan.md')).toBe('flowix://open?f=Projects%2FPlan.md');
+    expect(buildNotebookRelativeOpenLink('Projects/Plan.md', 'Goals'))
+      .toBe('flowix://open?f=Projects%2FPlan.md&heading=Goals');
+    expect(() => buildNotebookRelativeOpenLink('/Plan.md')).toThrow('Invalid notebook link target');
+    expect(() => buildNotebookRelativeOpenLink('Projects/../Plan.md')).toThrow('Invalid notebook link target');
+  });
+
+  it('addresses a cross-notebook file by ID', () => {
+    expect(buildNoteOpenLinkById('book-1', 'Projects/Plan.md', 'Goals'))
+      .toBe('flowix://open?notebookId=book-1&f=Projects%2FPlan.md&heading=Goals');
+    expect(() => buildNoteOpenLinkById('', 'Plan.md')).toThrow('Invalid notebook link target');
   });
 
   it('uses the exact notebook root and refuses ambiguous names', () => {

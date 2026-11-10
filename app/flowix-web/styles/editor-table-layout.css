@@ -96,12 +96,14 @@
 }
 
 
-/* One overlay spans the full table; cell borders cannot split the hover line. */
+/* One overlay spans the full table; cell borders cannot split the hover line.
+ * Same info state color as the reorder drop marker, so both table drag hints
+ * read as one family instead of competing with the brand accent. */
 .markdown-editor .table-resize-indicator:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   position: absolute;
   z-index: 10;
   width: 2px;
-  background: var(--brand);
+  background: var(--info);
   opacity: 0.8;
   pointer-events: none;
 }

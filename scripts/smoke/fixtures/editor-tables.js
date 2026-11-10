@@ -16,7 +16,7 @@ installCrashGuard();
 document.documentElement.style.setProperty('--info', '#0085e6');
 const host = document.createElement('div');
 host.className = 'markdown-editor';
-host.style.cssText = 'width:760px;height:520px;--brand:#7651c7;--info:#0085e6;--info-foreground:#fff;--document-bg:#fff;--foreground:#222;--background:#fff;--muted:#eee;--border:#ccc;--muted-foreground:#777;--document-foreground:#222';
+host.style.cssText = 'width:760px;height:520px;--brand:#7651c7;--info:#0085e6;--info-foreground:#fff;--document-bg:#fff;--foreground:#222;--background:#fff;--card:#f7f7f7;--muted:#eee;--border:#ccc;--muted-foreground:#777;--document-foreground:#222';
 host.innerHTML = '<div class="editor-content-frame overlay-scrollbar-frame overlay-scrollbar-frame--custom-mac"><div class="editor-content overlay-scrollbar"><div class="editor-document-body"></div></div></div>';
 document.body.append(host);
 const pane = host.querySelector('.editor-content');
@@ -79,6 +79,7 @@ for (const platform of ['mac', 'non-mac']) {
     const rb = row.getBoundingClientRect();
     near(cb.width, 24, 'Column button is a 24px square');
     near(cb.height, 24, 'Column button height');
+    assertEqual(getComputedStyle(column).backgroundColor, 'rgb(247, 247, 247)', 'Insert square floats on the card surface, not the header tint');
     near(rb.width, 24, 'Row button is a 24px square');
     near(rb.height, 24, 'Row button height');
     near(cb.left, t.right + 4, 'Column button sits right of the last column');
@@ -470,8 +471,27 @@ await checkAsync('Escape cancels a row drag without changing content', async () 
 });
 editor.setEditable(false);
 await hover(table().rows[1].cells[0]);
-check('read-only tables hide reorder handles', () => {
-  assert(!root.querySelector('.table-reorder-handle:not([hidden])'), 'Read-only handles hidden');
+await checkAsync('read-only tables keep the chrome visible but inert', async () => {
+  const handle = root.querySelector('.table-reorder-handle--row');
+  assert(handle && !handle.hidden, 'Read-only grips stay visible');
+  assertEqual(getComputedStyle(handle).opacity, '0.45', 'Read-only grips are dimmed');
+  const before = JSON.stringify(editor.getJSON());
+  const box = handle.getBoundingClientRect();
+  handle.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0, clientX: box.left + 10, clientY: box.top + 10 }));
+  const target = table().rows[2].cells[0].getBoundingClientRect();
+  document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: target.left + 30, clientY: target.bottom - 2 }));
+  document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: target.left + 30, clientY: target.bottom - 2 }));
+  assert(root.querySelector('.table-reorder-marker').hidden, 'Read-only drag paints no drop marker');
+  assertEqual(JSON.stringify(editor.getJSON()), before, 'Read-only drag must not mutate content');
+  await hover(table().rows[2].cells[2]);
+  const column = frame().querySelector('.table-edge-insert-button--column');
+  const row = frame().querySelector('.table-edge-insert-button--row');
+  assert(column && !column.hidden && row && !row.hidden, 'Read-only insert squares stay visible');
+  assertEqual(getComputedStyle(column).opacity, '0.45', 'Read-only insert squares are dimmed');
+  click(column);
+  click(row);
+  assertEqual(table().rows[0].cells.length, 3, 'Read-only column insert is inert');
+  assertEqual(table().rows.length, 3, 'Read-only row insert is inert');
 });
 editor.destroy();
 host.remove();

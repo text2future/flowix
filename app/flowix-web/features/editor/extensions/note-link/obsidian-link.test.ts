@@ -3,6 +3,7 @@ import { Editor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from '@tiptap/markdown';
 import {
+  createNoteReferenceExtension,
   isRelativeNoteDestination,
   NoteReference,
   parseWikiNoteLinkAtStart,
@@ -49,14 +50,14 @@ describe('Obsidian note links', () => {
     expect(editor.getMarkdown()).toContain('[Plan](flowix://open?b=Work&f=Projects%2FPlan.md)');
     editor.destroy();
   });
-  it('keeps an ID-based path link until its notebook name is available', () => {
+  it('rewrites an ID-based path link to the canonical id + f form', () => {
     const link = 'flowix://open?notebookId=unloaded-book&relativePath=Projects%2FPlan.md';
     const editor = new Editor({
       extensions: [StarterKit, Markdown, NoteReference, MarkdownLink],
       content: `[Plan](${link})`,
       contentType: 'markdown',
     });
-    expect(editor.getMarkdown()).toContain(link);
+    expect(editor.getMarkdown()).toContain('flowix://open?notebookId=unloaded-book&f=Projects%2FPlan.md');
     editor.destroy();
   });
   it('keeps a Flowix notebook path link as a note reference', () => {
@@ -140,5 +141,81 @@ describe('Obsidian note links', () => {
     expect(isRelativeNoteDestination('笔记名称%20with%20spaces')).toBe(true);
     expect(isRelativeNoteDestination('https://example.com/note.md')).toBe(false);
     expect(isRelativeNoteDestination('#二级标题')).toBe(false);
+  });
+});
+
+describe('notebook identity in note links', () => {
+  function editorInside(ownerNotebookId: string | null) {
+    return new Editor({
+      extensions: [
+        StarterKit,
+        Markdown,
+        createNoteReferenceExtension('document', { getOwnerNotebookId: () => ownerNotebookId }),
+        MarkdownLink,
+      ],
+      content: '<p></p>',
+    });
+  }
+
+  const reference = {
+    notebookId: 'work', relativePath: 'Projects/Plan.md', notebookName: 'Work',
+    title: 'Plan', originalPath: null, linkStyle: 'flowix' as const,
+    linkTarget: null, heading: null, stale: false,
+  };
+
+  it('writes a same-notebook reference without any notebook key', () => {
+    const editor = editorInside('work');
+    editor.commands.insertContent({ type: 'noteReference', attrs: reference });
+    // No name and no ID: renaming or moving the notebook cannot break it.
+    expect(editor.getMarkdown()).toContain('[Plan](flowix://open?f=Projects%2FPlan.md)');
+    editor.destroy();
+  });
+
+  it('writes a cross-notebook reference by ID', () => {
+    const editor = editorInside('other');
+    editor.commands.insertContent({ type: 'noteReference', attrs: reference });
+    expect(editor.getMarkdown()).toContain('[Plan](flowix://open?notebookId=work&f=Projects%2FPlan.md)');
+    editor.destroy();
+  });
+
+  it('keeps a bare f link unchanged when the notebook is unknown', () => {
+    const link = 'flowix://open?f=Projects%2FPlan.md';
+    const editor = new Editor({
+      extensions: [StarterKit, Markdown, NoteReference, MarkdownLink],
+      content: `[Plan](${link})`,
+      contentType: 'markdown',
+    });
+    expect(editor.state.doc.firstChild?.firstChild?.attrs.relativePath).toBe('Projects/Plan.md');
+    expect(editor.getMarkdown()).toContain(link);
+    editor.destroy();
+  });
+
+  it('resolves a bare f link against the owning notebook', () => {
+    const link = 'flowix://open?f=Projects%2FPlan.md';
+    const editor = editorInside('work');
+    editor.commands.setContent(`[Plan](${link})`, { contentType: 'markdown' });
+    expect(editor.getMarkdown()).toContain('[Plan](flowix://open?f=Projects%2FPlan.md)');
+    editor.destroy();
+  });
+
+  it('keeps an authored same-notebook link and its heading verbatim', () => {
+    const link = 'flowix://open?f=Projects%2FPlan.md#%E7%9B%AE%E6%A0%87';
+    const editor = editorInside('work');
+    editor.commands.setContent(`[Plan](${link})`, { contentType: 'markdown' });
+    expect(editor.state.doc.firstChild?.firstChild?.attrs.heading).toBe('目标');
+    expect(editor.getMarkdown()).toContain(link);
+    editor.destroy();
+  });
+
+  it('keeps a heading anchor when a cross-notebook link becomes same-notebook', () => {
+    const editor = editorInside('work');
+    editor.commands.setContent(
+      '[Plan](flowix://open?notebookId=work&relativePath=Projects%2FPlan.md#%E7%9B%AE%E6%A0%87)',
+      { contentType: 'markdown' },
+    );
+    const markdown = editor.getMarkdown();
+    expect(markdown).toContain('f=Projects%2FPlan.md');
+    expect(markdown).toContain('heading=%E7%9B%AE%E6%A0%87');
+    editor.destroy();
   });
 });
