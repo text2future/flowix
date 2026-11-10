@@ -138,7 +138,7 @@ npm run tauri:build:prod
 
 Run `npm run dev` separately only when you want the Vite frontend without the Tauri desktop backend.
 
-The desktop dev build (`npm run tauri:dev`) connects to `https://cloud.flowix.cc` by default. In Preferences → Development → Environment configuration, choose Staging or Prod; Flowix restarts to apply the change. The saved preference is authoritative and takes precedence over the build default. `--cloud-env=staging|prod` sets that default and is used until a preference is saved. The environments keep separate sign-in credentials and sync databases.
+The desktop dev build (`npm run tauri:dev`) connects to `https://cloud.flowix.cc` by default. In Preferences → Development → Environment, choose Staging or Prod; Flowix restarts to apply the change. The saved preference is authoritative and takes precedence over the build default. `--cloud-env=staging|prod` sets that default and is used until a preference is saved. The environments keep separate sign-in credentials and sync databases.
 
 ```bash
 npm run tauri:dev -- --cloud-env=staging

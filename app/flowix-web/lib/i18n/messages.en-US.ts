@@ -136,7 +136,7 @@ const enUS: Record<keyof typeof zhCN, string> = {
       "Couldn’t update the notebook index",
     "preferences.error.deleteFailed": "Failed to delete",
     "preferences.tabs.general": "General",
-    "preferences.tabs.environmentConfig": "Environment configuration",
+    "preferences.tabs.environmentConfig": "Environment",
     "preferences.tabs.fileDisplayRules": "Access space visibility",
     "preferences.tabs.format": "Document layout",
     "preferences.tabs.theme": "Theme",
