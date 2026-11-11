@@ -1,6 +1,8 @@
 'use client';
 
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -12,7 +14,11 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useI18n } from '@/lib/i18n';
-import { PropertyIconPickerPanel } from '@features/document/public/property-display-api';
+
+const PropertyIconPickerPanel = lazy(async () => {
+  const module = await import('@features/document/public/property-display-api');
+  return { default: module.PropertyIconPickerPanel };
+});
 
 /**
  * 文件树专用的笔记图标 picker（样式对齐 IconValueInput 的弹层）。
@@ -123,18 +129,20 @@ export function TreeIconPicker({
           // 重定向到树行，导致选项收不到 click（onChange 不触发）且文档被打开。
           onPointerDown={(event) => event.stopPropagation()}
         >
-          <PropertyIconPickerPanel
-            value={value}
-            onSelect={(next) => {
-              onChangeRef.current(next);
-              setOpen(false);
-            }}
-            onClear={() => {
-              onChangeRef.current('');
-              setOpen(false);
-            }}
-            clearLabel={t('document.properties.icon.clear')}
-          />
+          <Suspense fallback={null}>
+            <PropertyIconPickerPanel
+              value={value}
+              onSelect={(next) => {
+                onChangeRef.current(next);
+                setOpen(false);
+              }}
+              onClear={() => {
+                onChangeRef.current('');
+                setOpen(false);
+              }}
+              clearLabel={t('document.properties.icon.clear')}
+            />
+          </Suspense>
         </div>,
         document.body,
       )}

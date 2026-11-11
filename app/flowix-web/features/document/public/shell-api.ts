@@ -22,12 +22,6 @@ export {
   useExternalFileDrop,
 } from '@features/document/components/use-external-file-drop';
 export {
-  AgentThreadCardFullscreenExitButton,
-  AgentThreadCardFullscreenIdentity,
-  AgentThreadCardFullscreenMoreMenu,
-  useFullscreenAgentThreadCardInfo,
-} from '@features/document/components/agent-thread-card-titlebar';
-export {
   captureLatestDocumentContent,
   getDocumentEditorMode,
   setDocumentEditorMode,

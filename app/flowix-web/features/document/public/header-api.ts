@@ -5,7 +5,8 @@ export {
   AgentThreadCardFullscreenExitButton,
   AgentThreadCardFullscreenIdentity,
   AgentThreadCardFullscreenMoreMenu,
-} from '../components/agent-thread-card-titlebar';
+  useAgentThreadCardFullscreenActive,
+} from '../components/agent-thread-card-titlebar-shell';
 export type { DocumentTitlebarProps, DocumentTitlebarTarget } from '../components/document-titlebar-model';
 
 import { getBuffer } from '../store/buffer-registry';

@@ -524,7 +524,7 @@
       "count": 1
     },
     "no-restricted-imports": {
-      "count": 2
+      "count": 1
     }
   },
   "app/flowix-web/features/memo/components/tag-tree.tsx": {

@@ -12,4 +12,4 @@ export {
   useAgentThreadCardFullscreenActive,
   useFullscreenAgentThreadCardInfo,
   type AgentThreadCardFullscreenHost,
-} from './agent-thread-card-titlebar';
+} from './agent-thread-card-titlebar-shell';

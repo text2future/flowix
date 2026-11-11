@@ -51,4 +51,3 @@ export {
   listRecoveryDrafts,
   type RecoveryDraft,
 } from '@features/document/store/recovery-draft-store';
-export { useDocumentMetricsStore } from '@features/document/store/document-metrics-store';

@@ -41,7 +41,6 @@ import { POPUP_SEPARATOR_CLASS } from '@shared/ui/popup-separator';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@shared/ui/dialog';
 import folderIcon from '@/assets/folder-outline.svg?raw';
 import folderIconDefault from '@/assets/folder-outline-default.svg?raw';
-import { getPropertyIconOption } from '@features/document/properties/property-icons';
 import { useNoteMetadata } from '../hooks/use-note-metadata';
 import { noteMetadata } from '../services/note-metadata-service';
 import { resourceKindFromPath } from '@features/editor/code-file';
@@ -284,9 +283,22 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
   const displayedMetadata = useNoteMetadata(item.fullPath, item.memoMeta, isNote);
   const displayedIcon = displayedMetadata?.icon ?? null;
   const displayedColors = displayedMetadata?.colors ?? [];
-  const noteIcon = isNote && displayedIcon
-    ? getPropertyIconOption(displayedIcon)
-    : null;
+  const [noteIconSrc, setNoteIconSrc] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    setNoteIconSrc(null);
+    if (!isNote || !displayedIcon) return () => { active = false; };
+
+    void import('@features/document/public/property-display-api')
+      .then(({ getPropertyIconOption }) => {
+        if (active) setNoteIconSrc(getPropertyIconOption(displayedIcon)?.src ?? null);
+      })
+      .catch(() => {
+        if (active) setNoteIconSrc(null);
+      });
+    return () => { active = false; };
+  }, [displayedIcon, isNote]);
+  const noteIcon = noteIconSrc ? { src: noteIconSrc } : null;
   /** 列表里选中图标后写回 frontmatter flowix_icon；保存后由 notebook-change 事件驱动 useNoteMetadata 刷新。 */
   const persistNoteIcon = useCallback((next: string) => {
     void (async () => {

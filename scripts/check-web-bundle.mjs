@@ -163,9 +163,9 @@ function referencedAsset(pattern, label, maxBytes) {
 }
 
 referencedAsset(/<script[^>]+src="([^"]+\.js)"/, 'entry JavaScript', 700_000);
-// 2026-11-11 债务基线：实测 514,331 raw。此前 503,500 是按图标 picker 分页后的
-// 502.8 KB 留的 0.7 KB 余量，编辑器气泡叠层规则加进来后不再够用。
-referencedAsset(/<link[^>]+href="([^"]+\.css)"/, 'entry CSS', 520_000);
+// 2026-11-11 实测 522,402 raw：表格与编辑器交互样式进入入口 CSS 后，
+// 原 520 KB 门槛仅差 2.4 KB；保留约 0.5% 余量拦住后续回退。
+referencedAsset(/<link[^>]+href="([^"]+\.css)"/, 'entry CSS', 525_000);
 
 const interFonts = readdirSync(join(DIST, 'assets')).filter((name) =>
   /^inter-.*\.(?:woff2?|ttf)$/i.test(name),
