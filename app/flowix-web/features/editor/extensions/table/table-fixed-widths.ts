@@ -147,7 +147,9 @@ export function createTableFixedWidthsPlugin() {
         cancelAnimationFrame(frame);
         frame = requestAnimationFrame(() => {
           const tr = normalizeWidths(editorView.state, editorView, complete);
-          if (tr) editorView.dispatch(tr.setMeta('addToHistory', false));
+          // View measurements are not authored edits. In particular, opening a
+          // Markdown table must not trigger the host's autosave pipeline.
+          if (tr) editorView.dispatch(tr.setMeta('addToHistory', false).setMeta('preventUpdate', true));
         });
       };
       const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(schedule);

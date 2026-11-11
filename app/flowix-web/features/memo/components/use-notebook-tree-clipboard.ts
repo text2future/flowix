@@ -1,4 +1,4 @@
-import { useEffect, useRef, type KeyboardEvent, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, type KeyboardEvent, type RefObject } from 'react';
 import { create } from 'zustand';
 import { NATIVE_CLIPBOARD_ACTION_EVENT, type NativeClipboardAction } from '@shared/clipboard/native-clipboard-action';
 import { canonicalPath, parentDirectoryPath, samePath } from '@/lib/path';
@@ -58,6 +58,9 @@ export function useNotebookTreeClipboard({ notebookPath, selectedFilePaths, sele
 }) {
   const { t } = useI18n();
   const { clipboard, busy } = useTreeClipboard();
+  const isCut = useCallback((path: string) => (
+    clipboard?.mode === 'cut' && clipboard.sources.some((source) => samePath(source.path, path))
+  ), [clipboard]);
   const pointerContext = useRef<{ path: string | null } | null>(null);
   const contextPath = getSelectionAnchorPath() ?? selectedFolderPath ?? activeFilePath;
   const defaultItem: TreeClipboardItem | undefined = contextPath
@@ -228,6 +231,6 @@ export function useNotebookTreeClipboard({ notebookPath, selectedFilePaths, sele
 
   return {
     actionsFor, handleKeyDown,
-    isCut: (path: string) => clipboard?.mode === 'cut' && clipboard.sources.some(source => samePath(source.path, path)),
+    isCut,
   };
 }

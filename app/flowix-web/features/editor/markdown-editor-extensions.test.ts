@@ -20,6 +20,8 @@ const EXPECTED_EXTENSION_ORDER = [
   'markdownEscape',
   'htmlStrongFallback',
   'legacyAdjacentStrongMarkdown',
+  'preservedHtmlBlock',
+  'preservedHtmlInline',
   'attachmentLink',
   'link',
   'linkSelectionHighlight',

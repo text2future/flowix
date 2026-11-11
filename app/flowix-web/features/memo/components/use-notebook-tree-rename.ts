@@ -21,6 +21,7 @@ export function useNotebookTreeRename({ notebookId, notebookPath, tree, tableDoc
   mediaLibraryByPath: ReadonlyMap<string, MediaLibraryListItem>;
 }) {
   const { t } = useI18n();
+  const { renameFolder, expanded, loadingDirectories, nodes, refresh } = tree;
   return useCallback(async (item: DocTreeItem, nextName: string) => {
     const trimmed = nextName.trim();
     const isNote = item.type === 'document'
@@ -34,15 +35,15 @@ export function useNotebookTreeRename({ notebookId, notebookPath, tree, tableDoc
 
     try {
       if (item.type === 'folder') {
-        const renamedPath = await tree.renameFolder(item.fullPath, trimmed, notebookPath);
+        const renamedPath = await renameFolder(item.fullPath, trimmed, notebookPath);
         const oldFolderPath = canonicalDirectoryPath(item.fullPath);
         const newFolderPath = canonicalDirectoryPath(renamedPath);
-        const expandedPathsToRefresh = [...tree.expanded]
+        const expandedPathsToRefresh = [...expanded]
           .filter((path) => (path === oldFolderPath || path.startsWith(`${oldFolderPath}/`))
-            && (tree.loadingDirectories.has(path) || !tree.nodes.get(path)?.children?.length))
+            && (loadingDirectories.has(path) || !nodes.get(path)?.children?.length))
           .map((path) => `${newFolderPath}${path.slice(oldFolderPath.length)}`);
         updateNoteLinksAfterMove(item.fullPath, renamedPath, true);
-        await Promise.all(expandedPathsToRefresh.map((path) => tree.refresh(path)));
+        await Promise.all(expandedPathsToRefresh.map((path) => refresh(path)));
       } else {
         if (isNote) {
           const fileIdentity = ensureFileDisplayIdentity(item.fullPath);
@@ -72,13 +73,13 @@ export function useNotebookTreeRename({ notebookId, notebookPath, tree, tableDoc
 
       const normalizedPath = canonicalPath(item.fullPath);
       const parent = normalizedPath.slice(0, normalizedPath.lastIndexOf('/'));
-      if (item.type !== 'folder' && !isTableDocument && !isMediaLibrary) await tree.refresh(parent || notebookPath);
+      if (item.type !== 'folder' && !isTableDocument && !isMediaLibrary) await refresh(parent || notebookPath);
       toast.success(t('memo.fileTree.renamed', { name: trimmed }));
       return true;
     } catch (error) {
       toast.error(t(fileTreeRenameFailureKey(error)));
       return false;
     }
-  }, [notebookPath, notebookId, tableDocumentByPath, mediaLibraryByPath, t, tree]);
+  }, [notebookPath, notebookId, tableDocumentByPath, mediaLibraryByPath, t, renameFolder, expanded, loadingDirectories, nodes, refresh]);
 
 }

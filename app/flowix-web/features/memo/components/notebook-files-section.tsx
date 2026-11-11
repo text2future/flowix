@@ -9,7 +9,7 @@ import { useI18n } from '@/lib/i18n';
 import { TREE_EDGE_GUTTER, TREE_ROW_HEIGHT } from './notebook-tree-layout';
 import type { NotebookTreeRenderRow } from './notebook-tree-render-rows';
 
-interface VirtualTreeRow {
+export interface NotebookFilesVirtualRow {
   key: string;
   item: NotebookTreeRenderRow;
   start: number;
@@ -34,7 +34,7 @@ interface NotebookFilesSectionProps {
   virtualTreeSize: number;
   contentClassName?: string;
   folderDropHighlight: CSSProperties | null;
-  virtualRows: readonly VirtualTreeRow[];
+  virtualRows: readonly NotebookFilesVirtualRow[];
   renderRow: (row: NotebookTreeRenderRow) => ReactNode;
 }
 

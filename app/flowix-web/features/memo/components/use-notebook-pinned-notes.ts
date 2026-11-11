@@ -10,6 +10,7 @@ import { noteMetadata, subscribeNotebookMetadata } from '../services/note-metada
 const logger = createLogger('notebook-pinned-notes');
 const EMPTY_PINNED_ITEMS: PinnedTreeItem[] = [];
 const PINNED_PAGE_SIZE = 100;
+const NOOP_UNSUBSCRIBE = () => {};
 
 /**
  * Trailing window for re-reading the pinned list after a burst of change
@@ -111,7 +112,43 @@ export function useNotebookPinnedNotes({
   const [pageIndex, setPageIndex] = useState(0);
   const pageIndexRef = useRef(pageIndex);
   pageIndexRef.current = pageIndex;
-  const metadataRevision = useSyncExternalStore(noteMetadata.subscribeAll, noteMetadata.checkpoint, noteMetadata.checkpoint);
+  const currentPage = pages[pageIndex];
+  const subscribePinnedMetadata = useCallback((listener: () => void) => {
+    if (!isActive || !currentPage) return NOOP_UNSUBSCRIBE;
+    const unsubscribers = currentPage.items
+      .filter((item) => item.pinnedEntryKind === 'note')
+      .map((item) => noteMetadata.subscribe(item.fullPath, listener));
+    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
+  }, [currentPage, isActive]);
+  // Cache the page projection as the external-store snapshot. Unrelated cache
+  // revisions and parent renders retain both the array and unchanged row objects.
+  const getPinnedSnapshot = useMemo(() => {
+    const items = currentPage?.items ?? EMPTY_PINNED_ITEMS;
+    let revision = -1;
+    let previous: PinnedTreeItem[] = EMPTY_PINNED_ITEMS;
+    const projected = new Map<PinnedTreeItem, PinnedTreeItem>();
+    return () => {
+      const nextRevision = noteMetadata.checkpoint();
+      if (revision === nextRevision) return previous;
+      revision = nextRevision;
+      const next = items.flatMap((item) => {
+        if (item.pinnedEntryKind !== 'note') return [item];
+        const snapshot = noteMetadata.get(item.fullPath);
+        if (snapshot.status === 'deleted' || snapshot.value?.favorited === false) return [];
+        if (!snapshot.value) return [item];
+        const cached = projected.get(item);
+        if (cached?.memoMeta === snapshot.value) return [cached];
+        const row = { ...item, memoMeta: snapshot.value };
+        projected.set(item, row);
+        return [row];
+      });
+      if (next.length !== previous.length || next.some((item, index) => item !== previous[index])) {
+        previous = next;
+      }
+      return previous;
+    };
+  }, [currentPage]);
+  const pinnedItems = useSyncExternalStore(subscribePinnedMetadata, getPinnedSnapshot, getPinnedSnapshot);
   const [loadingInitial, setLoadingInitial] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const requestSequence = useRef(0);
@@ -244,7 +281,6 @@ export function useNotebookPinnedNotes({
     };
   }, [isActive, notebookId, notebookPath, refreshTrigger, toPinnedItems]);
 
-  const currentPage = pages[pageIndex];
   const hasPrevious = pageIndex > 0;
   const hasMore = pageIndex < pages.length - 1 || Boolean(currentPage?.hasMore && currentPage.nextCursor);
 
@@ -292,14 +328,6 @@ export function useNotebookPinnedNotes({
     })));
   }, []);
 
-  const pinnedItems = useMemo(() => (currentPage?.items ?? EMPTY_PINNED_ITEMS).flatMap((item) => {
-    // Only notes project into the metadata cache; documents and collections
-    // carry their own pin flag from the backend query.
-    if (item.pinnedEntryKind !== 'note') return [item];
-    const snapshot = noteMetadata.get(item.fullPath);
-    if (snapshot.status === 'deleted' || snapshot.value?.favorited === false) return [];
-    return [snapshot.value ? { ...item, memoMeta: snapshot.value } : item];
-  }), [currentPage?.items, metadataRevision]);
 
   return {
     pinnedItems,

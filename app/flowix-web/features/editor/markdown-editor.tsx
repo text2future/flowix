@@ -1,3 +1,4 @@
+import { useEditorImageSources } from './use-editor-image-sources';
 import type { EditorImageContext } from './editor-image-source';
 import { useSessionViewChannel } from '@features/workspace/public/session-view-state-api';
 import { useDeferredMarkdownSerialization } from './use-deferred-markdown-serialization';
@@ -172,12 +173,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
   linkContextRef.current = linkContext;
   imageContextRef.current = imageContext;
 
-  useLayoutEffect(() => {
-    const editor = editorRef.current;
-    if (editor && !editor.isDestroyed) {
-      editor.storage.image.refreshSources();
-    }
-  }, [imageContext?.documentPath, imageContext?.scopePath]);
+  useEditorImageSources(editorRef, imageContext);
 
   const getCurrentAttachmentOwnerPath = useCallback(() => {
     const current = attachmentOwnerRef.current;

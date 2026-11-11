@@ -137,3 +137,23 @@ it('undoes and redoes column insertion with its inherited width', () => {
   expect(widths(editor)).toEqual([[267], [267], [267], [266]]);
   expect(before).toEqual([[267], [267], [266]]);
 });
+
+
+it('initializes layout on open without an authored update, then still reports typing', async () => {
+  const element = document.createElement('div');
+  document.body.append(element);
+  let updates = 0;
+  const editor = new Editor({
+    element, extensions: [StarterKit, Markdown, createTablePlugin()],
+    content: '| A | B |\n| --- | --- |\n| a | b |', contentType: 'markdown',
+    onUpdate: () => { updates++; },
+  });
+  editors.push(editor);
+  Object.defineProperty(editor.view.dom, 'clientWidth', { configurable: true, value: 800 });
+  await expect.poll(() => widths(editor)).toEqual([[400], [400]]);
+  editor.commands.setTextSelection(4);
+  editor.view.dom.dispatchEvent(new FocusEvent('blur'));
+  expect(updates).toBe(0);
+  editor.commands.insertContent('typed');
+  expect(updates).toBe(1);
+});

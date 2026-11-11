@@ -8,11 +8,12 @@ import { useNotebookTreeClipboard } from './use-notebook-tree-clipboard';
 import { NotebookTreeCustomizePanel, type NotebookTreeCustomizePanelHandle } from './notebook-tree-customize-panel';
 
 import type { TableViewType } from '@features/multidimensional-table/public/create-api';
+import { useNotebookSectionNavigation } from './use-notebook-section-navigation';
+import { useNotebookPinnedExpansion } from './use-notebook-pinned-expansion';
 import { useNotebookTreeSections } from './use-notebook-tree-sections';
 import { useNotebookTreeSectionLayout } from './use-notebook-tree-section-layout';
 
 import { useColumnNavigation } from '@features/workspace/public/column-navigation-api';
-import { AgentTasksSection } from '@features/agent/public/shell-api';
 
 import {
   useCallback,
@@ -21,7 +22,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
 } from 'react';
 import { SquaresFourIcon } from '@phosphor-icons/react';
 
@@ -43,7 +43,6 @@ import { ListSurfaceViewport } from '@shared/ui/list-surface';
 import { NotebookCreateContextMenuItems } from '@features/memo/components/notebook-create-context-menu';
 import { useNoteStore } from '@features/memo/store/note-store';
 import { useCustomFilterStore } from '@features/memo/store/custom-filter-store';
-import { NotebookPinnedSection } from '@features/memo/components/notebook-file-tree-sections';
 import { useNotebookPinnedNotes } from '@features/memo/components/use-notebook-pinned-notes';
 import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
 import {
@@ -52,6 +51,7 @@ import {
   type FolderTreeSort,
 } from '@features/memo/components/use-folder-tree';
 import { NotebookTreeRow, type TreeRowClickModifiers } from '@features/memo/components/notebook-tree-row';
+import { NotebookPinnedTreeRow, type NotebookPinnedTreeRowController } from './notebook-pinned-tree-row';
 import { mapWorkspaceAgentRepositories, type WorkspaceAgentRepository } from '@features/agent/public/workspace-api';
 import { useAgentWorkspaceStore } from '@features/agent/store/agent-workspace-store';
 import {
@@ -73,12 +73,11 @@ import {
   useNotebookTreeRenderModel,
   useTreeItemIndex,
 } from './use-notebook-tree-derived';
-import { AgentRepositoriesSection } from './notebook-repositories-section';
 import { NotebookRepositoriesPage } from './notebook-repositories-page';
-import { NotebookFilesSection } from './notebook-files-section';
 import { useRepositoryFileOpen } from './use-repository-file-open';
-import { NotebookMoreSection } from './notebook-more-section';
+import { NotebookTreeSectionsView } from './notebook-tree-sections-view';
 import { TREE_EDGE_GUTTER, INDENT_PER_LEVEL, TREE_ROW_GAP, TREE_ROW_HEIGHT, TREE_ROW_SIZE } from './notebook-tree-layout';
+import { NotebookTreeRowFrame } from './notebook-tree-row-frame';
 import { NotebookTreeDraft } from './notebook-tree-draft';
 import { useNotebookTreeDraftActions, type NotebookFolderCreateRequest } from './use-notebook-tree-draft-actions';
 import { useNotebookTreeFileActions } from './use-notebook-tree-file-actions';
@@ -88,7 +87,7 @@ import { useNotebookTreeDragController } from './use-notebook-tree-drag-controll
 import { useNotebookTreeImports } from './use-notebook-tree-imports';
 import type { NotebookMoveResult, NotebookMoveSource } from './use-notebook-tree-drag-controller';
 export type { NotebookMoveResult, NotebookMoveSource } from './use-notebook-tree-drag-controller';
-import { getPopupOriginRect, NotebookTreeSectionMenu } from './notebook-tree-section-menu';
+import { getPopupOriginRect } from './notebook-tree-section-menu';
 import { relativeFolderPath, useNotebookTreeCreation } from './use-notebook-tree-creation';
 import {
   ContextMenu,
@@ -100,8 +99,6 @@ import {
 const TREE_VIRTUAL_OVERSCAN = 20;
 const TREE_INITIAL_RENDER_COUNT = 40;
 const logger = createLogger('notebook-file-tree');
-// Row gutter (6px) + inline padding (6px) + half of the 12px caret.
-const FOLDER_CARET_CENTER_OFFSET = 12;
 
 export type { NotebookFolderCreateRequest } from './use-notebook-tree-draft-actions';
 
@@ -193,7 +190,7 @@ export function NotebookFileTree({
     }
     return null;
   });
-  const refreshTrigger = useNoteStore((state) => state.refreshTrigger);
+  const refreshTrigger = useNoteStore((state) => isActive ? state.refreshTrigger : 0);
   const notebookIdFromStore = useNoteStore((state) => (
     state.notebooks.find((notebook) => samePath(notebook.path, notebookPath))?.id ?? null
   ));
@@ -283,14 +280,6 @@ export function NotebookFileTree({
   ]), [tableDocumentByPath, mediaLibraryByPath, workDocumentCollectionByPath]);
   const [pinnedCollapsed, setPinnedCollapsed] = useState(false);
   const [filesCollapsed, setFilesCollapsed] = useState(false);
-  // 置顶分组与文件树是同一份数据的两个入口, 展开状态按入口各自持有:
-  // 在置顶里展开/收起文件夹不联动文件树, 反之亦然。目录数据缓存 (nodes)
-  // 仍然共享, 两个入口各自展开时按需加载, 不重复请求。
-  const [pinnedExpandedPaths, setPinnedExpandedPaths] = useState<Set<string>>(() => new Set());
-  const pinnedExpandedPathKeys = useMemo(
-    () => new Set([...pinnedExpandedPaths].map(canonicalPath)),
-    [pinnedExpandedPaths],
-  );
   const [fileTreeSort, setFileTreeSort] = useState<FolderTreeSort>('filenameAsc');
   const {
     sectionOrder,
@@ -330,6 +319,10 @@ export function NotebookFileTree({
     const fullPath = joinNotebookMemoPath(notebookPath, path);
     return fullPath ? [canonicalDirectoryPath(fullPath)] : [];
   }), [notebookPath, pinnedFolders]);
+  const { expanded: pinnedExpandedPaths, toggle: togglePinnedFolder } = useNotebookPinnedExpansion({
+    roots: pinnedFolderFullPaths,
+    loadDirectory,
+  });
   const pinnedFolderPathSet = useMemo(() => new Set(pinnedFolderFullPaths), [pinnedFolderFullPaths]);
   // Loading/error flags and controller callbacks do not change tree topology.
   // 条目、路径索引、文件夹集合一次遍历产出，见 use-notebook-tree-derived。
@@ -341,6 +334,7 @@ export function NotebookFileTree({
     entries: pinnedItems, folderPaths: pinnedFolderFullPaths, loadedItems: loadedTreeItems,
     nodes, expanded: pinnedExpandedPaths, sort: fileTreeSort,
   });
+  const pinnedItemPaths = useMemo(() => pinnedSectionItems.map((item) => item.fullPath), [pinnedSectionItems]);
   const pinnedNavigationItems = useMemo(() => pinnedSectionItems.map(item => ({
     item, depth: item.pinnedDepth ?? 0,
   })), [pinnedSectionItems]);
@@ -433,7 +427,7 @@ export function NotebookFileTree({
     visibleTreeItems,
     treeItemPaths: treeItemByPath,
     contentKinds: selectionContentKinds,
-    pinnedItemPaths: pinnedSectionItems.map((item) => item.fullPath),
+    pinnedItemPaths,
     tree,
     treeRootRef,
     treeScrollerRef,
@@ -585,29 +579,8 @@ export function NotebookFileTree({
   /** 置顶分组的文件夹展开: 只翻置顶自己的集合, 数据加载复用 tree 缓存。 */
   const handleTogglePinnedFolderPath = useCallback((path: string) => {
     if (shouldSuppressOpenPath(path)) return;
-    const key = canonicalDirectoryPath(path);
-    setPinnedExpandedPaths((previous) => {
-      const next = new Set(previous);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-    void loadDirectory(path);
-  }, [shouldSuppressOpenPath, loadDirectory]);
-  // 置顶取消或目录改名后, 旧路径不再属于任何置顶子树: 清掉展开残留,
-  // 避免重新置顶同名/同前缀路径时意外恢复上一次的展开态。
-  useEffect(() => {
-    if (pinnedFolderFullPaths.length === 0) {
-      setPinnedExpandedPaths((previous) => (previous.size === 0 ? previous : new Set()));
-      return;
-    }
-    const roots = pinnedFolderFullPaths.map((path) => canonicalPath(path));
-    setPinnedExpandedPaths((previous) => {
-      const next = new Set([...previous].filter((key) =>
-        roots.some((root) => key === root || key.startsWith(`${root}/`))));
-      return next.size === previous.size ? previous : next;
-    });
-  }, [pinnedFolderFullPaths]);
+    togglePinnedFolder(path);
+  }, [shouldSuppressOpenPath, togglePinnedFolder]);
   const handleOpenPath = useCallback((path: string, modifiers?: TreeRowClickModifiers) => {
     if (shouldSuppressOpenPath(path)) return;
     selectItem(path, modifiers);
@@ -671,34 +644,31 @@ export function NotebookFileTree({
     void handleImportFolder(path);
   }, [handleImportFolder]);
   const handleFocusPath = useCallback((path: string) => setFocusedTreePath(path), [setFocusedTreePath]);
-  const getRowPresentation = useCallback((
-    item: DocTreeItem,
-    expandedPaths: ReadonlySet<string> = expandedTreePaths,
-    includeTreeFeedback = true,
-  ) => getNotebookTreeRowPresentation({
-    item,
+  const rowSelection = useMemo(() => ({
     activeFilePath,
     selectedFolderPath,
     selectedConversationId,
     selectedFilePaths,
     selectedFilePathSet,
-    expandedPaths,
-    loadingDirectories: includeTreeFeedback ? loadingDirectories : undefined,
-    directoryErrors: includeTreeFeedback ? directoryErrors : undefined,
-    dragOverFolderPath: includeTreeFeedback ? dragOverFolderPath : null,
-    moveFeedback: includeTreeFeedback ? moveFeedback : null,
-  }), [
-    activeFilePath,
+  }), [activeFilePath, selectedFolderPath, selectedConversationId, selectedFilePaths, selectedFilePathSet]);
+  const getPinnedRowPresentation = useCallback((item: DocTreeItem) => getNotebookTreeRowPresentation({
+    item,
+    ...rowSelection,
+    expandedPaths: pinnedExpandedPaths,
+    loadingDirectories,
+    directoryErrors,
+    dragOverFolderPath: null,
+    moveFeedback: null,
+  }), [rowSelection, pinnedExpandedPaths, loadingDirectories, directoryErrors]);
+  const getRowPresentation = (item: DocTreeItem) => getNotebookTreeRowPresentation({
+    item,
+    ...rowSelection,
+    expandedPaths: expandedTreePaths,
+    loadingDirectories,
     directoryErrors,
     dragOverFolderPath,
-    expandedTreePaths,
-    loadingDirectories,
     moveFeedback,
-    selectedConversationId,
-    selectedFilePathSet,
-    selectedFilePaths,
-    selectedFolderPath,
-  ]);
+  });
   const renderDraft = (draftState: NotebookTreeDraftState, depth: number) => (
     <NotebookTreeDraft
       draft={draftState}
@@ -724,34 +694,12 @@ export function NotebookFileTree({
     const presentation = getRowPresentation(item);
 
     return (
-      <div
-        className={cn(
-          item.type === 'folder' && 'folder-file-tree__group notebook-file-tree__folder-group relative',
-        )}
-        data-notebook-tree-row="true"
-        data-notebook-tree-depth={depth}
-        data-drag-over={presentation.isDropTarget ? 'true' : 'false'}
-        data-notebook-drop-path={item.type === 'folder' ? item.fullPath : undefined}
-        data-notebook-parent-path={logicalParentPath}
-        style={{
-          '--folder-file-tree-drop-left': `${TREE_EDGE_GUTTER + depth * INDENT_PER_LEVEL}px`,
-          '--folder-file-tree-drop-right': `${TREE_EDGE_GUTTER}px`,
-        } as CSSProperties}
+      <NotebookTreeRowFrame
+        item={item}
+        depth={depth}
+        parentPath={logicalParentPath}
+        isDropTarget={presentation.isDropTarget}
       >
-        {depth > 0 && (
-          <div aria-hidden="true" className="pointer-events-none absolute inset-0">
-            {Array.from({ length: depth }, (_, level) => (
-              <span
-                key={level}
-                className="absolute inset-y-0 w-px"
-                style={{
-                  left: TREE_EDGE_GUTTER + level * INDENT_PER_LEVEL + FOLDER_CARET_CENTER_OFFSET,
-                  backgroundColor: 'color-mix(in srgb, var(--border) 72%, transparent)',
-                }}
-              />
-            ))}
-          </div>
-        )}
         <NotebookTreeRow
           item={item}
           notebookPath={notebookPath}
@@ -800,13 +748,83 @@ export function NotebookFileTree({
           onKeepAliveChange={handleRowKeepAliveChange}
           onPointerDown={handlePointerDownItem}
         />
-      </div>
+      </NotebookTreeRowFrame>
     );
   };
 
   const renderTreeRow = (row: NotebookTreeRenderRow) => row.kind === 'draft'
     ? renderDraft(row.draft, row.depth)
     : renderTreeItem(row.item, row.depth, row.parentPath, row.posInSet, row.setSize);
+
+  const pinnedTreeRowController: NotebookPinnedTreeRowController = useMemo(() => ({
+    notebookPath,
+    getPresentation: getPinnedRowPresentation,
+    isCut: clipboard.isCut,
+    canDeleteSelected: (item) => (
+      canDeleteSelectedDocuments && selectedFilePathSet.has(canonicalPath(item.fullPath))
+    ),
+    hasWorkDocumentsCollection: (path) => workDocumentCollectionByPath.has(canonicalPath(path)),
+    onOpenInNewTab: onNoteOpenInNewTab ? handleOpenPathInNewTab : undefined,
+    onTogglePinned: pinnedRowToggle,
+    onRetryChildren: handleRetryDirectory,
+    onKeyDown: (path, event) => handleTreeItemKeyDown(path, event, {
+      items: pinnedNavigationItems,
+      tree: { expanded: pinnedExpandedPaths, toggle: handleTogglePinnedFolderPath },
+      root: event.currentTarget.closest('section'),
+      list: 'pinned',
+    }),
+    actions: {
+      onToggle: handleTogglePinnedFolderPath,
+      onSelectFolder: handleOpenPinnedPath,
+      onOpen: handleOpenPinnedPath,
+      onCreateNote: handleCreateNoteAtPath,
+      onCreateFolder: handleCreateFolderAtPath,
+      onCreateView: handleCreateViewAtPath,
+      onCreateMediaLibrary: openNewMediaLibraryDialog,
+      onCreateWorkDocuments: openNewWorkDocumentsDialog,
+      onImportFiles: handleImportFilesAtPath,
+      onImportFolder: handleImportFolderAtPath,
+      onRename: handleRename,
+      onDeleteFile,
+      onDeleteSelected: handleDeleteSelected,
+      onPointerDown: handlePointerDownItem,
+      onKeepAliveChange: handleRowKeepAliveChange,
+      onFocus: handleFocusPath,
+      onFavoriteChanged: (itemId, favorited) => {
+        if (!favorited) removePinnedItem(itemId);
+      },
+    },
+  }), [
+    notebookPath,
+    getPinnedRowPresentation,
+    clipboard.isCut,
+    canDeleteSelectedDocuments,
+    selectedFilePathSet,
+    workDocumentCollectionByPath,
+    onNoteOpenInNewTab,
+    handleOpenPathInNewTab,
+    pinnedRowToggle,
+    handleRetryDirectory,
+    handleTreeItemKeyDown,
+    pinnedNavigationItems,
+    pinnedExpandedPaths,
+    handleTogglePinnedFolderPath,
+    handleOpenPinnedPath,
+    handleCreateNoteAtPath,
+    handleCreateFolderAtPath,
+    handleCreateViewAtPath,
+    openNewMediaLibraryDialog,
+    openNewWorkDocumentsDialog,
+    handleImportFilesAtPath,
+    handleImportFolderAtPath,
+    handleRename,
+    onDeleteFile,
+    handleDeleteSelected,
+    handlePointerDownItem,
+    handleRowKeepAliveChange,
+    handleFocusPath,
+    removePinnedItem,
+  ]);
 
   const folderDropHighlight = useMemo(() => {
     if (!dragOverFolderPath || samePath(dragOverFolderPath, notebookPath)) return null;
@@ -828,49 +846,9 @@ export function NotebookFileTree({
     };
   }, [dragOverFolderPath, notebookPath, renderRows]);
 
-  // Local tree handlers own range selection and hierarchy. At list boundaries,
-  // continue through the other visible sections in their displayed order.
-  const handleSectionNavigation = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.defaultPrevented || (event.key !== 'ArrowDown' && event.key !== 'ArrowUp')) return;
-    const origin = event.target instanceof Element ? event.target : null;
-    if (!origin || origin.closest('input, textarea, [contenteditable="true"]')) return;
-    const current = origin.closest<HTMLElement>('[data-notebook-tree-path], [data-notebook-conversation-item]');
-    if (!current || (origin.closest('button') && !origin.closest('[data-notebook-conversation-item]'))) return;
-    const root = event.currentTarget;
-    const entries: Array<{ element: HTMLElement | null; path?: string; select: () => void; focus: () => void }> = [];
-    for (const section of sectionOrder) {
-      if (section === 'agents') {
-        for (const button of root.querySelectorAll<HTMLButtonElement>('[data-notebook-conversation-item]')) {
-          entries.push({ element: button, select: () => button.click(), focus: () => {
-            button.focus({ preventScroll: true });
-            button.scrollIntoView({ block: 'nearest' });
-          } });
-        }
-      } else if (section === 'pinned') {
-        for (const row of root.querySelectorAll<HTMLElement>('[data-notebook-pinned-section] [data-notebook-tree-path]')) {
-          const path = row.dataset.notebookTreePath!;
-          entries.push({ element: row, select: () => selectItem(path, undefined, 'pinned'), focus: () => {
-            row.focus({ preventScroll: true });
-            row.scrollIntoView({ block: 'nearest' });
-          } });
-        }
-      } else if (section === 'files' && treeRootRef.current) {
-        for (const { item } of visibleTreeItems) {
-          entries.push({ element: null, path: item.fullPath,
-            select: () => selectItem(item.fullPath), focus: () => focusTreeItem(item.fullPath) });
-        }
-      }
-    }
-    const currentIndex = entries.findIndex(entry => entry.element === current
-      || (entry.path && current.closest('[data-notebook-tree-root]')
-        && samePath(entry.path, current.dataset.notebookTreePath ?? '')));
-    if (currentIndex < 0) return;
-    const target = entries[currentIndex + (event.key === 'ArrowDown' ? 1 : -1)];
-    if (!target) return;
-    event.preventDefault();
-    target.select();
-    target.focus();
-  };
+  const handleSectionNavigation = useNotebookSectionNavigation({
+    visibleSectionOrder, visibleTreeItems, treeRootRef, selectItem, focusTreeItem,
+  });
 
   return (
     <div
@@ -905,186 +883,85 @@ export function NotebookFileTree({
           <ContextMenu>
             <ContextMenuTrigger asChild>
               <div className="flex min-h-full flex-col">
-          {notebookId && !hiddenSections.includes('agents') && (
-            <AgentTasksSection
-              key={notebookId}
-              notebookId={notebookId}
-              edgeGutter={TREE_EDGE_GUTTER}
-              order={sectionOrder.indexOf('agents') + 1}
-              onHeightChange={handleAgentSectionHeightChange}
-              onConversationSelect={selectConversation}
-              selectedConversationId={selectedConversationId}
-              onHideSection={() => hideTreeSection('agents')}
-              onShowAllConversations={handleShowAllAgentConversations}
-              sectionActions={(
-                <NotebookTreeSectionMenu
-                  onHideSection={() => hideTreeSection('agents')}
-                  canMoveUp={visibleSectionOrder.indexOf('agents') > 0}
-                  canMoveDown={visibleSectionOrder.indexOf('agents') < visibleSectionOrder.length - 1}
-                  onMoveUp={() => moveTreeSection('agents', -1)}
-                  onMoveDown={() => moveTreeSection('agents', 1)}
-                  onCustomizeDisplay={openCustomizeDisplay}
-                  onConfigureAgentConversationCount={() => window.dispatchEvent(new CustomEvent('flowix:configure-agent-conversation-count', { detail: notebookId }))}
-                />
-              )}
-            />
-          )}
-          {(pinnedSectionItems.length > 0 || pinnedHasPrevious || pinnedHasMore) && !hiddenSections.includes('pinned') && (
-            <NotebookPinnedSection
-              order={sectionOrder.indexOf('pinned') + 1}
-              items={pinnedSectionItems}
-              hasPreviousPage={pinnedHasPrevious}
-              hasMoreItems={pinnedHasMore}
-              loadingMore={pinnedLoadingMore || pinnedLoadingInitial}
-              onLoadPrevious={loadPreviousPinned}
-              onLoadMore={() => { void loadMorePinned(); }}
-              collapsed={pinnedCollapsed}
-              onToggleCollapsed={() => setPinnedCollapsed((collapsed) => !collapsed)}
-              sectionActions={(
-                <NotebookTreeSectionMenu
-                  onHideSection={() => hideTreeSection('pinned')}
-                  canMoveUp={visibleSectionOrder.indexOf('pinned') > 0}
-                  canMoveDown={visibleSectionOrder.indexOf('pinned') < visibleSectionOrder.length - 1}
-                  onMoveUp={() => moveTreeSection('pinned', -1)}
-                  onMoveDown={() => moveTreeSection('pinned', 1)}
-                  onCustomizeDisplay={openCustomizeDisplay}
-                />
-              )}
-              renderItem={(item) => {
-                const presentation = getRowPresentation(item, pinnedExpandedPathKeys, false);
-                return <NotebookTreeRow
-                  key={item.id}
-                  item={item}
-                  notebookPath={notebookPath}
-                  parentPath={parentDirectoryPath(item.fullPath, notebookPath)}
-                  depth={item.pinnedDepth ?? 0}
-                  expanded={presentation.expanded}
-                  active={presentation.active}
-                  selected={presentation.selected}
-                  cut={clipboard.isCut(item.fullPath)}
-                  onDeleteSelected={canDeleteSelectedDocuments && selectedFilePathSet.has(canonicalPath(item.fullPath)) ? handleDeleteSelected : undefined}
-                  onToggle={handleTogglePinnedFolderPath}
-                  onSelectFolder={handleOpenPinnedPath}
-                  onOpen={handleOpenPinnedPath}
-                  onOpenInNewTab={
-                    item.pinnedEntryKind !== 'collection' && onNoteOpenInNewTab
-                      ? handleOpenPathInNewTab
-                      : undefined
-                  }
-                  onCreateNote={handleCreateNoteAtPath}
-                  onCreateFolder={handleCreateFolderAtPath}
-                  onImportFiles={handleImportFilesAtPath}
-                  onImportFolder={handleImportFolderAtPath}
-                  onCreateView={(parentPath, viewType) => openNewTableDialog(parentPath, viewType)}
-                  onCreateMediaLibrary={(parentPath) => openNewMediaLibraryDialog(parentPath)}
-                  onCreateWorkDocuments={(parentPath) => openNewWorkDocumentsDialog(parentPath)}
-                  onRename={handleRename}
-                  onDeleteFile={onDeleteFile}
-                  onPointerDown={handlePointerDownItem}
-                  onKeepAliveChange={handleRowKeepAliveChange}
-                  workDocumentsCollection={workDocumentCollectionByPath.has(canonicalPath(item.fullPath))}
-                  favoritePath={item.fullPath}
-                  onFavoriteChanged={(itemId, favorited) => {
-                    if (!favorited) removePinnedItem(itemId);
+                <NotebookTreeSectionsView
+                  layout={{
+                    order: sectionOrder,
+                    hidden: hiddenSections,
+                    visible: visibleSectionOrder,
+                    onMove: moveTreeSection,
+                    onHide: hideTreeSection,
+                    onCustomize: openCustomizeDisplay,
                   }}
-                  onTogglePinned={pinnedRowToggle(item)}
-                  onFocus={handleFocusPath}
-                  onKeyDown={(path, event) => handleTreeItemKeyDown(path, event, {
-                    items: pinnedNavigationItems,
-                    tree: { expanded: pinnedExpandedPaths, toggle: handleTogglePinnedFolderPath },
-                    root: event.currentTarget.closest('section'),
-                    list: 'pinned',
-                  })}
-                  tabIndex={0}
-                />;
-              }}
-            />
-          )}
-          {!hiddenSections.includes('files') && (
-            <NotebookFilesSection
-              order={sectionOrder.indexOf('files') + 1}
-              fillsRemainingSpace={visibleSectionOrder[visibleSectionOrder.length - 1] === 'files'}
-              collapsed={filesCollapsed}
-              onToggleCollapsed={() => setFilesCollapsed((collapsed) => !collapsed)}
-              sectionActions={(
-                <NotebookTreeSectionMenu
-                  onHideSection={() => hideTreeSection('files')}
-                  canMoveUp={visibleSectionOrder.indexOf('files') > 0}
-                  canMoveDown={visibleSectionOrder.indexOf('files') < visibleSectionOrder.length - 1}
-                  onMoveUp={() => moveTreeSection('files', -1)}
-                  onMoveDown={() => moveTreeSection('files', 1)}
-                  onCreateFolder={onCreateFolder}
-                  onCreateNote={() => { void createNoteAtPath(); }}
-                  onCreateTable={(viewType) => openNewTableDialog(undefined, viewType)}
-                  onCreateMediaLibrary={() => openNewMediaLibraryDialog()}
-                  onCreateWorkDocuments={() => openNewWorkDocumentsDialog()}
-                  onImportFiles={() => { void handleImportFiles(notebookPath); }}
-                  onImportFolder={() => { void handleImportFolder(notebookPath); }}
-                  sort={fileTreeSort}
-                  onSort={setFileTreeSort}
-                  onCustomizeDisplay={openCustomizeDisplay}
+                  agents={{
+                    notebookId,
+                    selectedConversationId,
+                    onHeightChange: handleAgentSectionHeightChange,
+                    onSelectConversation: selectConversation,
+                    onShowAll: handleShowAllAgentConversations,
+                    onConfigureCount: () => window.dispatchEvent(
+                      new CustomEvent('flowix:configure-agent-conversation-count', { detail: notebookId }),
+                    ),
+                  }}
+                  pinned={{
+                    items: pinnedSectionItems,
+                    hasPrevious: pinnedHasPrevious,
+                    hasMore: pinnedHasMore,
+                    loading: pinnedLoadingMore || pinnedLoadingInitial,
+                    collapsed: pinnedCollapsed,
+                    onLoadPrevious: loadPreviousPinned,
+                    onLoadMore: () => { void loadMorePinned(); },
+                    onToggleCollapsed: () => setPinnedCollapsed((collapsed) => !collapsed),
+                    renderItem: (item) => (
+                      <NotebookPinnedTreeRow
+                        key={item.id}
+                        item={item}
+                        controller={pinnedTreeRowController}
+                      />
+                    ),
+                  }}
+                  files={{
+                    notebookName,
+                    collapsed: filesCollapsed,
+                    onToggleCollapsed: () => setFilesCollapsed((collapsed) => !collapsed),
+                    isRootDropTarget,
+                    headerRef: treeHeaderRef,
+                    rootRef: treeRootRef,
+                    hasError: Boolean(treeError),
+                    onRetry: () => { void reloadTree(); },
+                    hasVisibleItems,
+                    loading: treeLoading,
+                    hasDraft: Boolean(draft),
+                    virtualSize: virtualTreeSize,
+                    contentClassName,
+                    folderDropHighlight,
+                    virtualRows: virtualTreeRows,
+                    renderRow: renderTreeRow,
+                    sort: fileTreeSort,
+                    onSort: setFileTreeSort,
+                    onCreateFolder,
+                    onCreateNote: () => { void createNoteAtPath(); },
+                    onCreateTable: (viewType) => openNewTableDialog(undefined, viewType),
+                    onCreateMediaLibrary: () => openNewMediaLibraryDialog(),
+                    onCreateWorkDocuments: () => openNewWorkDocumentsDialog(),
+                    onImportFiles: () => { void handleImportFiles(notebookPath); },
+                    onImportFolder: () => { void handleImportFolder(notebookPath); },
+                  }}
+                  repositories={{
+                    items: agentRepositories,
+                    introEnabled: agentWorkspaceReady,
+                    onHeightChange: handleRepositorySectionHeightChange,
+                    onAdd: () => { void handleAddRepository(); },
+                    onRemove: (repository) => { void handleRemoveRepository(repository); },
+                    canAdd: Boolean(notebookId),
+                    onOpenFile: openRepositoryFile,
+                    onOpenFileInBrowserColumn: openRepositoryFileInBrowser,
+                    onOpenList: () => setRepositoriesPageOpen(true),
+                  }}
+                  more={{
+                    onHeightChange: setMoreSectionHeight,
+                    compactTopSpacing: moreCompactTopSpacing,
+                  }}
                 />
-              )}
-              isRootDropTarget={isRootDropTarget}
-              headerRef={treeHeaderRef}
-              rootRef={treeRootRef}
-              notebookName={notebookName}
-              hasError={Boolean(treeError)}
-              onRetry={() => { void reloadTree(); }}
-              hasVisibleItems={hasVisibleItems}
-              loading={treeLoading}
-              hasDraft={Boolean(draft)}
-              virtualTreeSize={virtualTreeSize}
-              contentClassName={contentClassName}
-              folderDropHighlight={folderDropHighlight}
-              virtualRows={virtualTreeRows}
-              renderRow={renderTreeRow}
-            />
-          )}
-          {!hiddenSections.includes('repositories') && (
-            <AgentRepositoriesSection
-              repositories={agentRepositories}
-              introEnabled={agentWorkspaceReady}
-              order={sectionOrder.indexOf('repositories') + 1}
-              onHeightChange={handleRepositorySectionHeightChange}
-              onHideSection={() => hideTreeSection('repositories')}
-              sectionActions={(
-                <NotebookTreeSectionMenu
-                  onHideSection={() => hideTreeSection('repositories')}
-                  canMoveUp={visibleSectionOrder.indexOf('repositories') > 0}
-                  canMoveDown={visibleSectionOrder.indexOf('repositories') < visibleSectionOrder.length - 1}
-                  onMoveUp={() => moveTreeSection('repositories', -1)}
-                  onMoveDown={() => moveTreeSection('repositories', 1)}
-                  onCustomizeDisplay={openCustomizeDisplay}
-                />
-              )}
-              onAddRepository={() => { void handleAddRepository(); }}
-              onRemoveRepository={(repository) => { void handleRemoveRepository(repository); }}
-              onExpandRepository={() => {}}
-              canAddRepository={Boolean(notebookId)}
-              onOpenFile={openRepositoryFile}
-              onOpenFileInBrowserColumn={openRepositoryFileInBrowser}
-              viewMode="links"
-              onOpenRepositoryList={() => setRepositoriesPageOpen(true)}
-            />
-          )}
-          {!hiddenSections.includes('more') && (
-            <NotebookMoreSection
-              order={sectionOrder.indexOf('more') + 1}
-              onHeightChange={setMoreSectionHeight}
-              compactTopSpacing={moreCompactTopSpacing}
-              sectionActions={(
-                <NotebookTreeSectionMenu
-                  onHideSection={() => hideTreeSection('more')}
-                  canMoveUp={visibleSectionOrder.indexOf('more') > 0}
-                  canMoveDown={visibleSectionOrder.indexOf('more') < visibleSectionOrder.length - 1}
-                  onMoveUp={() => moveTreeSection('more', -1)}
-                  onMoveDown={() => moveTreeSection('more', 1)}
-                  onCustomizeDisplay={openCustomizeDisplay}
-                />
-              )}
-            />
-          )}
               </div>
             </ContextMenuTrigger>
             <ContextMenuContent className="w-[180px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">

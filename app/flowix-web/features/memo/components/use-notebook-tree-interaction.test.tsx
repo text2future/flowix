@@ -42,6 +42,34 @@ describe('file tree selection through a rename', () => {
     environment.IS_REACT_ACT_ENVIRONMENT = false;
   });
 
+  it('keeps keyboard callbacks stable when only tree feedback changes', async () => {
+    const options = {
+      activeFilePath: null,
+      treeItemPaths: new Set<string>(),
+      visibleTreeItems: [],
+      pinnedItemPaths: [],
+      treeRootRef: { current: null },
+      treeScrollerRef: { current: null },
+      renderRowIndexByPath: new Map<string, number>(),
+      treeContentOffset: 0,
+      onNoteSelect,
+    };
+    function StableHarness({ controller }: { controller: typeof tree & { error?: string } }) {
+      interaction = useNotebookTreeInteraction({ ...options, tree: controller });
+      return null;
+    }
+    await act(async () => root.render(createElement(StableHarness, { controller: tree })));
+    const handler = interaction.handleTreeItemKeyDown;
+    await act(async () => root.render(createElement(StableHarness, {
+      controller: { ...tree, error: 'directory unavailable' },
+    })));
+    expect(interaction.handleTreeItemKeyDown).toBe(handler);
+    await act(async () => root.render(createElement(StableHarness, {
+      controller: { ...tree, expanded: new Set(['/notes/folder']) },
+    })));
+    expect(interaction.handleTreeItemKeyDown).not.toBe(handler);
+  });
+
   it('shares selection, toggling and ranges between folders and files', async () => {
     const folder = '/mixed/folder';
     const file = '/mixed/file.md';

@@ -330,6 +330,7 @@ export function useNotebookTreeInteraction({
     }
   }, [activeFilePath, navigateToNote, updateSelection, visibleItemPaths, pinnedItemPaths, visibleTreeItems, onFolderSelect, folderPaths]);
 
+  const { expanded, toggle } = tree;
   const handleTreeItemKeyDown = useCallback((path: string, event: KeyboardEvent<HTMLDivElement>, context?: {
     items: VisibleTreeNode[];
     tree: NotebookTreeController;
@@ -337,7 +338,7 @@ export function useNotebookTreeInteraction({
     list: 'pinned';
   }) => {
     const items = context?.items ?? visibleTreeItems;
-    const controller = context?.tree ?? tree;
+    const controller = context?.tree ?? { expanded, toggle };
     const list = context?.list ?? 'tree';
     const currentIndex = items.findIndex(({ item }) => samePath(item.fullPath, path));
     if (currentIndex < 0) return;
@@ -403,7 +404,7 @@ export function useNotebookTreeInteraction({
         moveToItem(parent.item.fullPath);
       }
     }
-  }, [focusTreeItem, selectItem, updateSelection, tree, visibleTreeItems, treeRootRef]);
+  }, [focusTreeItem, selectItem, updateSelection, expanded, toggle, visibleTreeItems, treeRootRef]);
 
   const treeFocusPath = focusedTreePath
     ?? (activeFileShouldReveal && activeFilePath && visibleTreeItems.some(({ item }) => samePath(item.fullPath, activeFilePath))

@@ -133,6 +133,60 @@ describe('notebook pinned entries', () => {
     expect(mocks.list).toHaveBeenCalledTimes(2);
   });
 
+  it('retains page and row identities across parent renders and unrelated metadata updates', async () => {
+    mocks.list.mockResolvedValueOnce(page([noteEntry('a.md'), noteEntry('b.md'), documentEntry('c.html')]));
+    await act(async () => {
+      noteMetadata.update('/notes/nb-1/a.md', { icon: 'book', colors: [], favorited: true });
+      noteMetadata.update('/notes/nb-1/b.md', { icon: null, colors: [], favorited: true });
+      root.render(createElement(Harness));
+    });
+    const initial = data().pinnedItems;
+    await act(async () => root.render(createElement(Harness)));
+    expect(data().pinnedItems).toBe(initial);
+    await act(async () => {
+      noteMetadata.update('/notes/other.md', { icon: 'star', colors: [], favorited: true });
+      root.render(createElement(Harness));
+    });
+    expect(data().pinnedItems).toBe(initial);
+    await act(async () => noteMetadata.update('/notes/nb-1/a.md', {
+      icon: 'star', colors: [], favorited: true,
+    }));
+    const changed = data().pinnedItems;
+    expect(changed).not.toBe(initial);
+    expect(changed[0]).not.toBe(initial[0]);
+    expect(changed[0].memoMeta?.icon).toBe('star');
+    expect(changed[1]).toBe(initial[1]);
+    expect(changed[2]).toBe(initial[2]);
+    await act(async () => root.render(createElement(Harness)));
+    expect(data().pinnedItems).toBe(changed);
+    expect(mocks.list).toHaveBeenCalledOnce();
+    await act(async () => noteMetadata.update('/notes/nb-1/a.md', {
+      icon: 'star', colors: [], favorited: false,
+    }));
+    expect(data().pinnedItems).toEqual([initial[1], initial[2]]);
+    await act(async () => noteMetadata.deletePrefix('/notes/nb-1/b.md'));
+    expect(data().pinnedItems).toEqual([initial[2]]);
+  });
+
+  it('subscribes only to the visible page and reads fresh metadata when returning to a cached page', async () => {
+    mocks.list
+      .mockResolvedValueOnce(page([noteEntry('first.md')], { nextCursor: 'next', hasMore: true }))
+      .mockResolvedValueOnce(page([noteEntry('second.md')]));
+    await act(async () => root.render(createElement(Harness)));
+    expect(noteMetadata.observedPaths()).toEqual(['/notes/nb-1/first.md']);
+    await act(async () => data().loadMore());
+    expect(noteMetadata.observedPaths()).toEqual(['/notes/nb-1/second.md']);
+    const secondPage = data().pinnedItems;
+    await act(async () => noteMetadata.update('/notes/nb-1/first.md', {
+      icon: 'star', colors: [], favorited: true,
+    }));
+    expect(data().pinnedItems).toBe(secondPage);
+    await act(async () => data().loadPrevious());
+    expect(noteMetadata.observedPaths()).toEqual(['/notes/nb-1/first.md']);
+    expect(data().pinnedItems[0].memoMeta?.icon).toBe('star');
+    expect(mocks.list).toHaveBeenCalledTimes(2);
+  });
+
   it('renders notes, documents, and collections in backend order', async () => {
     mocks.list.mockResolvedValueOnce(page([
       collectionEntry('views/feedback.table.yaml', 30),

@@ -2,40 +2,26 @@
 
 import { NotebookDocumentCreateDialog, type NotebookDocumentCreateRequest } from './notebook-document-create-dialog';
 
-import { flushSync } from 'react-dom';
 import { useColumnNavigation, columnTarget } from '@features/workspace/public/column-navigation-api';
-import { useActiveFilePath } from '@features/workspace/public/active-file-path-api';
-import { middleColumnSelectionKey } from './memo-list-selection';
 import {
-  joinNotebookMemoPath,
   notebookRelativeDirectoryPath,
   parentDirectoryPath,
-  samePath,
 } from '@/lib/path';
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useShallow } from 'zustand/react/shallow';
+import { useCallback, useEffect, useState } from 'react';
 import {
   useNoteStore,
 } from '@features/memo/store/note-store';
 import { useCustomFilterStore } from '@features/memo/store/custom-filter-store';
 import { useTagStore } from '@features/memo/store/tag-store';
-import {
-  noteListItemKey,
-  type NoteListItem,
-} from '@/types/note-item';
 import { useMemoInsertAnimation } from '@features/memo/hooks/use-memo-insert-animation';
+import { MemoListDataLoader } from '@features/memo/components/memo-list-data-loader';
 import { toast } from '@/lib/toast';
 import { cn } from '@/lib/utils';
 import { Button } from '@shared/ui/button';
 import { FileTreeLoadingSkeleton } from '@shared/ui/file-tree-loading-skeleton';
 import { ListSurfaceLoadingState, ListSurfaceViewport } from '@shared/ui/list-surface';
-import { DROPDOWN_DIVIDER_SKIN } from '@shared/ui/dropdown-divider';
-import { MemoCard } from '@features/memo/components/memo-card';
-import { openPathNoteSession } from '@features/memo/use-cases/open-memo-session';
 import { openNotebookNote } from '@features/memo/use-cases/open-notebook-note';
-import { MemoListDataLoader } from '@features/memo/components/memo-list-data-loader';
-import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
 import { useI18n } from '@/lib/i18n';
 import {
   useMemoListViewPreference,
@@ -53,19 +39,12 @@ import type { TableViewType } from '@features/multidimensional-table/public/crea
 
 import { COLOR_LABEL_KEYS } from './memo-list/color-filter-submenu';
 import { NotebookFolderView } from './notebook-folder-view';
-import { useMemoListPagination } from './memo-list/use-memo-list-pagination';
+import { MemoListCardsContent } from './memo-list/memo-list-cards-content';
 import { useMemoListLoadController } from './memo-list/use-memo-list-load-controller';
-import { useMemoListCreationActions } from './memo-list/use-memo-list-creation-actions';
-import type { MemoRowKeepAliveChange } from './memo-list/memo-list-rows';
-import { MemoListHeader } from './memo-list/memo-list-header';
-import { MemoListViewport } from './memo-list/memo-list-viewport';
-import { useNotebookDefaultCreateFolder } from './memo-list/use-notebook-default-create-folder';
 import { useMemoListNotebookMetadata } from './memo-list/use-memo-list-notebook-metadata';
-import { useMemoListItemActions } from './memo-list/use-memo-list-item-actions';
-import {
-  findRunningAgentTypeForMemo,
-  useRunningAgentTypeIndex,
-} from '@features/agent/public/running-agents-api';
+import { useMemoListCreationActions } from './memo-list/use-memo-list-creation-actions';
+import { MemoListHeader } from './memo-list/memo-list-header';
+import { useNotebookDefaultCreateFolder } from './memo-list/use-notebook-default-create-folder';
 const logger = createLogger('memo-list');
 
 interface MemoListProps {
@@ -90,26 +69,7 @@ export function MemoList({
   dataLoadingEnabled = true,
 }: MemoListProps) {
   const { t } = useI18n();
-  const [showScrollTopHint, setShowScrollTopHint] = useState(false);
-  const { registerCard, prepareForInsert, onListRendered } =
-    useMemoInsertAnimation();
-  // Paging and the virtual rows share the OverlayScrollbar's native scroller.
-  const listContainerRef = useRef<HTMLDivElement>(null);
-  const scrollListToTop = useCallback(() => {
-    listContainerRef.current?.scrollTo({ top: 0 });
-  }, []);
-  const [listScrollElement, setListScrollElement] = useState<HTMLDivElement | null>(null);
-  const attachListScroller = useCallback((element: HTMLDivElement | null) => {
-    listContainerRef.current = element;
-    setListScrollElement(element);
-  }, []);
-  // 切片订阅: 替代原来的 `useNoteStore()` 全量订阅。每个 useStore 只取用到的字段,
-  // 切到 selector 后, 列表里 5k 笔记的任何 set 都不会让本组件不必要地重渲 ──
-  // memos 是大头, 但要 memoize (Array equality) 才能跳过 5k 项深比; 不然
-  // store 里 setNotebooks 之类也会触发 memos selector 重跑。Zustand v5 默认
-  // 用 Object.is 比对, 同一个 memos 引用相等就跳过, 不需要 useMemo。
-  const notes = useNoteStore((s) => s.notes);
-  const notebooks = useNoteStore((s) => s.notebooks);
+  const { registerCard, prepareForInsert, onListRendered } = useMemoInsertAnimation();
   const memoListView = useMemoListViewPreference();
   const selectedNotebook = useNoteStore((s) => s.selectedNotebook);
   const showFolderView = memoListView === 'folders' && Boolean(selectedNotebook);
@@ -121,7 +81,6 @@ export function MemoList({
   // A stale Zustand snapshot can survive a Vite HMR update with this field
   // missing even though the current store initializer provides an empty map.
   const refreshAgentRuntimeIfStale = useAgentRuntimeStore((s) => s.refreshIfStale);
-  const refreshTrigger = useNoteStore((s) => s.refreshTrigger);
   const activeFilter = useNoteStore((s) => s.activeFilter);
   const activePluginId = useNoteStore((s) => s.activePluginId);
   const activeCustomFilterId = useNoteStore((s) => s.activeCustomFilterId);
@@ -136,10 +95,21 @@ export function MemoList({
   ));
   const startupPhase = useNoteStore((s) => s.startupPhase);
   const startupError = useNoteStore((s) => s.startupError);
+  const selectedNotebookId = selectedNotebook?.id;
   const initialMemoQueryKey = useNoteStore((s) => s.initialMemoQueryKey);
   const memoListQueryKey = useNoteStore((s) => s.memoListQueryKey);
   const memoListRefreshTrigger = useNoteStore((s) => s.memoListRefreshTrigger);
-  const selectedNotebookId = selectedNotebook?.id;
+  const refreshTrigger = useNoteStore((s) => (
+    isActive && !showFolderView ? s.refreshTrigger : 0
+  ));
+  const setActiveFilter = useNoteStore((s) => s.setActiveFilter);
+  const setActiveSort = useNoteStore((s) => s.setActiveSort);
+  const setColorFilter = useNoteStore((s) => s.setColorFilter);
+  const triggerMemoListRefresh = useNoteStore((s) => s.triggerMemoListRefresh);
+  const loadNotes = useNoteStore((s) => s.loadNotes);
+  const loadMoreMemos = useNoteStore((s) => s.loadMoreMemos);
+  const memoListHasMore = useNoteStore((s) => s.memoListHasMore);
+  const memoListLoadingMore = useNoteStore((s) => s.memoListLoadingMore);
   const handleCreateTypeMenuOpenChange = useCallback((open: boolean) => {
     setCreateTypeMenuOpen(open);
     if (!open) setCreateViewsExpanded(false);
@@ -200,35 +170,11 @@ export function MemoList({
     handleSetDefaultCreateFolder,
     handleSaveDefaultCreateFolder,
   } = useNotebookDefaultCreateFolder(selectedNotebook);
-  const runningAgentTypeIndex = useRunningAgentTypeIndex();
-  const getRunningAgentTypeForMemo = useCallback(
-    (memo: NoteListItem) => findRunningAgentTypeForMemo(runningAgentTypeIndex, memo),
-    [runningAgentTypeIndex],
-  );
+  const handleFolderDefaultCreateFolderChange = useCallback((folderPath: string) => {
+    void handleSetDefaultCreateFolder(folderPath);
+  }, [handleSetDefaultCreateFolder]);
   const activeTagId = activeFilter === 'tagged' ? selectedTagId : null;
   const setSelectedTagId = useTagStore((s) => s.setSelectedTagId);
-  const {
-    triggerMemoListRefresh,
-    setActiveFilter,
-    setActiveSort,
-    setColorFilter,
-    loadNotes,
-    loadMoreMemos,
-    memoListHasMore,
-    memoListLoadingMore,
-  } = useNoteStore(
-    useShallow((s) => ({
-      triggerMemoListRefresh: s.triggerMemoListRefresh,
-      setActiveFilter: s.setActiveFilter,
-      setActiveSort: s.setActiveSort,
-      setColorFilter: s.setColorFilter,
-      loadNotes: s.loadNotes,
-      loadMoreMemos: s.loadMoreMemos,
-      memoListHasMore: s.memoListHasMore,
-      memoListLoadingMore: s.memoListLoadingMore,
-    })),
-  );
-  const listItems: NoteListItem[] = notes;
   const {
     currentMemoListQueryKey,
     currentMemoListError,
@@ -261,16 +207,12 @@ export function MemoList({
     triggerMemoListRefresh,
   });
   const tagMap = useMemoListNotebookMetadata({
-    isActive,
+    isActive: isActive && !showFolderView,
     startupPhase,
     refreshTrigger,
     selectedNotebookId,
     setIsMemoListLoading,
     setLoadedMemoListQueryKey,
-  });
-  const pendingDocumentPath = useColumnNavigation(0, (navigation) => {
-    const { phase, pendingTarget } = navigation.transaction;
-    return phase === 'loading' && pendingTarget?.kind === 'external' ? pendingTarget.path : null;
   });
   const workTargetParentPath = useColumnNavigation(0, (navigation) => {
     if (!selectedNotebook) return null;
@@ -316,23 +258,6 @@ export function MemoList({
     setSelectedTagId,
     prepareForInsert,
   });
-  const pendingListItem = pendingDocumentPath && selectedNotebook?.path
-    ? notes.find((note) => samePath(
-        joinNotebookMemoPath(selectedNotebook.path, note.relativePath) ?? '',
-        pendingDocumentPath,
-      ))
-    : undefined;
-  // 选中态只认中间列：两列交换内容后焦点可能停在右侧会话，跟随 selectedNote
-  // 或焦点都会高亮到用户没在看的那一份。
-  const middleColumnFilePath = useActiveFilePath();
-  const middleColumnListItemKey = middleColumnSelectionKey({
-    middleColumnFilePath,
-    notebook: selectedNotebook,
-    notes,
-  });
-  const selectedListItemKey = pendingDocumentPath
-    ? pendingListItem ? noteListItemKey(pendingListItem) : undefined
-    : middleColumnListItemKey;
   const [notebookDropdownOpen, setNotebookDropdownOpen] = useState(false);
   const [sortSubmenuOpen, setSortSubmenuOpen] = useState(false);
   const [createFolderRequest, setCreateFolderRequest] = useState<{
@@ -407,88 +332,6 @@ export function MemoList({
         hasActiveFilter: false,
       };
   })();
-
-  const { onScroll: handleMemoListScroll } = useMemoListPagination({
-    itemCount: listItems.length,
-    loading: showMemoListLoading,
-    hasMorePages: memoListHasMore,
-    loadingMorePages: memoListLoadingMore,
-    loadMorePages: handleLoadMoreMemos,
-    scrollerRef: listContainerRef,
-    isActive: isActive && dataLoadingEnabled && memoListView !== 'folders',
-  });
-  const handleSelectMemo = useCallback((memo: NoteListItem) => {
-    flushSync(() => {
-      void openPathNoteSession(memo, useNoteStore.getState().selectedNotebook);
-    });
-  }, []);
-
-  const handleOpenMemoWindow = useCallback((memo: NoteListItem) => {
-    const notebook = useNoteStore.getState().selectedNotebook;
-    if (!notebook?.path) return;
-    const path = joinNotebookMemoPath(notebook.path, memo.relativePath) ?? memo.relativePath;
-    const open = openWorkspaceSurface({
-      index: 1,
-      target: { kind: 'external', path, scopePath: notebook.path, transitionId: null },
-    });
-    void open
-      .catch((error) => {
-        logger.warn('open memo in browser column failed', {
-          error,
-          path: memo.relativePath,
-        });
-        toast.error(error instanceof Error ? error.message : String(error));
-      });
-  }, []);
-
-  const handleRequestDeleteMemo = useCallback((memo: NoteListItem) => {
-    window.dispatchEvent(new CustomEvent<NoteListItem>('flowix:request-delete-memo', { detail: memo }));
-  }, []);
-  const { handleFavoriteToggleAction, handleColorsChangeAction } = useMemoListItemActions({
-    triggerMemoListRefresh,
-    scrollListToTop,
-  });
-
-  const cardRefCacheRef = useRef(new Map<string, (element: HTMLDivElement | null) => void>());
-  const registerCardRef = useRef(registerCard);
-  registerCardRef.current = registerCard;
-  const getMemoCardRef = (key: string) => {
-    const cached = cardRefCacheRef.current.get(key);
-    if (cached) return cached;
-    const ref = (element: HTMLDivElement | null) => {
-      registerCardRef.current(key)(element);
-      if (!element) cardRefCacheRef.current.delete(key);
-    };
-    cardRefCacheRef.current.set(key, ref);
-    return ref;
-  };
-
-  const renderMemoRow = (memo: NoteListItem, onKeepAliveChange: MemoRowKeepAliveChange) => {
-    const itemKey = noteListItemKey(memo);
-    return (
-      <div
-        key={itemKey}
-        ref={getMemoCardRef(itemKey)}
-        className="min-w-0 w-full"
-      >
-        <div data-insert-anim className="min-w-0 w-full">
-          <MemoCard
-            memo={memo}
-            tagMap={tagMap}
-            isSelected={selectedListItemKey === itemKey}
-            runningAgentType={getRunningAgentTypeForMemo(memo) ?? undefined}
-            onSelect={handleSelectMemo}
-            onOpenInWindow={handleOpenMemoWindow}
-            onFavoriteToggle={handleFavoriteToggleAction}
-            onDelete={handleRequestDeleteMemo}
-            onColorsChange={handleColorsChangeAction}
-            onKeepAliveChange={onKeepAliveChange}
-          />
-          <hr className={cn('mx-3', DROPDOWN_DIVIDER_SKIN)} />
-        </div>
-      </div>
-    );
-  };
 
   const handleFilterChange = useCallback((filter: typeof activeFilter) => {
     if (filter !== 'tagged') {
@@ -592,13 +435,6 @@ export function MemoList({
     });
   }, [selectedNotebook]);
 
-  // 入场动画入口: 每次主列表行变化时在 layout 阶段同步
-  // 询问 useMemoInsertAnimation 是否有 pending 新 card, 有就跑一次入场
-  // 动画; 无就是 no-op。 在 paint 之前跑, 避免首帧闪烁。
-  useLayoutEffect(() => {
-    onListRendered(listContainerRef.current);
-  }, [listItems, onListRendered]);
-
   return (
     <div className="memo-list relative flex h-full min-w-0 select-none flex-col bg-[var(--list-bg)]">
       <MemoListDataLoader
@@ -697,7 +533,7 @@ export function MemoList({
               createFolderRequest={createFolderRequest}
               onCreateFolder={handleCreateFolder}
               defaultCreateFolder={defaultCreateFolder}
-              onSetDefaultCreateFolder={(folderPath) => { void handleSetDefaultCreateFolder(folderPath); }}
+              onSetDefaultCreateFolder={handleFolderDefaultCreateFolderChange}
               isActive={isActive && dataLoadingEnabled && showFolderView && defaultCreateFolderReady}
               onCreateNote={handleCreateNoteInFolder}
             />
@@ -713,29 +549,31 @@ export function MemoList({
           className={cn('absolute inset-0', showFolderView ? 'hidden' : '')}
           aria-hidden={showFolderView}
         >
-          <MemoListViewport
+          <MemoListCardsContent
             active={isActive && !showFolderView}
-            items={listItems}
-            notebooksExist={notebooks.length > 0}
-            scrollElement={listScrollElement}
-            scrollerRef={attachListScroller}
-            onScroll={(event) => {
-              setShowScrollTopHint(event.currentTarget.scrollTop > 0);
-              handleMemoListScroll(event);
+            paginationActive={isActive && dataLoadingEnabled && memoListView !== 'folders'}
+            showScrollTopHint={memoListView !== 'folders'}
+            notebook={selectedNotebook}
+            tagMap={tagMap}
+            state={{
+              queryKey: currentMemoListQueryKey,
+              error: currentMemoListError,
+              hasData: hasCurrentMemoListData,
+              indexFailed,
+              loading: showMemoListLoading,
+              skipInitialLoading: skipMemoListLoading,
+              loadingMore: memoListLoadingMore,
+              hasMore: memoListHasMore,
             }}
-            showScrollTopHint={memoListView !== 'folders' && showScrollTopHint}
-            queryKey={currentMemoListQueryKey}
-            error={currentMemoListError}
-            hasData={hasCurrentMemoListData}
-            indexFailed={indexFailed}
-            loading={showMemoListLoading}
-            skipInitialLoading={skipMemoListLoading}
-            loadingMore={memoListLoadingMore}
+            actions={{
+              onRetry: retryIndexOrList,
+              onRetryMore: handleRetryMemoListMore,
+              onLoadMore: handleLoadMoreMemos,
+            }}
             revealKey={createdCardRevealKey}
             onRevealed={handleCreatedCardRevealed}
-            renderRow={renderMemoRow}
-            onRetry={retryIndexOrList}
-            onRetryMore={handleRetryMemoListMore}
+            registerCard={registerCard}
+            onListRendered={onListRendered}
           />
         </div>
       </ListSurfaceViewport>

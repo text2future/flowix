@@ -2,7 +2,7 @@
 
 import { columnAtIndex } from '@features/workspace/public/session-api';
 
-import { useCallback, useEffect, useRef } from 'react';
+import { memo, useCallback, useEffect, useRef } from 'react';
 
 import { canonicalDirectoryPath, canonicalPath, parentDirectoryPath } from '@/lib/path';
 import { createLogger } from '@/lib/logger';
@@ -40,7 +40,7 @@ import { type Notebook } from '@features/memo/store';
 const FILE_BROWSER_DIRECTORIES_CHANGED_EVENT = 'file-browser-directories-changed';
 const logger = createLogger('notebook-folder-view');
 
-export function NotebookFolderView({
+export const NotebookFolderView = memo(function NotebookFolderView({
   notebook,
   createFolderRequest,
   onCreateFolder,
@@ -86,7 +86,10 @@ export function NotebookFolderView({
   const refreshDirectoriesRef = useRef(tree.refreshDirectories);
   refreshDirectoriesRef.current = tree.refreshDirectories;
 
-  useEffect(() => subscribeNotebookMetadata({ notebookId: notebook.id, notebookPath: notebook.path }), [notebook.id, notebook.path]);
+  useEffect(() => {
+    if (!isActive) return;
+    return subscribeNotebookMetadata({ notebookId: notebook.id, notebookPath: notebook.path });
+  }, [isActive, notebook.id, notebook.path]);
 
   useEffect(() => subscribe<{ notebookId: string; operationId?: string }>('file-management-changed', ({ notebookId, operationId }) => {
     if (isActive && notebookId === notebook.id && !operationId) void tree.refresh();
@@ -314,4 +317,4 @@ export function NotebookFolderView({
       onDeleteFile={deleteFile}
     />
   );
-}
+});

@@ -1,3 +1,4 @@
+import { PreservedHtmlBlock, PreservedHtmlInline } from './extensions/preserved-html';
 import { getWorkspaceMemoState } from '@features/memo/public/workspace-api';
 import type { EditorImageContext } from './editor-image-source';
 import { FlowixOrderedList } from './markdown-ordered-list';
@@ -357,6 +358,8 @@ export function createMarkdownEditorExtensions({
   ];
 
   const blockAndMediaExtensions = [
+    PreservedHtmlBlock.configure({ getImageContext, onViewSourceMode }),
+    PreservedHtmlInline.configure({ getImageContext, onViewSourceMode }),
     AttachmentLink.configure({ ownerPath, getOwnerPath, getNotebookId: getAttachmentNotebookId, getImageContext }),
     MarkdownLink,
     LinkSelectionHighlight,

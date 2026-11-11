@@ -80,7 +80,7 @@ function useViewportSubmenuPosition(open: boolean) {
   return { triggerRef, contentRef, style };
 }
 
-interface NotebookTreeSectionMenuProps {
+export interface NotebookTreeSectionMenuProps {
   onHideSection?: () => void;
   canMoveUp: boolean;
   canMoveDown: boolean;
