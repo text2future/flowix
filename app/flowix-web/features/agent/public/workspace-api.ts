@@ -7,13 +7,26 @@ import type { AgentWorkspaceSnapshot } from '@/lib/types/agent-workspace';
  * 会话级操作（需要 agent-session-store，约 220 文件 / 3.3 万行）已拆到
  * `workspace-session-api.ts`，走函数体内动态 import。不要把两者合并回来。
  */
-import { useAgentWorkspaceStore } from '@features/agent/store/agent-workspace-store';
+import { useAgentWorkspaceStore, type AgentWorkspaceNotebook } from '@features/agent/store/agent-workspace-store';
 export { ensureAgentWorkspaceReady } from '@features/agent/store/agent-workspace-store';
 
 export interface WorkspaceAgentRepository {
   path: string;
   name: string;
   missing: boolean;
+}
+
+/** Project the subscribed notebook snapshot into the sidebar repository rows. */
+export function mapWorkspaceAgentRepositories(
+  notebook: AgentWorkspaceNotebook | null | undefined,
+): WorkspaceAgentRepository[] {
+  return (notebook?.addDirs ?? [])
+    .filter((directory) => directory.enabled && !directory.missing)
+    .map((directory) => ({
+      path: directory.path,
+      name: directory.label,
+      missing: directory.missing,
+    }));
 }
 
 /** Resolve resource roots without exposing Agent access configuration stores. */
@@ -30,13 +43,7 @@ export function getWorkspaceAgentRepositories(
 ): WorkspaceAgentRepository[] {
   if (!notebookId) return [];
   const notebook = useAgentWorkspaceStore.getState().workspace.byNotebookId[notebookId];
-  return (notebook?.addDirs ?? [])
-    .filter((directory) => directory.enabled && !directory.missing)
-    .map((directory) => ({
-      path: directory.path,
-      name: directory.label,
-      missing: directory.missing,
-    }));
+  return mapWorkspaceAgentRepositories(notebook);
 }
 
 /** Return the last validated repository settings, including when a refresh failed. */

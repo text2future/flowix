@@ -63,6 +63,19 @@ fn is_standalone(value: &CollectionPlacement) -> bool {
     *value == CollectionPlacement::Standalone
 }
 
+/// Paths used by collection documents, including folder collection descriptors.
+/// This identifies names only; callers must also enforce notebook scope,
+/// visibility, symlink and document-content validation.
+pub fn is_collection_document_path(path: &std::path::Path) -> bool {
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    let name = name.to_ascii_lowercase();
+    name == ".index.yaml" ||
+        [".index.yaml", ".table.yaml", ".table.yml", ".lib.yaml", ".lib.yml", ".workdocs.yaml", ".workdocs.yml"]
+            .iter().any(|suffix| name.len() > suffix.len() && name.ends_with(suffix))
+}
+
 pub fn display_name_for_path(path: &std::path::Path, placement: CollectionPlacement) -> String {
     let display_path = if placement == CollectionPlacement::Folder {
         path.parent().unwrap_or(path)
@@ -1289,6 +1302,16 @@ fn validate_media_library(payload: &Value) -> Result<(), String> {
 #[cfg(test)]
 mod builtin_field_tests {
     use super::*;
+
+    #[test]
+    fn collection_document_paths_are_explicitly_identified() {
+        for name in ["folder/.index.yaml", "Standalone.index.yaml", "Tasks.table.yaml", "Media.lib.yml", "Work.workdocs.yaml", "Notes.TABLE.YAML"] {
+            assert!(is_collection_document_path(std::path::Path::new(name)), "{name}");
+        }
+        for name in ["config.yaml", ".index.yml", ".index.yaml.bak", ".table.yaml", "notes.md", "document.workdocs.json"] {
+            assert!(!is_collection_document_path(std::path::Path::new(name)), "{name}");
+        }
+    }
 
     #[test]
     fn shared_asset_dataset_accepts_all_asset_kinds_but_views_keep_their_domain() {

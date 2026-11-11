@@ -11,6 +11,15 @@ const logger = createLogger('notebook-pinned-notes');
 const EMPTY_PINNED_ITEMS: PinnedTreeItem[] = [];
 const PINNED_PAGE_SIZE = 100;
 
+/**
+ * Trailing window for re-reading the pinned list after a burst of change
+ * events. Bulk imports and cloud-sync pulls publish one event per file; without
+ * this window each event costs a full `pinnedEntries.list` round trip plus a
+ * React commit. 200ms is below the threshold where a pin toggle feels delayed
+ * and above the inter-event gap of a sync burst.
+ */
+const PINNED_RELOAD_COALESCE_MS = 200;
+
 export type PinnedEntryKind = 'note' | 'document' | 'collection' | 'folder';
 
 /**
@@ -108,7 +117,22 @@ export function useNotebookPinnedNotes({
   const requestSequence = useRef(0);
   const loadingMoreRef = useRef(false);
   const loadedScope = useRef<{ notebookId: string; notebookPath: string } | null>(null);
-  const [changeRevision, setChangeRevision] = useState(0);
+  // Change events drive a reload directly instead of bumping a revision state:
+  // N events during one sync burst must cost one read, not N reads and N commits.
+  const reloadRef = useRef<() => void>(() => {});
+  const reloadRunningRef = useRef(false);
+  const reloadPendingRef = useRef(false);
+  const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const requestReload = useCallback(() => {
+    // A coalesced reload is already queued: it will observe this event anyway.
+    if (reloadTimerRef.current !== null) return;
+    if (reloadRunningRef.current) {
+      reloadPendingRef.current = true;
+      return;
+    }
+    reloadRef.current();
+  }, []);
 
   const toPinnedItems = useCallback((entries: PinnedEntry[], path: string): PinnedTreeItem[] =>
     entries.flatMap((entry) => {
@@ -123,30 +147,28 @@ export function useNotebookPinnedNotes({
         // Cache coverage is unrelated to membership. New senders supply the
         // previous pin state; legacy events use the shared projection baseline.
         if (favoriteChanged === true || (favoriteChanged === null && change.entry.favorited)) {
-          setChangeRevision((revision) => revision + 1);
+          requestReload();
         }
       } else if (!change || change.kind !== 'resource-created' || change.source === 'external_tool') {
-        setChangeRevision((revision) => revision + 1);
+        requestReload();
       }
     });
-  }, [notebookId, notebookPath]);
+  }, [notebookId, notebookPath, requestReload]);
 
   // Documents and collections have no frontmatter to watch, so their pin
   // changes arrive as one notebook-scoped event.
   useEffect(() => {
     if (!notebookId) return;
     const pending = listenToPinnedChanges((payload) => {
-      if (payload.notebookId === notebookId) setChangeRevision((revision) => revision + 1);
+      if (payload.notebookId === notebookId) requestReload();
     });
     return () => { void pending.then((unlisten) => unlisten()); };
-  }, [notebookId]);
+  }, [notebookId, requestReload]);
 
   useEffect(() => registerMemoEventHandler((event) => {
     if (event.notebookId !== notebookId || event.kind === 'tags_renamed' || event.kind === 'tags_deleted') return;
-    if (event.kind === 'deleted' || event.source === 'cloud_sync') {
-      setChangeRevision((revision) => revision + 1);
-    }
-  }), [notebookId]);
+    if (event.kind === 'deleted' || event.source === 'cloud_sync') requestReload();
+  }), [notebookId, requestReload]);
 
   useEffect(() => {
     if (!isActive) return;
@@ -157,47 +179,70 @@ export function useNotebookPinnedNotes({
       setLoadingInitial(false);
       return;
     }
-    const sameScope = loadedScope.current?.notebookId === notebookId && loadedScope.current.notebookPath === notebookPath;
-    const targetPage = sameScope ? pageIndexRef.current : 0;
-    if (!sameScope) {
-      setPages([]);
-      setPageIndex(0);
-    }
     let cancelled = false;
-    const sequence = ++requestSequence.current;
-    loadingMoreRef.current = false;
-    setLoadingMore(false);
-    setLoadingInitial(true);
+    const run = () => {
+      if (cancelled) return;
+      const sameScope = loadedScope.current?.notebookId === notebookId && loadedScope.current.notebookPath === notebookPath;
+      const targetPage = sameScope ? pageIndexRef.current : 0;
+      if (!sameScope) {
+        setPages([]);
+        setPageIndex(0);
+      }
+      const sequence = ++requestSequence.current;
+      loadingMoreRef.current = false;
+      reloadRunningRef.current = true;
+      setLoadingMore(false);
+      setLoadingInitial(true);
 
-    void (async () => {
-      const nextPages: PinnedPage[] = [];
-      let cursor: string | undefined;
-      // Recovery and uncertain legacy events reconcile the existing page window
-      // instead of silently moving the user back to the first page.
-      for (let index = 0; index <= targetPage; index++) {
-        const page = await pinnedEntries.list(notebookId, cursor, PINNED_PAGE_SIZE);
-        if (cancelled || sequence !== requestSequence.current) return;
-        cursor = page.nextCursor ?? undefined;
-        nextPages.push({ nextCursor: cursor, hasMore: page.hasMore && Boolean(cursor),
-          items: toPinnedItems(page.entries, notebookPath) });
-        if (!page.hasMore || !cursor) break;
-      }
-      setPages(nextPages);
-      setPageIndex(Math.min(targetPage, nextPages.length - 1));
-      setLoadingInitial(false);
-      loadedScope.current = { notebookId, notebookPath };
-    })().catch((error) => {
-      if (!cancelled) {
-        logger.warn('failed to load pinned entries', { error, notebookPath });
+      return (async () => {
+        const nextPages: PinnedPage[] = [];
+        let cursor: string | undefined;
+        // Recovery and uncertain legacy events reconcile the existing page window
+        // instead of silently moving the user back to the first page.
+        for (let index = 0; index <= targetPage; index++) {
+          const page = await pinnedEntries.list(notebookId, cursor, PINNED_PAGE_SIZE);
+          if (cancelled || sequence !== requestSequence.current) return;
+          cursor = page.nextCursor ?? undefined;
+          nextPages.push({ nextCursor: cursor, hasMore: page.hasMore && Boolean(cursor),
+            items: toPinnedItems(page.entries, notebookPath) });
+          if (!page.hasMore || !cursor) break;
+        }
+        setPages(nextPages);
+        setPageIndex(Math.min(targetPage, nextPages.length - 1));
         setLoadingInitial(false);
-      }
-    });
+        loadedScope.current = { notebookId, notebookPath };
+      })().catch((error) => {
+        if (!cancelled) {
+          logger.warn('failed to load pinned entries', { error, notebookPath });
+          setLoadingInitial(false);
+        }
+      }).then(() => {
+        if (cancelled) return;
+        reloadRunningRef.current = false;
+        // Events that landed while this read was in flight collapse into a
+        // single trailing read instead of one read each.
+        if (!reloadPendingRef.current) return;
+        reloadPendingRef.current = false;
+        reloadTimerRef.current = setTimeout(() => {
+          reloadTimerRef.current = null;
+          void run();
+        }, PINNED_RELOAD_COALESCE_MS);
+      });
+    };
+    reloadRef.current = () => { void run(); };
+    void run();
 
     return () => {
       cancelled = true;
-      if (requestSequence.current === sequence) requestSequence.current += 1;
+      reloadRunningRef.current = false;
+      reloadPendingRef.current = false;
+      if (reloadTimerRef.current !== null) {
+        clearTimeout(reloadTimerRef.current);
+        reloadTimerRef.current = null;
+      }
+      requestSequence.current += 1;
     };
-  }, [isActive, notebookId, notebookPath, refreshTrigger, changeRevision, toPinnedItems]);
+  }, [isActive, notebookId, notebookPath, refreshTrigger, toPinnedItems]);
 
   const currentPage = pages[pageIndex];
   const hasPrevious = pageIndex > 0;

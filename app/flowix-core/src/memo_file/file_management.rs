@@ -66,6 +66,17 @@ impl FileManagementPolicy {
         Self::is_hidden_directory_for(relative, true)
     }
 
+    /// Traversal must enter the internal root to discover its database subtree.
+    pub fn can_traverse_index_directory(&self, relative: &Path) -> bool {
+        relative == Path::new(".flowix") || !self.is_index_hidden_directory(relative)
+    }
+
+    /// Notebook-relative user data under the otherwise private `.flowix` root.
+    /// Callers must separately validate path components and symlinks.
+    pub fn is_user_data_path(relative: &Path) -> bool {
+        relative.starts_with(Path::new(".flowix/database"))
+    }
+
     /// `.index.yaml` describes the folder that contains it, so access checks
     /// resolve to that folder instead of the dot-file noise rule. A root-level
     /// `.index.yaml` resolves to the notebook root, which is always visible.
@@ -85,6 +96,15 @@ impl FileManagementPolicy {
     }
 
     fn is_hidden_for(&self, root: &Path, relative: &Path, for_index: bool) -> bool {
+        if Self::is_user_data_path(relative) {
+            let mut ancestor = root.to_path_buf();
+            for component in relative.components() {
+                ancestor.push(component.as_os_str());
+                if std::fs::symlink_metadata(&ancestor).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+                    return true;
+                }
+            }
+        }
         let mut current = root.to_path_buf();
         current.push(relative);
         if std::fs::symlink_metadata(&current).is_ok_and(|metadata| metadata.is_dir()) {
@@ -100,6 +120,9 @@ impl FileManagementPolicy {
             if index + 1 == components.len() {
                 break;
             }
+            if index == 0 && Self::is_user_data_path(relative) {
+                continue;
+            }
             if Self::skips_directory_name(&name.to_string_lossy(), for_index) {
                 return true;
             }
@@ -110,8 +133,11 @@ impl FileManagementPolicy {
     }
 
     fn is_hidden_directory_for(relative: &Path, for_index: bool) -> bool {
-        for component in relative.components() {
+        for (index, component) in relative.components().enumerate() {
             let Component::Normal(name) = component else { return true; };
+            if index == 0 && Self::is_user_data_path(relative) {
+                continue;
+            }
             if Self::skips_directory_name(&name.to_string_lossy(), for_index) {
                 return true;
             }

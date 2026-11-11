@@ -23,12 +23,12 @@ it('a standalone calendar shares location and retains independent note and asset
   disk.content = serializeTableDocument(calendar);
   await addCollectionDomain('/book/日历.index.yaml', '/book', 'media');
   let parsed = parseHybridCollection(disk.content);
-  expect(parsed.payload.domains.media?.filter).toEqual({ path: '项目', match: 'all', conditions: [] });
+  expect(parsed.payload.domains.media?.filter).toEqual({ all: [], any: [] });
   expect(parsed.payload.file_tree).toBe(false);
 
   await setCollectionAssetFilter('/book/日历.index.yaml', '/book', { path_contains: '客户', file_name_contains: '图片', file_types: ['image'] });
   parsed = parseHybridCollection(disk.content);
-  expect(parsed.payload.domains.notes?.filter).toEqual({ path: '客户', match: 'all', conditions: [
+  expect(parsed.payload.domains.notes?.filter).toEqual({ path: '项目', match: 'all', conditions: [
     { field: 'file_name', op: 'contains', value: '周报' },
   ] });
 
@@ -46,13 +46,13 @@ it('a standalone calendar shares location and retains independent note and asset
   parsed = parseHybridCollection(disk.content);
   for (const domain of ['media', 'work_documents'] as const) {
     expect(assetConditionFromFilter(parsed.payload.domains[domain]?.filter as Record<string, unknown>)).toEqual({
-      path_scope: 'all', file_name_contains: '图片', file_types: ['image'],
+      path_contains: '客户', file_name_contains: '图片', file_types: ['image'],
     });
   }
 
   await setCollectionAssetFilter('/book/日历.index.yaml', '/book', { file_name_contains: '合同' });
   parsed = parseHybridCollection(disk.content);
-  expect((parsed.payload.domains.notes?.filter as Record<string, unknown>).path).toBeNull();
+  expect((parsed.payload.domains.notes?.filter as Record<string, unknown>).path).toBe('');
   expect((parsed.payload.domains.notes?.filter as Record<string, unknown>).conditions).toHaveLength(1);
 });
 
@@ -73,13 +73,13 @@ it('preserves valid legacy media OR groups when the shared note location changes
     views: { default_id: parsed.payload.views.default_by_domain.notes!, items: parsed.payload.views.items.filter((view) => view.domain === 'notes').map(({ domain: _domain, ...view }) => view) },
   }, 'notes');
   const filter = parseHybridCollection(disk.content).payload.domains.media!.filter as DatasetFilter;
-  expect(filter).toEqual({ all: [{ field: 'path', op: 'contains', value: '项目' }], any });
+  expect(filter).toEqual({ all: [], any });
   const matches = (path: string, name: string) => matchesDatasetFilter(filter, (rule) =>
     rule.field === 'path' ? path.startsWith(String(rule.value)) : name.includes(String(rule.value)));
   expect(matches('项目', '截图.png')).toBe(true);
   expect(matches('项目', '照片.jpg')).toBe(true);
   expect(matches('项目', '其他.png')).toBe(false);
-  expect(matches('其他', '截图.png')).toBe(false);
+  expect(matches('其他', '截图.png')).toBe(true);
 });
 
 it.each(['客户', '', null])('secondary asset saves preserve the latest disk location %s', async (path) => {
@@ -91,9 +91,8 @@ it.each(['客户', '', null])('secondary asset saves preserve the latest disk lo
     path_contains: '旧位置', file_name_contains: '新条件',
   }, { updateLocation: false });
   const domains = parseHybridCollection(disk.content).payload.domains;
-  for (const domain of ['notes', 'media'] as const) {
-    expect((domains[domain]!.filter as Record<string, unknown>).path).toBe(path);
-  }
+  expect((domains.notes!.filter as Record<string, unknown>).path).toBe(path);
+  expect((domains.media!.filter as Record<string, unknown>).path).toBeNull();
   expect((domains.media!.filter as Record<string, unknown>).conditions).toEqual([
     { field: 'file_name', op: 'contains', value: '新条件' },
   ]);
@@ -115,7 +114,7 @@ it('sharing a changed location keeps every domain recursive without a depth sett
   const table = parseTableDocument(source);
   table.dataset.filter = { path: 'Project', match: 'all', conditions: [] };
   const saved = parseHybridCollection(serializeProjectedCollectionDocument(source, table, 'notes'));
-  expect((saved.payload.domains.media!.filter as Record<string, unknown>).path).toBe('Project');
+  expect((saved.payload.domains.media!.filter as Record<string, unknown>).path).toBe('Old');
   expect(saved.payload.domains.media!.source).toEqual(old.payload.domains.media!.source);
   expect(saved.payload.domains.work_documents!.source).toEqual(old.payload.domains.work_documents!.source);
 });

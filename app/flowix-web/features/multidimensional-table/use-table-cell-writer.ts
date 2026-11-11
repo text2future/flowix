@@ -6,6 +6,7 @@ import { setDocumentProperties } from '@features/document/public/path-properties
 import { joinNotebookMemoPath } from '@/lib/path';
 import { toast } from '@/lib/toast';
 import type { TableField, TableRecord } from './model';
+import { persistedTableCellValue } from './table-cell-value';
 
 export interface TableCellSaveStatus {
   saving: boolean;
@@ -84,11 +85,7 @@ export function useTableCellWriter({ enabled, loadGeneration, notebookPath, load
 
     const propertyKey = field.property_key ?? '';
     const lockKey = `${notebookPath}\u0000${note.relativePath.replace(/\\/g, '/')}\u0000${propertyKey}`;
-    const propertyValue = field.type === 'Select'
-      ? field.options?.find((option) => option.id === value)?.label ?? null
-      : field.type === 'MultiSelect' && Array.isArray(value)
-        ? value.map((id) => field.options?.find((option) => option.id === id)?.label ?? id)
-        : value;
+    const propertyValue = persistedTableCellValue(field, value);
     const notePathKey = note.relativePath.replace(/\\/g, '/');
     if (pendingNotePropertiesRef) {
       const pendingProperties = pendingNotePropertiesRef.current.get(notePathKey) ?? new Set<string>();

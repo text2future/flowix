@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type CSSProperties, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState, type ComponentType, type CSSProperties, type ReactNode } from 'react';
 import { ChevronRight, FoldVertical, MoreHorizontal } from 'lucide-react';
 import { FolderOpenIcon, FolderSimpleIcon, TrashSimpleIcon } from '@phosphor-icons/react';
 import { toast } from '@/lib/toast';
@@ -24,13 +24,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@shared/ui/dropdown-menu';
-import { canonicalPath } from '@/lib/path';
-import {
-  flattenVisibleTree,
-  type FolderTreeController,
-  type VisibleTreeNode,
-} from '@features/memo/components/use-folder-tree';
-import { ContentIcon, getFileIconKind } from '@features/content/public/content-api';
+import { canonicalPath, notebookRelativeDirectoryPath } from '@/lib/path';
+import type { FolderTreeController } from '@features/memo/components/use-folder-tree';
+import { ContentIcon } from '@features/content/public/content-api';
 import { useI18n } from '@/lib/i18n';
 import { fileTreeCreateFailureKey, fileTreeRenameFailureKey } from './file-tree-failure';
 
@@ -148,11 +144,11 @@ export function FolderFileTree({
     };
   }, [openMenuId]);
 
-  const { rootChildren, nodes, expanded } = tree;
-  const visibleNodes = useMemo(
-    () => flattenVisibleTree({ rootChildren, nodes, expanded }),
-    [rootChildren, nodes, expanded],
-  );
+  const { rootChildren } = tree;
+  const hasRootItems = rootChildren.length > 0;
+  const draftDepth = draftRow
+    ? notebookRelativeDirectoryPath(folderPath, draftRow.parentPath)?.split('/').filter(Boolean).length ?? 0
+    : 0;
 
   const openDocument = useCallback((item: DocTreeItem) => {
     onFileSelect?.(item.fullPath, folderPath);
@@ -342,11 +338,9 @@ export function FolderFileTree({
                     />
                   )}
                   <span className="ml-1.5 min-w-0 flex-1 truncate">
-                    {/* 表格文档与网页文件都不带后缀展示（网页文件已按网页图标渲染）；
-                        重命名输入框仍用 item.name，改名时保留真实后缀。 */}
+                    {/* 仅展示名隐藏已识别类型的后缀；重命名输入框仍用 item.name，改名时保留真实后缀。 */}
                     {item.type === 'document'
-                      && (isTableDocumentFilename(item.name) || getFileIconKind(item.name) === 'html')
-                      ? displayTitleFromFilename(item.name)
+                      ? displayTitleFromFilename(item.name) || item.name
                       : item.name}
                   </span>
                   {isDirectoryLoading && (
@@ -584,10 +578,10 @@ export function FolderFileTree({
           )}
           onScroll={(event) => setShowScrollTopHint(event.currentTarget.scrollTop > 0)}
         >
-          {tree.loading && visibleNodes.length > 0 && (
+          {tree.loading && hasRootItems && (
             <FileTreeLoadingSkeleton variant="folder" ariaLabel={t('memo.fileTree.loading')} compact />
           )}
-          {tree.loading && visibleNodes.length === 0 && contentSized && (
+          {tree.loading && !hasRootItems && contentSized && (
             <FileTreeLoadingSkeleton variant="folder" ariaLabel={t('memo.fileTree.loading')} compact />
           )}
           {tree.error && (
@@ -602,7 +596,7 @@ export function FolderFileTree({
               </button>
             </div>
           )}
-          {visibleNodes.length === 0 && !tree.loading && !tree.error && (
+          {!hasRootItems && !tree.loading && !tree.error && (
             <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground)]">
               {t('memo.fileTree.empty')}
             </div>
@@ -615,7 +609,7 @@ export function FolderFileTree({
               <div
                 className="folder-file-tree__item flex h-7 items-center pr-2"
                 style={{
-                  marginLeft: TREE_EDGE_GUTTER + (findDepth(visibleNodes, draftRow.parentPath) + 1) * INDENT_PER_LEVEL,
+                  marginLeft: TREE_EDGE_GUTTER + draftDepth * INDENT_PER_LEVEL,
                 }}
               >
                 {draftRow.kind === 'folder' ? (
@@ -650,7 +644,7 @@ export function FolderFileTree({
             )}
           </div>
         </OverlayScrollbar>
-        {tree.loading && visibleNodes.length === 0 && !contentSized && (
+        {tree.loading && !hasRootItems && !contentSized && (
           <FileTreeLoadingSkeleton
             variant="folder"
             ariaLabel={t('memo.fileTree.loading')}
@@ -667,10 +661,4 @@ export function FolderFileTree({
       </ListSurfaceViewport>
     </div>
   );
-}
-
-function findDepth(nodes: VisibleTreeNode[], parentPath: string): number {
-  const canonicalParent = canonicalPath(parentPath).replace(/\/+$/, '');
-  const hit = nodes.find(({ item }) => canonicalPath(item.fullPath) === canonicalParent);
-  return hit?.depth ?? -1;
 }

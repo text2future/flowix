@@ -204,6 +204,9 @@ interface SelectContentProps {
 	preferBelow?: boolean;
 	/** Optional maximum popup height in pixels or viewport height when fitViewport is enabled. */
 	maxHeight?: number | `${number}vh`;
+	matchAnchorWidth?: boolean | number;
+	autoFocusInput?: boolean;
+	closeOnEnter?: boolean;
 }
 
 function SelectContent({
@@ -215,6 +218,9 @@ function SelectContent({
 	fitViewport = false,
 	preferBelow = false,
 	maxHeight,
+	matchAnchorWidth = false,
+	autoFocusInput = false,
+	closeOnEnter = false,
 }: SelectContentProps) {
 	const { open, setOpen, triggerRef, anchorRect, anchorToCell } = useSelectContext();
 	const contentRef = React.useRef<HTMLDivElement>(null);
@@ -352,6 +358,11 @@ function SelectContent({
 	}, [open, setOpen, triggerRef, anchorToCell]);
 
 	// Close on escape
+	React.useLayoutEffect(() => {
+		if (!open || !autoFocusInput) return;
+		contentRef.current?.querySelector<HTMLInputElement>('input')?.focus({ preventScroll: true });
+	}, [autoFocusInput, open]);
+
 	React.useEffect(() => {
 		if (!open) return;
 
@@ -370,10 +381,21 @@ function SelectContent({
 	return createPortal(
 		<div
 			ref={contentRef}
+			onKeyDown={(event) => {
+				if (closeOnEnter && event.key === "Enter" && event.target instanceof HTMLInputElement) {
+					event.preventDefault();
+					setOpen(false);
+				}
+			}}
 			onScroll={handleScroll}
 			// `animate-in …` 是 tw-animate-css 的死类 (Tailwind v3 不生成),
 			// 换成共享关键帧类; select 通常向下弹出, origin 取顶部。
-			style={{ transformOrigin: "top center", ...position, ...style }}
+			style={{
+				transformOrigin: "top center",
+				...position,
+				...(matchAnchorWidth && anchorRect ? { width: anchorRect.width * (typeof matchAnchorWidth === "number" ? matchAnchorWidth : 1) } : {}),
+				...style,
+			}}
 			className={cn(
 				"z-[150] min-w-[180px] bg-[var(--card)] border border-[var(--border-popup)] rounded-lg shadow-lg px-1.5 py-2 flowix-popover-enter",
 				fitViewport && "overflow-y-auto overscroll-contain [scrollbar-gutter:stable]",

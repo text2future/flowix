@@ -125,7 +125,7 @@ export function DateValueInput({
           className={cn(
             'frontmatter-property__date-picker-trigger group flex h-8 w-full items-center gap-0 rounded-lg border-0 bg-transparent px-0 text-left text-sm transition-colors',
             'hover:bg-transparent focus-visible:outline-none focus-visible:ring-0',
-            disabled && 'cursor-not-allowed opacity-50'
+            disabled && 'cursor-not-allowed disabled:opacity-50'
           )}
         >
           <span className={cn(

@@ -32,6 +32,7 @@ fn moving_a_registered_child_notebook_keeps_its_identity_and_relative_index() {
         ])
         .unwrap();
     fs::write(source.join("note.md"), "# 保留内容\n").unwrap();
+    let table_note = store.create_note_by_path("article", Some(".flowix/database/col_test"), "Table note", "table content").unwrap();
     fs::write(nested.join("nested.md"), "# 附录\n").unwrap();
     store.refresh_note_path("parent", "文章/note.md").unwrap();
     store.refresh_note_path("article", "note.md").unwrap();
@@ -58,6 +59,8 @@ fn moving_a_registered_child_notebook_keeps_its_identity_and_relative_index() {
         Path::new(&store.get_notebook_config_by_id("nested").unwrap().path),
         target.join("附录")
     );
+    assert_eq!(fs::read_to_string(target.join(&table_note)).unwrap().contains("table content"), true);
+    assert!(store.read_indexed_note_entry_by_path("article", &table_note).unwrap().is_some());
     assert!(store
         .read_indexed_note_entry_by_path("article", "note.md")
         .unwrap()

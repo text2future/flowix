@@ -15,6 +15,7 @@ interface TagValueInputProps {
   disabled?: boolean;
   isNoteTags?: boolean;
   singleValue?: boolean;
+  variant?: 'table';
   keepParentMenuOpen?: boolean;
   onOpenChange?: (open: boolean) => void;
   onChange: (next: string[]) => void;
@@ -47,6 +48,7 @@ export function TagValueInput({
   disabled = false,
   isNoteTags = false,
   singleValue = false,
+  variant,
   keepParentMenuOpen = false,
   onOpenChange,
   onChange,
@@ -226,8 +228,9 @@ export function TagValueInput({
       align="start"
       sideOffset={4}
       keepParentMenuOpen={keepParentMenuOpen}
-      className="frontmatter-property__edit-popover !z-[170] rounded-xl p-1"
-      matchAnchorWidth={1.2}
+      className={cn('frontmatter-property__edit-popover !z-[170]', variant === 'table' && 'multidimensional-table__field-editor-popover !shadow-[0_0_24px_-3px_rgb(0_0_0_/_0.12)]')}
+      matchAnchorWidth={variant === 'table' ? 1.02 : 1.2}
+      matchAnchorHeight={variant === 'table' ? 1.08 : false}
       style={{ ...typography, maxWidth: 'calc(100vw - 8px)', maxHeight: '280px', overflowY: 'auto' }}
     >
       <div

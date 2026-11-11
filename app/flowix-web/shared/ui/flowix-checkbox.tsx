@@ -3,6 +3,7 @@ import { cn } from '@/lib/utils';
 
 interface FlowixCheckboxBaseProps {
   checked: boolean;
+  indeterminate?: boolean;
   className?: string;
   disabled?: boolean;
 }
@@ -24,6 +25,7 @@ export type FlowixCheckboxProps = FlowixCheckboxBaseProps & (
 
 export function FlowixCheckbox({
   checked,
+  indeterminate = false,
   onCheckedChange,
   'aria-label': ariaLabel,
   interactive = true,
@@ -35,10 +37,11 @@ export function FlowixCheckbox({
     'flowix-hand-checkbox',
     interactive && 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]',
     checked && 'flowix-hand-checkbox--checked',
+    indeterminate && 'flowix-hand-checkbox--indeterminate',
     disabled && 'disabled:cursor-not-allowed disabled:opacity-50',
     className,
   );
-  const mark = checked && <span className="flowix-hand-checkbox__mark" aria-hidden="true" />;
+  const mark = (checked || indeterminate) && <span className="flowix-hand-checkbox__mark" aria-hidden="true" />;
 
   if (!interactive) {
     return <span aria-hidden="true" className={checkboxClassName}>{mark}</span>;

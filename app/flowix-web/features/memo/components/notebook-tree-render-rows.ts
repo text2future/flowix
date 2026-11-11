@@ -45,7 +45,7 @@ function attachTreeSiblingMetadata(rows: NotebookTreeRenderRow[]): NotebookTreeR
 }
 
 export function buildNotebookTreeRenderRows(
-  visibleItems: Array<{ item: DocTreeItem; depth: number }>,
+  visibleItems: readonly { item: DocTreeItem; depth: number }[],
   notebookPath: string,
   draft: NotebookTreeDraftState | null,
 ): NotebookTreeRenderRow[] {

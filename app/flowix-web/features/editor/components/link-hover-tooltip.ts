@@ -21,9 +21,31 @@ interface LinkRange {
   to: number;
 }
 
+interface RectBox {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+/**
+ * 链接与气泡各自的视口矩形。
+ *
+ * positionFloatingBubble 会在两者之间留 8px 空隙 (VIEWPORT_PADDING),
+ * 指针跨过这条空隙时既不在链接上也不在气泡上。只靠 relatedTarget 判定会
+ * 在 mouseout 时启动隐藏倒计时, 指针在中间稍停气泡就没了, 所以把两个矩形
+ * 连成一条可停留的走廊。
+ */
+interface LinkHoverSafeArea {
+  link: RectBox;
+  bubble: RectBox;
+}
+
 const SHOW_DELAY_MS = 80;
 const HIDE_DELAY_MS = 140;
 const HIDE_ANIMATION_MS = 120;
+/** 安全区在矩形四周各放宽几像素, 容纳亚像素取整与斜向移动。 */
+const SAFE_AREA_PADDING = 6;
 const IGNORE_LINK_TOOLTIP_SELECTOR = '.agent-thread-card';
 // 复制 / 移除链接 / 复制成功都用 Lucide (描边) 图标: 与项目里其他 copy /
 // unlink 入口视觉一致; 描边图标靠 stroke=currentColor 上色, 不使用填充。
@@ -112,6 +134,28 @@ export function attachLinkHoverTooltip(
   let hideTimer: ReturnType<typeof setTimeout> | null = null;
   let removeTimer: ReturnType<typeof setTimeout> | null = null;
   let copyResetTimer: ReturnType<typeof setTimeout> | null = null;
+  let safeArea: LinkHoverSafeArea | null = null;
+
+  /** 指针是否仍落在「链接 / 中间留白 / 气泡」这条走廊里。 */
+  const isPointerInSafeArea = (x: number, y: number): boolean => {
+    if (!safeArea) return false;
+    const { link, bubble } = safeArea;
+    const pad = SAFE_AREA_PADDING;
+    const inBox = (box: RectBox) =>
+      x >= box.left - pad && x <= box.right + pad &&
+      y >= box.top - pad && y <= box.bottom + pad;
+    if (inBox(link) || inBox(bubble)) return true;
+
+    // 只覆盖两矩形之间的那条带: 水平范围取并集 (气泡常被水平居中后比链接
+    // 宽/窄), 垂直范围严格限于间隙。若把整块外接矩形都算安全, 链接同一行
+    // 左右两侧的正文也会按住气泡不放。
+    const corridorLeft = Math.min(link.left, bubble.left) - pad;
+    const corridorRight = Math.max(link.right, bubble.right) + pad;
+    const corridorTop = Math.min(link.bottom, bubble.bottom);
+    const corridorBottom = Math.max(link.top, bubble.top);
+    return x >= corridorLeft && x <= corridorRight &&
+      y >= corridorTop && y <= corridorBottom;
+  };
 
   /** Local file target for a link, or null when it keeps web semantics. */
   const localTargetFor = (rawHref: string | null): ResolvedEditorLocalLink | null => {
@@ -162,6 +206,7 @@ export function attachLinkHoverTooltip(
       clearTimeout(copyResetTimer);
       copyResetTimer = null;
     }
+    safeArea = null;
     tooltipEl?.remove();
     tooltipEl = null;
   };
@@ -170,6 +215,7 @@ export function attachLinkHoverTooltip(
     cancelShow();
     cancelHide();
     activeLink = null;
+    safeArea = null;
 
     if (!tooltipEl) return;
 
@@ -300,7 +346,13 @@ export function attachLinkHoverTooltip(
     // (editor-bubble-menus.css); editor-link-tooltip.css 只覆盖定位与动画。
     tooltipEl.className = 'editor-link-hover-tooltip';
     tooltipEl.addEventListener('mouseenter', cancelHide);
-    tooltipEl.addEventListener('mouseleave', scheduleHide);
+    tooltipEl.addEventListener('mouseleave', (event) => {
+      const pointer = event as MouseEvent;
+      // 从气泡走回链接 (或反过来) 会先踩到 8px 留白: 指针还在安全区里就
+      // 不启动隐藏倒计时, 否则在中间稍停一下气泡就消失了。
+      if (isPointerInSafeArea(pointer.clientX, pointer.clientY)) return;
+      scheduleHide();
+    });
     document.body.appendChild(tooltipEl);
     return tooltipEl;
   };
@@ -316,7 +368,22 @@ export function attachLinkHoverTooltip(
       return;
     }
 
-    positionFloatingBubble(tooltipEl, link.getBoundingClientRect());
+    const anchor = link.getBoundingClientRect();
+    const frame = positionFloatingBubble(tooltipEl, anchor);
+    safeArea = {
+      link: {
+        left: anchor.left,
+        right: anchor.right,
+        top: anchor.top,
+        bottom: anchor.bottom,
+      },
+      bubble: {
+        left: frame.left,
+        right: frame.left + frame.width,
+        top: frame.top,
+        bottom: frame.top + frame.height,
+      },
+    };
   };
 
   const renderTooltip = (href: string) => {
@@ -339,9 +406,11 @@ export function attachLinkHoverTooltip(
     text.className = 'editor-link-hover-tooltip-text';
     text.textContent = href;
 
-    // 排版: [unlink] 链接地址 [复制] [编辑]
-    // - unlink 前置到地址左侧: 读作「断开这条链接」的入口, 也顺带当链接标记
-    // - 复制 / 编辑跟在地址后面, 是对这条链接本身的常规操作
+    // 排版: [复制] [unlink] 链接地址 [编辑]
+    // - 复制 / unlink 两个图标成组放在地址左侧, 复制在最前: 都是「对这条链接
+    //   本身」的操作, 也是气泡的固定起点; 地址再长也只压缩文案, 不会挤到
+    //   图标 (见 editor-link-tooltip.css 里按钮与 svg 的 flex: 0 0 auto)。
+    // - 编辑留在地址右侧: 文字按钮会切到内联输入态, 与图标操作分开读。
     // - 复制 / unlink 用图标 (Lucide copy / unlink); 编辑用文字: 铅笔图标在
     //   这几个描边图标里辨识度最差, 直接写「编辑」更直白
     const copyButton = createActionButton('copy', copyLabel, (event) => {
@@ -368,11 +437,15 @@ export function attachLinkHoverTooltip(
     });
     removeButton.innerHTML = UNLINK_ICON;
 
-    const actions = document.createElement('span');
-    actions.className = 'editor-link-hover-tooltip-actions';
-    actions.append(copyButton, editButton);
+    const leadingActions = document.createElement('span');
+    leadingActions.className = 'editor-link-hover-tooltip-actions';
+    leadingActions.append(copyButton, removeButton);
 
-    tooltip.append(removeButton, text, actions);
+    const trailingActions = document.createElement('span');
+    trailingActions.className = 'editor-link-hover-tooltip-actions';
+    trailingActions.append(editButton);
+
+    tooltip.append(leadingActions, text, trailingActions);
   };
 
   const showNow = (link: HTMLAnchorElement, href: string) => {
@@ -520,20 +593,44 @@ export function attachLinkHoverTooltip(
     }
 
     if (event.type === 'mouseout') {
-      const relatedTarget = (event as MouseEvent).relatedTarget as Node | null;
-      const movingInsideLink = relatedTarget ? link.contains(relatedTarget) : false;
-      const movingToTooltip = relatedTarget && tooltipEl?.contains(relatedTarget);
+      const pointer = event as MouseEvent;
+      const relatedTarget = pointer.relatedTarget as Node | null;
 
-      if (!movingInsideLink && !movingToTooltip) {
+      // relatedTarget 为 null 表示指针离开窗口, 此时 clientX/Y 可能仍是旧
+      // 坐标, 不能拿几何安全区当依据, 直接收起。
+      if (!relatedTarget) {
+        scheduleHide();
+        return;
+      }
+
+      const movingInsideLink = link.contains(relatedTarget);
+      const movingToTooltip = !!tooltipEl?.contains(relatedTarget);
+      // 关键: 链接与气泡之间有 positionFloatingBubble 留下的 8px 空隙,
+      // 指针踩在空隙上时 relatedTarget 既不是链接也不是气泡。原来这里会
+      // 立刻启动 140ms 隐藏倒计时, 在中间稍停气泡就没了; 改成几何判定后
+      // 「链接 → 留白 → 气泡」连成一条可以停留的走廊。
+      if (!movingInsideLink && !movingToTooltip &&
+          !isPointerInSafeArea(pointer.clientX, pointer.clientY)) {
         scheduleHide();
       }
     }
+  };
+
+  /**
+   * 兜底: 气泡 mouseleave 与链接 mouseout 交错时, 只要指针还在走廊里,
+   * 每次移动都撤掉尚未触发的隐藏倒计时。这里只撤销、不主动启动隐藏,
+   * 否则每次 mousemove 都会把 140ms 计时器重置成永不收起。
+   */
+  const handlePointerMove = (event: MouseEvent) => {
+    if (!activeLink || !tooltipEl || tooltipEl.classList.contains('is-hiding')) return;
+    if (isPointerInSafeArea(event.clientX, event.clientY)) cancelHide();
   };
 
   root.addEventListener('click', handleEvent);
   root.addEventListener('mouseover', handleEvent);
   root.addEventListener('mousemove', handleEvent);
   root.addEventListener('mouseout', handleEvent);
+  document.addEventListener('mousemove', handlePointerMove, true);
   document.addEventListener('scroll', updatePosition, true);
   window.addEventListener('resize', updatePosition);
   // 选区气泡一旦出现, 正在显示的链接气泡立刻让位 (优先次序: 选区 > 链接)。
@@ -546,6 +643,7 @@ export function attachLinkHoverTooltip(
     root.removeEventListener('mouseover', handleEvent);
     root.removeEventListener('mousemove', handleEvent);
     root.removeEventListener('mouseout', handleEvent);
+    document.removeEventListener('mousemove', handlePointerMove, true);
     document.removeEventListener('scroll', updatePosition, true);
     window.removeEventListener('resize', updatePosition);
     unsubscribeSelectionBubble();

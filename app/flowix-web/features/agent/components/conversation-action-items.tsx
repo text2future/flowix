@@ -25,7 +25,7 @@ export function ConversationActionItems({ context = false, archiveSeparator = fa
       <Item onClick={onOpen} className="group h-7 items-center justify-start rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]">
         <SquareSplitHorizontalIcon className="mr-2 h-4 w-4" /> {t(openHost === 'column-1'
           ? 'tabWindow.context.openInWorkColumn'
-          : 'workColumn.context.openInBrowserColumn')}
+          : 'memo.fileTree.openInRight')}
       </Item>
       <Item onClick={onFavorite} className="group h-7 items-center gap-2 rounded-lg px-2 py-0 hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]">
         <StarIcon className="h-4 w-4" weight={favorite ? 'fill' : 'regular'} />

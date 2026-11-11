@@ -6,6 +6,7 @@ import { TextSelection } from '@tiptap/pm/state';
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, useCallback, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { useShortcutScope, pushHandler } from '@features/shortcuts';
 import { TableBubbleMenu } from '@features/editor/extensions/table/table-bubble-menu';
+import { TableAxisMenu } from '@features/editor/extensions/table/table-axis-menu';
 import { SelectionBubbleMenu } from '@features/editor/components/selection-bubble-menu';
 import { HeadingOutlineNavigation } from '@features/editor/components/heading-outline-navigation';
 import { DragContextMenu } from '@features/editor/components/drag-context-menu';
@@ -833,6 +834,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       {editorInstance && (
         <>
           <TableBubbleMenu editor={editorInstance} />
+          <TableAxisMenu editor={editorInstance} />
           <SelectionBubbleMenu editor={editorInstance} />
         </>
       )}

@@ -179,7 +179,7 @@ export function CollectionAgentComposer({
             sendPrompt();
           }
         }}
-        placeholder={notebookId ? t('collection.composerPlaceholder', { name: agentName }) : ''}
+        placeholder={notebookId ? t('collection.composerPlaceholder') : ''}
         disabled={!notebookId || !collectionPath}
         className="h-[30px] min-w-0 flex-1 border-0 bg-transparent p-0 text-[13px] text-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)]"
       />

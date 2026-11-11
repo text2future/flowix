@@ -2,66 +2,39 @@
 
 import { NotebookDocumentCreateDialog, type NotebookDocumentCreateRequest } from './notebook-document-create-dialog';
 
-import { refreshIndexedMemo } from '@features/memo/services/memo-list-refresh-service';
-
-import { useNotebookBackgroundStore } from '@features/memo/store/notebook-background-store';
 import { flushSync } from 'react-dom';
 import { useColumnNavigation, columnTarget } from '@features/workspace/public/column-navigation-api';
 import { useActiveFilePath } from '@features/workspace/public/active-file-path-api';
 import { middleColumnSelectionKey } from './memo-list-selection';
 import {
-  canonicalDirectoryPath,
   joinNotebookMemoPath,
   notebookRelativeDirectoryPath,
   parentDirectoryPath,
   samePath,
 } from '@/lib/path';
-import { subscribe } from '@platform/tauri/event-bus';
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import {
-  ArrowDownUp,
-  Check,
-  Loader2,
-  SquarePen,
-} from 'lucide-react';
-import {
-  getVisibleCreateFilter,
   useNoteStore,
 } from '@features/memo/store/note-store';
-import { useMemoLibraryMetadataStore } from '@features/memo/store/memo-library-metadata-store';
 import { useCustomFilterStore } from '@features/memo/store/custom-filter-store';
-import { setDocumentProperties } from '@features/document/public/path-properties';
 import { useTagStore } from '@features/memo/store/tag-store';
 import {
   noteListItemKey,
-  noteListItemRelativePath,
-  type NoteColor,
   type NoteListItem,
 } from '@/types/note-item';
-import { resolveSelectedTagId } from '@features/memo/services/memo-list-metadata-service';
 import { useMemoInsertAnimation } from '@features/memo/hooks/use-memo-insert-animation';
 import { toast } from '@/lib/toast';
-import { cn, displayTitleFromFilename } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 import { Button } from '@shared/ui/button';
-import { Tooltip } from '@shared/ui/tooltip';
-import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
 import { FileTreeLoadingSkeleton } from '@shared/ui/file-tree-loading-skeleton';
 import { ListSurfaceLoadingState, ListSurfaceViewport } from '@shared/ui/list-surface';
 import { DROPDOWN_DIVIDER_SKIN } from '@shared/ui/dropdown-divider';
-import { POPUP_SEPARATOR_CLASS } from '@shared/ui/popup-separator';
 import { MemoCard } from '@features/memo/components/memo-card';
 import { openPathNoteSession } from '@features/memo/use-cases/open-memo-session';
 import { openNotebookNote } from '@features/memo/use-cases/open-notebook-note';
-import {
-  getMemoListQueryKey,
-  shouldShowMemoListLoading,
-} from '@features/memo/components/memo-list-loading-state';
 import { MemoListDataLoader } from '@features/memo/components/memo-list-data-loader';
-import { noteRepository } from '@features/memo/services/note-repository';
-import { initializeMainWindowStartup } from '@app/main-window-startup';
-import { clearWorkspaceDocument } from '@features/workspace/public/note-navigation-api';
 import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
 import { useI18n } from '@/lib/i18n';
 import {
@@ -76,59 +49,24 @@ import { useNewConversationAgentSelection } from '@features/agent/hooks/use-new-
 import {
   createAndOpenAgentConversation,
 } from '@features/agent/public/new-conversation-api';
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-} from '@shared/ui/dropdown-menu';
 import type { TableViewType } from '@features/multidimensional-table/public/create-api';
 
 import { COLOR_LABEL_KEYS } from './memo-list/color-filter-submenu';
-import { MemoNavigationDropdown, MemoNavigationSubmenu } from './memo-navigation-dropdown';
-import { MemoCreateMenu } from './memo-create-menu';
 import { NotebookFolderView } from './notebook-folder-view';
 import { useMemoListPagination } from './memo-list/use-memo-list-pagination';
-import { MemoListRows, type MemoRowKeepAliveChange } from './memo-list/memo-list-rows';
+import { useMemoListLoadController } from './memo-list/use-memo-list-load-controller';
+import { useMemoListCreationActions } from './memo-list/use-memo-list-creation-actions';
+import type { MemoRowKeepAliveChange } from './memo-list/memo-list-rows';
+import { MemoListHeader } from './memo-list/memo-list-header';
+import { MemoListViewport } from './memo-list/memo-list-viewport';
+import { useNotebookDefaultCreateFolder } from './memo-list/use-notebook-default-create-folder';
+import { useMemoListNotebookMetadata } from './memo-list/use-memo-list-notebook-metadata';
+import { useMemoListItemActions } from './memo-list/use-memo-list-item-actions';
 import {
   findRunningAgentTypeForMemo,
   useRunningAgentTypeIndex,
 } from '@features/agent/public/running-agents-api';
 const logger = createLogger('memo-list');
-
-async function nextUntitledNoteTitle(parentPath: string, baseTitle: string): Promise<string> {
-  const children = await fileApi.getDirChildren(parentPath);
-  const existingTitles = new Set(children
-    .filter((item) => item.type === 'document' && /\.(md|markdown)$/i.test(item.name))
-    .map((item) => displayTitleFromFilename(item.name).trim().toLowerCase()));
-  const normalizedBaseTitle = baseTitle.trim();
-  if (!existingTitles.has(normalizedBaseTitle.toLowerCase())) return normalizedBaseTitle;
-  let number = 1;
-  while (existingTitles.has(`${normalizedBaseTitle} ${number}`.toLowerCase())) number += 1;
-  return `${normalizedBaseTitle} ${number}`;
-}
-
-function EmptyState({ hasNotebooks }: { hasNotebooks: boolean }) {
-  const { t } = useI18n();
-  if (!hasNotebooks) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 px-4 text-center text-[var(--muted-foreground)]">
-        <span className="text-sm">{t('memo.list.emptyNoNotebook')}</span>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
-          onClick={() => window.dispatchEvent(new Event('flowix:open-create-notebook'))}
-        >
-          {t('memo.list.createNotebook')}
-        </Button>
-      </div>
-    );
-  }
-  return (
-    <div className="flex flex-col items-center justify-center h-full gap-2 text-[var(--muted-foreground)]">
-      <span className="text-sm">{t("memo.list.emptyNotFound")}</span>
-    </div>
-  );
-}
 
 interface MemoListProps {
   /** Keep the memo list mounted while the middle column shows conversations. */
@@ -157,6 +95,9 @@ export function MemoList({
     useMemoInsertAnimation();
   // Paging and the virtual rows share the OverlayScrollbar's native scroller.
   const listContainerRef = useRef<HTMLDivElement>(null);
+  const scrollListToTop = useCallback(() => {
+    listContainerRef.current?.scrollTo({ top: 0 });
+  }, []);
   const [listScrollElement, setListScrollElement] = useState<HTMLDivElement | null>(null);
   const attachListScroller = useCallback((element: HTMLDivElement | null) => {
     listContainerRef.current = element;
@@ -199,27 +140,6 @@ export function MemoList({
   const memoListQueryKey = useNoteStore((s) => s.memoListQueryKey);
   const memoListRefreshTrigger = useNoteStore((s) => s.memoListRefreshTrigger);
   const selectedNotebookId = selectedNotebook?.id;
-  const [notebookLoadContext, setNotebookLoadContext] = useState({
-    notebookId: selectedNotebookId,
-    skipInitialLoading: false,
-    notesSettled: false,
-  });
-  const isCurrentNotebookEntry = notebookLoadContext.notebookId === selectedNotebookId;
-  const skipInitialNotebookLoading = isCurrentNotebookEntry
-    ? notebookLoadContext.skipInitialLoading
-    : Boolean(notebookLoadContext.notebookId);
-  const skipMemoListLoading = skipInitialNotebookLoading
-    && (!isCurrentNotebookEntry || !notebookLoadContext.notesSettled);
-  useEffect(() => {
-    if (!selectedNotebookId) return;
-    setNotebookLoadContext((previous) => previous.notebookId === selectedNotebookId
-      ? previous
-      : {
-        notebookId: selectedNotebookId,
-        skipInitialLoading: Boolean(previous.notebookId),
-        notesSettled: false,
-      });
-  }, [selectedNotebookId]);
   const handleCreateTypeMenuOpenChange = useCallback((open: boolean) => {
     setCreateTypeMenuOpen(open);
     if (!open) setCreateViewsExpanded(false);
@@ -251,7 +171,7 @@ export function MemoList({
     };
     window.addEventListener('flowix:open-create-table-dialog', handleOpenCreateTableDialog);
     return () => window.removeEventListener('flowix:open-create-table-dialog', handleOpenCreateTableDialog);
-  }, [t]);
+  }, []);
   const newConversationSelection = useNewConversationAgentSelection();
   useEffect(() => {
     if (createTypeMenuOpen && memoListView === 'folders') void refreshAgentRuntimeIfStale();
@@ -273,19 +193,13 @@ export function MemoList({
   useEffect(() => {
     if (selectedNotebookId) void loadNotebookFilters(selectedNotebookId);
   }, [loadNotebookFilters, selectedNotebookId]);
-  const [defaultCreateFolderState, setDefaultCreateFolderState] = useState<{
-    notebookId: string;
-    path: string | null;
-  } | null>(null);
-  const defaultCreateFolder = defaultCreateFolderState !== null
-    && selectedNotebook != null
-    && defaultCreateFolderState.notebookId === selectedNotebook.id
-    ? defaultCreateFolderState.path
-    : null;
-  const defaultCreateFolderReady = selectedNotebook != null
-    && defaultCreateFolderState?.notebookId === selectedNotebook.id;
   const selectedTagId = useTagStore((s) => s.selectedTagId);
-  const tagMetadataRefreshVersion = useTagStore((s) => s.metadataRefreshVersion);
+  const {
+    defaultCreateFolder,
+    defaultCreateFolderReady,
+    handleSetDefaultCreateFolder,
+    handleSaveDefaultCreateFolder,
+  } = useNotebookDefaultCreateFolder(selectedNotebook);
   const runningAgentTypeIndex = useRunningAgentTypeIndex();
   const getRunningAgentTypeForMemo = useCallback(
     (memo: NoteListItem) => findRunningAgentTypeForMemo(runningAgentTypeIndex, memo),
@@ -293,9 +207,7 @@ export function MemoList({
   );
   const activeTagId = activeFilter === 'tagged' ? selectedTagId : null;
   const setSelectedTagId = useTagStore((s) => s.setSelectedTagId);
-  const loadLibraryMetadata = useMemoLibraryMetadataStore((s) => s.loadMetadata);
   const {
-    setSelectedNotebook,
     triggerMemoListRefresh,
     setActiveFilter,
     setActiveSort,
@@ -306,7 +218,6 @@ export function MemoList({
     memoListLoadingMore,
   } = useNoteStore(
     useShallow((s) => ({
-      setSelectedNotebook: s.setSelectedNotebook,
       triggerMemoListRefresh: s.triggerMemoListRefresh,
       setActiveFilter: s.setActiveFilter,
       setActiveSort: s.setActiveSort,
@@ -318,24 +229,45 @@ export function MemoList({
     })),
   );
   const listItems: NoteListItem[] = notes;
-  useEffect(() => subscribe<{ notebookPath: string; defaultCreateFolderChanged: boolean }>(
-    'notebook-view-preferences-changed',
-    ({ notebookPath, defaultCreateFolderChanged }) => {
-      if (!defaultCreateFolderChanged) return;
-      const selectedNotebook = useNoteStore.getState().selectedNotebook;
-      if (!selectedNotebook || canonicalDirectoryPath(selectedNotebook.path) !== canonicalDirectoryPath(notebookPath)) return;
-      void fileApi.getNotebookViewPreferences(selectedNotebook.path).then((preferences) => {
-        if (useNoteStore.getState().selectedNotebook?.id === selectedNotebook.id) {
-          setDefaultCreateFolderState({
-            notebookId: selectedNotebook.id,
-            path: preferences.defaultCreateFolder ?? null,
-          });
-        }
-      }).catch((error) => {
-        logger.warn('refresh notebook default create folder failed', { error, notebookId: selectedNotebook.id });
-      });
-    },
-  ), []);
+  const {
+    currentMemoListQueryKey,
+    currentMemoListError,
+    hasCurrentMemoListData,
+    indexFailed,
+    setIsMemoListLoading,
+    setLoadedMemoListQueryKey,
+    showMemoListLoading,
+    skipInitialNotebookLoading,
+    skipMemoListLoading,
+    handleRetryStartup,
+    handleMemoListLoadError,
+    handleMemoListLoadStart,
+    handleMemoListLoadSuccess,
+    handleLoadMoreMemos,
+    handleRetryMemoListMore,
+    retryIndexOrList,
+  } = useMemoListLoadController({
+    selectedNotebookId,
+    startupPhase,
+    activeFilter,
+    activeSort,
+    activeTagId,
+    colorFilter,
+    activePluginId,
+    activeCustomFilterId,
+    dataCondition,
+    memoListQueryKey,
+    loadMoreMemos,
+    triggerMemoListRefresh,
+  });
+  const tagMap = useMemoListNotebookMetadata({
+    isActive,
+    startupPhase,
+    refreshTrigger,
+    selectedNotebookId,
+    setIsMemoListLoading,
+    setLoadedMemoListQueryKey,
+  });
   const pendingDocumentPath = useColumnNavigation(0, (navigation) => {
     const { phase, pendingTarget } = navigation.transaction;
     return phase === 'loading' && pendingTarget?.kind === 'external' ? pendingTarget.path : null;
@@ -365,6 +297,25 @@ export function MemoList({
       ? null
       : parentPath;
   });
+  const {
+    isCreatingMemo,
+    createdCardRevealKey,
+    handleCreatedCardRevealed,
+    handleCreateMemo,
+    handleCreateNoteInFolder,
+  } = useMemoListCreationActions({
+    notebook: selectedNotebook,
+    activeFilter,
+    activeTagId,
+    activeCustomFilterId,
+    activeCustomFilter,
+    folderMode: memoListView === 'folders',
+    workTargetParentPath,
+    loadNotebookFilters,
+    setActiveFilter,
+    setSelectedTagId,
+    prepareForInsert,
+  });
   const pendingListItem = pendingDocumentPath && selectedNotebook?.path
     ? notes.find((note) => samePath(
         joinNotebookMemoPath(selectedNotebook.path, note.relativePath) ?? '',
@@ -383,26 +334,12 @@ export function MemoList({
     ? pendingListItem ? noteListItemKey(pendingListItem) : undefined
     : middleColumnListItemKey;
   const [notebookDropdownOpen, setNotebookDropdownOpen] = useState(false);
-  const [isCreatingMemo, setIsCreatingMemo] = useState(false);
   const [sortSubmenuOpen, setSortSubmenuOpen] = useState(false);
   const [createFolderRequest, setCreateFolderRequest] = useState<{
     id: number;
     parentPath: string;
   } | null>(null);
-  const [createdCardRevealKey, setCreatedCardRevealKey] = useState<string | null>(null);
-  const handleCreatedCardRevealed = useCallback(() => {
-    setCreatedCardRevealKey(null);
-  }, []);
-  const [tagMap, setTagMap] = useState<Record<string, string>>({});
-  const [isMemoListLoading, setIsMemoListLoading] = useState(false);
-  const [loadedMemoListQueryKey, setLoadedMemoListQueryKey] = useState<string | null>(null);
-  const [memoListError, setMemoListError] = useState<{
-    queryKey: string;
-    kind: 'initial' | 'refresh' | 'more';
-  } | null>(null);
   const [foldersMounted, setFoldersMounted] = useState(memoListView === 'folders');
-  const isActiveRef = useRef(isActive);
-  isActiveRef.current = isActive;
 
   useEffect(() => {
     if (memoListView === 'folders') setFoldersMounted(true);
@@ -416,186 +353,9 @@ export function MemoList({
 
   useEffect(() => {
     setCreateFolderRequest(null);
-    setCreatedCardRevealKey(null);
-  }, [selectedNotebook?.id]);
+    handleCreatedCardRevealed();
+  }, [handleCreatedCardRevealed, selectedNotebook?.id]);
 
-  useEffect(() => {
-    let current = true;
-    setDefaultCreateFolderState(null);
-    if (!selectedNotebook) return () => { current = false; };
-    void fileApi.getNotebookViewPreferences(selectedNotebook.path)
-      .then((preferences) => {
-        if (current) {
-          setDefaultCreateFolderState({
-            notebookId: selectedNotebook.id,
-            path: preferences.defaultCreateFolder ?? null,
-          });
-        }
-      })
-      .catch((error) => {
-        logger.warn('load notebook view preferences failed', { error, notebookId: selectedNotebook.id });
-        if (current) setDefaultCreateFolderState({ notebookId: selectedNotebook.id, path: null });
-      });
-    return () => { current = false; };
-  }, [selectedNotebook?.id, selectedNotebook?.path]);
-
-  const handleRetryStartup = useCallback(() => {
-    void initializeMainWindowStartup().catch((error) => {
-      logger.warn('retry memo library initialization failed', { error });
-      toast.error(t('memo.list.loadFailed'));
-    });
-  }, [t]);
-
-  const handleMemoListLoadError = useCallback((error: unknown, requestedKind?: 'initial' | 'more') => {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message.includes('NOTE_INDEX_PENDING')) {
-      const id = useNoteStore.getState().selectedNotebook?.id;
-      if (id) useNotebookBackgroundStore.getState().pending(id);
-      setMemoListError(null);
-      return;
-    }
-    logger.warn('load memos failed', { error });
-    const state = useNoteStore.getState();
-    const queryKey = getMemoListQueryKey(
-      state.selectedNotebook?.id,
-      state.activeFilter,
-      state.activeSort,
-      state.activeFilter === 'tagged' ? useTagStore.getState().selectedTagId : null,
-      state.colorFilter,
-      state.activePluginId,
-      state.activeCustomFilterId,
-      state.dataConditionsByNotebook?.[state.selectedNotebook?.id ?? ''],
-    );
-    const kind = requestedKind
-      ?? (state.memoListQueryKey === queryKey ? 'refresh' : 'initial');
-    setMemoListError({ queryKey, kind });
-  }, []);
-  const handleMemoListLoadStart = useCallback((queryKey: string) => {
-    setMemoListError((current) => current?.queryKey === queryKey ? null : current);
-  }, []);
-  const handleMemoListLoadSuccess = useCallback((queryKey: string) => {
-    setMemoListError((current) => current?.queryKey === queryKey ? null : current);
-  }, []);
-
-  const handleLoadMoreMemos = useCallback(() => {
-    const state = useNoteStore.getState();
-    const queryKey = getMemoListQueryKey(
-      state.selectedNotebook?.id,
-      state.activeFilter,
-      state.activeSort,
-      state.activeFilter === 'tagged' ? useTagStore.getState().selectedTagId : null,
-      state.colorFilter,
-      state.activePluginId,
-      state.activeCustomFilterId,
-      state.dataConditionsByNotebook?.[state.selectedNotebook?.id ?? ''],
-    );
-    if (memoListError?.queryKey === queryKey && memoListError.kind === 'more') return;
-    void loadMoreMemos().catch((error) => {
-      handleMemoListLoadError(error, 'more');
-    });
-  }, [handleMemoListLoadError, loadMoreMemos, memoListError]);
-
-  const handleRetryMemoList = useCallback(() => {
-    setMemoListError(null);
-    triggerMemoListRefresh();
-  }, [triggerMemoListRefresh]);
-
-  const handleRetryMemoListMore = useCallback(() => {
-    setMemoListError(null);
-    void loadMoreMemos().catch((error) => handleMemoListLoadError(error, 'more'));
-  }, [handleMemoListLoadError, loadMoreMemos]);
-
-  const loadData = useCallback(async () => {
-    if (!isActiveRef.current || startupPhase !== 'ready') return;
-
-    const currentNotebook = useNoteStore.getState().selectedNotebook;
-    if (!currentNotebook) {
-      if (!isActiveRef.current) return;
-      setSelectedNotebook(null);
-      void clearWorkspaceDocument();
-      setSelectedTagId(null);
-      setLoadedMemoListQueryKey(null);
-      setIsMemoListLoading(false);
-      return;
-    }
-
-    const libraryMetadata = await loadLibraryMetadata(
-      currentNotebook,
-      tagMetadataRefreshVersion
-    );
-    if (!isActiveRef.current || useNoteStore.getState().startupPhase !== 'ready') return;
-    if (!libraryMetadata) return;
-    if (useNoteStore.getState().selectedNotebook?.id !== currentNotebook.id) return;
-
-    setTagMap(libraryMetadata.tagMap);
-
-    // selectedTagId 校验: 防止 useTagStore 持久化残留 "已不存在的 tag" 选中态。
-    // 用当前 selectedTagId 重新校验 (而非 loadData 开头取的旧值): IPC 期间
-    // selectedTagId 可能已变 (重命名 commitRename 更新到新 fullPath), 用旧值
-    // 校验出的 null 会覆盖新值, 选中态丢成"全部"。
-    const latestSelectedTagId = useTagStore.getState().selectedTagId;
-    const resolvedSelectedTagId = resolveSelectedTagId(latestSelectedTagId, libraryMetadata.tagOptions);
-    if (resolvedSelectedTagId !== latestSelectedTagId) {
-      setSelectedTagId(resolvedSelectedTagId);
-    }
-
-  }, [loadLibraryMetadata, setSelectedNotebook, setSelectedTagId, startupPhase, tagMetadataRefreshVersion]);
-
-  useEffect(() => {
-    void loadData().catch((error) => {
-      if (!isActiveRef.current) return;
-      logger.warn('load list metadata failed', { error });
-      if (!String(error).includes('NOTE_INDEX_PENDING')) toast.error(t('memo.list.loadFailed'));
-    });
-  }, [isActive, loadData, refreshTrigger, selectedNotebookId, t]);
-
-  const currentMemoListQueryKey = getMemoListQueryKey(
-    selectedNotebookId,
-    activeFilter,
-    activeSort,
-    activeTagId,
-    colorFilter,
-    activePluginId,
-    activeCustomFilterId,
-    dataCondition,
-  );
-  const currentMemoListError = memoListError?.queryKey === currentMemoListQueryKey
-    ? memoListError
-    : null;
-  const hasCurrentMemoListData = loadedMemoListQueryKey === currentMemoListQueryKey
-    || memoListQueryKey === currentMemoListQueryKey;
-  const backgroundIndex = useNotebookBackgroundStore((state) => selectedNotebookId ? state.statuses[selectedNotebookId] : undefined);
-  const indexPreparing = backgroundIndex?.state === 'queued' || backgroundIndex?.state === 'running';
-  const indexFailed = backgroundIndex?.state === 'failed';
-  // Only the first list attempt after navigation skips its placeholder.
-  // Success and failure both restore normal feedback for filters and retries.
-  useEffect(() => {
-    if (!hasCurrentMemoListData && !currentMemoListError && !indexFailed) return;
-    setNotebookLoadContext((previous) => (
-      previous.notebookId === selectedNotebookId && !previous.notesSettled
-        ? { ...previous, notesSettled: true }
-        : previous
-    ));
-  }, [selectedNotebookId, hasCurrentMemoListData, currentMemoListError, indexFailed]);
-  useEffect(() => {
-    if (backgroundIndex?.state === 'ready') setMemoListError(null);
-  }, [backgroundIndex?.state, backgroundIndex?.revision, selectedNotebookId]);
-  const retryIndexOrList = () => {
-    if (!selectedNotebookId || !indexFailed) { handleRetryMemoList(); return; }
-    const id = selectedNotebookId;
-    useNotebookBackgroundStore.getState().pending(id, true);
-    void import('@platform/tauri/client/memos').then(({ notebooks }) => notebooks.refreshIndex(id)).catch((error) => {
-      const current = useNotebookBackgroundStore.getState().statuses[id];
-      if (current) useNotebookBackgroundStore.getState().apply({ ...current, state: 'failed', message: String(error) });
-    });
-  };
-
-  const showMemoListLoading = indexPreparing || startupPhase === 'loading' || shouldShowMemoListLoading({
-      selectedNotebookId,
-      isMemoListLoading,
-      currentMemoListQueryKey,
-      loadedMemoListQueryKey,
-    });
   // 选中标签的展示名: tagMap 只收录真实 tag (id = 完整路径, 如
   // "Flowix/云存储"), 不含路径前缀 segment。选中父节点 (e.g. "Flowix")
   // 时 selectedTagId = fullPath "Flowix" 是前缀而非任何 memo 的真实 tag,
@@ -657,48 +417,6 @@ export function MemoList({
     scrollerRef: listContainerRef,
     isActive: isActive && dataLoadingEnabled && memoListView !== 'folders',
   });
-  const handleSetDefaultCreateFolder = useCallback(async (folderPath: string) => {
-    if (!selectedNotebook) return;
-    const root = canonicalDirectoryPath(selectedNotebook.path);
-    const folder = canonicalDirectoryPath(folderPath);
-    if (folder !== root && !folder.startsWith(`${root}/`)) return;
-    const relative = folder === root ? null : folder.slice(root.length + 1);
-    try {
-      const preferences = await fileApi.getNotebookViewPreferences(selectedNotebook.path);
-      const nextDefaultFolder = defaultCreateFolder === relative ? null : relative;
-      await fileApi.setNotebookViewPreferences(selectedNotebook.path, {
-        ...preferences,
-        defaultCreateFolder: nextDefaultFolder,
-      });
-      setDefaultCreateFolderState({ notebookId: selectedNotebook.id, path: nextDefaultFolder });
-      toast.success(t(defaultCreateFolder === relative
-        ? 'memo.fileTree.defaultCreateFolderCleared'
-        : 'memo.fileTree.defaultCreateFolderSet'));
-    } catch (error) {
-      logger.warn('set notebook default create folder failed', { error, folderPath });
-      toast.error(t('memo.fileTree.preferenceSaveFailed'));
-    }
-  }, [defaultCreateFolder, selectedNotebook, t]);
-  const handleSaveDefaultCreateFolder = useCallback(async (folderPath: string | null): Promise<boolean> => {
-    if (!selectedNotebook) return false;
-    const normalizedPath = folderPath?.trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '') || null;
-    try {
-      const preferences = await fileApi.getNotebookViewPreferences(selectedNotebook.path);
-      await fileApi.setNotebookViewPreferences(selectedNotebook.path, {
-        ...preferences,
-        defaultCreateFolder: normalizedPath,
-      });
-      setDefaultCreateFolderState({ notebookId: selectedNotebook.id, path: normalizedPath });
-      toast.success(t(normalizedPath
-        ? 'memo.fileTree.defaultCreateFolderSet'
-        : 'memo.fileTree.defaultCreateFolderCleared'));
-      return true;
-    } catch (error) {
-      logger.warn('save default note folder failed', { error, folderPath });
-      toast.error(t('memo.fileTree.preferenceSaveFailed'));
-      return false;
-    }
-  }, [selectedNotebook, t]);
   const handleSelectMemo = useCallback((memo: NoteListItem) => {
     flushSync(() => {
       void openPathNoteSession(memo, useNoteStore.getState().selectedNotebook);
@@ -721,59 +439,15 @@ export function MemoList({
         });
         toast.error(error instanceof Error ? error.message : String(error));
       });
-  }, [t]);
+  }, []);
 
   const handleRequestDeleteMemo = useCallback((memo: NoteListItem) => {
     window.dispatchEvent(new CustomEvent<NoteListItem>('flowix:request-delete-memo', { detail: memo }));
   }, []);
-
-  const handleFavoriteToggle = useCallback(async (memo: NoteListItem) => {
-    const queryKey = useNoteStore.getState().memoListQueryKey;
-    const path = joinNotebookMemoPath(
-      useNoteStore.getState().selectedNotebook?.path ?? '',
-      noteListItemRelativePath(memo),
-    ) ?? '';
-    try {
-      const outcome = await (memo.favorited
-        ? noteRepository.unfavorite(path)
-        : noteRepository.favorite(path));
-      if (outcome === 'notSaved') {
-        toast.error(t(memo.favorited ? 'document.command.unpinFailed' : 'document.command.pinFailed'));
-        return;
-      }
-      if (outcome === 'missingCleaned') {
-        useNoteStore.getState().applyNoteListChange(memo.notebookId, memo.relativePath, null);
-        toast.success(t('memo.favorite.missingCleaned'));
-        return;
-      }
-      await refreshIndexedMemo(memo.notebookId, memo.relativePath);
-      const state = useNoteStore.getState();
-      // A metadata refresh replaces the card in place. Reload the first page
-      // so pin/unpin uses backend ordering and resets the pagination cursor.
-      // Do not disturb a different notebook or filter opened during the save.
-      if (state.selectedNotebook?.id === memo.notebookId && state.memoListQueryKey === queryKey) {
-        const loaded = await state.loadNotes({ source: 'memo-pin-toggle' });
-        if (loaded && useNoteStore.getState().memoListQueryKey === queryKey) {
-          listContainerRef.current?.scrollTo({ top: 0 });
-        }
-      }
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : String(error));
-    }
-  }, [t]);
-
-  const handleColorsChange = useCallback(async (memo: NoteListItem, colors: NoteColor[]) => {
-    const path = joinNotebookMemoPath(
-      useNoteStore.getState().selectedNotebook?.path ?? '',
-      noteListItemRelativePath(memo),
-    ) ?? '';
-    const saved = await noteRepository.setColors(path, colors);
-    if (!saved) {
-      triggerMemoListRefresh();
-      return;
-    }
-    await refreshIndexedMemo(memo.notebookId, memo.relativePath);
-  }, [triggerMemoListRefresh]);
+  const { handleFavoriteToggleAction, handleColorsChangeAction } = useMemoListItemActions({
+    triggerMemoListRefresh,
+    scrollListToTop,
+  });
 
   const cardRefCacheRef = useRef(new Map<string, (element: HTMLDivElement | null) => void>());
   const registerCardRef = useRef(registerCard);
@@ -805,9 +479,9 @@ export function MemoList({
             runningAgentType={getRunningAgentTypeForMemo(memo) ?? undefined}
             onSelect={handleSelectMemo}
             onOpenInWindow={handleOpenMemoWindow}
-            onFavoriteToggle={handleFavoriteToggle}
+            onFavoriteToggle={handleFavoriteToggleAction}
             onDelete={handleRequestDeleteMemo}
-            onColorsChange={handleColorsChange}
+            onColorsChange={handleColorsChangeAction}
             onKeepAliveChange={onKeepAliveChange}
           />
           <hr className={cn('mx-3', DROPDOWN_DIVIDER_SKIN)} />
@@ -860,104 +534,6 @@ export function MemoList({
       setSortSubmenuOpen(false);
     }
   }, [notebookDropdownOpen]);
-
-  const handleCreateMemo = useCallback(async (
-    parentRelativePathOverride?: string,
-    titleOverride?: string,
-  ) => {
-    if (!selectedNotebook) return;
-    setIsCreatingMemo(true);
-    try {
-      let customFilterForCreation = activeCustomFilter;
-      if (activeFilter === 'custom' && activeCustomFilterId && !customFilterForCreation) {
-        await loadNotebookFilters(selectedNotebook.id);
-        customFilterForCreation = useCustomFilterStore.getState().filtersByNotebook[selectedNotebook.id]
-          ?.find((filter) => filter.id === activeCustomFilterId) ?? null;
-      }
-      const shouldCreateIntoCustomFilter = activeFilter === 'custom'
-        && customFilterForCreation?.documentType === 'note';
-      const createFilter = shouldCreateIntoCustomFilter ? 'custom' : getVisibleCreateFilter(activeFilter);
-      if (createFilter !== activeFilter) {
-        setSelectedTagId(null);
-        setActiveFilter(createFilter);
-      }
-      const workTargetParentRelativePath = memoListView !== 'folders' || workTargetParentPath === null
-        ? null
-        : notebookRelativeDirectoryPath(selectedNotebook.path, workTargetParentPath);
-      const parentRelativePath = parentRelativePathOverride
-        ?? workTargetParentRelativePath
-        ?? (await fileApi.getNotebookViewPreferences(selectedNotebook.path)).defaultCreateFolder
-        ?? '';
-      const notebookRoot = selectedNotebook.path.replace(/[\\/]+$/, '');
-      const namingParentPath = parentRelativePath
-        ? `${notebookRoot}/${parentRelativePath}`
-        : notebookRoot;
-      const title = titleOverride?.trim()
-        || await nextUntitledNoteTitle(namingParentPath, t('memo.untitled'));
-      const result = await noteRepository.create(
-        activeTagId ?? undefined,
-        selectedNotebook.id,
-        parentRelativePath,
-        title,
-      );
-      if (shouldCreateIntoCustomFilter && customFilterForCreation) {
-        const saved = await setDocumentProperties(result.path, {
-          [customFilterForCreation.key]: customFilterForCreation.value,
-        });
-        if (!saved) throw new Error('Failed to apply the active custom view to the new note');
-      }
-      const shouldSelectNewMemo =
-        createFilter === 'all' ||
-        (createFilter === 'tagged' && Boolean(activeTagId)) ||
-        createFilter === 'thisWeek' ||
-        createFilter === 'thisMonth' ||
-        (createFilter === 'custom' && shouldCreateIntoCustomFilter);
-      if (shouldSelectNewMemo) {
-        const cardKey = `path:${selectedNotebook.id}:${result.relativePath}`;
-        setCreatedCardRevealKey(cardKey);
-        prepareForInsert(cardKey);
-      }
-
-      // 新笔记插入置顶区域之后，虚拟列表负责定位，动画 hook 负责入场。
-      useNoteStore.getState().upsertCreatedNote(result);
-      // Opening is a workspace navigation transaction. Leave selection to the
-      // facade so a failed document open can restore the previous memo.
-      const opening = shouldSelectNewMemo
-        ? openNotebookNote(result.path, selectedNotebook, { initialFocus: 'title', treeReveal: 'created-note' })
-        : null;
-      // The document save emits a path invalidation after applying custom-view
-      // properties; the shared list query subscriber reloads this projection.
-      if (opening) await opening;
-    } catch (error) {
-      logger.warn('create memo failed', { error, notebookId: selectedNotebook.id });
-      toast.error(t('memo.list.createFailed'));
-    } finally {
-      setIsCreatingMemo(false);
-    }
-  }, [
-    activeFilter,
-    activeTagId,
-    activeCustomFilter,
-    activeCustomFilterId,
-    loadNotebookFilters,
-    memoListView,
-    prepareForInsert,
-    workTargetParentPath,
-    selectedNotebook,
-    setActiveFilter,
-    setSelectedTagId,
-    t,
-  ]);
-
-  const handleCreateNoteInFolder = useCallback(async (parentPath?: string, title?: string) => {
-    if (!selectedNotebook) return;
-    if (parentPath === undefined) return handleCreateMemo(undefined, title);
-    const root = selectedNotebook.path.replace(/\/+$/, '');
-    const parent = parentPath.replace(/\/+$/, '');
-    if (parent !== root && !parent.startsWith(`${root}/`)) return;
-    const relative = parent === root ? '' : parent.slice(root.length + 1);
-    return handleCreateMemo(relative, title);
-  }, [handleCreateMemo, selectedNotebook]);
 
   const openDocumentCreateDialog = useCallback((kind: NotebookDocumentCreateRequest['kind'], viewType?: TableViewType) => {
     if (!selectedNotebook || selectedNotebook.missing) return;
@@ -1023,31 +599,6 @@ export function MemoList({
     onListRendered(listContainerRef.current);
   }, [listItems, onListRendered]);
 
-  // 排序入口尾部展示当前排序方式。
-  const sortValueAdornment = activeSort === 'updatedAt'
-    ? t('memo.list.sortUpdated')
-    : activeSort === 'filenameAsc'
-      ? t('memo.list.sortFilenameAsc')
-      : activeSort === 'filenameDesc'
-        ? t('memo.list.sortFilenameDesc')
-        : t('memo.list.sortCreated');
-  const createTypeMenuContent = (
-    <MemoCreateMenu
-      disabled={!selectedNotebook}
-      disabledForMissingNotebook={!selectedNotebook || Boolean(selectedNotebook.missing)}
-      showViewOptions={memoListView === 'folders'}
-      templates={createTemplates}
-      conversationOptions={newConversationSelection.options}
-      viewsExpanded={createViewsExpanded}
-      onToggleViewsExpanded={() => setCreateViewsExpanded((expanded) => !expanded)}
-      onCreateMemo={() => {
-        void handleCreateMemo();
-      }}
-      onCreateFromTemplate={handleCreateFromTemplate}
-      onCreateAgentConversation={handleCreateAgentConversation}
-      onOpenDocumentCreate={openDocumentCreateDialog}
-    />
-  );
   return (
     <div className="memo-list relative flex h-full min-w-0 select-none flex-col bg-[var(--list-bg)]">
       <MemoListDataLoader
@@ -1071,170 +622,42 @@ export function MemoList({
         onLoadStart={handleMemoListLoadStart}
         onLoadSuccess={handleMemoListLoadSuccess}
       />
-      {/* 左边距按 tab 条实测宽度预留（MemoListViewTabs 写入
-          --memo-list-tabs-width；fallback 60px + 20px ≈ 纯图标 tab 条宽度），
-          避免 tab 条盖住筛选/排序下拉按钮。 */}
-      <div
-        className="flex min-w-0 items-center gap-2 pb-2 pr-3"
-        style={{ paddingLeft: 'calc(var(--memo-list-tabs-width, 60px) + 20px)' }}
-      >
-        <div className="min-w-0 flex-1">
-          {!showFolderView && (
-          <MemoNavigationDropdown
-            title={headerLabel}
-            titleTooltip={hasActiveFilter ? headerLabel : undefined}
-            ariaLabel={t('memo.navigation.menuTitle')}
-            open={notebookDropdownOpen}
-            onOpenChange={setNotebookDropdownOpen}
-            showClear={hasActiveFilter || activeFilter !== 'all' || Boolean(dataCondition)}
-            onClear={handleClearFilter}
-            notebookPath={selectedNotebook?.path}
-            defaultCreateFolder={defaultCreateFolder}
-            onSavePath={handleSaveDefaultCreateFolder}
-          >
-          <div className="space-y-0.5">
-            {/* Sort — 二级弹窗，时间范围筛选置于排序项顶部。 */}
-            <MemoNavigationSubmenu
-              label={t('memo.list.sortLabel')}
-              icon={<ArrowDownUp className="h-4 w-4 shrink-0" aria-hidden="true" />}
-              open={sortSubmenuOpen}
-              hideHeader
-              emptyText=""
-              loadingText=""
-              valueAdornment={(
-                <span className="max-w-[100px] truncate text-xs text-[var(--muted-foreground)]">
-                  {sortValueAdornment}
-                </span>
-              )}
-              submenuContent={(
-                <div className="flex flex-col space-y-0.5">
-                  <button
-                    type="button"
-                    onClick={() => handlePeriodFilterSelect('thisWeek')}
-                    onMouseDown={(event) => event.preventDefault()}
-                    className={cn(
-                      'memo-navigation-submenu-item memo-navigation-submenu-item--neutral-hover mention-note-item cursor-pointer hover:bg-[var(--hover-bg)] focus-visible:bg-[var(--hover-bg)] focus-visible:outline-none',
-                      activeFilter === 'thisWeek' && 'is-selected',
-                    )}
-                  >
-                    <span className="mention-note-title">{t('memo.list.filterThisWeek')}</span>
-                    {activeFilter === 'thisWeek' && <Check className="w-4 h-4 text-[var(--brand)]" />}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handlePeriodFilterSelect('thisMonth')}
-                    onMouseDown={(event) => event.preventDefault()}
-                    className={cn(
-                      'memo-navigation-submenu-item memo-navigation-submenu-item--neutral-hover mention-note-item cursor-pointer hover:bg-[var(--hover-bg)] focus-visible:bg-[var(--hover-bg)] focus-visible:outline-none',
-                      activeFilter === 'thisMonth' && 'is-selected',
-                    )}
-                  >
-                    <span className="mention-note-title">{t('memo.list.filterThisMonth')}</span>
-                    {activeFilter === 'thisMonth' && <Check className="w-4 h-4 text-[var(--brand)]" />}
-                  </button>
-                  <div role="separator" aria-hidden="true" className={POPUP_SEPARATOR_CLASS} />
-                  <button
-                    type="button"
-                    onClick={() => handleSortFromSubmenu('createdAt')}
-                    onMouseDown={(event) => event.preventDefault()}
-                    className={cn(
-                      'memo-navigation-submenu-item memo-navigation-submenu-item--neutral-hover mention-note-item cursor-pointer hover:bg-[var(--hover-bg)] focus-visible:bg-[var(--hover-bg)] focus-visible:outline-none',
-                      activeSort === 'createdAt' && 'is-selected',
-                    )}
-                  >
-                    <span className="mention-note-title">{t('memo.list.sortCreated')}</span>
-                    {activeSort === 'createdAt' && <Check className="w-4 h-4 text-[var(--brand)]" />}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleSortFromSubmenu('updatedAt')}
-                    onMouseDown={(event) => event.preventDefault()}
-                    className={cn(
-                      'memo-navigation-submenu-item memo-navigation-submenu-item--neutral-hover mention-note-item cursor-pointer hover:bg-[var(--hover-bg)] focus-visible:bg-[var(--hover-bg)] focus-visible:outline-none',
-                      activeSort === 'updatedAt' && 'is-selected',
-                    )}
-                  >
-                    <span className="mention-note-title">{t('memo.list.sortUpdated')}</span>
-                    {activeSort === 'updatedAt' && <Check className="w-4 h-4 text-[var(--brand)]" />}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleSortFromSubmenu('filenameAsc')}
-                    onMouseDown={(event) => event.preventDefault()}
-                    className={cn(
-                      'memo-navigation-submenu-item memo-navigation-submenu-item--neutral-hover mention-note-item cursor-pointer hover:bg-[var(--hover-bg)] focus-visible:bg-[var(--hover-bg)] focus-visible:outline-none',
-                      activeSort === 'filenameAsc' && 'is-selected',
-                    )}
-                  >
-                    <span className="mention-note-title">{t('memo.list.sortFilenameAsc')}</span>
-                    {activeSort === 'filenameAsc' && <Check className="w-4 h-4 text-[var(--brand)]" />}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleSortFromSubmenu('filenameDesc')}
-                    onMouseDown={(event) => event.preventDefault()}
-                    className={cn(
-                      'memo-navigation-submenu-item memo-navigation-submenu-item--neutral-hover mention-note-item cursor-pointer hover:bg-[var(--hover-bg)] focus-visible:bg-[var(--hover-bg)] focus-visible:outline-none',
-                      activeSort === 'filenameDesc' && 'is-selected',
-                    )}
-                  >
-                    <span className="mention-note-title">{t('memo.list.sortFilenameDesc')}</span>
-                    {activeSort === 'filenameDesc' && <Check className="w-4 h-4 text-[var(--brand)]" />}
-                  </button>
-                </div>
-              )}
-              onOpenChange={setSortSubmenuOpen}
-              onCloseMenu={() => setNotebookDropdownOpen(false)}
-            />
-
-          </div>
-          </MemoNavigationDropdown>
-          )}
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {memoListView === 'folders' ? (
-            /* 文件树只有一个「新建」入口: 点击直接展开类型菜单, 再做二次选择。 */
-            <DropdownMenu open={createTypeMenuOpen} onOpenChange={handleCreateTypeMenuOpenChange}>
-              <Tooltip content={t('memo.create.chooseType')} shortcut="memo.create">
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    size="icon"
-                    disabled={!selectedNotebook || isCreatingMemo}
-                    aria-busy={isCreatingMemo}
-                    aria-label={t('memo.create.chooseType')}
-                    aria-haspopup="menu"
-                    className="h-[30px] w-[30px] justify-center rounded-xl border border-transparent bg-[var(--primary)] p-0 text-[var(--primary-foreground)] hover:opacity-90"
-                  >
-                    {isCreatingMemo
-                      ? <Loader2 className="h-4 w-4 flowix-spin" aria-hidden="true" />
-                      : <SquarePen className="h-4 w-4" aria-hidden="true" />}
-                  </Button>
-                </DropdownMenuTrigger>
-              </Tooltip>
-              {createTypeMenuContent}
-            </DropdownMenu>
-          ) : (
-            <DropdownMenu open={createTypeMenuOpen} onOpenChange={handleCreateTypeMenuOpenChange}>
-              <Tooltip content={t('memo.create.chooseType')} shortcut="memo.create">
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    size="icon"
-                    disabled={isCreatingMemo}
-                    aria-busy={isCreatingMemo}
-                    aria-label={t('memo.create.chooseType')}
-                    className="h-[30px] w-[30px] justify-center rounded-xl border border-transparent bg-[var(--primary)] p-0 text-[var(--primary-foreground)] hover:opacity-90"
-                  >
-                    {isCreatingMemo
-                      ? <Loader2 className="h-4 w-4 flowix-spin" aria-hidden="true" />
-                      : <SquarePen className="h-4 w-4" aria-hidden="true" />}
-                  </Button>
-                </DropdownMenuTrigger>
-              </Tooltip>
-              {createTypeMenuContent}
-            </DropdownMenu>
-          )}
-        </div>
-      </div>
+      <MemoListHeader
+        state={{
+          folderMode: memoListView === 'folders',
+          folderViewVisible: showFolderView,
+          title: headerLabel,
+          hasActiveFilter,
+          hasDataCondition: Boolean(dataCondition),
+          activeFilter,
+          activeSort,
+          notebookPath: selectedNotebook?.path,
+          hasNotebook: Boolean(selectedNotebook),
+          notebookMissing: Boolean(selectedNotebook?.missing),
+          defaultCreateFolder,
+          notebookDropdownOpen,
+          sortSubmenuOpen,
+          createTypeMenuOpen,
+          isCreatingMemo,
+          createTemplates,
+          conversationOptions: newConversationSelection.options,
+          createViewsExpanded,
+        }}
+        actions={{
+          onNotebookDropdownOpenChange: setNotebookDropdownOpen,
+          onSortSubmenuOpenChange: setSortSubmenuOpen,
+          onCreateTypeMenuOpenChange: handleCreateTypeMenuOpenChange,
+          onClearFilter: handleClearFilter,
+          onSaveDefaultCreateFolder: handleSaveDefaultCreateFolder,
+          onSelectPeriod: handlePeriodFilterSelect,
+          onSelectSort: handleSortFromSubmenu,
+          onToggleCreateViewsExpanded: () => setCreateViewsExpanded((expanded) => !expanded),
+          onCreateMemo: () => { void handleCreateMemo(); },
+          onCreateFromTemplate: handleCreateFromTemplate,
+          onCreateAgentConversation: handleCreateAgentConversation,
+          onOpenDocumentCreate: openDocumentCreateDialog,
+        }}
+      />
 
       {documentCreateRequest && <NotebookDocumentCreateDialog request={documentCreateRequest} onClose={() => setDocumentCreateRequest(null)} />}
 
@@ -1290,71 +713,31 @@ export function MemoList({
           className={cn('absolute inset-0', showFolderView ? 'hidden' : '')}
           aria-hidden={showFolderView}
         >
-          <OverlayScrollbar
-            className="flex h-full min-h-0 min-w-0 w-full"
-            scrollerClassName="min-w-0 w-full flex-1 overflow-y-auto px-1 py-2"
+          <MemoListViewport
+            active={isActive && memoListView !== 'folders'}
+            items={listItems}
+            notebooksExist={notebooks.length > 0}
+            scrollElement={listScrollElement}
             scrollerRef={attachListScroller}
             onScroll={(event) => {
               setShowScrollTopHint(event.currentTarget.scrollTop > 0);
               handleMemoListScroll(event);
             }}
-          >
-            {currentMemoListError?.kind === 'initial' || (!hasCurrentMemoListData && indexFailed) ? (
-              <div className="flex h-full min-h-0 w-full flex-col items-center justify-center gap-3 px-4 text-center" role="alert">
-                <span className="text-sm text-[var(--muted-foreground)]">{t('memo.list.loadFailed')}</span>
-                <Button size="sm" className="rounded-lg" onClick={retryIndexOrList}>{t('error.retry')}</Button>
-              </div>
-            ) : !hasCurrentMemoListData && showMemoListLoading ? (
-              skipMemoListLoading
-                ? null
-                : <ListSurfaceLoadingState ariaLabel={t('memo.list.loadingLibrary')} />
-            ) : listItems.length > 0 ? (
-              <div key={currentMemoListQueryKey} className="flowix-list-content-enter">
-                <MemoListRows
-                  items={listItems}
-                  scrollElement={listScrollElement}
-                  queryKey={currentMemoListQueryKey}
-                  revealKey={createdCardRevealKey}
-                  onRevealed={handleCreatedCardRevealed}
-                  renderRow={renderMemoRow}
-                />
-              </div>
-            ) : (
-              <EmptyState hasNotebooks={notebooks.length > 0} />
-            )}
-            {memoListLoadingMore && listItems.length > 0 && (
-              <div
-                className="flex h-10 items-center justify-center"
-                role="status"
-                aria-live="polite"
-              >
-                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-                <span className="sr-only">{t('memo.list.loadingMore')}</span>
-              </div>
-            )}
-            {currentMemoListError?.kind === 'more' && (
-              <div className="flex items-center justify-center gap-2 px-4 py-3 text-center text-xs text-[var(--muted-foreground)]" role="alert">
-                <span>{t('memo.list.loadFailed')}</span>
-                <Button size="sm" className="rounded-lg" onClick={handleRetryMemoListMore}>{t('error.retry')}</Button>
-              </div>
-            )}
-            {(currentMemoListError?.kind === 'refresh' || (hasCurrentMemoListData && indexFailed)) && (
-              <div className="flex items-center justify-center gap-2 px-4 py-3 text-center text-xs text-[var(--muted-foreground)]" role="alert">
-                <span>{t('memo.list.loadFailed')}</span>
-                <Button size="sm" className="rounded-lg" onClick={retryIndexOrList}>{t('error.retry')}</Button>
-              </div>
-            )}
-          </OverlayScrollbar>
+            showScrollTopHint={memoListView !== 'folders' && showScrollTopHint}
+            queryKey={currentMemoListQueryKey}
+            error={currentMemoListError}
+            hasData={hasCurrentMemoListData}
+            indexFailed={indexFailed}
+            loading={showMemoListLoading}
+            skipInitialLoading={skipMemoListLoading}
+            loadingMore={memoListLoadingMore}
+            revealKey={createdCardRevealKey}
+            onRevealed={handleCreatedCardRevealed}
+            renderRow={renderMemoRow}
+            onRetry={retryIndexOrList}
+            onRetryMore={handleRetryMemoListMore}
+          />
         </div>
-
-        {memoListView !== 'folders' && <div
-          aria-hidden="true"
-          className={cn(
-            'pointer-events-none absolute inset-x-0 top-0 z-[3] h-6 bg-gradient-to-b from-[var(--list-bg)] to-transparent transition-opacity duration-200',
-            showScrollTopHint ? 'opacity-100' : 'opacity-0',
-          )}
-        />}
-
       </ListSurfaceViewport>
     </div>
   );

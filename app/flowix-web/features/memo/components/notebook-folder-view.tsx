@@ -285,7 +285,6 @@ export function NotebookFolderView({
   }, [notebook.path, t, tree.refresh]);
 
   return (
-    <>
     <NotebookFileTree
       notebookId={notebook.id}
       notebookName={notebook.name}
@@ -314,6 +313,5 @@ export function NotebookFolderView({
       onDeleteFolder={deleteFolder}
       onDeleteFile={deleteFile}
     />
-  </>
   );
 }

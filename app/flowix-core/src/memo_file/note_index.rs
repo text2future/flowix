@@ -308,9 +308,32 @@ impl MemoFile {
         let parent_path = if parent_relative.is_empty() {
             root.clone()
         } else {
+            let relative = Path::new(&parent_relative);
+            if relative.starts_with(".flowix/database") {
+                let components: Vec<_> = relative.components().collect();
+                let valid = components.len() == 3 && components[2].as_os_str().to_str().is_some_and(|id| {
+                    id.strip_prefix("col_").is_some_and(|suffix| !suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-'))
+                });
+                if !valid {
+                    return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid table note directory"));
+                }
+                let mut dir = root.clone();
+                for component in components {
+                    dir.push(component.as_os_str());
+                    match fs::create_dir(&dir) {
+                        Ok(()) => {},
+                        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {},
+                        Err(error) => return Err(error),
+                    }
+                    let metadata = fs::symlink_metadata(&dir)?;
+                    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+                        return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid table note directory"));
+                    }
+                }
+            }
             if self
                 .file_management_policy(notebook_id)
-                .is_tree_hidden_at(&root, Path::new(&parent_relative))
+                .is_tree_hidden_at(&root, relative)
             {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
@@ -1581,7 +1604,7 @@ impl MemoFile {
                     || entry
                         .path()
                         .strip_prefix(&root)
-                        .map(|relative| !policy.is_index_hidden_at(&root, relative))
+                        .map(|relative| if entry.file_type().is_dir() { policy.can_traverse_index_directory(relative) } else { !policy.is_index_hidden_at(&root, relative) })
                         .unwrap_or(false)
             })
         {
@@ -1746,7 +1769,8 @@ impl MemoFile {
                         .path()
                         .strip_prefix(&root)
                         .map(|relative| {
-                            !policy.is_index_hidden_at(&root, relative)
+                            if entry.file_type().is_dir() { policy.can_traverse_index_directory(relative) }
+                            else { !policy.is_index_hidden_at(&root, relative) }
                         })
                         .unwrap_or(false)
             })
@@ -2289,6 +2313,36 @@ mod tests {
             sort: 0, created_at: 0, updated_at: 0,
         }]).unwrap();
         (temp, memo, root)
+    }
+
+    #[test]
+    fn table_database_notes_survive_reconciliation_without_exposing_internals() {
+        let (_temp, memo, root) = background_fixture();
+        let path = memo.create_note_by_path("background", Some(".flowix/database/col_test"), "Table note", "hello").unwrap();
+        assert_eq!(path, ".flowix/database/col_test/Table note.md");
+        fs::create_dir_all(root.join(".flowix/versions")).unwrap();
+        fs::write(root.join(".flowix/versions/secret.md"), "internal").unwrap();
+        fs::create_dir_all(root.join("nested/.flowix/database/col_test")).unwrap();
+        fs::write(root.join("nested/.flowix/database/col_test/ignored.md"), "internal").unwrap();
+        memo.reconcile_note_index("background").unwrap();
+        assert_eq!(memo.list_note_paths_from_disk("background").unwrap(), vec![path.clone()]);
+        let conn = memo.open_note_index_connection("background").unwrap();
+        let paths: Vec<String> = conn.prepare("SELECT relative_path FROM notes").unwrap()
+            .query_map([], |row| row.get(0)).unwrap().map(Result::unwrap).collect();
+        assert_eq!(paths, vec![path]);
+        assert!(memo.create_note_by_path("background", Some(".flowix/versions"), "bad", "").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn table_database_rejects_symlinked_directories() {
+        let (_temp, memo, root) = background_fixture();
+        fs::create_dir_all(root.join(".flowix/versions")).unwrap();
+        fs::write(root.join(".flowix/versions/secret.md"), "internal").unwrap();
+        std::os::unix::fs::symlink(root.join(".flowix/versions"), root.join(".flowix/database")).unwrap();
+        assert!(memo.create_note_by_path("background", Some(".flowix/database/col_test"), "bad", "").is_err());
+        assert!(memo.refresh_note_path("background", ".flowix/database/secret.md").is_err());
+        assert!(memo.list_note_paths_from_disk("background").unwrap().is_empty());
     }
 
     #[test]

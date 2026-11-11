@@ -233,7 +233,7 @@ html.frontmatter-property--dragging .markdown-editor .frontmatter-property__disp
   border: 1px solid var(--border-popup);
   border-radius: 0.75rem;
   background: var(--card);
-  box-shadow: 0 8px 28px -6px rgb(0 0 0 / 24%);
+  box-shadow: 0 0 24px -3px rgb(0 0 0 / 0.12) !important;
   font-family: var(--font-sans);
   font-size: var(--property-value-base-font-size, var(--editor-font-size, 16px));
   line-height: var(--editor-line-height, 1.8);

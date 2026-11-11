@@ -44,11 +44,13 @@ interface ImageValueInputProps {
   src?: string | null;
   disabled?: boolean;
   uploading?: boolean;
+  emptyLabel?: string;
   onSelect: () => void;
 }
 
-export function ImageValueInput({ path, src, disabled, uploading, onSelect }: ImageValueInputProps) {
+export function ImageValueInput({ path, src, disabled, uploading, emptyLabel, onSelect }: ImageValueInputProps) {
   const { t } = useI18n();
+  const selectImageLabel = emptyLabel ?? t('document.properties.selectImage');
   return <div className="flex h-10 w-full min-w-0 items-center gap-1 overflow-hidden px-0">
     {path ? <button
       type="button"
@@ -69,7 +71,7 @@ export function ImageValueInput({ path, src, disabled, uploading, onSelect }: Im
       disabled={disabled || uploading}
       onClick={onSelect}
       className="frontmatter-property__date-picker-trigger flex h-8 min-w-0 flex-1 items-center rounded-lg border-0 bg-transparent px-0 text-left text-sm text-[var(--muted-foreground)] opacity-80 hover:bg-transparent focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-    >{uploading ? t('document.properties.selectingImage') : t('document.properties.selectImage')}</button>}
+    >{uploading ? t('document.properties.selectingImage') : selectImageLabel}</button>}
   </div>;
 }
 

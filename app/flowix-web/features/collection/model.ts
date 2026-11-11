@@ -424,8 +424,8 @@ export function serializeProjectedCollectionDocument(source: string, document: P
     },
   };
   const previousDataset = parsed.payload.domains[domain]!;
-  if (datasetLocation(previousDataset) !== datasetLocation(document.dataset)) {
-    payload.domains = shareDatasetLocation(payload.domains, document.dataset);
+  if (domain !== 'notes' && datasetLocation(previousDataset) !== datasetLocation(document.dataset)) {
+    payload.domains = { ...shareDatasetLocation(payload.domains, document.dataset), ...(payload.domains.notes ? { notes: payload.domains.notes } : {}) };
   }
   return serializeHybridCollectionDocument({
     collection: {

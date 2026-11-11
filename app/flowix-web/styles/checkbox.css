@@ -30,6 +30,7 @@
 }
 
 .flowix-hand-checkbox--checked,
+.flowix-hand-checkbox--indeterminate,
 .flowix-hand-checkbox-input:checked {
   border-color: var(--brand);
   background: var(--brand);
@@ -39,7 +40,7 @@
   border-color: color-mix(in srgb, var(--muted-foreground) 60%, transparent);
 }
 
-:root[data-window-focused="false"] :is(.flowix-hand-checkbox--checked, .flowix-hand-checkbox-input:checked) {
+:root[data-window-focused="false"] :is(.flowix-hand-checkbox--checked, .flowix-hand-checkbox--indeterminate, .flowix-hand-checkbox-input:checked) {
   background: color-mix(in srgb, var(--muted-foreground) 60%, transparent);
 }
 
@@ -51,6 +52,14 @@
   height: 9px;
   background: var(--primary-foreground);
   mask: var(--flowix-hand-check-mask) center / contain no-repeat;
+}
+
+.flowix-hand-checkbox--indeterminate .flowix-hand-checkbox__mark {
+  width: 8px;
+  height: 1px;
+  border-radius: 1px;
+  background: var(--primary-foreground);
+  mask: none;
 }
 
 .flowix-hand-checkbox-input:checked::after {

@@ -21,8 +21,8 @@ const paths = ['Project/a.md', 'Project/sub/b.md', 'Project/sub/deep/c.md', 'Pro
 it.each([
   createFolderCollectionContent('notes', 'Project', 'Project'),
   createFolderHybridCollectionContent('Project', 'Project'),
-])('collects all descendant notes from new folder templates', (source) => {
-  expect(collectedPaths(parseTableDocument(source), '/book/Project/.index.yaml', paths)).toEqual(paths.slice(0, 3));
+])('starts with no automatically collected notes in new folder templates', (source) => {
+  expect(collectedPaths(parseTableDocument(source), '/book/Project/.index.yaml', paths)).toEqual([]);
 });
 
 it('ignores and removes the old folder depth while following a moved index', () => {

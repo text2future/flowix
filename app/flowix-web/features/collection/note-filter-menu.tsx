@@ -28,7 +28,7 @@ import {
 const EMPTY_FILTER_FIELDS: NoteFilterEditorField[] = [];
 const autoCollectValueFrameClassName = 'min-w-0 flex-1 rounded-lg px-2 ring-1 ring-inset ring-[var(--border)]';
 
-export function NoteFilterMenu({ defaultFieldId = '', fields: autoCollectFields = EMPTY_FILTER_FIELDS, config: autoCollectConfig = null, notebookId, notebookPath, fixedFolderPath, saving, t, onSave, onSavePath, open: controlledOpen, onOpenChange, children, assetFilter, ignoreOutside = false, filterOnly = false, embedded = false, folderLabel, folderPickerTitle, folderIcon, filterIcon, filterLabel, filterOpen, onFilterOpenChange }: {
+export function NoteFilterMenu({ defaultFieldId = '', fields: autoCollectFields = EMPTY_FILTER_FIELDS, config: autoCollectConfig = null, notebookId, notebookPath, fixedFolderPath, saving, t, onSave, onSavePath, open: controlledOpen, onOpenChange, children, assetFilter, ignoreOutside = false, filterOnly = false, embedded = false, showLocation = true, folderLabel, folderPickerTitle, folderIcon, filterIcon, filterLabel, filterOpen, onFilterOpenChange }: {
   defaultFieldId?: string;
   fields?: NoteFilterEditorField[];
   config?: NoteFilterConfig | null;
@@ -48,6 +48,7 @@ export function NoteFilterMenu({ defaultFieldId = '', fields: autoCollectFields 
   filterOnly?: boolean;
   /** Render the existing data-condition row, supplied menu items, then location row inside another menu. */
   embedded?: boolean;
+  showLocation?: boolean;
   folderLabel?: string;
   folderPickerTitle?: string;
   folderIcon?: ReactNode;
@@ -566,10 +567,10 @@ export function NoteFilterMenu({ defaultFieldId = '', fields: autoCollectFields 
         </Popover>
   </div>;
   if (filterOnly) return filterMenu;
-  if (embedded) return <div className="space-y-0.5">{filterMenu}{children}{folderPathRow}</div>;
+  if (embedded) return <div className="space-y-0.5">{filterMenu}{children}{showLocation && folderPathRow}</div>;
   return <CollectionDatasetMenu open={open} onOpenChange={changeOpen} disabled={saving}
     ignoreOutside={autoCollectMenuOpen || folderPickerOpen || ignoreOutside}
-    location={folderPathRow} noteFilter={filterMenu} assetFilter={assetFilter}>
+    location={showLocation ? folderPathRow : null} noteFilter={filterMenu} assetFilter={assetFilter}>
     {children}
   </CollectionDatasetMenu>;
 }

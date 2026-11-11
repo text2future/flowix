@@ -133,16 +133,20 @@ export function MainWorkColumns({
   const browserColumnAnimation = useBrowserColumnAnimation(browserColumnVisible, flushColumnsGridLayout);
   const browserColumnToggling = browserColumnAnimation.pinStart || browserColumnAnimation.running;
   const expandedColumnsTemplate = `${browserColumnLayout.mainColumnWidth}px ${browserColumnLayout.browserColumnWidth}px`;
+  // Follow the flex container's actual width throughout the sidebar animation.
+  // Independently animating px tracks can leave a background gap at the right
+  // when their start frame differs from the sidebar's width transition.
+  const fluidColumnsTemplate = `minmax(${DOCUMENT_PANEL_MIN_WIDTH}px, ${browserColumnLayout.mainColumnWidth}fr) minmax(${DOCUMENT_PANEL_MIN_WIDTH}px, ${browserColumnLayout.browserColumnWidth}fr)`;
   const collapsedColumnsTemplate = `${browserColumnLayout.mainColumnWidth + browserColumnLayout.browserColumnWidth}px 0px`;
   const columnsTemplate = browserColumnAnimation.pinStart
     // Toggle commit: pin the pre-toggle template so the transition has a
-    // matching px start value (the visible steady template is already this).
+    // matching px start value before interpolating between the toggle endpoints.
     ? (browserColumnAnimation.startVisible ? expandedColumnsTemplate : collapsedColumnsTemplate)
     : browserColumnAnimation.running
       // Transition window: both ends must stay px — `minmax(0, 1fr)` is not
       // interpolable with px tracks, so it only returns after the window.
       ? (browserColumnVisible ? expandedColumnsTemplate : collapsedColumnsTemplate)
-      : (browserColumnVisible ? expandedColumnsTemplate : 'minmax(0, 1fr)');
+      : (browserColumnVisible ? fluidColumnsTemplate : 'minmax(0, 1fr)');
   const environment = (index: ColumnEnvironment['index']): ColumnEnvironment => ({
     index, browserVisible: browserColumnVisible, sidebarHidden: isMemoListHidden,
     onToggleSidebar: handleToggleMemoList,
@@ -176,7 +180,10 @@ export function MainWorkColumns({
     <div
       ref={columnsGridRef}
       data-document-columns-layout="split"
-      className={`relative isolate grid min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-hidden${
+      // Intentional: a narrow window may clip the secondary column; the product
+      // keeps the three-column geometry stable instead of introducing page-level
+      // horizontal scrolling.
+      className={`relative isolate grid min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-hidden${
         browserColumnAnimation.running ? ' document-columns-layout--animating' : ''
       }`}
       style={{ gridTemplateColumns: columnsTemplate, gridTemplateRows: 'minmax(0, 1fr)' }}
@@ -316,7 +323,7 @@ export function MainWorkColumns({
         </SurfaceBoundary>
       </Suspense>
     )}
-    {browserColumnVisible && !browserColumnToggling && (
+    {browserColumnVisible && !browserColumnToggling && !isMemoListAnimating && (
       <div className="absolute inset-y-0 z-[70]" style={{ left: browserColumnLayout.mainColumnWidth }}>
         <ColumnResizeHandle label="调整列 2 宽度" width={browserColumnLayout.browserColumnWidth}
           direction={-1} onResize={handleBrowserColumnResize} />

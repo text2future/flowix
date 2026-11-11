@@ -14,6 +14,7 @@ import { EXTERNAL_FILE_DROP_EVENT, type ExternalFileDropDetail } from '@features
 import type { DocTreeItem } from '@platform/tauri/client';
 import type { FolderTreeController } from './use-folder-tree';
 import { TREE_DRAG_EXPAND_DELAY_MS, TREE_DRAG_SCROLL_EDGE, TREE_DRAG_SCROLL_MAX_STEP, TREE_EXTERNAL_DRAG_EXPAND_DELAY_MS } from './notebook-tree-layout';
+import { createDragClickSuppression, createTreeDragPreview, readDragGrabOffset, type DragGrabOffset } from './notebook-tree-drag-preview';
 
 const logger = createLogger('notebook-file-tree');
 
@@ -37,16 +38,16 @@ interface NotebookMoveFeedback {
 
 interface PointerNoteDrag {
   sourceType: 'folder' | 'document';
-  sourcePath: string;
   sourcePaths: string[];
   sourceItems: NotebookMoveSource[];
   dragPayload: DragPayload<NotebookDragResource>;
   preserveSelectionAfterMove: boolean;
-  sourceName: string;
   pointerId: number;
+  /** 行本身, 同时是 pointer capture 目标和克隆预览的源节点。 */
   captureElement: HTMLElement;
   startX: number;
   startY: number;
+  grab: DragGrabOffset;
   active: boolean;
   targetDirectoryPath: string | null;
 }
@@ -103,16 +104,16 @@ export function useNotebookTreeDragController({
   const pointerDragRef = useRef<PointerNoteDrag | null>(null);
   const dropPendingRef = useRef(false);
   const externalDropTargetPathRef = useRef<string | null>(null);
-  const dragPreviewRef = useRef<HTMLDivElement | null>(null);
-  const dragPreviewPositionRef = useRef({ x: 0, y: 0 });
+  const dragPreviewElementRef = useRef<HTMLDivElement | null>(null);
   const moveFeedbackTimerRef = useRef<number | null>(null);
   const dragScrollFrameRef = useRef<number | null>(null);
   const dragPointerPositionRef = useRef<{ x: number; y: number } | null>(null);
   const dragExpandTimerRef = useRef<number | null>(null);
   const dragExpandPathRef = useRef<string | null>(null);
   const suppressOpenPathsRef = useRef<Set<string>>(new Set());
+  const [dragClickSuppression] = useState(createDragClickSuppression);
   const [dragOverFolderPath, setDragOverFolderPath] = useState<string | null>(null);
-  const [dragPreview, setDragPreview] = useState<{ name: string; path: string; count: number } | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const [moveFeedback, setMoveFeedback] = useState<NotebookMoveFeedback | null>(null);
 
   const clearMoveFeedbackTimer = useCallback(() => {
@@ -122,9 +123,18 @@ export function useNotebookTreeDragController({
   }, []);
   useEffect(() => clearMoveFeedbackTimer, [clearMoveFeedbackTimer]);
 
-  const updateDragPreviewPosition = useCallback((x: number, y: number) => {
-    dragPreviewPositionRef.current = { x, y };
-    dragPreviewRef.current?.style.setProperty('transform', `translate3d(${x}px, ${y}px, 0)`);
+  const removeDragPreview = useCallback(() => {
+    dragPreviewElementRef.current?.remove();
+    dragPreviewElementRef.current = null;
+    setIsDragging(false);
+  }, []);
+
+  /** 只减去 pointerdown 时的抓取偏移, 不加固定留白, 也不做视口 clamp。 */
+  const updateDragPreviewPosition = useCallback((clientX: number, clientY: number) => {
+    const preview = dragPreviewElementRef.current;
+    const drag = pointerDragRef.current;
+    if (!preview || !drag) return;
+    preview.style.transform = `translate3d(${clientX - drag.grab.x}px, ${clientY - drag.grab.y}px, 0)`;
   }, []);
 
   const clearDragExpandTimer = useCallback(() => {
@@ -182,7 +192,7 @@ export function useNotebookTreeDragController({
     const movableSourcePaths = movableSourceItems.map((source) => source.path);
     pointerDragRef.current = null;
     setDragOverFolderPath(null);
-    setDragPreview(null);
+    removeDragPreview();
     if (movableSourcePaths.length === 0) return;
     dropPendingRef.current = true;
     clearMoveFeedbackTimer();
@@ -247,7 +257,7 @@ export function useNotebookTreeDragController({
     } finally {
       dropPendingRef.current = false;
     }
-  }, [clearMoveFeedbackTimer, getSelectionAnchorPath, notebookPath, onMoveNote, t, tree.refresh, updateSelection]);
+  }, [clearMoveFeedbackTimer, getSelectionAnchorPath, notebookPath, onMoveNote, removeDragPreview, t, tree.refresh, updateSelection]);
 
   const updatePointerDropTarget = useCallback((clientX: number, clientY: number) => {
     const drag = pointerDragRef.current;
@@ -308,13 +318,15 @@ export function useNotebookTreeDragController({
   }, [treeScrollerRef, updatePointerDropTarget]);
 
   const startItemDrag = useCallback((item: DocTreeItem, event: ReactPointerEvent<HTMLDivElement>) => {
+    // 任何新的按下都说明上一次拖动的合成 click 已经过去, 抑制信号必须作废。
+    dragClickSuppression.reset();
     if (dropPendingRef.current || event.button !== 0) return;
+    const captureElement = event.currentTarget;
+    const grab = readDragGrabOffset(captureElement, event.clientX, event.clientY);
+    captureElement.setPointerCapture(event.pointerId);
     if (item.type === 'folder') {
-      const captureElement = event.currentTarget;
-      captureElement.setPointerCapture(event.pointerId);
       pointerDragRef.current = {
         sourceType: 'folder',
-        sourcePath: item.fullPath,
         sourcePaths: [item.fullPath],
         sourceItems: [{ path: item.fullPath, isFolder: true }],
         dragPayload: {
@@ -323,11 +335,11 @@ export function useNotebookTreeDragController({
           items: [{ kind: 'folder', absolutePath: item.fullPath, name: item.name }],
         },
         preserveSelectionAfterMove: false,
-        sourceName: item.name,
         pointerId: event.pointerId,
         captureElement,
         startX: event.clientX,
         startY: event.clientY,
+        grab,
         active: false,
         targetDirectoryPath: null,
       };
@@ -354,11 +366,8 @@ export function useNotebookTreeDragController({
       }
       return { kind: 'file', absolutePath: path, name, resourceKind: sourceItem?.resourceKind };
     });
-    const captureElement = event.currentTarget;
-    captureElement.setPointerCapture(event.pointerId);
     pointerDragRef.current = {
       sourceType: 'document',
-      sourcePath: item.fullPath,
       sourcePaths,
       sourceItems,
       dragPayload: {
@@ -367,15 +376,15 @@ export function useNotebookTreeDragController({
         items: resources,
       },
       preserveSelectionAfterMove: isSelected,
-      sourceName: displayTitleFromFilename(item.name),
       pointerId: event.pointerId,
       captureElement,
       startX: event.clientX,
       startY: event.clientY,
+      grab,
       active: false,
       targetDirectoryPath: null,
     };
-  }, [notebookId, notebookPath, selectedFilePaths, treeItemsByPath]);
+  }, [dragClickSuppression, notebookId, notebookPath, selectedFilePaths, treeItemsByPath]);
 
   const handlePointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     const drag = pointerDragRef.current;
@@ -383,7 +392,10 @@ export function useNotebookTreeDragController({
     if (!drag.active) {
       if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 5) return;
       drag.active = true;
-      setDragPreview({ name: drag.sourceName, path: drag.sourcePath, count: drag.sourcePaths.length });
+      dragPreviewElementRef.current = createTreeDragPreview(
+        drag.captureElement, drag.grab, drag.sourcePaths.length,
+      );
+      setIsDragging(true);
       beginDragSession(drag.dragPayload, { x: event.clientX, y: event.clientY }, () => {
         const active = pointerDragRef.current;
         if (!active || active.pointerId !== drag.pointerId) return;
@@ -394,15 +406,16 @@ export function useNotebookTreeDragController({
         }
         pointerDragRef.current = null;
         setDragOverFolderPath(null);
-        setDragPreview(null);
+        removeDragPreview();
+        dragClickSuppression.arm();
       });
     }
     event.preventDefault();
-    updateDragPreviewPosition(event.clientX + 12, event.clientY + 12);
+    updateDragPreviewPosition(event.clientX, event.clientY);
     updatePointerDropTarget(event.clientX, event.clientY);
     moveDragSession(drag.dragPayload.sessionId, { x: event.clientX, y: event.clientY });
     scheduleDragAutoScroll(event.clientX, event.clientY);
-  }, [clearDragExpandTimer, scheduleDragAutoScroll, stopDragAutoScroll, updateDragPreviewPosition, updatePointerDropTarget]);
+  }, [clearDragExpandTimer, dragClickSuppression, removeDragPreview, scheduleDragAutoScroll, stopDragAutoScroll, updateDragPreviewPosition, updatePointerDropTarget]);
 
   const handlePointerUp = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     const drag = pointerDragRef.current;
@@ -412,9 +425,11 @@ export function useNotebookTreeDragController({
     if (drag.captureElement.hasPointerCapture(drag.pointerId)) drag.captureElement.releasePointerCapture(drag.pointerId);
     pointerDragRef.current = null;
     setDragOverFolderPath(null);
-    setDragPreview(null);
+    removeDragPreview();
     if (!drag.active) return;
     event.preventDefault();
+    // 拖动结束后浏览器补发的 click 不能再落到任何行上, 否则文件夹单击会选中它。
+    dragClickSuppression.arm();
     const suppressedPaths = new Set(drag.sourcePaths.map((sourcePath) => canonicalPath(sourcePath)));
     suppressOpenPathsRef.current = suppressedPaths;
     window.setTimeout(() => {
@@ -423,7 +438,7 @@ export function useNotebookTreeDragController({
     const handledByDropTarget = endDragSession(drag.dragPayload.sessionId, { x: event.clientX, y: event.clientY });
     if (handledByDropTarget || !drag.targetDirectoryPath) return;
     void handleDrop(drag.targetDirectoryPath, drag.sourceItems, drag.preserveSelectionAfterMove);
-  }, [clearDragExpandTimer, handleDrop, stopDragAutoScroll]);
+  }, [clearDragExpandTimer, dragClickSuppression, handleDrop, removeDragPreview, stopDragAutoScroll]);
 
   const handlePointerCancel = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     const drag = pointerDragRef.current;
@@ -433,12 +448,14 @@ export function useNotebookTreeDragController({
     clearDragExpandTimer();
     pointerDragRef.current = null;
     setDragOverFolderPath(null);
-    setDragPreview(null);
-  }, [clearDragExpandTimer, stopDragAutoScroll]);
+    removeDragPreview();
+  }, [clearDragExpandTimer, removeDragPreview, stopDragAutoScroll]);
 
   useEffect(() => () => {
     const drag = pointerDragRef.current;
     if (drag?.active) cancelDragSession(drag.dragPayload.sessionId);
+    dragPreviewElementRef.current?.remove();
+    dragPreviewElementRef.current = null;
   }, []);
   useEffect(() => () => {
     stopDragAutoScroll();
@@ -492,12 +509,12 @@ export function useNotebookTreeDragController({
   }, [externalDropSurfaceRef, handleDrop, notebookPath, scheduleFolderHoverExpand]);
 
   const shouldSuppressOpen = useCallback((path: string) => suppressOpenPathsRef.current.has(canonicalPath(path)), []);
+  const consumeDragClickSuppression = useCallback(() => dragClickSuppression.consume(), [dragClickSuppression]);
 
   return {
     dragOverFolderPath,
-    dragPreview,
-    dragPreviewRef,
-    dragPreviewPositionRef,
+    isDragging,
+    consumeDragClickSuppression,
     moveFeedback,
     startItemDrag,
     handlePointerMove,

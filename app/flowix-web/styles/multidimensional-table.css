@@ -28,17 +28,112 @@
 /* tab 条的结构与样式统一在 styles/collection-tab-bar.css（`.collection-tab-strip`），
  * 这里只管表格自己的 nav 语义（标题让位、操作区 hover 显隐）。 */
 
+.multidimensional-table__table-drop-area {
+  --multidimensional-table-leading-gutter: 3rem;
+  padding-left: var(--multidimensional-table-leading-gutter);
+}
+
+/* Controls overflow left of the data grid and scroll with their row. */
+.multidimensional-table__row-control-cell {
+  position: relative;
+  z-index: 3;
+  box-sizing: border-box;
+  width: 0;
+  min-width: 0;
+  max-width: 0;
+  overflow: visible;
+  border: 0;
+  padding: 0;
+  vertical-align: middle;
+  background: transparent;
+  box-shadow: none;
+}
+
+.multidimensional-table__row-leading-controls,
+.multidimensional-table__leading-selection-control {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  width: var(--multidimensional-table-leading-gutter, 3rem);
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 0.25rem;
+  z-index: 3;
+  background: transparent;
+}
+
+.multidimensional-table__row-leading-controls {
+  min-height: 2.5rem;
+  gap: 0.25rem;
+}
+
+.multidimensional-table__row-drag-handle {
+  display: flex;
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 1rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  opacity: 0;
+  pointer-events: none;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  transition: opacity 120ms ease;
+}
+
+.multidimensional-table__row-drag-handle > svg {
+  width: 1rem;
+  height: 1rem;
+  pointer-events: none;
+}
+
+.multidimensional-table tbody tr:hover .multidimensional-table__row-drag-handle,
+.multidimensional-table tbody tr:focus-within .multidimensional-table__row-drag-handle {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.multidimensional-table__row-selection-checkbox {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.multidimensional-table tbody tr:hover .multidimensional-table__row-selection-checkbox,
+.multidimensional-table tbody tr:focus-within .multidimensional-table__row-selection-checkbox,
+.multidimensional-table tbody tr:has(.multidimensional-table__row-selection-checkbox.flowix-hand-checkbox--checked) .multidimensional-table__row-selection-checkbox,
+.multidimensional-table tbody tr:has(.multidimensional-table__row-selection-checkbox.flowix-hand-checkbox--indeterminate) .multidimensional-table__row-selection-checkbox {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.multidimensional-table tbody tr[data-selected='true'] > td:not(.multidimensional-table__row-control-cell) {
+  background-color: color-mix(in oklch, var(--info) 12%, transparent);
+}
+
+.multidimensional-table tbody tr[data-row-dragging-source] > td {
+  opacity: 0.48;
+}
+
 .multidimensional-table thead,
-.multidimensional-table thead th {
+.multidimensional-table thead th:not(.multidimensional-table__row-control-cell) {
   background-color: var(--document-bg);
 }
 
-.multidimensional-table :is(th, td):not([colspan]) {
+/* The zero-width control anchor has no grid lines. */
+.multidimensional-table :is(th, td):not([colspan], .multidimensional-table__row-control-cell) {
   position: relative;
   border-right: 0;
 }
 
-.multidimensional-table :is(th, td):not([colspan])::before {
+.multidimensional-table :is(th, td):not([colspan], .multidimensional-table__row-control-cell)::before {
   content: '';
   position: absolute;
   z-index: 2;
@@ -54,7 +149,7 @@
   display: none;
 }
 
-.multidimensional-table thead th {
+.multidimensional-table thead th:not(.multidimensional-table__row-control-cell) {
   box-shadow: inset 0 -1px 0 var(--border);
 }
 
@@ -107,6 +202,11 @@
   height: 1px;
   background: var(--border);
   pointer-events: none;
+}
+
+/* Keep row controls and headers below the sibling scrollbar tracks and thumbs. */
+.multidimensional-table__scrollbar--bottom-clearance > .overlay-scrollbar {
+  isolation: isolate;
 }
 
 /* Keep the vertical thumb clear of the rounded lower corner. */
@@ -261,13 +361,7 @@ html[data-platform="mac"] .multidimensional-table__scrollbar--bottom-clearance.o
   overflow-wrap: anywhere;
 }
 
-.multidimensional-table thead th:first-child .multidimensional-table__cell-content,
-.multidimensional-table tbody td:first-child .multidimensional-table__cell-content {
-  padding-left: 0;
-}
-
-/* Keep the cell's disabled behavior without dimming it during persistence. */
-.multidimensional-table tbody .multidimensional-table__cell-content :disabled,
+/* Keep table opacity overrides without replacing native disabled styles. */
 .multidimensional-table tbody .multidimensional-table__cell-content [aria-disabled='true'],
 .multidimensional-table tbody .multidimensional-table__cell-content [class~='opacity-50'],
 .multidimensional-table tbody .multidimensional-table__cell-content [class~='opacity-40'] {
@@ -280,6 +374,7 @@ html[data-platform="mac"] .multidimensional-table__scrollbar--bottom-clearance.o
 }
 
 .multidimensional-table__cell-content.multidimensional-table__primary-cell {
+  position: relative;
   gap: 0;
 }
 
@@ -294,18 +389,36 @@ html[data-platform="mac"] .multidimensional-table__scrollbar--bottom-clearance.o
   width: 100%;
   min-width: 0;
   flex: 1 1 auto;
-  overflow-wrap: anywhere;
-  white-space: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 button.multidimensional-table__primary-title {
+  display: flex;
+  align-items: center;
   border: 0;
   background: transparent;
   padding: 0;
-  color: var(--brand);
+  color: var(--foreground);
   text-align: left;
   font-size: 0.875rem;
   cursor: text;
+}
+
+button.multidimensional-table__primary-title > span {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.multidimensional-table__note-icon {
+  width: 1.125rem;
+  height: 1.125rem;
+  flex: 0 0 1.125rem;
+  margin-right: 0.125rem;
 }
 
 .multidimensional-table__rule-link-icon {
@@ -327,6 +440,46 @@ button.multidimensional-table__primary-title--placeholder {
   min-width: 0;
   flex-direction: column;
   gap: 0.25rem;
+}
+
+/* Cell editors align to the cell itself; the popover owns no extra vertical inset. */
+.multidimensional-table__cell-editor-popover,
+.multidimensional-table__field-editor-popover {
+  display: flex;
+  align-items: center;
+  border-radius: 0.5rem !important;
+  padding-block: 0 !important;
+  padding-inline: 0.5rem !important;
+  box-shadow: 0 0 24px -3px rgb(0 0 0 / 0.12) !important;
+}
+
+.multidimensional-table__field-editor-popover > .min-w-0 {
+  width: 100%;
+}
+
+.multidimensional-table__option-input::placeholder {
+  color: color-mix(in srgb, var(--muted-foreground) 85%, transparent);
+  opacity: 1;
+}
+
+.multidimensional-table__option-input:focus::placeholder {
+  color: color-mix(in srgb, var(--muted-foreground) 60%, transparent);
+}
+
+.multidimensional-table__field-options-popover {
+  overflow: hidden;
+  border-radius: 0.5rem !important;
+  box-shadow: 0 0 24px -3px rgb(0 0 0 / 0.12) !important;
+}
+
+.multidimensional-table__cell-editor-popover .multidimensional-table__primary-editor {
+  flex: 1 1 auto;
+  gap: 0;
+}
+
+.multidimensional-table__cell-editor-popover .multidimensional-table__primary-title-input {
+  min-height: 0;
+  padding-block: 0;
 }
 
 .multidimensional-table__primary-title-input {
@@ -446,11 +599,15 @@ button.multidimensional-table__primary-title--placeholder {
 }
 
 .multidimensional-table__open-note {
+  position: absolute;
+  z-index: 3;
+  top: 50%;
+  right: var(--multidimensional-table-content-inset);
   display: inline-flex;
   width: 1.5rem !important;
   min-width: 1.5rem;
   height: 1.5rem;
-  flex: 0 0 auto;
+  transform: translateY(-50%);
   align-items: center;
   justify-content: center;
   border: 1px solid var(--border);
@@ -559,6 +716,10 @@ button.multidimensional-table__primary-title--placeholder {
   min-width: 0;
   overflow: hidden;
   background: var(--document-bg);
+}
+
+.table-reference-node__surface:not(.table-reference-node__surface--unavailable) {
+  overflow: visible;
 }
 
 .table-reference-node__surface--unavailable {
@@ -834,6 +995,19 @@ html[data-platform] .table-reference-node__content .overlay-scrollbar-frame .ove
   overflow-y: hidden;
 }
 
+/* Match the Markdown table breakout: the records viewport spans the editor
+   pane while its initial leading space keeps the first data column on the prose edge. */
+.table-reference-node[data-table-reference-breakout='true'] .multidimensional-table__records--editor-embedded-table {
+  width: var(--multidimensional-table-editor-pane-width);
+  max-width: none;
+  margin-left: calc(-1 * var(--multidimensional-table-editor-leading-space));
+}
+
+.table-reference-node[data-table-reference-breakout='true'] .multidimensional-table__table-drop-area {
+  --multidimensional-table-leading-gutter: min(3rem, var(--multidimensional-table-editor-leading-space));
+  padding-left: var(--multidimensional-table-editor-leading-space);
+}
+
 .table-reference-node__content .overlay-scrollbar > *,
 .table-reference-node__content .multidimensional-table__calendar,
 .table-reference-node__content .multidimensional-table__calendar > :first-child,
@@ -841,15 +1015,6 @@ html[data-platform] .table-reference-node__content .overlay-scrollbar-frame .ove
 .table-reference-node__content .multidimensional-table__calendar > :last-child {
   flex: 0 0 auto;
   min-height: auto;
-}
-
-.table-reference-node__content nav,
-.table-reference-node__content .multidimensional-table thead {
-  position: static;
-}
-
-.table-reference-node__content nav {
-  padding-inline: 0;
 }
 
 .table-reference-node__content .multidimensional-table__calendar {
@@ -919,6 +1084,50 @@ html[data-platform] .table-reference-node__content .overlay-scrollbar-frame .ove
   background: var(--document-bg);
   color: var(--foreground);
   box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
+}
+
+.multidimensional-table__row-drag-floating {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 1000;
+  pointer-events: none;
+  user-select: none;
+  cursor: grabbing;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--document-bg);
+  color: var(--foreground);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
+}
+
+.multidimensional-table__row-drag-floating .multidimensional-table__row-leading-controls,
+.multidimensional-table__row-drag-floating .multidimensional-table__row-action-cell,
+.multidimensional-table__row-drag-floating .multidimensional-table__open-note {
+  display: none;
+}
+
+.multidimensional-table__row-drop-marker {
+  position: fixed;
+  z-index: 90;
+  height: 2px;
+  transform: translateY(-1px);
+  pointer-events: none;
+  background: var(--info);
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--info) 24%, transparent);
+}
+
+.multidimensional-table__row-drop-marker::before {
+  position: absolute;
+  top: 50%;
+  left: -4px;
+  width: 8px;
+  height: 8px;
+  transform: translateY(-50%);
+  border-radius: 50%;
+  background: var(--info);
+  content: '';
 }
 
 .multidimensional-table.collection-files-table :is(th, td):last-child::before {

@@ -350,6 +350,20 @@ impl ExternalDocumentWatchState {
                 }
             }
         }
+        if saved && flowix_core::collection::is_collection_document_path(path) {
+            if let Some(state) = app.try_state::<crate::app::state::AppState>() {
+                let configs = state.memo_file.read().ok().and_then(|memo| memo.read_notebook_configs().ok()).unwrap_or_default();
+                if let Some((config, relative)) = configs.iter().filter_map(|config| {
+                    let root = Path::new(&config.path);
+                    let relative = path.strip_prefix(root).ok()?;
+                    if relative.starts_with("attachments") || relative.starts_with(".flowix") { return None; }
+                    Some((config, relative))
+                }).max_by_key(|(config, _)| Path::new(&config.path).components().count()) {
+                    let ctx = crate::watcher::processor::NotebookWatchContext { notebook_id: config.id.clone(), root: PathBuf::from(&config.path) };
+                    crate::watcher::processor::record_cloud_path_change(app, &ctx, &relative.to_string_lossy().replace('\\', "/"), false);
+                }
+            }
+        }
         if saved {
             self.rebind_path(path);
         }

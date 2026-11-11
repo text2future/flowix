@@ -20,7 +20,7 @@ export const TABLE_FIELD_WIDTHS: Record<TableFieldType, number> = {
   Boolean: 120,
   Number: 120,
   Date: 120,
-  URL: 120,
+  URL: 180,
   Select: 120,
   MultiSelect: 120,
   Tag: 120,

@@ -1127,9 +1127,7 @@ fn collect_markdown_paths(
             }
         };
         let path = entry.path();
-        if policy.is_index_hidden_at(base, path.strip_prefix(base).unwrap_or(&path)) {
-            continue;
-        }
+        let relative = path.strip_prefix(base).unwrap_or(&path);
         let file_type = match entry.file_type() {
             Ok(file_type) => file_type,
             Err(error) => {
@@ -1138,6 +1136,9 @@ fn collect_markdown_paths(
                 continue;
             }
         };
+        if if file_type.is_dir() { !policy.can_traverse_index_directory(relative) } else { policy.is_index_hidden_at(base, relative) } {
+            continue;
+        }
         if file_type.is_dir() {
             match collect_markdown_paths(base, &path, output, policy) {
                 Ok(child_complete) => complete &= child_complete,

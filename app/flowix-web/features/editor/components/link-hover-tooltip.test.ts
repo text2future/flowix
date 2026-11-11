@@ -11,6 +11,7 @@ vi.mock('@/lib/toast', () => ({ toast: toastMocks }));
 
 import { closeLinkInlineEditor } from './link-inline-editor';
 import { attachLinkHoverTooltip } from './link-hover-tooltip';
+import { positionFloatingBubble } from './floating-bubble-position';
 import { setSelectionBubbleMenuVisible } from './selection-bubble-menu-state';
 
 interface FixtureOptions {
@@ -76,6 +77,47 @@ function createEditorFixture(href: string, options: FixtureOptions = {}) {
   };
 }
 
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** 链接在 (100,200) 的 80×20 矩形, 气泡量到 300×32 —— 两者之间正好 8px 留白。 */
+const LINK_BOX = { left: 100, right: 180, top: 200, bottom: 220, width: 80, height: 20 };
+const BUBBLE_SIZE = { width: 300, height: 32 };
+
+/** jsdom 没有布局: 给气泡尺寸和链接矩形装上可预测的值。 */
+function createGapFixture(href = 'https://example.com') {
+  const { anchor, detach } = createEditorFixture(href);
+  const width = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth');
+  const height = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight');
+  Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
+    configurable: true,
+    get: () => BUBBLE_SIZE.width,
+  });
+  Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
+    configurable: true,
+    get: () => BUBBLE_SIZE.height,
+  });
+  anchor.getBoundingClientRect = () => ({ ...LINK_BOX } as DOMRect);
+
+  return {
+    anchor,
+    detach: () => {
+      detach();
+      for (const [key, descriptor] of [['offsetWidth', width], ['offsetHeight', height]] as const) {
+        if (descriptor) Object.defineProperty(HTMLElement.prototype, key, descriptor);
+        else Reflect.deleteProperty(HTMLElement.prototype, key);
+      }
+    },
+  };
+}
+
+async function showGapTooltip(anchor: HTMLAnchorElement) {
+  anchor.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+  await wait(150);
+  const tooltip = document.querySelector<HTMLElement>('.editor-link-hover-tooltip');
+  expect(tooltip).not.toBeNull();
+  return tooltip!;
+}
+
 describe('link hover tooltip navigation', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
@@ -130,15 +172,26 @@ describe('link hover tooltip navigation', () => {
 
     const tooltip = document.querySelector('.editor-link-hover-tooltip');
     expect(tooltip).not.toBeNull();
-    // Layout: [remove] link text [copy] [edit] — the unlink button leads the
-    // bubble, the copy and text edit buttons follow the address.
+    // Layout: [copy] [remove] link text [edit] — both icon actions are grouped
+    // on the left of the address (copy first), the text edit button stays on the right.
     const buttons = tooltip!.querySelectorAll<HTMLElement>('.editor-link-hover-tooltip-button');
     expect(Array.from(buttons, (button) => button.dataset.linkAction)).toEqual([
-      'remove',
       'copy',
+      'remove',
       'edit',
     ]);
-    expect(tooltip!.firstElementChild?.getAttribute('data-link-action')).toBe('remove');
+    const leading = tooltip!.firstElementChild as HTMLElement;
+    expect(leading.className).toBe('editor-link-hover-tooltip-actions');
+    expect(
+      Array.from(
+        leading.querySelectorAll<HTMLElement>('[data-link-action]'),
+        (button) => button.dataset.linkAction,
+      ),
+    ).toEqual(['copy', 'remove']);
+    expect(leading.nextElementSibling?.className).toBe('editor-link-hover-tooltip-text');
+    expect(
+      tooltip!.lastElementChild?.querySelector('[data-link-action="edit"]'),
+    ).not.toBeNull();
     // 编辑是文字按钮 (无图标), 复制 / 移除链接是图标按钮。
     const editButton = tooltip!.querySelector<HTMLElement>('[data-link-action="edit"]')!;
     expect(editButton.querySelector('svg')).toBeNull();
@@ -243,5 +296,114 @@ describe('link hover tooltip navigation', () => {
     expect(openerMocks.openUrl).not.toHaveBeenCalled();
     expect(toastMocks.error).toHaveBeenCalledOnce();
     detach();
+  });
+
+  // 气泡默认贴在链接上方并留 8px 空隙 (VIEWPORT_PADDING)。指针从链接走向
+  // 气泡时必须能在这条空隙里停留, 否则 mouseout 启动的 140ms 倒计时会让
+  // 气泡在指针到达按钮之前消失。
+  it('reports the bubble frame that defines the 8px gap, also when flipped below', () => {
+    const element = document.createElement('div');
+    Object.defineProperties(element, {
+      offsetWidth: { configurable: true, value: BUBBLE_SIZE.width },
+      offsetHeight: { configurable: true, value: BUBBLE_SIZE.height },
+    });
+
+    const frame = positionFloatingBubble(element, { ...LINK_BOX } as DOMRect);
+    expect(frame).toEqual({ left: 8, top: 160, width: 300, height: 32 });
+    expect(LINK_BOX.top - (frame.top + frame.height)).toBe(8);
+
+    // 上方放不下时翻到下方, 留白仍是 8px; 安全区按返回的矩形算, 不依赖
+    // 会被进场动画 transform 干扰的 getBoundingClientRect()。
+    const flipped = positionFloatingBubble(
+      element,
+      { ...LINK_BOX, top: 10, bottom: 30 } as DOMRect,
+    );
+    expect(flipped.top - 30).toBe(8);
+  });
+
+  it('keeps an 8px gap between the link and the bubble', async () => {
+    const { anchor, detach } = createGapFixture();
+    try {
+      const tooltip = await showGapTooltip(anchor);
+      // 200 (link top) - 32 (bubble height) - 8 (gap) = 160
+      expect(tooltip.style.top).toBe('160px');
+      expect(LINK_BOX.top - (160 + BUBBLE_SIZE.height)).toBe(8);
+    } finally {
+      detach();
+    }
+  });
+
+  it('keeps the bubble while the pointer rests in the gap', async () => {
+    const { anchor, detach } = createGapFixture();
+    try {
+      const tooltip = await showGapTooltip(anchor);
+      // 指针停在 (150, 196): 链接顶边 200 与气泡底边 192 之间的 8px 留白。
+      // relatedTarget 是编辑器里的普通元素, 既不是链接也不是气泡。
+      anchor.dispatchEvent(new MouseEvent('mouseout', {
+        bubbles: true,
+        relatedTarget: anchor.parentElement,
+        clientX: 150,
+        clientY: 196,
+      }));
+      await wait(300); // > HIDE_DELAY_MS + HIDE_ANIMATION_MS
+
+      expect(document.querySelector('.editor-link-hover-tooltip')).toBe(tooltip);
+      expect(tooltip.classList.contains('is-hiding')).toBe(false);
+    } finally {
+      detach();
+    }
+  });
+
+  it('hides once the pointer leaves the link/gap/bubble corridor', async () => {
+    const { anchor, detach } = createGapFixture();
+    try {
+      await showGapTooltip(anchor);
+      anchor.dispatchEvent(new MouseEvent('mouseout', {
+        bubbles: true,
+        relatedTarget: anchor.parentElement,
+        clientX: 600,
+        clientY: 260,
+      }));
+      await wait(300);
+
+      expect(document.querySelector('.editor-link-hover-tooltip')).toBeNull();
+    } finally {
+      detach();
+    }
+  });
+
+  it('also keeps the bubble when moving back from the bubble towards the link', async () => {
+    const { anchor, detach } = createGapFixture();
+    try {
+      const tooltip = await showGapTooltip(anchor);
+      // mouseleave 不冒泡, 直接派发在气泡上; 指针停在留白里不该触发隐藏。
+      tooltip.dispatchEvent(new MouseEvent('mouseleave', {
+        clientX: 150,
+        clientY: 196,
+      }));
+      await wait(300);
+
+      expect(document.querySelector('.editor-link-hover-tooltip')).toBe(tooltip);
+    } finally {
+      detach();
+    }
+  });
+
+  it('hides when the pointer leaves the window, ignoring stale coordinates', async () => {
+    const { anchor, detach } = createGapFixture();
+    try {
+      await showGapTooltip(anchor);
+      // relatedTarget 为 null 时 clientX/Y 可能仍是留在走廊里的旧坐标。
+      anchor.dispatchEvent(new MouseEvent('mouseout', {
+        bubbles: true,
+        clientX: 150,
+        clientY: 196,
+      }));
+      await wait(300);
+
+      expect(document.querySelector('.editor-link-hover-tooltip')).toBeNull();
+    } finally {
+      detach();
+    }
   });
 });

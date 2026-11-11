@@ -11,7 +11,7 @@ import { isMarkdownNoteDragResource, type NotebookNoteDragResource } from '@feat
 import { createUuidV7, type MultidimensionalTableDocument, type TableField, type TableRecord } from './model';
 import { groupRecordsByValue, KANBAN_UNASSIGNED_GROUP_ID } from './view-index';
 import { notePropertyEditorValue } from './table-note-properties';
-import { noteInCollectionSource, upsertTableRecord } from './table-view-helpers';
+import { upsertTableRecord } from './table-view-helpers';
 import type { useTableSession } from './use-table-session';
 
 type TableSession = ReturnType<typeof useTableSession>;
@@ -158,7 +158,7 @@ export function useTableKanban(input: UseTableKanbanInput) {
       if (!isMarkdownNoteDragResource(draggedNote) || draggedNote.notebookId !== resolvedNotebookId) return null;
       const relativePath = canonicalPath(draggedNote.relativePath).replace(/^\/+/, '');
       const note = notes.find((item) => item.relativePath.replace(/\\/g, '/') === relativePath);
-      if (!note || !noteInCollectionSource(relativePath, document.dataset.source, currentFilePath, notebookPath)) return null;
+      if (!note) return null;
       return { note, relativePath };
     });
     if (!resolved.length || resolved.some((item) => !item)) {

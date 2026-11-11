@@ -58,6 +58,8 @@ interface DropdownMenuContentProps {
 	className?: string;
 	style?: React.CSSProperties;
 	keepParentMenuOpen?: boolean;
+	matchAnchorWidth?: boolean | number;
+	autoFocusInput?: boolean;
 	// Content 经 portal 渲染到 body, 触发器的 onMouseLeave 在其移入菜单时会先触发;
 	// 由调用方配合延迟关闭实现 hover 型下拉窗。
 	onMouseEnter?: React.MouseEventHandler<HTMLDivElement>;
@@ -200,6 +202,8 @@ function DropdownMenuContent({
 	className,
 	style,
 	keepParentMenuOpen = false,
+	matchAnchorWidth = false,
+	autoFocusInput = false,
 	onMouseEnter,
 	onMouseLeave,
 }: DropdownMenuContentProps) {
@@ -250,6 +254,18 @@ function DropdownMenuContent({
 			window.removeEventListener("resize", updatePosition);
 		};
 	}, [open, triggerRef, side, sideOffset, align, anchorRect, anchorToCell]);
+
+	React.useEffect(() => {
+		if (!open || !autoFocusInput) return;
+		const focusInput = () => contentRef.current?.querySelector<HTMLInputElement>('input')?.focus({ preventScroll: true });
+		focusInput();
+		const frameId = requestAnimationFrame(focusInput);
+		const timeoutId = window.setTimeout(focusInput, 0);
+		return () => {
+			cancelAnimationFrame(frameId);
+			window.clearTimeout(timeoutId);
+		};
+	}, [autoFocusInput, open]);
 
 	React.useEffect(() => {
 		if (!open || !anchorToCell) return;
@@ -329,6 +345,7 @@ function DropdownMenuContent({
 			)}
 			style={{
 				transformOrigin: enterOrigin,
+				...(matchAnchorWidth && anchorRect ? { width: anchorRect.width * (typeof matchAnchorWidth === "number" ? matchAnchorWidth : 1) } : {}),
 				...style,
 				top: position.top,
 				left: position.left,

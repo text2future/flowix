@@ -43,7 +43,8 @@ function getNavigationPolicyForPath(
 interface UseNotebookTreeInteractionOptions {
   activeFilePath: string | null;
   visibleTreeItems: VisibleTreeNode[];
-  treeItemPaths: ReadonlySet<string>;
+  /** 只用来判断路径是否还在树里：接受 Map，省掉为它单建一个 Key Set。 */
+  treeItemPaths: { has(path: string): boolean };
   pinnedItemPaths?: string[];
   contentKinds?: ReadonlyMap<string, ContentKind>;
   tree: NotebookTreeController;

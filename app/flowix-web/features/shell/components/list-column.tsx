@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useRef, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 
 import type { Notebook } from '@features/memo/store/note-store';
 import { MemoListTitlebarMac } from '@features/memo/components/memo-list-titlebar-mac';
 import { MemoListTitlebarWin } from '@features/memo/components/memo-list-titlebar-win';
 import { cn } from '@/lib/utils';
+import { isWindowsPlatform } from '@/lib/path';
 
 type ListColumnPreviewPhase = 'open' | 'closing';
 
@@ -47,7 +48,7 @@ function ListColumnTitlebar({
     onOpenPreferences,
   };
 
-  return /Windows/i.test(navigator.userAgent) || /Win/i.test(navigator.platform)
+  return isWindowsPlatform()
     ? <MemoListTitlebarWin {...props} />
     : <MemoListTitlebarMac {...props} />;
 }
@@ -73,36 +74,51 @@ export function ListColumn({
   children,
 }: ListColumnProps) {
   const previewRef = useRef<HTMLDivElement>(null);
+  const previewAnimationRef = useRef<Animation | null>(null);
 
-  // Run the preview animation from the presence lifecycle only.
-  useEffect(() => {
+  // Keep one animation alive through open/close reversals. Restarting WAAPI
+  // from fixed keyframes can jump when the pointer leaves during the entrance.
+  useLayoutEffect(() => {
     const preview = previewRef.current;
-    if (!previewVisible || !preview) return;
+    if (!previewVisible || !preview) {
+      previewAnimationRef.current?.cancel();
+      previewAnimationRef.current = null;
+      return;
+    }
 
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      previewAnimationRef.current?.cancel();
+      previewAnimationRef.current = null;
+      return;
+    }
 
-    const animation = preview.animate(
-      previewPhase === 'open'
-        ? [
-            { opacity: 0, transform: 'translate3d(-12px, 0, 0) scale(0.98)' },
-            { opacity: 1, transform: 'translate3d(0, 0, 0) scale(1)' },
-          ]
-        : [
-            { opacity: 1, transform: 'translate3d(0, 0, 0) scale(1)' },
-            { opacity: 0, transform: 'translate3d(-12px, 0, 0) scale(0.98)' },
-          ],
-      {
-        // Asymmetric on purpose: opening feels softer slightly slower than the
-        // 180ms base, closing feels responsive slightly faster. Easing must
-        // stay in sync with --flowix-motion-easing in styles/index.css.
-        duration: previewPhase === 'open' ? 200 : 160,
-        easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
-        fill: 'both',
-      },
-    );
+    let animation = previewAnimationRef.current;
+    if (!animation) {
+      animation = preview.animate(
+        [
+          { opacity: 0, transform: 'translate3d(-12px, 0, 0)' },
+          { opacity: 1, transform: 'translate3d(0, 0, 0)' },
+        ],
+        {
+          duration: 400,
+          easing: getComputedStyle(preview).getPropertyValue('--flowix-motion-easing').trim()
+            || 'cubic-bezier(0.16, 1, 0.3, 1)',
+          fill: 'both',
+        },
+      );
+      previewAnimationRef.current = animation;
+    }
 
-    return () => animation.cancel();
+    // The shared ease-out curve makes the entrance start quickly and settle
+    // gradually. Closing runs faster to match the 160ms presence timeout.
+    animation.updatePlaybackRate(previewPhase === 'open' ? 1 : -2.5);
+    animation.play();
   }, [previewPhase, previewVisible]);
+
+  useEffect(() => () => {
+    previewAnimationRef.current?.cancel();
+    previewAnimationRef.current = null;
+  }, []);
 
   useEffect(() => {
     if (!previewVisible) return;

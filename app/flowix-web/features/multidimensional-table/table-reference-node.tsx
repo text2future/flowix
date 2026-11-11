@@ -32,7 +32,17 @@ class TableReferenceNodeView implements ProseMirrorNodeView {
   private readonly root: Root;
   private node: ProseMirrorNode;
   private destroyed = false;
+  private editorPane: HTMLElement | null = null;
+  private layoutObserver: ResizeObserver | null = null;
+  private layoutFrame: number | null = null;
   private readonly handleEditabilityChange = () => this.render();
+  private readonly scheduleEditorLayoutSync = () => {
+    if (this.destroyed || this.layoutFrame !== null) return;
+    this.layoutFrame = window.requestAnimationFrame(() => {
+      this.layoutFrame = null;
+      this.syncEditorLayout();
+    });
+  };
 
   constructor(
     node: ProseMirrorNode,
@@ -48,6 +58,74 @@ class TableReferenceNodeView implements ProseMirrorNodeView {
     this.view.dom.addEventListener(EDITOR_EDITABILITY_CHANGE_EVENT, this.handleEditabilityChange);
     this.root = createRoot(this.dom);
     this.render();
+    this.observeEditorLayout();
+  }
+
+  private observeEditorLayout() {
+    const pane = this.view.dom.closest<HTMLElement>('.editor-content');
+    if (!pane || this.view.dom.closest('.agent-conversation-surface') || typeof ResizeObserver === 'undefined') return;
+    this.editorPane = pane;
+    this.layoutObserver = new ResizeObserver(this.scheduleEditorLayoutSync);
+    this.layoutObserver.observe(this.dom);
+    this.layoutObserver.observe(this.view.dom);
+    this.layoutObserver.observe(pane);
+    pane.addEventListener('scroll', this.scheduleEditorLayoutSync, { passive: true });
+    window.addEventListener('resize', this.scheduleEditorLayoutSync);
+    this.scheduleEditorLayoutSync();
+  }
+
+  private syncEditorLayout() {
+    const pane = this.view.dom.closest<HTMLElement>('.editor-content');
+    if (!pane || this.view.dom.closest('.agent-conversation-surface')) {
+      this.clearEditorLayout();
+      return;
+    }
+
+    const paneRect = pane.getBoundingClientRect();
+    const nodeRect = this.dom.getBoundingClientRect();
+    const scale = pane.offsetWidth > 0 ? paneRect.width / pane.offsetWidth : 1;
+    if (pane.clientWidth <= 0 || nodeRect.width <= 0) return;
+    if (this.dom.parentElement === this.view.dom) {
+      const leadingSpace = Math.max(0, (nodeRect.left - paneRect.left) / (scale || 1) - pane.clientLeft);
+      this.dom.dataset.tableReferenceBreakout = 'true';
+      this.dom.style.setProperty('--multidimensional-table-editor-pane-width', `${pane.clientWidth}px`);
+      this.dom.style.setProperty('--multidimensional-table-editor-leading-space', `${leadingSpace}px`);
+    } else {
+      this.clearBreakout();
+    }
+    this.syncEmbeddedTableHeader(pane);
+  }
+
+  private syncEmbeddedTableHeader(pane: HTMLElement) {
+    const header = this.dom.querySelector<HTMLElement>('.table-reference-node__content .multidimensional-table thead');
+    const table = header?.closest('table');
+    if (!header || !table) return;
+
+    // The horizontal overlay scroller is thead's nearest scroll container, so
+    // native sticky cannot follow the editor's vertical scroll. Keep it aligned
+    // with the editor viewport and stop at the table's lower edge.
+    const paneRect = pane.getBoundingClientRect();
+    const scale = pane.offsetWidth > 0 ? paneRect.width / pane.offsetWidth : 1;
+    const layoutScale = scale || 1;
+    const paneTop = paneRect.top + pane.clientTop * layoutScale;
+    const headerRect = header.getBoundingClientRect();
+    const tableBottom = table.getBoundingClientRect().bottom;
+    const stickyOffset = Math.min(
+      Math.max(0, (paneTop - headerRect.top) / layoutScale),
+      (tableBottom - paneTop - headerRect.height) / layoutScale,
+    );
+    header.style.transform = Math.abs(stickyOffset) < 0.5 ? '' : `translateY(${stickyOffset}px)`;
+  }
+
+  private clearBreakout() {
+    delete this.dom.dataset.tableReferenceBreakout;
+    this.dom.style.removeProperty('--multidimensional-table-editor-pane-width');
+    this.dom.style.removeProperty('--multidimensional-table-editor-leading-space');
+  }
+
+  private clearEditorLayout() {
+    this.clearBreakout();
+    this.dom.querySelector<HTMLElement>('.table-reference-node__content .multidimensional-table thead')?.style.removeProperty('transform');
   }
 
   private render() {
@@ -97,6 +175,7 @@ class TableReferenceNodeView implements ProseMirrorNodeView {
     if (node.type.name !== 'tableReference') return false;
     this.node = node;
     this.render();
+    this.scheduleEditorLayoutSync();
     return true;
   }
 
@@ -111,6 +190,14 @@ class TableReferenceNodeView implements ProseMirrorNodeView {
   destroy() {
     this.destroyed = true;
     this.view.dom.removeEventListener(EDITOR_EDITABILITY_CHANGE_EVENT, this.handleEditabilityChange);
+    this.layoutObserver?.disconnect();
+    this.layoutObserver = null;
+    this.editorPane?.removeEventListener('scroll', this.scheduleEditorLayoutSync);
+    this.editorPane = null;
+    window.removeEventListener('resize', this.scheduleEditorLayoutSync);
+    if (this.layoutFrame !== null) window.cancelAnimationFrame(this.layoutFrame);
+    this.layoutFrame = null;
+    this.clearEditorLayout();
     // 编辑器重建时本 destroy 会被 EditorView 的 updateState 同步调用，可能
     // 正处于 React 渲染/提交期间；同步 unmount 会触发 "Attempted to
     // synchronously unmount a root while React was already rendering" 竞态。

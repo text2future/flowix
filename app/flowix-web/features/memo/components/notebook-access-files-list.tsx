@@ -125,7 +125,7 @@ export function NotebookAccessFilesList({
                   void loadNativeMenuIcons(ACCESS_NATIVE_ICON_NAMES)
                     .then((icons) => popupNativeContextMenu(event, [
                       ...(canBrowse ? [{
-                        text: t('workColumn.context.openInBrowserColumn'),
+                        text: t('memo.fileTree.openInRight'),
                         icon: icons.split!,
                         action: browseFolderInBrowserColumn,
                       }] : []),
@@ -187,7 +187,7 @@ export function NotebookAccessFilesList({
                   onClick={browseFolderInBrowserColumn}
                   className={ACCESS_MENU_ITEM_CLASS}
                 >
-                  {t('workColumn.context.openInBrowserColumn')}
+                  {t('memo.fileTree.openInRight')}
                 </ContextMenuItem>
               )}
               <ContextMenuItem

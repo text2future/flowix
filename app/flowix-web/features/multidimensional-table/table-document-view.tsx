@@ -13,7 +13,8 @@ import { useTableTitle } from './use-table-title';
 import { notePropertyEditorValue, isCalendarCreateWritableField } from './table-note-properties';
 import { normalizeNoteFilterCondition } from '@features/collection/public/note-filter-api';
 import { subscribeCollectionDatasetFilter } from '@features/collection/public/dataset-filter-api';
-import { resolveDatasetFilterForLocation } from '@features/collection/dataset-filter-location';
+import { legacyTableLocationFilter } from './table-legacy-location';
+import { isTableDatabaseNote, tableDatabaseFilter } from './table-database-filter';
 import { NotePropertyImageValue, propertyImagePaths as imagePaths } from '@features/document/properties/image-value-input';
 import { DateValueInput } from '@features/document/components/note-properties/date-value-input';
 import { ColorValueInput } from '@features/document/properties/color-value-input';
@@ -25,6 +26,7 @@ import { DeletePresetDialog } from '@features/properties/delete-preset-dialog';
 import { NoteCreatePicker } from './note-create-picker';
 import { collectionSessionKey } from '@/lib/collection-session-key';
 import { MultidimensionalTableLoadingSkeleton } from '@shared/ui/multidimensional-table-loading-skeleton';
+import { FlowixCheckbox } from '@shared/ui/flowix-checkbox';
 
 import { friendlyErrorMessage } from '@/lib/friendly-error-message';
 
@@ -92,6 +94,7 @@ import { TableSortButton, cycleTableSort, tableSortDirection } from './table-sor
 import { TableDatasetMenu } from './table-dataset-menu';
 import { sortFields } from './field-order';
 import { useTableColumnDrag } from './use-table-column-drag';
+import { useTableRowDrag } from './use-table-row-drag';
 import { useAutoContentColumnWidths, type AutoColumnContent } from './use-auto-content-column-widths';
 import { TableFieldList } from './table-field-list';
 import { TableBooleanInput, TableNumberInput, TableRecordRow } from './table-record-row';
@@ -106,6 +109,8 @@ import { useTableSession } from './use-table-session';
 import { useTableCellWriter, type TableCellSaveStatus } from './use-table-cell-writer';
 import { useTableViewSelection } from './use-table-view-selection';
 import { toggleDatasetTableFieldVisibility } from './table-commands';
+import { visibleFieldIds } from './table-view-config';
+import { displayTableFieldValue } from './table-cell-display';
 import { IncompatibleViewEmptyState } from './incompatible-view-empty-state';
 import { useTableNoteLinking } from './use-table-note-linking';
 import { useTableNoteDrop } from './use-table-note-drop';
@@ -123,9 +128,7 @@ import {
   fieldTypeIconKind,
   fieldTypeLabel,
   isoDate,
-  noteInCollectionSource,
   noteKeyForRecord,
-  resolveTableNoteParentRelativePath,
   SCROLL_PAGE_SIZE,
   TABLE_ACTION_COLUMN_MIN_WIDTH,
   TABLE_FIELD_WIDTHS,
@@ -200,7 +203,38 @@ export function TableDocumentView(props: TableDocumentViewProps) {
   return <TableDocumentViewSession key={sessionKey} {...props} />;
 }
 
-function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation, filePath, fileIdentity, notebookPath, notebookId, expectedCollectionId, initialViewId, onActiveViewChange, showNavigation = true, collectionActionsHost, assetFilterMenu, onOpenAssetFilter, onDatasetFilterOpenChange, panelControlsRef, showNavTitle = true, editable = true, canCreateFields = true, canCreateRecords = true, showAssociateNoteAction = canCreateRecords, canDeleteViews = true, embeddedInEditor = false, onRemoveReference, trailingActions, onFilePathChange, bannerVisible = null, onToggleBannerVisibility, pageScroll = false, onActiveLayoutChange, collectionAreaMenu = false }: TableDocumentViewProps) {
+function TableDocumentViewSession({
+  onSurfaceLifecycleReady,
+  reportPresentation,
+  filePath,
+  fileIdentity,
+  notebookPath,
+  notebookId,
+  expectedCollectionId,
+  initialViewId,
+  onActiveViewChange,
+  showNavigation = true,
+  collectionActionsHost,
+  assetFilterMenu,
+  onOpenAssetFilter,
+  onDatasetFilterOpenChange,
+  panelControlsRef,
+  showNavTitle = true,
+  editable = true,
+  canCreateFields = true,
+  canCreateRecords = true,
+  showAssociateNoteAction = canCreateRecords,
+  canDeleteViews = true,
+  embeddedInEditor = false,
+  onRemoveReference,
+  trailingActions,
+  onFilePathChange,
+  bannerVisible = null,
+  onToggleBannerVisibility,
+  pageScroll = false,
+  onActiveLayoutChange,
+  collectionAreaMenu = false,
+}: TableDocumentViewProps) {
   const noteFilterSlot = useContext(CollectionNoteFilterSlot);
   const tablePageSize = embeddedInEditor ? EMBEDDED_TABLE_PAGE_SIZE : SCROLL_PAGE_SIZE;
   const valueTypography = useMemo(() => propertyValueTypography(
@@ -303,6 +337,7 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
   const tableDropTargetId = useId();
   const loadMoreRecordsRef = useRef<HTMLDivElement | null>(null);
   const [pendingTablePageRecordId, setPendingTablePageRecordId] = useState<string | null>(null);
+  const [selectedTableRecordIds, setSelectedTableRecordIds] = useState<Set<string>>(() => new Set());
   const { cellStatusesByRecord, updateCell, flush: flushCells } = useTableCellWriter({
     enabled: Boolean(document) && !saving && editable,
     loadGeneration,
@@ -435,35 +470,34 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
   }, [noteByKey, notesLoadError]);
   const conditionRecords = useMemo(() => {
     if (!document || !noteField) return [];
-    const datasetFilter = resolveDatasetFilterForLocation(document.dataset.filter, document.collection.placement, currentFilePath, notebookPath);
-    if (datasetFilter == null) return [];
-
+    const legacyFilter = legacyTableLocationFilter(document);
+    const databaseFilter = tableDatabaseFilter(document);
     const linkedPaths = new Set(document.dataset.records.include.map((record) => record.note_path.replace(/\\/g, '/')).filter(Boolean));
-    const excludedPaths = new Set([
-      ...document.dataset.records.exclude.map((record) => record.note_path),
-    ].map((path) => path.replace(/\\/g, '/')));
+    const excludedPaths = new Set(document.dataset.records.exclude.map((record) => record.note_path.replace(/\\/g, '/')));
     return notes.flatMap((note) => {
       const notePath = note.relativePath.replace(/\\/g, '/');
-      if (linkedPaths.has(notePath) || excludedPaths.has(notePath)
-        || !noteInCollectionSource(notePath, document.dataset.source, currentFilePath, notebookPath)
-        || !noteMatchesCollectionFilter(note, collectionFilterFields, noteField.id, datasetFilter)) return [];
+      const matchesLegacy = legacyFilter && noteMatchesCollectionFilter(note, collectionFilterFields, noteField.id, legacyFilter);
+      const matchesDatabase = databaseFilter && noteMatchesCollectionFilter(note, collectionFilterFields, noteField.id, tableDatabaseFilter(document, notePath)!);
+      if (linkedPaths.has(notePath) || excludedPaths.has(notePath) || (!matchesLegacy && !matchesDatabase)) return [];
       let id = conditionRecordIdsRef.current.get(notePath);
       if (!id) {
         id = `rec_${createUuidV7()}`;
         conditionRecordIdsRef.current.set(notePath, id);
       }
-      return [{
-        id,
-        updated_at: new Date(note.updatedAt).toISOString(),
-        note_path: notePath,
-      }];
+      return [{ id, updated_at: new Date(note.updatedAt).toISOString(), note_path: notePath }];
     });
-  }, [collectionFilterFields, currentFilePath, document, noteField, notebookPath, notes]);
+  }, [collectionFilterFields, document, noteField, notes]);
   const conditionRecordIds = useMemo(() => new Set(conditionRecords.map((record) => record.id)), [conditionRecords]);
-  const scopedExplicitRecords = useMemo(() => document
-    ? document.dataset.records.include.filter((record) => noteInCollectionSource(record.note_path, document.dataset.source, currentFilePath, notebookPath))
-    : [], [currentFilePath, document, notebookPath]);
-  const datasetRecords = useMemo(() => [...scopedExplicitRecords, ...conditionRecords], [conditionRecords, scopedExplicitRecords]);
+  const datasetRecords = useMemo(() => {
+    if (!document) return conditionRecords;
+    const filter = tableDatabaseFilter(document);
+    const explicit = document.dataset.records.include.filter((record) => {
+      if (!filter || !isTableDatabaseNote(document, record.note_path)) return true;
+      const note = noteForRecord(record);
+      return !note || noteMatchesCollectionFilter(note, collectionFilterFields, document.dataset.schema.primary_field_id, tableDatabaseFilter(document, record.note_path)!);
+    });
+    return [...explicit, ...conditionRecords];
+  }, [collectionFilterFields, conditionRecords, document, noteForRecord]);
   const visibleRecords = useMemo(() => document
     ? applyTableView(datasetRecords, activeView, collectionFilterFields, document.dataset.schema.primary_field_id, noteForRecord)
     : datasetRecords, [activeView, collectionFilterFields, datasetRecords, document, noteForRecord]);
@@ -500,7 +534,7 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
   }, [embeddedInEditor, tablePage, tablePageSize, visibleRecords]);
   const autoSizedColumns = useMemo<AutoColumnContent[]>(() => {
     if (!document || activeView?.layout !== 'table') return [];
-    const visibleIds = activeView.config.visible_fields as string[];
+    const visibleIds = visibleFieldIds(activeView);
     const fields = [
       ...document.dataset.schema.fields.filter((field) => visibleIds.includes(field.id)),
       ...BUILTIN_TABLE_FIELDS.filter((field) => visibleIds.includes(field.id)).flatMap((field) => {
@@ -574,7 +608,7 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
           }
           if (field.type === 'Image') {
             const hasImage = imagePaths(value).length > 0;
-            return { text: hasImage ? '' : t('document.properties.selectImage'), extraWidth: hasImage ? 36 : 0 };
+            return { text: hasImage ? '' : 'Upload', extraWidth: hasImage ? 36 : 0 };
           }
           return {
             text: value == null ? '' : String(value),
@@ -626,11 +660,13 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
     createAndLinkRecordNote,
     createAndLinkNote,
     renameLinkedNote,
-    deleteRecord,
+    cleanMissingRecord,
+    removeTableRow,
     updateRecordField,
     selectImageForCell,
     createBlankGalleryNote: createBlankGalleryNoteBase,
     requestDeleteLinkedNote,
+    deleteTableRow,
   } = useTableNoteLinking({
     session: { document, saving, setSaving, save, loadSequenceRef, isCurrentSession, resolvedNotebookId, setNotes, reportSaveFailure },
     noteField,
@@ -645,6 +681,10 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
   const visibleTableRecords = useMemo(() => visibleRecords.slice(
     embeddedInEditor ? currentPage * tablePageSize : 0, (currentPage + 1) * tablePageSize,
   ), [visibleRecords, embeddedInEditor, currentPage, tablePageSize]);
+  const explicitTableRecordIds = useMemo(() => new Set(document?.dataset.records.include.map((record) => record.id) ?? []), [document]);
+  const reorderableTableRecordIds = useMemo(() => visibleTableRecords
+    .filter((record) => explicitTableRecordIds.has(record.id))
+    .map((record) => record.id), [explicitTableRecordIds, visibleTableRecords]);
   const nextTableRecordId = visibleRecords[(embeddedInEditor ? currentPage * tablePageSize : 0) + visibleTableRecords.length]?.id ?? null;
   const {
     tableDropPreview,
@@ -659,7 +699,50 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
     nextTableRecordId, recordsScrollerRef, tableDropAreaRef, tableDropTargetId,
     setTablePage, setGalleryPage,
   });
+  const reorderTableRecord = useCallback(async (recordId: string, beforeRecordId: string | null, clearSort: boolean) => {
+    const current = latestDocumentRef.current;
+    const view = current?.views.items.find((item) => item.id === activeViewId && item.layout === 'table');
+    if (!current || !view || !editable || saving) return false;
+    const recordsWithoutDragged = current.dataset.records.include.filter((record) => record.id !== recordId);
+    if (recordsWithoutDragged.length === current.dataset.records.include.length) return false;
+    const targetIndex = beforeRecordId
+      ? recordsWithoutDragged.findIndex((record) => record.id === beforeRecordId)
+      : -1;
+    const insertAt = targetIndex >= 0 ? targetIndex : recordsWithoutDragged.length;
+    const reorderedRecords = [
+      ...recordsWithoutDragged.slice(0, insertAt),
+      current.dataset.records.include.find((record) => record.id === recordId)!,
+      ...recordsWithoutDragged.slice(insertAt),
+    ];
+    const orderChanged = reorderedRecords.some((record, index) => record.id !== current.dataset.records.include[index]?.id);
+    const clearCurrentViewSort = clearSort && view.sort.length > 0;
+    if (!orderChanged && !clearCurrentViewSort) return false;
+
+    const sequence = loadSequenceRef.current;
+    const next: MultidimensionalTableDocument = {
+      ...current,
+      collection: reviseCollection(current.collection),
+      dataset: { ...current.dataset, records: { ...current.dataset.records, include: reorderedRecords } },
+      ...(clearCurrentViewSort ? { views: { ...current.views, items: current.views.items.map((item) => item.id === view.id
+        ? { ...item, sort: [] } : item) } } : {}),
+    };
+    const saved = await save(next, false, sequence);
+    if (saved && clearCurrentViewSort && isCurrentSession(sequence)) setPendingTablePageRecordId(recordId);
+    return saved;
+  }, [activeViewId, editable, isCurrentSession, loadSequenceRef, save, saving, setPendingTablePageRecordId]);
+  const rowDrag = useTableRowDrag({
+    tableRef: tableElementRef,
+    scrollerRef: recordsScrollerRef,
+    recordIds: reorderableTableRecordIds,
+    viewId: activeView?.layout === 'table' ? activeView.id : null,
+    nextRecordId: nextTableRecordId && explicitTableRecordIds.has(nextTableRecordId) ? nextTableRecordId : null,
+    disabled: !editable || saving || activeView?.layout !== 'table' || Boolean(tableDropPreview),
+    sorted: Boolean(activeView?.sort.length),
+    confirmClearSort: () => window.confirm(t('editor.table.clearSortToReorderConfirm')),
+    onReorder: reorderTableRecord,
+  });
   const renderedTableRecords = tableDropPreview?.records ?? visibleTableRecords;
+  const selectedRenderedRecordCount = renderedTableRecords.reduce((count, record) => count + (selectedTableRecordIds.has(record.id) ? 1 : 0), 0);
   const visibleGalleryRecords = useMemo(() => secondaryViewRecords.slice(
     embeddedInEditor ? galleryCurrentPage * galleryPageSize : 0, (galleryCurrentPage + 1) * galleryPageSize,
   ), [secondaryViewRecords, embeddedInEditor, galleryCurrentPage, galleryPageSize]);
@@ -724,7 +807,7 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
     if (!document) return [];
     const active = resolveTableView(document, activeViewId ?? initialViewId);
     if (active?.layout !== 'table' && active?.layout !== 'gallery') return [];
-    const visibleFields = active.config.visible_fields as string[];
+    const visibleFields = visibleFieldIds(active);
     const imageFields = document.dataset.schema.fields.filter((field) => field.type === 'Image'
       && (active.layout === 'table' || visibleFields.includes(field.id)));
     const viewRecords = active.layout === 'gallery' ? visibleGalleryRecords : visibleTableRecords;
@@ -786,22 +869,9 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
   }, [document, save, saving]);
 
   const retryNoteLookup = useCallback(() => { void load(); }, [load]);
-  const displayFieldValue = (record: TableRecord, field: TableField): string => {
-    if (field.type === 'primary') {
-      const note = noteForRecord(record);
-      if (note) return note.title || displayTitleFromFilename(note.relativePath);
-      if (!record.note_path) return '笔记不存在';
-      return notesLoadError ? `无法确认关联：${record.note_path}` : `未找到笔记 ${displayTitleFromFilename(record.note_path)}`;
-    }
-    const value = notePropertyEditorValue(noteForRecord(record), field);
-    if (field.type === 'Select') return field.options?.find((option) => option.id === value)?.label
-      ?? (value == null || value === '' ? '—' : String(value));
-    if (field.type === 'MultiSelect') return Array.isArray(value)
-      ? value.map((id) => field.options?.find((option) => option.id === id)?.label ?? id).join(', ')
-      : '—';
-    if (Array.isArray(value)) return value.map(String).join(', ');
-    return value == null || value === '' ? '—' : String(value);
-  };
+  const displayFieldValue = useCallback((record: TableRecord, field: TableField): string => (
+    displayTableFieldValue(record, field, noteForRecord(record), Boolean(notesLoadError))
+  ), [noteForRecord, notesLoadError]);
 
 
 
@@ -936,14 +1006,66 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
   }, [activeViewId, document, editable, save, saving]);
 
   const handleAutoOpenHandled = useCallback(() => setAutoOpenPrimaryRecordId(null), []);
+  const createTableFieldOption = useCallback(async (field: TableField, label: string): Promise<{ id: string; label: string } | null> => {
+    const trimmed = label.trim();
+    if (!trimmed || (field.type !== 'Select' && field.type !== 'MultiSelect')) return null;
+    const existing = field.options?.find((option) => option.label === trimmed);
+    if (existing) return existing;
+    const option = { id: `opt_${createUuidV7()}`, label: trimmed };
+    const saved = await queueHeaderFieldEdits(field, field.name ?? field.property_key ?? '', [...(field.options ?? []), option]);
+    return saved ? option : null;
+  }, [queueHeaderFieldEdits]);
 
   const handleRowActionOpenChange = useCallback((open: boolean, recordId: string) => {
     setRowActionRecordId(open ? recordId : null);
   }, []);
   const handleDeleteRecord = useCallback((recordId: string) => {
     setRowActionRecordId(null);
-    deleteRecord(recordId);
-  }, [deleteRecord]);
+    void removeTableRow(recordId);
+  }, [removeTableRow]);
+
+  const handleRowContextMenu = useCallback((recordId: string) => {
+    setSelectedTableRecordIds(new Set([recordId]));
+  }, []);
+  const toggleTableRecord = useCallback((recordId: string) => {
+    setSelectedTableRecordIds((current) => {
+      const next = new Set(current);
+      if (next.has(recordId)) next.delete(recordId);
+      else next.add(recordId);
+      return next;
+    });
+  }, []);
+
+  const toggleAllTableRecords = useCallback(() => {
+    setSelectedTableRecordIds((current) => current.size === renderedTableRecords.length
+      ? new Set()
+      : new Set(renderedTableRecords.map((record) => record.id)));
+  }, [renderedTableRecords]);
+
+  useEffect(() => {
+    if (selectedTableRecordIds.size === 0) return;
+    const clearSelectionOnOtherArea = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const table = tableElementRef.current;
+      const selectionControl = target.closest('.multidimensional-table__row-selection-checkbox, .multidimensional-table__leading-selection-control');
+      if (table && selectionControl && table.contains(selectionControl)) return;
+      const selectedRow = target.closest('tbody tr[data-selected="true"]');
+      if (table && selectedRow && table.contains(selectedRow)) return;
+      setSelectedTableRecordIds(new Set());
+    };
+    window.document.addEventListener('pointerdown', clearSelectionOnOtherArea, true);
+    return () => window.document.removeEventListener('pointerdown', clearSelectionOnOtherArea, true);
+  }, [selectedTableRecordIds]);
+
+  const handleDeleteTableRow = useCallback((recordId: string) => {
+    setSelectedTableRecordIds((current) => {
+      const next = new Set(current);
+      next.delete(recordId);
+      return next;
+    });
+    void deleteTableRow(recordId);
+  }, [deleteTableRow]);
 
   const openLinkedNote = useCallback((note: NoteEntry) => {
     if (!notebookPath) return;
@@ -957,7 +1079,8 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
     const record = visibleRecords.find((item) => item.id === recordId);
     const note = record ? noteForRecord(record) : undefined;
     if (note) openLinkedNote(note);
-  }, [noteForRecord, openLinkedNote, visibleRecords]);
+    else if (record?.note_path) void cleanMissingRecord(record);
+  }, [cleanMissingRecord, noteForRecord, openLinkedNote, visibleRecords]);
 
   /** 列表区域右键菜单（新建笔记 / 导入笔记 .md）：行为都在 `useTableAreaNotes` 里。 */
   const { createBlankGalleryNote, areaMenuItems } = useTableAreaNotes({
@@ -969,6 +1092,21 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
     setDatasetFilterOpen(false);
     setMatchingOpen(true);
   }, []);
+
+  const handleRecordsScroll = useCallback(() => {
+    window.dispatchEvent(new Event('flowix:multidimensional-table-scroll'));
+    setHeaderMenuFieldId(null);
+    setNewFieldOpen(false);
+    setNewFieldAnchor(null);
+    setNewFieldTypeMenuOpen(false);
+    setNewFieldPresetMenuOpen(false);
+    setDatasetPresetMenuOpen(false);
+    setNotePickerOpen(false);
+    setNotePickerAnchorRect(null);
+    setNotePickerRecordId(null);
+    setNotePickerCalendarDate(null);
+    closeCalendarAddPopover();
+  }, [closeCalendarAddPopover]);
 
   const groupFieldId = activeView?.layout === 'kanban' && typeof activeView.config.group_by === 'string' ? activeView.config.group_by : null;
   const groupField = groupFieldId ? document?.dataset.schema.fields.find((field) => field.id === groupFieldId) : undefined;
@@ -1011,11 +1149,11 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
     const fields = document?.dataset.schema.fields ?? [];
     return activeView?.layout === 'table'
       ? fields.filter((field) => field.id === document?.dataset.schema.primary_field_id
-        || (activeView.config.visible_fields as string[]).includes(field.id))
+        || visibleFieldIds(activeView).includes(field.id))
       : fields;
   }, [document?.dataset.schema, activeView]);
   const visibleBuiltinFields = useMemo(() => activeView?.layout === 'table'
-    ? BUILTIN_TABLE_FIELDS.filter((field) => (activeView.config.visible_fields as string[]).includes(field.id))
+    ? BUILTIN_TABLE_FIELDS.filter((field) => visibleFieldIds(activeView).includes(field.id))
     : [], [activeView]);
   if (loadError) {
     if (reportPresentation) return null;
@@ -1045,16 +1183,16 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
   const calendarTitleFieldId = activeView?.layout === 'calendar' ? activeView.config.title_field as string : document.dataset.schema.primary_field_id;
   const galleryFields = activeView?.layout === 'gallery'
     ? document.dataset.schema.fields.filter((field) => field.type !== 'primary'
-      && (activeView.config.visible_fields as string[]).includes(field.id))
+      && visibleFieldIds(activeView).includes(field.id))
     : [];
   const { statusField, viewFieldChoices } = noteViewOptions(document, pendingViewType);
   const showAssociateNoteButton = canCreateRecords || showAssociateNoteAction;
   const tableDisplayName = collectionDisplayName(currentFilePath, document.collection.placement);
   const datasetTableViews = document.views.items.filter((view) => view.layout === 'table');
   const datasetFieldChecked = (fieldId: string) => datasetTableViews.length > 0
-    && datasetTableViews.every((view) => (view.config.visible_fields as string[]).includes(fieldId));
+    && datasetTableViews.every((view) => visibleFieldIds(view).includes(fieldId));
   const datasetFieldMixed = (fieldId: string) => !datasetFieldChecked(fieldId)
-    && datasetTableViews.some((view) => (view.config.visible_fields as string[]).includes(fieldId));
+    && datasetTableViews.some((view) => visibleFieldIds(view).includes(fieldId));
   const datasetFieldVisibilityButton = (fieldId: string, label: string, className = '') => {
     const checked = datasetFieldChecked(fieldId);
     const mixed = datasetFieldMixed(fieldId);
@@ -1080,19 +1218,14 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
     return Boolean(builtin && document.dataset.schema.preset_fields.includes(builtin.id));
   };
   const isSystemPresetField = (field: TableField) => tablePresets.system.some((preset) => preset.id === field.id);
-  const fixedFolderPath = document.collection.placement === 'folder'
-    ? resolveTableNoteParentRelativePath(currentFilePath, notebookPath) ?? ''
-    : undefined;
   const storedAutoCollectConfig = tableAutoCollectConfig(document);
   const datasetMenuProps = {
     defaultFieldId: document.dataset.schema.primary_field_id,
     fields: document.dataset.schema.fields.map((item) => ({ id: item.id, label: fieldLabel(item, propertyFields, t), propertyKey: item.property_key, type: item.type, options: item.options })),
-    config: fixedFolderPath !== undefined
-      ? { condition: { ...(storedAutoCollectConfig?.condition ?? {}), match: storedAutoCollectConfig?.condition.match ?? 'all', path: fixedFolderPath } }
-      : storedAutoCollectConfig,
+    config: storedAutoCollectConfig,
     notebookPath,
     notebookId: resolvedNotebookId,
-    fixedFolderPath,
+    showLocation: false,
     saving: saving || !editable,
     t,
     onSave: (condition: TableAutoCollectCondition) => saveAutoCollectCondition(document.dataset.schema.fields[0], condition),
@@ -1259,7 +1392,10 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
       </div>}
     />
   </div>;
-  const tableColumnCount = tableViewFields.length + visibleBuiltinFields.length + 1;
+  // Include the zero-width control anchor and the trailing action cell in colSpan.
+  const tableColumnCount = tableViewFields.length + visibleBuiltinFields.length + 2;
+  const TABLE_LEADING_GUTTER_WIDTH = 48;
+  const TABLE_TRAILING_INSET = 48;
   const tableFieldWidths = tableViewFields.map((field) => ({
     fieldId: field.id,
     width: TABLE_FIELD_WIDTHS[field.type],
@@ -1269,19 +1405,27 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
     width: TABLE_FIELD_WIDTHS[field.type],
   })));
   for (const column of tableFieldWidths) {
+    const field = [...tableViewFields, ...visibleBuiltinFields].find((item) => item.id === column.fieldId);
+    if (field?.type === 'URL') continue;
     if (autoColumnWidths[column.fieldId] !== undefined) column.width = autoColumnWidths[column.fieldId];
   }
   const orderedTableWidths = sortFields(tableFieldWidths, (field) => field.fieldId, columnDrag.order);
   const tableMinWidth = tableFieldWidths.reduce((total, { width }) => total + width, TABLE_ACTION_COLUMN_MIN_WIDTH);
-  /** 表格两侧的留白（外层 `pl-4 pr-4`），算进给外壳的轨道宽度。 */
-  const TABLE_SIDE_INSET = 32;
   /**
    * 版式与「表格实际需要的横向宽度」上抛给外壳（整页滚动用）：
    * 表格区带 `container-type: inline-size`，不再向父级贡献 max-content 宽度，
    * 外壳自己量不出来，只能由这里算好传上去。
    */
   const activeLayout = activeView?.layout ?? null;
-  const trackContentWidth = activeLayout === 'table' ? tableMinWidth + TABLE_SIDE_INSET : null;
+  const trackContentWidth = activeLayout === 'table'
+    ? tableMinWidth + TABLE_TRAILING_INSET + (embeddedInEditor ? 0 : TABLE_LEADING_GUTTER_WIDTH)
+    : null;
+  const recordsFrameClassName = [
+    'multidimensional-table__scrollbar--bottom-clearance min-h-0 flex-1',
+    embeddedInEditor && activeLayout === 'table' ? 'multidimensional-table__records--editor-embedded-table' : '',
+    pageScroll ? `multidimensional-table__records--page-scroll multidimensional-table__records--layout-${activeLayout ?? 'none'}` : '',
+  ].filter(Boolean).join(' ');
+  const recordsHorizontalScrollbar = activeLayout === 'kanban' || (!pageScroll && activeLayout === 'table');
   const viewMenu = <TableViewMenu
           hideTrigger={!showNavigation}
           editable={editable}
@@ -1321,6 +1465,7 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
         />;
   const navigation = <CollectionTabBar
         pinned={pageScroll}
+        sticky={!embeddedInEditor}
         label={t('collection.tabsLabel')}
         dataTitleVisible={showNavTitle && showTableTitle}
         className={`multidimensional-table__view-nav${embeddedInEditor ? ' px-0' : ''}`}
@@ -1391,29 +1536,39 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
       {/* 集合外壳里：整块记录区（表格 / 画廊 / 看板 / 日历）挂统一右键菜单。
           独立打开的表格文档没有这条菜单，这里用空 items 让触发器直接放行。 */}
       <CollectionAreaMenu items={collectionAreaMenu ? areaMenuItems : NO_AREA_MENU_ITEMS}>
-      <OverlayScrollbar scrollerRef={recordsScrollerRef} horizontalScrollbar={activeView?.layout === 'kanban' || (!pageScroll && activeView?.layout === 'table')} className={`multidimensional-table__scrollbar--bottom-clearance min-h-0 flex-1 ${pageScroll ? `multidimensional-table__records--page-scroll multidimensional-table__records--layout-${activeLayout ?? 'none'}` : ''}`} scrollerClassName="min-h-0 flex h-full flex-col" onScroll={() => {
-        window.dispatchEvent(new Event('flowix:multidimensional-table-scroll'));
-        setHeaderMenuFieldId(null);
-        setNewFieldOpen(false);
-        setNewFieldAnchor(null);
-        setNewFieldTypeMenuOpen(false);
-        setNewFieldPresetMenuOpen(false);
-        setDatasetPresetMenuOpen(false);
-        setNotePickerOpen(false);
-        setNotePickerAnchorRect(null);
-        setNotePickerRecordId(null);
-        setNotePickerCalendarDate(null);
-        closeCalendarAddPopover();
-      }}>
-      {activeView?.layout === 'table' && <div ref={tableDropAreaRef} className={`relative min-w-0 w-full ${embeddedInEditor ? 'flex-1' : 'shrink-0'} pr-4 ${embeddedInEditor ? '' : 'pl-4'}`}>
-        <table ref={tableElementRef} onPointerDown={columnDrag.onPointerDown} onClickCapture={columnDrag.onClickCapture} className="multidimensional-table table-fixed border-collapse text-sm" style={{ width: '100%', minWidth: tableMinWidth }}>
+      <OverlayScrollbar
+        scrollerRef={recordsScrollerRef}
+        horizontalScrollbar={recordsHorizontalScrollbar}
+        className={recordsFrameClassName}
+        scrollerClassName="min-h-0 flex h-full flex-col"
+        onScroll={handleRecordsScroll}
+      >
+      {activeView?.layout === 'table' && <div ref={tableDropAreaRef} className={`multidimensional-table__table-drop-area relative min-w-0 w-full ${embeddedInEditor ? 'flex-1' : 'shrink-0'} pr-12`}>
+        <table ref={tableElementRef} onPointerDown={(event) => {
+          columnDrag.onPointerDown(event);
+          rowDrag.onPointerDown(event);
+        }} onClickCapture={(event) => {
+          columnDrag.onClickCapture(event);
+          rowDrag.onClickCapture(event);
+        }} className="multidimensional-table table-fixed border-collapse text-sm" style={{ width: '100%', minWidth: tableMinWidth }}>
           <colgroup>
+            {/* Controls overflow into the leading gutter without taking data-column width. */}
+            <col style={{ width: 0 }} />
             {orderedTableWidths.map(({ fieldId, width }) => <col key={fieldId} style={{ width }} />)}
             {/* The unsized action column absorbs remaining space; tableMinWidth reserves the action column’s minimum width. */}
             <col />
           </colgroup>
           <thead className="sticky top-0 z-[1] bg-[var(--document-bg)] text-left text-sm text-[var(--muted-foreground)]">
-            <tr>{sortFields([...tableViewFields.map((field) => <th key={field.id} data-column-field-id={field.id} data-column-drag-preview={columnDrag.draggedId === field.id || undefined} aria-sort={tableSortDirection(activeView.sort, field.id) === 'asc' ? 'ascending' : tableSortDirection(activeView.sort, field.id) === 'desc' ? 'descending' : 'none'} className="group/table-column border-r border-[var(--border)] bg-[var(--document-bg)] p-0 text-left font-normal">
+            <tr><th className="multidimensional-table__row-control-cell" aria-label="行操作">
+              {selectedRenderedRecordCount > 0 && <div className="multidimensional-table__leading-selection-control">
+                <FlowixCheckbox
+                  checked={renderedTableRecords.length > 0 && selectedRenderedRecordCount === renderedTableRecords.length}
+                  indeterminate={selectedRenderedRecordCount < renderedTableRecords.length}
+                  aria-label="全选行"
+                  onCheckedChange={toggleAllTableRecords}
+                />
+              </div>}
+            </th>{sortFields([...tableViewFields.map((field) => <th key={field.id} data-column-field-id={field.id} data-column-drag-preview={columnDrag.draggedId === field.id || undefined} aria-sort={tableSortDirection(activeView.sort, field.id) === 'asc' ? 'ascending' : tableSortDirection(activeView.sort, field.id) === 'desc' ? 'descending' : 'none'} className="group/table-column border-r border-[var(--border)] bg-[var(--document-bg)] p-0 text-left font-normal">
               <div data-state={headerMenuFieldId === field.id ? 'open' : 'closed'} className="multidimensional-table__column-header flex min-w-0 items-center transition-colors hover:bg-[var(--muted)] data-[state=open]:bg-[var(--muted)]">
                 <div className="min-w-0 flex-1">
                   <TableFieldHeader
@@ -1501,13 +1656,15 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
               key={record.id}
               record={record}
               isDropPreview={isDropPreview}
+              canReorder={editable && explicitTableRecordIds.has(record.id)}
+              isDragging={rowDrag.draggedId === record.id}
               showBottomBorder
               imagePaths={imagePaths}
               notePropertyEditorValue={notePropertyEditorValue}
               fields={tableViewFields}
               builtinFields={visibleBuiltinFields}
               fieldOrder={columnDrag.order}
-              allowSwitchNote={document.collection.placement !== 'folder'}
+              allowSwitchNote
               titleField={titleField}
               note={note}
               isRuleLinked={conditionRecordIds.has(record.id)}
@@ -1520,7 +1677,11 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
               saving={saving}
               cellStatuses={cellStatusesByRecord.get(record.id) ?? EMPTY_CELL_STATUSES}
               rowActionOpen={rowActionRecordId === record.id}
+              isSelected={selectedTableRecordIds.has(record.id)}
+              onToggleSelected={toggleTableRecord}
+              onRowContextMenu={handleRowContextMenu}
               onRetryNoteLookup={retryNoteLookup}
+              onMissingNote={(item) => void cleanMissingRecord(item)}
               onReplaceNote={replaceLinkedNote}
               onCreateAndLinkRecordNote={createAndLinkRecordNote}
               onAutoOpenHandled={handleAutoOpenHandled}
@@ -1529,7 +1690,9 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
               onDeleteNote={requestDeleteLinkedNote}
               onSelectImage={selectImageForCell}
               onUpdateCell={updateCell}
+              onCreateFieldOption={createTableFieldOption}
               onDeleteRecord={handleDeleteRecord}
+              onDeleteRow={handleDeleteTableRow}
               onRowActionOpenChange={handleRowActionOpenChange}
             />;
           })}
@@ -1544,8 +1707,14 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
         </table>
       </div>}
       {activeView?.layout === 'table' && <TableNoteDropOverlay active={Boolean(tableDropPreview)} dropAreaRef={recordsScrollerRef} />}
+      {rowDrag.dropMarker && typeof window !== 'undefined' && createPortal(<div
+        aria-hidden="true"
+        className="multidimensional-table__row-drop-marker"
+        style={{ top: rowDrag.dropMarker.top, left: rowDrag.dropMarker.left, width: rowDrag.dropMarker.width }}
+      />, window.document.body)}
       {activeView?.layout === 'kanban' && groupField?.type === 'Select' && <TableKanbanView
         embeddedInEditor={embeddedInEditor}
+        pageScroll={pageScroll}
         groupField={groupField}
         titleField={titleField ?? document.dataset.schema.fields[0]}
         records={secondaryViewRecords}
@@ -1582,6 +1751,7 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
       />}
       {activeView?.layout === 'calendar' && calendarDateFieldId && (calendarDateMetadata || calendarField?.type === 'Date') && <TableCalendarView
         embeddedInEditor={embeddedInEditor}
+        pageScroll={pageScroll}
         cursor={calendarCursor}
         onCursorChange={setCalendarCursor}
         days={calendarDays}
@@ -1607,7 +1777,11 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
         dropNotebookId={resolvedNotebookId}
         onExternalNoteDrop={addExternalNotesToCalendar}
         onOpenRecord={openLinkedRecord}
-        onEditRecord={openCalendarEditPopover}
+        onEditRecord={(recordId, anchorRect) => {
+          const record = visibleRecords.find((item) => item.id === recordId);
+          if (record?.note_path && !noteForRecord(record)) void cleanMissingRecord(record);
+          else openCalendarEditPopover(recordId, anchorRect);
+        }}
         addingNoteDate={calendarAddOpen ? calendarAddDate?.date : null}
         onDoubleClickDate={(date, anchorRect) => {
           if (!editable) {
@@ -1636,6 +1810,7 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
           : t('multidimensionalTable.view.calendarMissingField')}
       />}
       {activeView?.layout === 'gallery' && <TableGalleryView
+        pageScroll={pageScroll}
         dropAreaRef={recordsScrollerRef}
         records={visibleGalleryRecords}
         nextRecordId={secondaryViewRecords[(embeddedInEditor ? galleryCurrentPage * galleryPageSize : 0) + visibleGalleryRecords.length]?.id ?? null}
@@ -1654,6 +1829,7 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
         onOpenRecord={(record, anchorRect) => {
           const note = noteForRecord(record);
           if (note) openLinkedNote(note);
+          else if (record.note_path) void cleanMissingRecord(record);
           else if (notesLoadError) retryNoteLookup();
           else openNotePicker(anchorRect, record.id);
         }}
@@ -1693,15 +1869,15 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
       )}
       </OverlayScrollbar>
       </CollectionAreaMenu>
-      {activeView?.layout === 'table' && <div className={`flex w-full min-w-0 shrink-0 flex-wrap items-center justify-between gap-2 py-1.5 ${embeddedInEditor ? '' : 'px-4'}`}>
+      {activeView?.layout === 'table' && <div className={`flex w-full min-w-0 shrink-0 flex-wrap items-center justify-between gap-2 py-1.5 ${embeddedInEditor ? '' : 'px-12'}`}>
         {showAssociateNoteButton && (
           <button
             type="button"
             disabled={!editable || saving || !noteField}
             onClick={() => void addDraftRecordAndOpenNoteSelector()}
-            className="flex items-center gap-0.5 rounded py-1 text-sm text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-40"
+            className="flex items-center gap-1 rounded px-2 py-1 text-sm text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-40"
           >
-            <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+            <Plus className="h-4 w-4" aria-hidden="true" />
             添加笔记
           </button>
         )}
@@ -1867,7 +2043,7 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
                             : field.type === 'Text'
                               ? <TableTextValueInput value={String(value ?? '')} disabled={saving} onChange={(next) => setValue(next ?? '')} />
                               : field.type === 'Number'
-                                ? <TableNumberInput value={value} disabled={saving} placeholder="" className={inputClass} onChange={setValue} />
+                                ? <TableNumberInput value={value} disabled={saving} placeholder="" onChange={setValue} />
                                 : field.type === 'Image'
                                   ? <NotePropertyImageValue
                                     value={value}
@@ -1903,7 +2079,7 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
       <PopoverContent side="bottom" align="start" sideOffset={6} fitViewport className="w-[280px] max-w-[calc(100vw-16px)] rounded-xl px-2 py-2 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
         <NoteCreatePicker
           value={newNoteTitle} onChange={setNewNoteTitle}
-          notes={availableNotes} allowSelect={document.collection.placement !== 'folder'}
+          notes={availableNotes} allowSelect
           disabled={saving || !editable || !resolvedNotebookId} error={notesLoadError}
           onCreate={createAndLinkNote}
           onSelect={(selectedNote) => linkSelectedNote(selectedNote.relativePath.replace(/\\/g, '/'))}

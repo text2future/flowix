@@ -37,6 +37,7 @@ function renderRow(noteStatus: 'draft' | 'linked' | 'unknown' | 'missing', note?
   root = createRoot(container);
   const handlers = {
     retryNoteLookup: vi.fn(),
+    missingNote: vi.fn(),
     updateCell: vi.fn(),
   };
   act(() => root?.render(<table><tbody><TableRecordRow
@@ -58,6 +59,7 @@ function renderRow(noteStatus: 'draft' | 'linked' | 'unknown' | 'missing', note?
     cellStatuses={new Map()}
     rowActionOpen={false}
     onRetryNoteLookup={handlers.retryNoteLookup}
+    onMissingNote={handlers.missingNote}
     onReplaceNote={vi.fn()}
     onCreateAndLinkRecordNote={vi.fn(async () => true)}
     onAutoOpenHandled={vi.fn()}
@@ -85,37 +87,38 @@ describe('TableRecordRow note fallback', () => {
     const view = renderRow('unknown');
     const retry = [...view.container.querySelectorAll('button')].find((button) => button.textContent?.includes('无法确认关联状态'));
     expect(retry).toBeTruthy();
-    expect(view.container.querySelector<HTMLButtonElement>('[role="checkbox"]')?.disabled).toBe(true);
+    expect(view.container.querySelector<HTMLButtonElement>('[role="checkbox"][aria-label="done"]')?.disabled).toBe(true);
 
     act(() => retry?.click());
     expect(view.retryNoteLookup).toHaveBeenCalledOnce();
   });
 
-  it('keeps a missing relation and lets the user replace it while disabling property edits', () => {
+  it('checks and cleans a missing relation when the user acts on it', () => {
     renderPopupContent = true;
     const view = renderRow('missing');
     const replace = [...view.container.querySelectorAll('button')].find((button) => button.textContent?.includes('未找到笔记'));
     expect(replace).toBeTruthy();
-    expect(view.container.querySelector<HTMLButtonElement>('[role="checkbox"]')?.disabled).toBe(true);
+    expect(view.container.querySelector<HTMLButtonElement>('[role="checkbox"][aria-label="done"]')?.disabled).toBe(true);
 
-    expect(view.container.querySelector('textarea')?.getAttribute('placeholder')).toBe('输入名称搜索 或 新建');
+    act(() => replace?.click());
+    expect(view.missingNote).toHaveBeenCalledOnce();
   });
 
   it('keeps property editing enabled for a resolved note', () => {
     const view = renderRow('linked', linkedNote);
-    expect(view.container.querySelector<HTMLButtonElement>('[role="checkbox"]')?.disabled).toBe(false);
+    expect(view.container.querySelector<HTMLButtonElement>('[role="checkbox"][aria-label="done"]')?.disabled).toBe(false);
   });
 
   it('disables property editing in an unlinked draft row', () => {
     const view = renderRow('draft');
-    expect(view.container.querySelector<HTMLButtonElement>('[role="checkbox"]')?.disabled).toBe(true);
+    expect(view.container.querySelector<HTMLButtonElement>('[role="checkbox"][aria-label="done"]')?.disabled).toBe(true);
   });
 });
 
 describe('TableRecordRow builtin metadata', () => {
   it('keeps file metadata read-only and makes mapped presets editable', () => {
     const view = renderRow('linked', { ...linkedNote, relativePath: '项目/方案.md', sizeBytes: 1_250_000, createdAt: 0, updatedAt: 0 }, true);
-    const cells = view.container.querySelectorAll('td');
+    const cells = view.container.querySelectorAll('td:not(.multidimensional-table__row-control-cell)');
     expect(cells).toHaveLength(3 + BUILTIN_TABLE_FIELDS.length);
     const pathIndex = BUILTIN_TABLE_FIELDS.findIndex((field) => field.id === NOTE_PATH_FIELD_ID);
     const sizeIndex = BUILTIN_TABLE_FIELDS.findIndex((field) => field.id === NOTE_SIZE_FIELD_ID);
@@ -132,7 +135,7 @@ describe('TableRecordRow builtin metadata', () => {
     vi.useFakeTimers();
     const view = renderRow('linked', { ...linkedNote, favorited: true }, true);
     const index = BUILTIN_TABLE_FIELDS.findIndex((field) => field.label === '置顶');
-    const checkbox = view.container.querySelectorAll('td')[index + 2].querySelector<HTMLButtonElement>('[role="checkbox"]');
+    const checkbox = view.container.querySelectorAll('td:not(.multidimensional-table__row-control-cell)')[index + 2].querySelector<HTMLButtonElement>('[role="checkbox"]');
     expect(checkbox?.getAttribute('aria-checked')).toBe('true');
     await act(async () => { checkbox?.click(); vi.advanceTimersByTime(1000); });
     expect(view.updateCell).toHaveBeenCalledWith(expect.anything(), expect.anything(),
@@ -141,7 +144,7 @@ describe('TableRecordRow builtin metadata', () => {
 
   it('leaves every builtin cell empty without an associated note', () => {
     const view = renderRow('draft', undefined, true);
-    for (const cell of [...view.container.querySelectorAll('td')].slice(2, 2 + BUILTIN_TABLE_FIELDS.length)) {
+    for (const cell of [...view.container.querySelectorAll('td:not(.multidimensional-table__row-control-cell)')].slice(2, 2 + BUILTIN_TABLE_FIELDS.length)) {
       expect(cell.textContent).toBe('');
       expect(cell.querySelector('input,button,textarea')).toBeNull();
     }
@@ -150,10 +153,12 @@ describe('TableRecordRow builtin metadata', () => {
 });
 
 describe('folder table note switching', () => {
-  it('disables switching existing notes while retaining title editing', () => {
+  it('retains title editing without editor action buttons', () => {
     renderPopupContent = true;
     const view = renderRow('linked', linkedNote, false, false);
-    expect(view.container.querySelector<HTMLButtonElement>('button[aria-label="切换文档"]')?.disabled).toBe(true);
+    expect(view.container.querySelector('button[aria-label="跳转到目标文档"]')).toBeNull();
+    expect(view.container.querySelector('button[aria-label="切换文档"]')).toBeNull();
+    expect(view.container.querySelector('button[aria-label="从表格移除此行"]')).toBeNull();
     expect(view.container.querySelector('textarea')).toBeTruthy();
     expect(view.container.querySelector('input[type="search"]')).toBeNull();
   });
@@ -164,21 +169,23 @@ describe('folder table note switching', () => {
     expect(view.container.querySelector('[role="listbox"]')).toBeNull();
     // allowSwitchNote=false 时 picker 退化为“只建标题”，aria-label 随之变成「笔记名称」。
     expect(view.container.querySelector('textarea[aria-label="笔记名称"]')).toBeTruthy();
+    expect(view.container.querySelector('button[aria-label="从表格移除此行"]')).toBeNull();
+    expect(view.container.querySelector('button[aria-label="创建笔记"]')?.textContent).toBe('');
     expect(view.container.querySelector('input[type="search"]')).toBeNull();
   });
 
   it('loads candidates when an empty row opens without a separate switching control', () => {
     renderPopupContent = true;
     const view = renderRow('draft', undefined, false, true, { autoOpen: true, availableNotes: [linkedNote] });
-    expect(view.container.querySelector('[role="option"]')?.textContent).toBe('Missing');
-    expect(view.container.querySelector('textarea')?.getAttribute('placeholder')).toBe('输入名称搜索 或 新建');
+    expect(view.container.querySelector('[role="option"]')).toBeNull();
+    expect(view.container.querySelector('textarea[aria-label="笔记名称"]')).toBeTruthy();
     expect(view.container.querySelector('input[type="search"]')).toBeNull();
   });
 
   it('keeps switching available for standalone tables', () => {
     renderPopupContent = true;
     const view = renderRow('draft');
-    expect(view.container.querySelector('[role="listbox"]')).toBeTruthy();
-    expect(view.container.querySelector('textarea')?.getAttribute('placeholder')).toBe('输入名称搜索 或 新建');
+    expect(view.container.querySelector('[role="listbox"]')).toBeNull();
+    expect(view.container.querySelector('textarea[aria-label="笔记名称"]')).toBeTruthy();
   });
 });

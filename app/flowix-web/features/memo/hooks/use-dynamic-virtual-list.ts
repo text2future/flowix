@@ -39,6 +39,8 @@ interface DynamicVirtualListOptions<T> {
   /** Reset scroll position and measurements when the query changes. */
   resetKey?: string;
   overscan?: number;
+  /** Bound fallback rows before the first usable viewport measurement. */
+  unmeasuredItemLimit?: number;
   keepAliveKeys?: readonly string[];
   /** Height of non-virtual content before this list in the same scroller. */
   scrollMargin?: number;
@@ -164,6 +166,7 @@ export function useDynamicVirtualList<T>({
   viewportActive = true,
   resetKey,
   overscan = DEFAULT_OVERSCAN,
+  unmeasuredItemLimit = items.length,
   keepAliveKeys = [],
   scrollMargin = 0,
   preserveScrollAnchor = false,
@@ -303,12 +306,16 @@ export function useDynamicVirtualList<T>({
     if (!enabled) return [];
     if (!lastUsableRectRef.current) {
       let start = 0;
-      return items.map((item, index) => {
+      const fallbackItems: DynamicVirtualItem<T>[] = [];
+      const fallbackCount = Math.min(items.length, Math.max(0, Math.floor(unmeasuredItemLimit)));
+      for (let index = 0; index < fallbackCount; index += 1) {
+        const item = items[index];
         const size = Math.max(MIN_ITEM_SIZE, estimateSize(item, index));
         const virtualItem = { key: keys[index], index, item, start, size };
+        fallbackItems.push(virtualItem);
         start += size;
-        return virtualItem;
-      });
+      }
+      return fallbackItems;
     }
 
     return measuredItems.map((virtualItem) => ({
@@ -318,7 +325,7 @@ export function useDynamicVirtualList<T>({
       start: virtualItem.start - scrollMargin,
       size: virtualItem.size,
     }));
-  }, [enabled, estimateSize, items, keys, measuredItems, scrollMargin]);
+  }, [enabled, estimateSize, items, keys, measuredItems, scrollMargin, unmeasuredItemLimit]);
 
   const anchorSnapshot = useRef<{
     keys: readonly string[];

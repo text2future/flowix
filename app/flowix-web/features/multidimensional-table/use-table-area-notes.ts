@@ -8,7 +8,6 @@ import { useI18n } from '@/lib/i18n';
 import { resolveCollectionSaveDirectory, reviseCollection } from '@features/collection/public/folder-api';
 import type { CollectionAreaMenuItem } from '@shared/ui/collection-area-menu';
 import { noteAreaMenuItems } from '@shared/ui/collection-area-menu-items';
-import { noteInCollectionSource } from './table-view-helpers';
 import { createUuidV7, type MultidimensionalTableDocument, type TableField, type TableRecord } from './model';
 import type { useTableSession } from './use-table-session';
 
@@ -109,7 +108,7 @@ export function useTableAreaNotes(input: UseTableAreaNotesInput) {
       if (!importedPaths.length || !noteField) return;
       const linked = new Set(document.dataset.records.include.map((record) => record.note_path.replace(/\\/g, '/')));
       const additions = importedPaths
-        .filter((path) => !linked.has(path) && noteInCollectionSource(path, document.dataset.source, currentFilePath, notebookPath))
+        .filter((path) => !linked.has(path))
         .map((path) => ({ id: `rec_${createUuidV7()}`, updated_at: new Date().toISOString(), note_path: path }));
       if (!additions.length) return;
       const saved = await save({

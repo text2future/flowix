@@ -10,7 +10,7 @@ import { isMarkdownNoteDragResource, type NotebookNoteDragResource } from '@feat
 import { createUuidV7, type MultidimensionalTableDocument, type TableField, type TableRecord, type TableView } from './model';
 import { planTableNoteDrop, type TableNoteDropPreview, type TableNoteDropRejection } from './table-note-drop';
 import { useTableNoteDropTarget, type TableNoteDropTargetRejection } from './use-table-note-drop-target';
-import { noteInCollectionSource, upsertTableRecord } from './table-view-helpers';
+import { upsertTableRecord } from './table-view-helpers';
 import type { useTableSession } from './use-table-session';
 
 type TableSession = ReturnType<typeof useTableSession>;
@@ -77,7 +77,7 @@ export function useTableNoteDrop(input: UseTableNoteDropInput) {
       }
       const relativePath = canonicalPath(draggedNote.relativePath).replace(/^\/+/, '');
       const note = notes.find((item) => item.relativePath.replace(/\\/g, '/') === relativePath);
-      if (!note || !noteInCollectionSource(relativePath, document.dataset.source, currentFilePath, notebookPath)) {
+      if (!note) {
         return { reason: 'unavailable' as const };
       }
       resolved.push(note);
@@ -91,7 +91,7 @@ export function useTableNoteDrop(input: UseTableNoteDropInput) {
       fields: collectionFilterFields,
       primaryFieldId: document.dataset.schema.primary_field_id,
       noteForRecord,
-      isInSource: (path) => noteInCollectionSource(path, document.dataset.source, currentFilePath, notebookPath),
+      isInSource: () => true,
     });
   }, [activeView, collectionFilterFields, conditionRecords, currentFilePath, document, noteForRecord, notes, notebookPath, resolvedNotebookId]);
 
@@ -252,7 +252,7 @@ export function useTableNoteDrop(input: UseTableNoteDropInput) {
       if (!isMarkdownNoteDragResource(draggedNote) || draggedNote.notebookId !== resolvedNotebookId) return null;
       const relativePath = canonicalPath(draggedNote.relativePath).replace(/^\/+/, '');
       const note = notes.find((item) => item.relativePath.replace(/\\/g, '/') === relativePath);
-      if (!note || !noteInCollectionSource(relativePath, document.dataset.source, currentFilePath, notebookPath)) return null;
+      if (!note) return null;
       return { note, relativePath };
     });
     if (!resolved.length || resolved.some((item) => !item)) {

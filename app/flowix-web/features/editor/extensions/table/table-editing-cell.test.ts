@@ -34,7 +34,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('editing cell background marker', () => {
+describe('editing cell marker', () => {
   it('follows the caret between header and body cells and clears outside the table', () => {
     const editor = createEditor();
     editor.commands.setTextSelection(cellPosition(editor, 0, 0) + 2);

@@ -47,7 +47,7 @@ function calendarCardColorStyle(color?: string): CSSProperties | undefined {
   } as CSSProperties;
 }
 
-export function TableGalleryView({ records, titleField, fields, renderValue, imageUrl, noteThumbnail, onOpenRecord, onCreateBlankNote, onChooseData, recordStatus, noteIcon, canAddData = true, dropNotebookId, canDropExternal = false, previewExternalNoteDrop, nextRecordId, dropAreaRef, onExternalNoteDrop }: {
+export function TableGalleryView({ records, titleField, fields, renderValue, imageUrl, noteThumbnail, onOpenRecord, onCreateBlankNote, onChooseData, recordStatus, noteIcon, canAddData = true, dropNotebookId, canDropExternal = false, previewExternalNoteDrop, nextRecordId, dropAreaRef, onExternalNoteDrop, pageScroll = false }: {
   records: TableRecord[];
   titleField: TableField;
   fields: TableField[];
@@ -66,6 +66,7 @@ export function TableGalleryView({ records, titleField, fields, renderValue, ima
   nextRecordId?: string | null;
   dropAreaRef?: { current: HTMLElement | null };
   onExternalNoteDrop?: (notes: NotebookNoteDragResource[], beforeRecordId: string | null) => void | Promise<void>;
+  pageScroll?: boolean;
 }) {
   const { t } = useI18n();
   const galleryId = useId();
@@ -146,7 +147,7 @@ export function TableGalleryView({ records, titleField, fields, renderValue, ima
 
   const renderedRecords = dropPreview?.records ?? records;
 
-  return <div ref={galleryRef} className="multidimensional-table__gallery relative flex-1 px-5">
+  return <div ref={galleryRef} className={`multidimensional-table__gallery relative flex-1 ${pageScroll ? 'px-12' : 'px-5'}`}>
     <div className="multidimensional-table__gallery-grid grid w-full grid-cols-[repeat(auto-fill,minmax(min(100%,160px),1fr))] items-stretch gap-3.5">
       {renderedRecords.length === 0 && (onCreateBlankNote || onChooseData) ? <div className="col-span-full flex min-h-10 items-center justify-start gap-2 text-sm text-[var(--muted-foreground)]">
         {onCreateBlankNote && <button
@@ -235,7 +236,7 @@ export function TableGalleryView({ records, titleField, fields, renderValue, ima
   </div>;
 }
 
-export function TableKanbanView({ groupField, titleField, records, groups, renderValue, recordStatus, noteIconForRecord, onDropRecord, onExternalNoteDrop, dropNotebookId, canDropExternal = false, onReorderLane, onAddTask, onAddLane, onOpenRecord, onRenameRecord, onDeleteRecord, canAddTask = true, canAddLane = true, embeddedInEditor = false }: {
+export function TableKanbanView({ groupField, titleField, records, groups, renderValue, recordStatus, noteIconForRecord, onDropRecord, onExternalNoteDrop, dropNotebookId, canDropExternal = false, onReorderLane, onAddTask, onAddLane, onOpenRecord, onRenameRecord, onDeleteRecord, canAddTask = true, canAddLane = true, embeddedInEditor = false, pageScroll = false }: {
   groupField: TableField;
   titleField: TableField;
   records?: TableRecord[];
@@ -256,6 +257,7 @@ export function TableKanbanView({ groupField, titleField, records, groups, rende
   canAddTask?: boolean;
   canAddLane?: boolean;
   embeddedInEditor?: boolean;
+  pageScroll?: boolean;
 }) {
   const { t } = useI18n();
   const [draggingRecordId, setDraggingRecordId] = useState<string | null>(null);
@@ -313,7 +315,7 @@ export function TableKanbanView({ groupField, titleField, records, groups, rende
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" side="bottom" sideOffset={4} className="w-36 rounded-xl p-1">
-            {onOpenRecord && <DropdownMenuItem disabled={status !== 'linked'} onClick={(event) => { event.stopPropagation(); onOpenRecord(record.id); }} className="!h-8 rounded-lg px-2 py-0">
+            {onOpenRecord && <DropdownMenuItem disabled={status === 'draft' || status === 'unknown'} onClick={(event) => { event.stopPropagation(); onOpenRecord(record.id); }} className="!h-8 rounded-lg px-2 py-0">
               <ArrowSquareOutIcon className="mr-2 h-4 w-4" aria-hidden="true" />打开
             </DropdownMenuItem>}
             {onRenameRecord && <DropdownMenuItem disabled={status !== 'linked'} onClick={(event) => { event.stopPropagation(); setEditingTitle(title); setEditingRecord(record); }} className="!h-8 rounded-lg px-2 py-0">
@@ -543,11 +545,11 @@ export function TableKanbanView({ groupField, titleField, records, groups, rende
     }
     const record = allRecords.find((item) => item.id === drag.recordId);
     resetDrag();
-    if (record && recordStatus?.(record) === 'linked') onOpenRecord?.(drag.recordId);
+    if (record && (recordStatus?.(record) === 'linked' || recordStatus?.(record) === 'missing')) onOpenRecord?.(drag.recordId);
   };
 
   return <div ref={kanbanBoardRef} onPointerMove={onCardPointerMove} onPointerUp={onCardPointerUp} onPointerCancel={cancelKanbanDrag} className="flex min-h-0 flex-1 flex-col">
-    <div className={`multidimensional-table__kanban-lanes flex w-max items-stretch gap-3 ${embeddedInEditor ? 'px-5 py-3' : 'px-4 py-1'}`}>
+    <div className={`multidimensional-table__kanban-lanes flex w-max items-stretch gap-3 ${pageScroll ? 'px-12 py-1' : embeddedInEditor ? 'px-5 py-3' : 'px-4 py-1'}`}>
       <section data-kanban-unassigned="true" className={`multidimensional-table__kanban-lane flex shrink-0 flex-col rounded-xl border border-[var(--border)] ${unassignedCollapsed ? 'w-10 min-w-10 max-w-10' : 'w-64'}`}>
         <header className={`flex min-h-10 items-center gap-3 ${unassignedCollapsed ? 'w-full min-w-0 flex-col px-1.5 pt-3 pb-1.5' : 'justify-between px-3.5 pt-3.5 pb-1.5'}`}>
           {unassignedCollapsed ? <>
@@ -668,7 +670,7 @@ function TableRecordTitle({ record, titleField, renderValue, noteIconForRecord, 
   </span>;
 }
 
-export function TableCalendarView({ cursor, onCursorChange, days, groups, dateFieldId, dateFieldLabel = '', dateFieldOptions = [], embeddedInEditor = false, onDateFieldChange, onCustomDateField, titleField, renderValue, dateValueForRecord, noteColorForRecord, noteIconForRecord, weekStart = 0, onWeekStartChange, onMoveRecord, onOpenRecord, onEditRecord, canMoveRecords = true, dateFieldReadOnly = !canMoveRecords, dateFieldReadOnlyReason = '当前日期字段为只读状态', onDoubleClickDate, addingNoteDate, dropNotebookId, onExternalNoteDrop }: {
+export function TableCalendarView({ cursor, onCursorChange, days, groups, dateFieldId, dateFieldLabel = '', dateFieldOptions = [], embeddedInEditor = false, onDateFieldChange, onCustomDateField, titleField, renderValue, dateValueForRecord, noteColorForRecord, noteIconForRecord, weekStart = 0, onWeekStartChange, onMoveRecord, onOpenRecord, onEditRecord, canMoveRecords = true, dateFieldReadOnly = !canMoveRecords, dateFieldReadOnlyReason = '当前日期字段为只读状态', onDoubleClickDate, addingNoteDate, dropNotebookId, onExternalNoteDrop, pageScroll = false }: {
   cursor: Date;
   onCursorChange: (date: Date) => void;
   days: Array<{ date: Date; iso: string; inMonth: boolean }>;
@@ -677,6 +679,7 @@ export function TableCalendarView({ cursor, onCursorChange, days, groups, dateFi
   dateFieldLabel?: string;
   dateFieldOptions?: Array<{ id: string; label: string; readOnly?: boolean }>;
   embeddedInEditor?: boolean;
+  pageScroll?: boolean;
   onDateFieldChange?: (fieldId: string) => void | Promise<void>;
   onCustomDateField?: () => void;
   titleField: TableField;
@@ -831,7 +834,7 @@ export function TableCalendarView({ cursor, onCursorChange, days, groups, dateFi
     resetDrag();
   };
 
-  return <div ref={calendarRef} className={`multidimensional-table__calendar mx-0 flex min-h-0 flex-1 flex-col pt-0 ${embeddedInEditor ? '' : 'px-4'}`}>
+  return <div ref={calendarRef} className={`multidimensional-table__calendar mx-0 flex min-h-0 flex-1 flex-col pt-0 ${pageScroll ? 'px-12' : embeddedInEditor ? '' : 'px-4'}`}>
     <header className="flex shrink-0 items-center justify-between pb-1">
       <div className="flex min-w-0 items-center gap-2">
           <DropdownMenu onOpenChange={(open) => { if (!open) setWeekStartMenuOpen(false); }}>

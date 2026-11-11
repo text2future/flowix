@@ -41,7 +41,7 @@ export function CollectionPanels({ tabs, domains, filesRoot, notebookId, noteboo
     {/* 图墙与列表都自然撑开，虚拟化和翻页订阅外壳滚动，不再创建内部滚动区。
         同一域的面板保持挂载，切 tab 只切可见性与操作区归属。 */}
     {tabs.mounted.includes('media') && domains.includes('media') ? (
-      <div className={tabs.activeDomain === 'media' ? 'flex flex-col px-4' : 'hidden'}>
+      <div className={tabs.activeDomain === 'media' ? 'flex flex-col px-12' : 'hidden'}>
         <Suspense fallback={COLLECTION_PANEL_FALLBACK}>
           <MediaLibraryView
             pageScroll
@@ -64,7 +64,7 @@ export function CollectionPanels({ tabs, domains, filesRoot, notebookId, noteboo
     {tabs.mounted.includes('work_documents') && domains.includes('work_documents') ? (
       /* 列表（工作文档域）：整页滚动下的流式面板——列表自然撑开，滚动交给页面滚动容器
           （不锁 `--collection-content-h`，那会让它内部滚动）。 */
-      <div className={tabs.activeDomain === 'work_documents' ? 'flex flex-col px-4' : 'hidden'}>
+      <div className={tabs.activeDomain === 'work_documents' ? 'flex flex-col px-12' : 'hidden'}>
         <Suspense fallback={COLLECTION_PANEL_FALLBACK}>
           <WorkDocumentsCollectionView
             editable={editable}

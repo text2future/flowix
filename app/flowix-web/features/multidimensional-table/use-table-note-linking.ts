@@ -1,14 +1,14 @@
 import { useCallback, useState } from 'react';
 
 import { friendlyErrorMessage } from '@/lib/friendly-error-message';
-import { joinNotebookMemoPath, notebookRelativeDirectoryPath, parentDirectoryPath } from '@/lib/path';
+import { joinNotebookMemoPath } from '@/lib/path';
 import { toast } from '@/lib/toast';
 import { displayTitleFromFilename } from '@/lib/utils';
 import { setDocumentProperties } from '@features/document/public/path-properties';
 import { renameMarkdownTitle } from '@features/document/use-cases/local-document-operations';
 import { replaceExternalDocumentPath } from '@features/workspace/public/note-navigation-api';
 import { ensureFileDisplayIdentity } from '@/lib/file-display-registry';
-import { resolveCollectionSaveDirectory } from '@features/collection/save-location';
+import { tableNoteDirectory } from './table-note-directory';
 import { reviseCollection } from '@features/collection/model';
 import { resolveDatasetFilterForLocation } from '@features/collection/dataset-filter-location';
 import { notes as notesClient, type NoteEntry } from '@platform/tauri/client';
@@ -122,18 +122,12 @@ export function useTableNoteLinking(input: UseTableNoteLinkingInput) {
     if (!editable) throw new Error('当前引用为只读，无法新建笔记');
     if (!resolvedNotebookId) throw new Error('无法确定当前笔记本');
     if (!document || !notebookPath) throw new Error('无法确定当前多维表路径');
-    const directory = resolveCollectionSaveDirectory({
-      filePath: currentFilePath, notebookPath, placement: document.collection.placement,
-      source: document.dataset.source,
-      filter: document.dataset.filter,
-      defaultDirectory: parentDirectoryPath(currentFilePath, notebookPath),
-    });
-    const parentRelativePath = notebookRelativeDirectoryPath(notebookPath, directory) ?? undefined;
+    const parentRelativePath = tableNoteDirectory(document.collection.id);
     return notesClient.create(resolvedNotebookId, undefined, parentRelativePath, title);
-  }, [currentFilePath, document, editable, notebookPath, resolvedNotebookId]);
+  }, [document, editable, notebookPath, resolvedNotebookId]);
 
   const linkSelectedNote = useCallback(async (selectedNoteKey: string) => {
-    if (!editable || !document || document.collection.placement === 'folder' || !noteField || !selectedNoteKey || saving) return;
+    if (!editable || !document || !noteField || !selectedNoteKey || saving) return;
     const sequence = loadSequenceRef.current;
     setSaving(true);
     try {
@@ -169,7 +163,7 @@ export function useTableNoteLinking(input: UseTableNoteLinkingInput) {
   }, [activeViewLayout, applyCalendarDateToNote, availableNotes, document, editable, isCurrentSession, loadSequenceRef, noteField, notePickerCalendarDate, notePickerRecordId, save, saving, setNotes, setSaving, visibleRecords, reportSaveFailure, setPendingTablePageRecordId]);
 
   const replaceLinkedNote = useCallback((recordId: string, noteKey: string) => {
-    if (!document || document.collection.placement === 'folder' || !noteField || saving) return;
+    if (!document || !noteField || saving) return;
     const now = new Date().toISOString();
     const targetRecord = visibleRecords.find((record) => record.id === recordId);
     if (!targetRecord) return;
@@ -275,34 +269,93 @@ export function useTableNoteLinking(input: UseTableNoteLinkingInput) {
     }
   }, [editable, isCurrentSession, loadSequenceRef, notebookPath, saving, setNotes, reportSaveFailure, setSaving, notebookId]);
 
-  const deleteRecord = useCallback((recordId: string) => {
-    if (!document || saving) return;
+  const requestDeleteLinkedNote = useCallback((note: NoteEntry) => {
+    const targetNotebookId = resolvedNotebookId ?? notebookId;
+    if (!targetNotebookId) return;
+    const filename = note.relativePath.split(/[\\/]/).filter(Boolean).pop() ?? note.relativePath;
+    const target: NoteListItem = {
+      kind: 'path-note',
+      notebookId: targetNotebookId,
+      relativePath: note.relativePath,
+      filename,
+      title: note.title,
+      preview: note.preview,
+      thumbnail: note.thumbnail,
+      tags: note.tags,
+      todos: note.todos,
+      agents: note.agents,
+      createdAt: note.createdAt,
+      updatedAt: note.updatedAt,
+      favorited: note.favorited,
+      icon: note.icon,
+      colors: note.colors,
+      properties: note.properties,
+    };
+    window.dispatchEvent(new CustomEvent<NoteListItem>('flowix:request-delete-memo', { detail: target }));
+  }, [notebookId, resolvedNotebookId]);
+
+  const removeTableRow = useCallback(async (recordId: string) => {
+    if (!editable || !document || saving) return;
     const record = visibleRecords.find((item) => item.id === recordId);
     if (!record) return;
-    const primaryField = document.dataset.schema.fields[0];
-    const datasetFilter = resolveDatasetFilterForLocation(document.dataset.filter, document.collection.placement, currentFilePath, notebookPath);
-    let nextDocument = document;
-    const note = record ? noteForRecord(record) : undefined;
-    const ruleMatch = primaryField && record && note
-      ? datasetFilter !== null && noteMatchesCollectionFilter(note, collectionFilterFields, primaryField.id, datasetFilter)
-      : false;
-    if (primaryField && record && note && ruleMatch) {
-      const notePath = note.relativePath.replace(/\\/g, '/');
-      nextDocument = {
-        ...document,
-        dataset: { ...document.dataset, records: { ...document.dataset.records,
-          exclude: document.dataset.records.exclude.some((item) => item.note_path === notePath)
-            ? document.dataset.records.exclude
-            : [...document.dataset.records.exclude, { note_path: notePath }] } },
+    const primaryField = document.dataset.schema.fields.find((field) => field.id === document.dataset.schema.primary_field_id);
+    const note = noteForRecord(record);
+    const datasetFilter = resolveDatasetFilterForLocation(
+      document.dataset.filter,
+      document.collection.placement,
+      currentFilePath,
+      notebookPath,
+    );
+    const isAutoCollected = Boolean(primaryField && note && datasetFilter
+      && noteMatchesCollectionFilter(note, collectionFilterFields, primaryField.id, datasetFilter));
+    const nextRecords = isAutoCollected
+      ? {
+        ...document.dataset.records,
+        exclude: document.dataset.records.exclude.some((item) => item.note_path === record.note_path)
+          ? document.dataset.records.exclude
+          : [...document.dataset.records.exclude, { note_path: record.note_path }],
+      }
+      : {
+        ...document.dataset.records,
+        include: document.dataset.records.include.filter((item) => item.id !== recordId),
       };
+    await save({
+      ...document,
+      collection: reviseCollection(document.collection),
+      dataset: { ...document.dataset, records: nextRecords },
+    });
+  }, [collectionFilterFields, currentFilePath, document, editable, noteForRecord, notebookPath, save, saving, visibleRecords]);
+
+  const cleanMissingRecord = useCallback(async (record: TableRecord) => {
+    if (!record.note_path || saving) return;
+    const path = notebookPath ? joinNotebookMemoPath(notebookPath, record.note_path) : null;
+    if (!path) {
+      toast.error('无法确认关联笔记');
+      return;
     }
-    const next = {
-      ...nextDocument,
-      collection: reviseCollection(nextDocument.collection),
-      dataset: { ...nextDocument.dataset, records: { ...nextDocument.dataset.records, include: document.dataset.records.include.filter((item) => item.id !== recordId) } },
-    };
-    void save(next);
-  }, [collectionFilterFields, currentFilePath, document, notebookPath, noteForRecord, save, saving, visibleRecords]);
+    try {
+      const result = await notesClient.pruneMissing(path);
+      if (result === 'present') {
+        toast.error('笔记仍然存在，请刷新后重试');
+        return;
+      }
+      await removeTableRow(record.id);
+      toast.error('操作笔记已不存在');
+    } catch (error) {
+      toast.error(friendlyErrorMessage(error, t, 'errors.friendly.notesLoad'));
+    }
+  }, [notebookPath, removeTableRow, saving, t]);
+
+  const deleteLinkedNote = useCallback((recordId: string) => {
+    if (!editable || !document || saving) return;
+    const record = visibleRecords.find((item) => item.id === recordId);
+    const note = record ? noteForRecord(record) : undefined;
+    if (note) requestDeleteLinkedNote(note);
+    else if (record?.note_path) void cleanMissingRecord(record);
+  }, [cleanMissingRecord, document, editable, noteForRecord, requestDeleteLinkedNote, saving, visibleRecords]);
+
+  const deleteRecord = deleteLinkedNote;
+  const deleteTableRow = removeTableRow;
 
   const updateRecordField = useCallback((recordId: string, fieldId: string, value: unknown) => {
     if (!document) return;
@@ -353,30 +406,7 @@ export function useTableNoteLinking(input: UseTableNoteLinkingInput) {
     }
   }, [createNoteInNotebook, document, editable, isCurrentSession, loadSequenceRef, noteField, reportSaveFailure, resolvedNotebookId, save, saving, setNotes, setSaving, setTablePage]);
 
-  const requestDeleteLinkedNote = useCallback((note: NoteEntry) => {
-    const targetNotebookId = resolvedNotebookId ?? notebookId;
-    if (!targetNotebookId) return;
-    const filename = note.relativePath.split(/[\\/]/).filter(Boolean).pop() ?? note.relativePath;
-    const target: NoteListItem = {
-      kind: 'path-note',
-      notebookId: targetNotebookId,
-      relativePath: note.relativePath,
-      filename,
-      title: note.title,
-      preview: note.preview,
-      thumbnail: note.thumbnail,
-      tags: note.tags,
-      todos: note.todos,
-      agents: note.agents,
-      createdAt: note.createdAt,
-      updatedAt: note.updatedAt,
-      favorited: note.favorited,
-      icon: note.icon,
-      colors: note.colors,
-      properties: note.properties,
-    };
-    window.dispatchEvent(new CustomEvent<NoteListItem>('flowix:request-delete-memo', { detail: target }));
-  }, [notebookId, resolvedNotebookId]);
+
 
 
   return {
@@ -395,7 +425,11 @@ export function useTableNoteLinking(input: UseTableNoteLinkingInput) {
     createAndLinkRecordNote,
     createAndLinkNote,
     renameLinkedNote,
+    cleanMissingRecord,
+    deleteLinkedNote,
     deleteRecord,
+    removeTableRow,
+    deleteTableRow,
     updateRecordField,
     selectImageForCell,
     createBlankGalleryNote,

@@ -359,10 +359,7 @@ pub(crate) fn can_access_scoped_file_with_state(
         && path_is_inside(file_path, root)
 }
 
-/// The notebook's .flowix directory is application-owned data, never a
-/// user-facing file. Keep this check below the generic scope helpers so hidden
-/// directory preferences cannot make the database and internal artifacts
-/// mutable.
+/// Internal data remains protected except for table-owned note files.
 pub(crate) fn is_internal_notebook_path(path: &Path, state: &State<AppState>) -> bool {
     is_internal_notebook_path_with_state(path, state.inner())
 }
@@ -373,7 +370,15 @@ pub(crate) fn is_internal_notebook_path_with_state(path: &Path, state: &AppState
         .read_notebook_configs()
         .unwrap_or_default()
         .iter()
-        .any(|config| path_is_inside_reserved_directory(path, Path::new(&config.path), ".flowix"))
+        .any(|config| {
+            let root = Path::new(&config.path);
+            let database = root.join(".flowix/database");
+            let real_directory = [root.join(".flowix"), database.clone()].iter().all(|dir| {
+                std::fs::symlink_metadata(dir).map(|metadata| metadata.is_dir() && !metadata.file_type().is_symlink()).unwrap_or(false)
+            });
+            path_is_inside_reserved_directory(path, root, ".flowix")
+                && !(real_directory && path_is_inside(path, root) && path_is_inside(path, &database))
+        })
 }
 
 /// External file scopes come from enabled notebook mounts in local.db.

@@ -311,7 +311,7 @@ export function CollectionShell({ host, filePath: filePathProp = null, folderPat
         onSelectImage={banner.selectImage}
       />
       {titleVisible ? (
-        <div className="absolute -bottom-[11px] left-4 z-10">
+        <div className="absolute -bottom-[11px] left-12 z-10">
           {headerIconNode}
         </div>
       ) : null}

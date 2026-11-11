@@ -6,10 +6,12 @@
 // 扩展名是图标 id。properties.icon 存的是去后缀的 id, getPropertyIconOption
 // 内部按 id 查 (全包唯一), 新增/重排分类都不会让已存的值失效。
 //
-// 加载走 vite import.meta.glob (eager, import: 'default') ──
+// 加载走 vite import.meta.glob (eager, import: 'default', base) ──
 // 返回的 URL 直接喂 <img src=...> 即可, 不需要把文件再搬一份到 public/。
 // 注意: vite.config.ts 对这批 svg 关掉了内联, 否则上千张图会以 data URI
 // 形式全部塞进 JS chunk。
+
+import { parsePropertyIconKey } from './property-icon-key';
 
 /** 图标包 id 即一级子目录名, 顺序 = picker 的展示顺序。 */
 export const PROPERTY_ICON_PACK_IDS = ['emoji', 'mochi'] as const;
@@ -53,10 +55,22 @@ export interface PropertyIconPack {
   categories: readonly PropertyIconCategory[];
 }
 
-const NOTE_ICON_MODULES = import.meta.glob<string>(
-  '../../../assets/property-icons/*/*/*.svg',
-  { eager: true, import: 'default' },
-);
+/**
+ * 每个图标包一组 glob。`base` 让 key 从「完整相对路径」收窄成 `<分类>/<id>.svg`:
+ * 1414 条记录的 key 会原样进入启动图, 省掉每条重复出现的
+ * `../../../assets/property-icons/<包>/` 前缀是这张表唯一的体积来源
+ * (实测从 ~98KB 降到 ~57KB 源码)。
+ */
+const ICON_MODULES_BY_PACK: Readonly<Record<PropertyIconPackId, Readonly<Record<string, string>>>> = {
+  emoji: import.meta.glob<string>(
+    './*/*.svg',
+    { eager: true, import: 'default', base: '../../../assets/property-icons/emoji' },
+  ),
+  mochi: import.meta.glob<string>(
+    './*/*.svg',
+    { eager: true, import: 'default', base: '../../../assets/property-icons/mochi' },
+  ),
+};
 
 const PACK_INDEX = new Map<PropertyIconPackId, number>(
   PROPERTY_ICON_PACK_IDS.map((id, index) => [id, index]),
@@ -67,10 +81,6 @@ const CATEGORY_IDS_BY_PACK: ReadonlyMap<PropertyIconPackId, ReadonlySet<string>>
   ['mochi', new Set<string>(PROPERTY_ICON_MOCHI_CATEGORY_IDS)],
 ]);
 
-function getIconIdFromPath(path: string): string {
-  return path.split('/').pop()?.replace(/\.svg$/i, '') ?? path;
-}
-
 function getIconLabel(id: string): string {
   return id
     .split(/[-_\s]+/)
@@ -79,36 +89,25 @@ function getIconLabel(id: string): string {
     .join(' ');
 }
 
-/** `<pack>/<category>/<id>.svg` → pack + category; 不在已知列表里则丢弃。 */
-function readPackAndCategory(path: string): {
-  pack: PropertyIconPackId;
-  category: PropertyIconCategoryId;
-} | null {
-  const parts = path.split('/');
-  const pack = parts[parts.length - 3] as PropertyIconPackId;
-  const category = parts[parts.length - 2] as PropertyIconCategoryId;
-  if (!PACK_INDEX.has(pack)) return null;
-  if (!CATEGORY_IDS_BY_PACK.get(pack)?.has(category)) return null;
-  return { pack, category };
+/** `<分类>/<id>.svg` → option; 分类不在已知列表里则丢弃。 */
+function readIconOptions(pack: PropertyIconPackId): PropertyIconOption[] {
+  const allowed = CATEGORY_IDS_BY_PACK.get(pack);
+  if (!allowed) return [];
+  const options: PropertyIconOption[] = [];
+  for (const [key, src] of Object.entries(ICON_MODULES_BY_PACK[pack])) {
+    const parsed = parsePropertyIconKey(key);
+    if (!parsed || !allowed.has(parsed.category)) continue;
+    options.push({
+      value: parsed.value,
+      label: getIconLabel(parsed.value),
+      src,
+      pack,
+      category: parsed.category as PropertyIconCategoryId,
+    });
+  }
+  // 分类内按 label 字母序, 遍历时分组连续。
+  return options.sort((a, b) => a.label.localeCompare(b.label));
 }
-
-// 按「包顺序 → 分类顺序 → 分类内 label 字母序」排, 遍历时也是分组连续的。
-const ALL_OPTIONS: readonly PropertyIconOption[] = Object.entries(NOTE_ICON_MODULES)
-  .flatMap(([path, src]) => {
-    const parsed = readPackAndCategory(path);
-    if (!parsed) return [];
-    const value = getIconIdFromPath(path);
-    return [{ value, label: getIconLabel(value), src, ...parsed }];
-  })
-  .sort((a, b) => {
-    const packOrder =
-      PACK_INDEX.get(a.pack)! - PACK_INDEX.get(b.pack)!;
-    if (packOrder !== 0) return packOrder;
-    const categoryOrder =
-      packCategoryOrder(a.pack, a.category) - packCategoryOrder(b.pack, b.category);
-    if (categoryOrder !== 0) return categoryOrder;
-    return a.label.localeCompare(b.label);
-  });
 
 function packCategoryOrder(pack: PropertyIconPackId, category: PropertyIconCategoryId): number {
   const ids = pack === 'mochi'
@@ -117,6 +116,20 @@ function packCategoryOrder(pack: PropertyIconPackId, category: PropertyIconCateg
   const index = (ids as readonly string[]).indexOf(category);
   return index < 0 ? Number.MAX_SAFE_INTEGER : index;
 }
+
+// 按「包顺序 → 分类顺序 → 分类内 label 字母序」排, 遍历时也是分组连续的。
+const ALL_OPTIONS: readonly PropertyIconOption[] = PROPERTY_ICON_PACK_IDS
+  .flatMap(readIconOptions)
+  .sort((a, b) => {
+    const packOrder = PACK_INDEX.get(a.pack)! - PACK_INDEX.get(b.pack)!;
+    if (packOrder !== 0) return packOrder;
+    return packCategoryOrder(a.pack, a.category) - packCategoryOrder(b.pack, b.category);
+  });
+
+/** id 全包唯一 (1414 条无重复), 行内渲染每帧都要查, 用 Map 而不是线性 find。 */
+const OPTION_BY_VALUE = new Map<string, PropertyIconOption>(
+  ALL_OPTIONS.map((option) => [option.value, option]),
+);
 
 /** 全部图标 (已按包/分类排好), 供需要扁平列表的调用方使用。 */
 export const PROPERTY_ICON_OPTIONS: readonly PropertyIconOption[] = ALL_OPTIONS;
@@ -157,7 +170,7 @@ export function getPropertyIconCategoryOptions(
 export function getPropertyIconOption(value: string): PropertyIconOption | null {
   const normalized = value.trim().replace(/\.svg$/i, '');
   if (!normalized) return null;
-  return PROPERTY_ICON_OPTIONS.find((option) => option.value === normalized) ?? null;
+  return OPTION_BY_VALUE.get(normalized) ?? null;
 }
 
 /** 当前值没有对应包/分类时给个兜底, 保证 picker 永远有内容可渲染。 */

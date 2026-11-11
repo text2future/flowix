@@ -4,6 +4,7 @@ const editorTablesZhCN = {
   'editor.table.columnAlignRight': '右对齐',
   'editor.table.reorderColumn': '拖动调整列顺序',
   'editor.table.reorderRow': '拖动调整行顺序',
+  'editor.table.clearSortToReorderConfirm': '此视图已设置排序。清除排序并继续调整行顺序吗？',
   'editor.table.insert': '插入表格',
   'editor.table.backToMenu': '返回插入菜单',
   'editor.table.theme': '主题',
@@ -13,6 +14,7 @@ const editorTablesZhCN = {
   'editor.table.columnBackground': '列背景',
   'editor.table.rowStyle': '行样式',
   'editor.table.columnStyle': '列样式',
+  'editor.table.alignment': '对齐',
   'editor.table.headerRowRequired': '当前主题需要保留标题行，无法关闭。',
   'editor.table.rowColumnOperations': '行列操作',
   // 表格气泡触发按钮的 tooltip 产品文案。与菜单 label 分开: label 仍作

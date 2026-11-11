@@ -5,7 +5,7 @@ import type zhCN from './messages.collection.zh-CN';
  * annotation keeps its key set aligned with the zh-CN shard at compile time.
  */
 const enUS: Record<keyof typeof zhCN, string> = {
-  "collection.composerPlaceholder": "Ask {name}, or let it organize this collection…",
+  "collection.composerPlaceholder": "Ask AI",
   "collection.composerSend": "Send to {name}",
   "collection.composerAdd": "Add attachment",
   "collection.agentSwitch": "Switch agent type",

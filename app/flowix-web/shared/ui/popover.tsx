@@ -82,6 +82,14 @@ interface PopoverTriggerChildProps {
 function PopoverTrigger({ children, asChild, className, render, anchorToCell = false, disabled = false }: PopoverTriggerProps) {
 	const { open, setOpen, triggerRef, setTriggerAnchorRect, setCellAnchorRect, cellPopup } = usePopoverContext();
 
+	React.useLayoutEffect(() => {
+		if (!anchorToCell || !open) return;
+		const trigger = triggerRef.current;
+		const cell = trigger?.closest("td") ?? trigger?.closest<HTMLElement>("[data-flowix-cell-anchor]");
+		const rect = cell?.getBoundingClientRect() ?? trigger?.getBoundingClientRect();
+		if (rect) setCellAnchorRect(rect);
+	}, [anchorToCell, open, setCellAnchorRect, triggerRef]);
+
 	const handleClick = (e: React.MouseEvent) => {
 		if (disabled) return;
 		if (anchorToCell) {
@@ -147,7 +155,7 @@ interface PopoverContentProps {
 	onMouseEnter?: React.MouseEventHandler<HTMLDivElement>;
 	onMouseLeave?: React.MouseEventHandler<HTMLDivElement>;
 	matchAnchorWidth?: boolean | number;
-	matchAnchorHeight?: boolean;
+	matchAnchorHeight?: boolean | number;
 	onExitComplete?: () => void;
 	ignoreSelectOutside?: boolean;
 	ignorePopoverOutside?: boolean;
@@ -253,6 +261,10 @@ function PopoverContent({
 				resolvedSide = 'left';
 			} else if (side === 'left' && rect.left - width - sideOffset < 4 && rect.right + width + sideOffset <= window.innerWidth - 4) {
 				resolvedSide = 'right';
+			} else if (side === 'bottom' && rect.bottom + height + sideOffset > window.innerHeight - 4 && rect.top - height - sideOffset >= 4) {
+				resolvedSide = 'top';
+			} else if (side === 'top' && rect.top - height - sideOffset < 4 && rect.bottom + height + sideOffset <= window.innerHeight - 4) {
+				resolvedSide = 'bottom';
 			}
 
 			if (alignToAnchorOrigin) {
@@ -269,7 +281,7 @@ function PopoverContent({
 						? rect.bottom - height
 						: rect.top;
 			} else {
-				topPos = side === "top" ? rect.top - height - sideOffset : rect.bottom + sideOffset;
+				topPos = resolvedSide === "top" ? rect.top - height - sideOffset : rect.bottom + sideOffset;
 				leftPos = align === "center"
 					? rect.left + rect.width / 2 - width / 2
 					: align === "end"
@@ -403,7 +415,9 @@ function PopoverContent({
 				...(matchAnchorWidth && cellAnchorRect
 					? { width: cellAnchorRect.width * (typeof matchAnchorWidth === "number" ? matchAnchorWidth : 1) }
 					: {}),
-				...(matchAnchorHeight && cellAnchorRect ? { minHeight: cellAnchorRect.height } : {}),
+				...(matchAnchorHeight && cellAnchorRect
+					? { minHeight: cellAnchorRect.height * (typeof matchAnchorHeight === "number" ? matchAnchorHeight : 1) }
+					: {}),
 				top: position.top,
 				left: position.left,
 			}}

@@ -135,7 +135,8 @@ impl MemoFile {
     ) -> Option<PathBuf> {
         let relative = Path::new(relative_path);
         if relative.is_absolute()
-            || !(relative.is_md() || relative_path.starts_with("attachments/"))
+            || !(relative.is_md() || relative_path.starts_with("attachments/")
+                || (!relative.starts_with(".flowix") && crate::collection::is_collection_document_path(relative)))
             || relative
                 .components()
                 .any(|part| !matches!(part, std::path::Component::Normal(_)))
@@ -354,6 +355,15 @@ mod path_version_tests {
             path: root.to_string_lossy().to_string(), is_default: true,
             sort: 0, created_at: 1, updated_at: 1,
         }]).unwrap();
+        for relative in ["Tasks.table.yaml", "Projects/.index.yaml"] {
+            let version = store.create_path_version_bytes(
+                "work", relative, b"offline collection", MemoVersionSource::CloudConflict,
+            ).unwrap().unwrap();
+            assert_eq!(store.read_path_version_bytes("work", relative, &version.id).as_deref(), Some(b"offline collection".as_slice()));
+            assert!(store.list_path_archives().iter().any(|entry| entry.relative_path == relative));
+        }
+        assert!(store.create_path_version_bytes("work", ".flowix/private.table.yaml", b"private", MemoVersionSource::CloudConflict).unwrap().is_none());
+        assert!(store.create_path_version_bytes("work", "../escape.table.yaml", b"bad", MemoVersionSource::CloudConflict).unwrap().is_none());
         let rejected = store.create_path_version_bytes(
             "work", "Note.md", b"offline edit", MemoVersionSource::CloudConflict,
         ).unwrap().unwrap();

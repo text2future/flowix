@@ -1,5 +1,5 @@
 import type { Node as PMNode } from '@tiptap/pm/model';
-import { Plugin, PluginKey, type EditorState } from '@tiptap/pm/state';
+import { Plugin, PluginKey, TextSelection, type EditorState } from '@tiptap/pm/state';
 import { CellSelection, TableMap, columnResizingPluginKey } from '@tiptap/pm/tables';
 import type { EditorView } from '@tiptap/pm/view';
 import { canReorderTable, reorderTable, tableAxisSelection, type Axis } from './table-reorder-commands';
@@ -40,6 +40,7 @@ interface DragState {
   y: number;
   active: boolean;
   valid: boolean;
+  anchor: DOMRect;
 }
 
 const DRAG_THRESHOLD = 5;
@@ -49,11 +50,15 @@ const SCROLL_STEP = 10;
 
 class ReorderView {
   private buttons: HTMLButtonElement[] = [];
+  private pinnedButtons: HTMLButtonElement[] = [];
+  private pinnedTarget: Target | null = null;
   private marker: HTMLDivElement;
   private readonly preview: TableReorderPreview;
   private target: Target | null = null;
   private pointerTarget: Element | null = null;
   private pinnedAxis: Axis | null = null;
+  /** Grips belonging to the selection, independent of pointer hover. */
+  private pinnedShowing = false;
   private drag: DragState | null = null;
   private readonly doc: Document;
   private readonly ownerWindow: Window;
@@ -67,7 +72,7 @@ class ReorderView {
     this.marker.className = 'table-reorder-marker';
     this.marker.hidden = true;
     this.preview = new TableReorderPreview(this.doc);
-    for (const axis of ['column', 'row'] as const) {
+    for (const pinned of [false, true]) for (const axis of ['column', 'row'] as const) {
       const button = this.doc.createElement('button');
       button.type = 'button';
       button.className = `table-reorder-handle table-reorder-handle--${axis}`;
@@ -75,8 +80,17 @@ class ReorderView {
       button.setAttribute('aria-label', button.title);
       button.contentEditable = 'false';
       button.hidden = true;
-      button.addEventListener('mousedown', event => this.start(event, axis));
-      this.buttons.push(button);
+      button.addEventListener('mousedown', event => this.start(event, axis, pinned));
+      button.addEventListener('click', event => {
+        if (event.detail !== 0) return;
+        const target = pinned ? this.pinnedTarget : this.target;
+        if (!target || !this.view.editable) return;
+        const index = axis === 'row' ? target.row : target.column;
+        this.pinnedAxis = axis;
+        this.view.dispatch(this.view.state.tr.setSelection(tableAxisSelection(this.view.state.doc, target.node, target.pos, axis, index)));
+        this.openMenu(axis, button.getBoundingClientRect());
+      });
+      (pinned ? this.pinnedButtons : this.buttons).push(button);
     }
     view.dom.addEventListener('mousemove', this.captureReorderMove, true);
     view.dom.addEventListener('mousemove', this.hover);
@@ -113,7 +127,7 @@ class ReorderView {
     // of a two-column workspace is read-only, and hiding the chrome there looks
     // like the feature was removed. start() keeps blocking the drag itself.
     if (this.drag) return;
-    if (this.syncPinned()) return;
+    // Selected grips remain pinned independently while hover follows the pointer.
     if (event.target instanceof Element && event.target.closest('.table-reorder-handle')) return;
     this.pointerTarget = event.target instanceof Element ? event.target : null;
     this.target = this.read(event.target);
@@ -121,19 +135,22 @@ class ReorderView {
     this.showHandles(this.target);
   };
 
-  private showHandles(target: Target, selectedAxis?: Axis): void {
-    this.target = target;
+  private showHandles(target: Target, selectedAxis?: Axis, pinned = false): void {
+    if (pinned) this.pinnedTarget = target;
+    else this.target = target;
     const { table, row, column } = target;
     const rail = table.parentElement!;
     const columnCell = table.rows[0].cells[column];
     const rowCell = table.rows[row].cells[0];
-    if (this.marker.parentElement !== rail) rail.append(...this.buttons, this.marker);
+    const buttons = pinned ? this.pinnedButtons : this.buttons;
+    if (buttons[0].parentElement !== rail) rail.append(...buttons);
+    if (!pinned && this.marker.parentElement !== rail) rail.append(this.marker);
     const columnBox = localBox(columnCell, rail);
     const rowBox = localBox(rowCell, rail);
     const tableBox = localBox(table, rail);
-    const [col, line] = this.buttons;
-    col.hidden = selectedAxis === 'row' || table.rows[0].cells.length < 2;
-    line.hidden = selectedAxis === 'column' || table.rows.length < 2;
+    const [col, line] = pinned ? this.pinnedButtons : this.buttons;
+    col.hidden = selectedAxis === 'row';
+    line.hidden = selectedAxis === 'column';
     col.toggleAttribute('data-selected', selectedAxis === 'column');
     line.toggleAttribute('data-selected', selectedAxis === 'row');
     col.style.left = `${Math.round(columnBox.left + columnBox.width / 2 - col.offsetWidth / 2)}px`;
@@ -142,48 +159,98 @@ class ReorderView {
     line.style.top = `${Math.round(rowBox.top + rowBox.height / 2 - line.offsetHeight / 2)}px`;
   }
 
-  private syncPinned(): boolean {
-    const axis = this.pinnedAxis;
-    const selection = this.view.state.selection;
-    if (!axis) return false;
-    if (this.view.editable && selection instanceof CellSelection) {
-      const $cell = selection.$anchorCell;
-      for (let depth = $cell.depth; depth > 0; depth--) {
-        const node = $cell.node(depth);
-        if (node.type.spec.tableRole !== 'table') continue;
-        const pos = $cell.before(depth);
-        const map = TableMap.get(node);
-        const start = $cell.start(depth);
-        const bounds = map.rectBetween(selection.$anchorCell.pos - start, selection.$headCell.pos - start);
-        const matches = axis === 'row'
-          ? selection.isRowSelection() && bounds.bottom - bounds.top === 1
-          : selection.isColSelection() && bounds.right - bounds.left === 1;
-        const dom = this.view.nodeDOM(pos);
-        const table = dom instanceof HTMLElement ? dom.querySelector('table') : null;
-        if (matches && canReorderTable(node) && table instanceof HTMLTableElement) {
-          this.showHandles({ table, node, pos, row: bounds.top, column: bounds.left }, axis);
-          return true;
-        }
-        break;
+  /** Row/column of the first selected cell in reading order, or the caret cell. */
+  private selectionTarget(selection: CellSelection | TextSelection): Target | null {
+    const $cell = selection instanceof CellSelection ? selection.$anchorCell : selection.$from;
+    let cellPos: number | null = selection instanceof CellSelection ? $cell.pos : null;
+    for (let depth = $cell.depth; depth > 0; depth--) {
+      const node = $cell.node(depth);
+      const role = node.type.spec.tableRole;
+      if (cellPos === null && (role === 'cell' || role === 'header_cell')) {
+        if (selection.to > $cell.end(depth)) return null;
+        cellPos = $cell.before(depth);
       }
+      if (role !== 'table' || cellPos === null) continue;
+      const pos = $cell.before(depth);
+      const dom = this.view.nodeDOM(pos);
+      const table = dom instanceof HTMLElement ? dom.querySelector('table') : null;
+      if (!canReorderTable(node) || !(table instanceof HTMLTableElement)) return null;
+      const start = $cell.start(depth);
+      const map = TableMap.get(node);
+      const bounds = selection instanceof CellSelection
+        ? map.rectBetween(selection.$anchorCell.pos - start, selection.$headCell.pos - start)
+        : map.findCell(cellPos - start);
+      return { table, node, pos, row: bounds.top, column: bounds.left };
     }
-    this.pinnedAxis = null;
-    this.buttons.forEach(button => { button.removeAttribute('data-selected'); button.hidden = true; });
+    return null;
+  }
+
+  /** Grip for the row/column a grip drag just selected, so the drag's result
+   * stays visible without the pointer resting on it. */
+  private pinAxisSelection(selection: CellSelection, axis: Axis): boolean {
+    const $cell = selection.$anchorCell;
+    for (let depth = $cell.depth; depth > 0; depth--) {
+      const node = $cell.node(depth);
+      if (node.type.spec.tableRole !== 'table') continue;
+      const pos = $cell.before(depth);
+      const map = TableMap.get(node);
+      const start = $cell.start(depth);
+      const bounds = map.rectBetween(selection.$anchorCell.pos - start, selection.$headCell.pos - start);
+      const matches = axis === 'row'
+        ? selection.isRowSelection() && bounds.bottom - bounds.top === 1
+        : selection.isColSelection() && bounds.right - bounds.left === 1;
+      const dom = this.view.nodeDOM(pos);
+      const table = dom instanceof HTMLElement ? dom.querySelector('table') : null;
+      if (matches && canReorderTable(node) && table instanceof HTMLTableElement) {
+        this.showHandles({ table, node, pos, row: bounds.top, column: bounds.left }, axis, true);
+        return true;
+      }
+      return false;
+    }
     return false;
   }
 
-  private start(event: MouseEvent, axis: Axis): void {
-    if (event.button !== 0 || !this.target || !this.view.editable) return;
+  /** Chrome that outlives the pointer: the row/column a grip drag just moved,
+   * and the row/column of the selected cell — the selection stays framed, so
+   * the grips for its row and column stay with it until the selection changes.
+   * Returns true when one of those is showing. Hover chrome is not ours to tear
+   * down here: only grips this method put up are cleared. */
+  private syncPinned(): boolean {
+    const selection = this.view.state.selection;
+    if (this.pinnedAxis) {
+      if (this.view.editable && selection instanceof CellSelection && this.pinAxisSelection(selection, this.pinnedAxis)) {
+        this.pinnedShowing = true;
+        return true;
+      }
+      this.pinnedAxis = null;
+    }
+    if (this.view.editable && (selection instanceof CellSelection || selection instanceof TextSelection)) {
+      const target = this.selectionTarget(selection);
+      if (target) { this.showHandles(target, undefined, true); this.pinnedShowing = true; return true; }
+    }
+    if (this.pinnedShowing) {
+      this.pinnedShowing = false;
+      this.pinnedTarget = null;
+      this.pinnedButtons.forEach(button => { button.removeAttribute('data-selected'); button.hidden = true; });
+    }
+    return false;
+  }
+
+  private start(event: MouseEvent, axis: Axis, pinned: boolean): void {
+    const target = pinned ? this.pinnedTarget : this.target;
+    if (event.button !== 0 || !target || !this.view.editable) return;
     event.preventDefault(); event.stopPropagation();
-    const target = this.target;
     const from = axis === 'row' ? target.row : target.column;
+    const rail = target.table.parentElement!;
+    if (this.marker.parentElement !== rail) rail.append(this.marker);
     this.pinnedAxis = axis;
     this.view.dom.setAttribute('data-table-reordering', 'true');
     const tr = this.view.state.tr.setSelection(tableAxisSelection(this.view.state.doc, target.node, target.pos, axis, from));
     // Remove an existing resize hover before it can resemble the drop marker.
     if (columnResizingPluginKey.getState(this.view.state)) tr.setMeta(columnResizingPluginKey, { setHandle: -1 });
     this.view.dispatch(tr);
-    this.drag = { target, axis, from, to: from, x: event.clientX, y: event.clientY, active: false, valid: false };
+    this.drag = { target, axis, from, to: from, x: event.clientX, y: event.clientY, active: false, valid: false,
+      anchor: (event.currentTarget as HTMLElement).getBoundingClientRect() };
   }
 
   private captureReorderMove = (event: MouseEvent): void => {
@@ -228,6 +295,10 @@ class ReorderView {
       : `left:${edge}px;top:${tableBox.top}px;width:2px;height:${tableBox.height}px`;
   };
 
+  private openMenu(axis: Axis, anchor: DOMRect): void {
+    this.view.dom.dispatchEvent(new CustomEvent('flowix:table-axis-menu', { detail: { axis, anchor } }));
+  }
+
   private end = (): void => {
     const drag = this.drag;
     // Only a grip drag owns the document-wide mouseup. A plain click anywhere —
@@ -239,6 +310,8 @@ class ReorderView {
     if (drag.active && drag.valid && this.view.state.doc.nodeAt(drag.target.pos) === drag.target.node) {
       reorderTable(this.view, drag.target.pos, drag.axis, drag.from, drag.to);
       this.view.focus();
+    } else if (!drag.active) {
+      this.openMenu(drag.axis, drag.anchor);
     }
   };
   private autoScroll = (): void => {
@@ -301,7 +374,7 @@ class ReorderView {
       // Editing a cell rewrites the document under a pointer that never moved.
       // Re-resolve the cell it still points at instead of blanking the grips;
       // read-only panes keep them too, as a CSS-ghosted hint.
-      if (wasVisible) this.resolvePointer();
+      if (wasVisible && !this.pinnedShowing) this.resolvePointer();
     } else if (this.drag && !previous.selection.eq(view.state.selection)) {
       this.cancel();
     } else if (!this.drag) {
@@ -321,6 +394,7 @@ class ReorderView {
     this.doc.removeEventListener('scroll', this.scroll, true);
     this.doc.defaultView?.removeEventListener('blur', this.cancel);
     this.buttons.forEach(button => button.remove());
+    this.pinnedButtons.forEach(button => button.remove());
     this.marker.remove();
     this.preview.destroy();
   }

@@ -590,7 +590,7 @@
       "count": 2
     },
     "no-restricted-imports": {
-      "count": 15
+      "count": 14
     }
   },
   "app/flowix-web/features/multidimensional-table/table-field-header.tsx": {
@@ -606,11 +606,6 @@
   "app/flowix-web/features/multidimensional-table/table-preset-bindings.ts": {
     "no-restricted-imports": {
       "count": 2
-    }
-  },
-  "app/flowix-web/features/multidimensional-table/table-record-row.tsx": {
-    "no-restricted-imports": {
-      "count": 7
     }
   },
   "app/flowix-web/features/multidimensional-table/table-reference-node.tsx": {
@@ -670,7 +665,7 @@
   },
   "app/flowix-web/features/multidimensional-table/use-table-note-linking.ts": {
     "no-restricted-imports": {
-      "count": 5
+      "count": 4
     }
   },
   "app/flowix-web/features/multidimensional-table/use-table-session.ts": {

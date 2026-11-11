@@ -857,6 +857,44 @@ export function flattenLoadedTree(
   return out;
 }
 
+/**
+ * 访问空间渲染要的三张表同源（同一批 tree item），必须一次遍历一起产出：
+ * 分开算就是三次全表遍历加三个中间数组，而 `nodes` 每次文件系统事件都会被
+ * 整体替换，这条路径一直在跑。
+ */
+export interface NotebookTreeItemIndex {
+  items: DocTreeItem[];
+  itemByPath: Map<string, DocTreeItem>;
+  folderPaths: Set<string>;
+}
+
+export function buildLoadedTreeIndex(
+  state: { rootChildren: readonly DocTreeItem[]; nodes: ReadonlyMap<string, DocTreeItem> },
+): NotebookTreeItemIndex {
+  const items: DocTreeItem[] = [];
+  const itemByPath = new Map<string, DocTreeItem>();
+  const folderPaths = new Set<string>();
+  const seen = new Set<string>();
+
+  const walk = (candidate: DocTreeItem) => {
+    const key = canonicalPath(candidate.fullPath);
+    if (seen.has(key)) return;
+    seen.add(key);
+
+    // 根与父节点的 children 只是单层占位，真子节点在 nodes 里。
+    const item = state.nodes.get(key) ?? candidate;
+    items.push(item);
+    itemByPath.set(key, item);
+    if (item.type !== 'folder') return;
+    folderPaths.add(key);
+    for (const child of item.children ?? []) walk(child);
+  };
+
+  for (const item of state.rootChildren) walk(item);
+  for (const item of state.nodes.values()) walk(item);
+  return { items, itemByPath, folderPaths };
+}
+
 export type FolderTreeSort = 'createdAt' | 'updatedAt' | 'filenameAsc' | 'filenameDesc';
 
 /** 目录名取自 fullPath 末段, 避免 name 字段在不同来源下夹带路径。 */

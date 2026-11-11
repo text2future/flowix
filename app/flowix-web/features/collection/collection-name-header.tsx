@@ -89,7 +89,7 @@ export function CollectionNameHeader({ name, edit, inputLabel, renameLabel, rena
   iconSlot?: ReactNode;
   subtitle?: CollectionHeaderSubtitle;
 }) {
-  return <div className="flex shrink-0 flex-col gap-0.5 px-4 pb-2 pt-4">
+  return <div className="flex shrink-0 flex-col gap-0.5 px-12 pb-2 pt-4">
     <div className="flex items-center gap-3">
       {showIcon ? (
         iconSlot ?? (

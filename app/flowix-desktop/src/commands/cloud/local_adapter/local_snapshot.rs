@@ -19,6 +19,61 @@ pub(crate) fn record_full_local_snapshot(notebook_scope: Option<&str>) {
     }
 }
 
+/// Discover collection documents without following symlinks or entering private
+/// notebook directories. An incomplete scan must never be treated as a snapshot.
+pub(crate) fn scan_cloud_collections(root: &Path) -> Result<Vec<PathBuf>, String> {
+    let policy = flowix_core::memo_file::FileManagementPolicy::from_notebook_root(root);
+    let mut pending = vec![root.to_path_buf()];
+    let mut found = Vec::new();
+    while let Some(directory) = pending.pop() {
+        for entry in std::fs::read_dir(&directory).map_err(sync_error)? {
+            let entry = entry.map_err(sync_error)?;
+            let path = entry.path();
+            let relative = path.strip_prefix(root).map_err(sync_error)?;
+            let kind = entry.file_type().map_err(sync_error)?;
+            if kind.is_symlink() || relative.starts_with("attachments") || relative.starts_with(".flowix") || policy.is_index_hidden_at(root, relative) {
+                continue;
+            }
+            if kind.is_dir() {
+                pending.push(path);
+            } else if kind.is_file() && flowix_core::collection::is_collection_document_path(relative) {
+                found.push(path);
+            }
+        }
+    }
+    found.sort();
+    Ok(found)
+}
+
+#[cfg(test)]
+mod collection_scan_tests {
+    use super::*;
+
+    #[test]
+    fn finds_only_visible_collection_documents() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("folder")).unwrap();
+        std::fs::create_dir(root.path().join(".flowix")).unwrap();
+        std::fs::write(root.path().join("folder/.index.yaml"), "collection").unwrap();
+        std::fs::write(root.path().join("tasks.table.yaml"), "collection").unwrap();
+        std::fs::write(root.path().join("ordinary.yaml"), "other").unwrap();
+        std::fs::write(root.path().join(".flowix/private.table.yaml"), "private").unwrap();
+        let paths = scan_cloud_collections(root.path()).unwrap();
+        assert_eq!(paths, vec![root.path().join("folder/.index.yaml"), root.path().join("tasks.table.yaml")]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn does_not_follow_collection_symlinks() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("hidden.table.yaml"), "outside").unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.path().join("linked")).unwrap();
+        std::os::unix::fs::symlink(outside.path().join("hidden.table.yaml"), root.path().join("linked.table.yaml")).unwrap();
+        assert!(scan_cloud_collections(root.path()).unwrap().is_empty());
+    }
+}
+
 pub(crate) fn scan_cloud_attachments(
     root: &Path,
     directory: &Path,
@@ -140,7 +195,11 @@ pub(crate) fn v2_account_snapshot(
             {
                 continue;
             }
-            let path = notebook_path_from_relative(Path::new(&config.path), &note.relative_path)?;
+            let path = if flowix_core::memo_file::FileManagementPolicy::is_user_data_path(Path::new(&note.relative_path)) {
+                safe_cloud_note_path(root, &note.relative_path)?
+            } else {
+                notebook_path_from_relative(root, &note.relative_path)?
+            };
             let content = std::fs::read(&path)
                 .map_err(|error| format!("READ_NOTE_FAILED {}: {error}", path.display()))?;
             notes.push(V2LocalNote {
@@ -148,6 +207,21 @@ pub(crate) fn v2_account_snapshot(
                 notebook_id: config.id.clone(),
                 filename: note.relative_path,
                 content,
+                attachments: Vec::new(),
+            });
+        }
+        for path in scan_cloud_collections(root)? {
+            let relative_path = flowix_core::memo_file::notebook_relative_path(root, &path)?;
+            let cloud_id = flowix_sync::v2_path_note_id(&config.id, &relative_path);
+            if dirty_note_ids.as_ref().is_some_and(|ids| !ids.contains(&cloud_id)) {
+                continue;
+            }
+            let path = safe_cloud_collection_path(root, &relative_path)?;
+            notes.push(V2LocalNote {
+                id: cloud_id,
+                notebook_id: config.id.clone(),
+                filename: relative_path,
+                content: std::fs::read(&path).map_err(sync_error)?,
                 attachments: Vec::new(),
             });
         }
@@ -169,6 +243,26 @@ pub(crate) fn v2_account_snapshot(
                 content: std::fs::read(&path).map_err(sync_error)?,
                 attachments: Vec::new(),
             });
+        }
+        if full_scan && state.cloud_sync.v2_notebook(&config.id).map_err(sync_error)?
+            .is_some_and(|notebook| notebook.enabled && !notebook.bootstrap_required)
+        {
+            let moving: HashSet<_> = state.cloud_sync.v2_pending_moves().map_err(sync_error)?
+                .into_iter().filter(|movement| movement.notebook_id == config.id)
+                .map(|movement| movement.from_note_id).collect();
+            for prior in state.cloud_sync.v2_all_note_states().map_err(sync_error)?.into_iter()
+                .filter(|item| item.notebook_id == config.id && !item.deleted && !moving.contains(&item.note_id)
+                    && flowix_core::collection::is_collection_document_path(Path::new(&item.filename)))
+            {
+                let Ok(path) = safe_cloud_collection_path(root, &prior.filename) else { continue };
+                match std::fs::symlink_metadata(path) {
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                        state.cloud_sync.record_v2_local_change(&config.id, &prior.note_id, flowix_sync::LocalChangeKind::Delete, "deleted").map_err(sync_error)?;
+                    }
+                    Err(error) => return Err(sync_error(error)),
+                    Ok(_) => {},
+                }
+            }
         }
         notebooks.push(V2LocalNotebook {
             id: config.id,

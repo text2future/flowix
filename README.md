@@ -1,111 +1,64 @@
 English | **简体中文**
 
-&nbsp;
+<p align="center">
+  <img src="./docs/images/app-icon.png" width="120" alt="Flowix" />
+</p>
 
-# 你的笔记，  
-AI 的记忆。
+# 你的笔记，AI 的记忆
 
-**本地 Markdown 笔记本，让你的写作无缝成为 Agent 可以持续使用的上下文。**
+Flowix 是一个以文档库为核心的 AI 工作空间。它把项目笔记、资料、规则和 Agent 放在一起，让你看见 Agent 依据什么工作，也能随时修正这些内容。
 
-Markdown · 开源 · 多 Agent · MCP 与 CLI
+本地 Markdown · 多 Agent · MCP 与 CLI
 
-**立即下载** · **官网** · **文档**
-
----
-
-&nbsp;
-
-## Flowix 让笔记成为持续工作的记忆
-
-用 Markdown 记录内容，把需要的上下文交给 Agent，再将结果写回同一篇笔记，方便检查、修改和下次继续使用。
-
-&nbsp;
+[立即下载](https://flowix-memo.com/) · [官网](https://flowix-memo.com/) · [文档](https://flowix-memo.com/docs/)
 
 ---
 
-## 让工作持续推进
+<img src="./docs/images/readme-introduce.gif" width="100%" alt="Flowix" />
 
-把产品、开发、研究和个人知识放在一起，让 Agent 不必每次从头开始。
+## 让 Agent 的工作依据清晰可见
 
-<!-- flowix:table {"version":1,"columns":[{"width":271},{"width":271}]} -->
-| 场景       | 说明                          |
-| -------- | --------------------------- |
-| **产品工作** | 集中管理需求、反馈和决策，让产品文档保持最新。     |
-| **软件开发** | 保存项目背景和约束，让编码 Agent 接着推进。   |
-| **课题研究** | 将资料、分析和结论放在一起，方便追溯和复用。      |
-| **个人知识** | 让笔记、计划和个人偏好成为 Agent 可用的上下文。 |
+Agent 的回答和产出取决于它读取的资料与遵循的规则。Flowix 将这些上下文放进可浏览、可编辑的文档库。你可以检查资料、调整规则、审阅结果，让后续工作建立在修正后的内容上。
 
-
-&nbsp;
+<img src="./docs/images/home-write.png" width="100%" alt="Flowix 笔记在浅色与深色主题中的界面" />
 
 ---
 
-## 让不同 Agent 使用同一份记忆
+## 用笔记本管理项目
 
-你可以在 Flowix 内使用 Agent，也可以连接 **Codex**、**Claude Code**、**OpenCode**、**Hermes** 及其他 MCP 或 CLI 工具，让它们基于同一套笔记和上下文工作。
+每个笔记本都可以作为一个项目空间，集中整理目标、资料、计划和进展。需要时，Agent 可以基于这些内容协助分析问题、整理思路和推进下一步。
 
-&nbsp;
+适用于产品与软件开发、学习研究、内容创作和个人知识管理。资料与过程持续积累，Agent 可以接着已有上下文工作。
 
----
-
-## 加入 Flowix 社群
-
-扫描下方二维码加入交流群，一起交流和讨论 Flowix。
-
-&nbsp;
+<p align="center"><img src="./docs/images/home-nav.png" width="60%" alt="Flowix 中的笔记、对话、任务与标签导航" /></p>
 
 ---
 
-## dsh-flowix-memory 插件
+## 让不同 Agent 共用同一套资料
 
-[dsh-flowix-memory](dsh-flowix-memory/README.md) 是一个 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件，通过捆绑的 `flowix-cli` MCP server 把任何 Harness Agent 连接到你的**本地 Flowix 笔记**：安装后 Agent 获得 `mcp__flowix__memo` 工具，可搜索、读取、创建和编辑 Flowix 笔记（包括思维导图）。
+你可以在 Flowix 中使用内置 Agent，也可以连接 Codex、Claude Code、OpenCode、Hermes 等外部 Agent。通过 MCP 或 CLI，让它们按需读取同一个项目空间中的资料，并把结果写回文档。
 
-从 flowix-main checkout 安装到 `flowix` Harness profile（尚未发布到 npm）。对于其他 DSH 客户端，`flowix` 只是一个普通的自定义 profile 名称：
-
-```sh
-dsh plugin --profile flowix add ./dsh-flowix-memory
-```
-
-需要 `flowix` CLI 位于 `PATH`（或设置 `FLOWIX_CLI_PATH`），并可访问你的笔记数据（`~/.flowix`）。详见[插件 README](dsh-flowix-memory/README.md)。
-
-## 通过 CLI 传递 Markdown
-
-向 `create` 和 `write` 传递 Markdown 正文时，推荐使用 UTF-8 文件，尤其是在 Windows PowerShell 5.1 中。这样可以避免 stdin 管道编码导致中文内容损坏。支持带 BOM 和不带 BOM 的 UTF-8 文件。
-
-```powershell
-flowix create <notebook> --file body.md --json
-flowix write <id> --file body.md --json
-```
-
-在 Windows 上，未指定输入方式时 CLI 会拒绝隐式读取 stdin，以避免 PowerShell 5.1 的 `$OutputEncoding` 损坏中文；已确认 stdin 为 UTF-8 时请显式加 `--stdin`：
-
-```powershell
-$OutputEncoding = [System.Text.UTF8Encoding]::new($false)
-Get-Content -Raw -Encoding UTF8 body.md | flowix create <notebook> --stdin --json
-```
-
-`--file` 与 `--stdin` 互斥。`--file` 会直接按 UTF-8 读取；文件不存在、无法读取或不是有效 UTF-8 时，CLI 会返回错误。使用 `--json` 时错误也会以 `{ok:false,error:{code,message}}` 输出。
+<p align="center"><img src="./docs/images/home-agent.png" width="60%" alt="Flowix 将 Codex、Claude Code、OpenCode、Hermes 和 Flowix Agent 连接到同一篇笔记" /></p>
 
 ---
 
-## 笔记留在本地，由你掌控
+## 文件留在本地，由你掌控
 
-Flowix 将笔记保存为本地 Markdown 文件。你决定 Agent 能看到什么，也可以自由选择同步和备份方式。
+笔记以普通 Markdown 文件保存在本地。你决定哪些资料提供给 Agent，也可以继续使用熟悉的同步与备份方式。
 
-- **保存在本地** — 笔记是普通 Markdown 文件，可以用其他应用打开和编辑。
-- **按需连接 Agent** — 使用 Codex、Claude Code、OpenCode 等 Agent 时，只提供你主动选择的内容。
-- **自由同步和备份** — 继续使用你熟悉的同步、备份或版本管理工具。
+- 笔记可以用其他应用打开和编辑。
+- 连接 Agent 时，按需提供项目资料。
+- 使用自己的工具同步和备份文件。
 
 ---
 
 ## 产品预览
 
-<!-- flowix:table {"version":1,"columns":[{"width":271},{"width":271}]} -->
 |                            |                         |
 | -------------------------- | ----------------------- |
-| &nbsp; *笔记列表与标签组织*         | &nbsp; *笔记详情与 Agent 预设* |
-| &nbsp; *Agent 模型选择*        | &nbsp; *全文与文件搜索*        |
-| &nbsp; *Provider 与 MCP 配置* | &nbsp; *代码文件浏览与编辑*      |
+| <img src="./docs/images/gh-detail-1.png" width="100%" alt="笔记列表与标签组织" /><br/>*笔记列表与标签组织* | <img src="./docs/images/gh-detail-2.png" width="100%" alt="笔记详情与 Agent 预设" /><br/>*笔记详情与 Agent 预设* |
+| <img src="./docs/images/gh-detail-3.png" width="100%" alt="Agent 模型选择" /><br/>*Agent 模型选择* | <img src="./docs/images/gh-detail-4.png" width="100%" alt="全文与文件搜索" /><br/>*全文与文件搜索* |
+| <img src="./docs/images/gh-detail-5.png" width="100%" alt="Provider 与 MCP 配置" /><br/>*Provider 与 MCP 配置* | <img src="./docs/images/gh-detail-6.png" width="100%" alt="代码文件浏览与编辑" /><br/>*代码文件浏览与编辑* |
 
 
 ---

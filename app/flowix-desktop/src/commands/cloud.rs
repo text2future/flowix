@@ -654,14 +654,19 @@ pub fn restore_local_path_version(
         .ok_or_else(|| "NOTEBOOK_NOT_FOUND".to_string())?;
     let root = Path::new(&notebook.path);
     let attachment = relative_path.starts_with("attachments/");
-    if !attachment && !Path::new(&relative_path).is_md() {
+    let collection = !attachment && flowix_core::collection::is_collection_document_path(Path::new(&relative_path));
+    if !attachment && !collection && !Path::new(&relative_path).is_md() {
         return Err("CLOUD_HISTORY_INVALID_PATH".into());
     }
-    let path = local_adapter::safe_cloud_file_path(root, &relative_path, attachment)?;
+    let path = if collection {
+        local_adapter::safe_cloud_collection_path(root, &relative_path)?
+    } else {
+        local_adapter::safe_cloud_file_path(root, &relative_path, attachment)?
+    };
     let target = memo_file
         .read_path_version_bytes(&notebook_id, &relative_path, &version_id)
         .ok_or_else(|| "CLOUD_HISTORY_VERSION_NOT_FOUND".to_string())?;
-    if !attachment && std::str::from_utf8(&target).is_err() {
+    if !attachment && !collection && std::str::from_utf8(&target).is_err() {
         return Err("CLOUD_HISTORY_INVALID_MARKDOWN".into());
     }
     let current = match std::fs::read(&path) {
@@ -699,7 +704,7 @@ pub fn restore_local_path_version(
                 local_adapter::ConflictFileOutcome::Applied { preserved }
                 | local_adapter::ConflictFileOutcome::Interrupted { preserved } => preserved,
             };
-            if let Some(preserved) = preserved {
+            if let Some(preserved) = preserved.filter(|_| !collection) {
                 local_adapter::register_preserved_conflict_copy(
                     &memo_file,
                     &notebook_id,
@@ -712,10 +717,21 @@ pub fn restore_local_path_version(
         }
     }
     crate::watcher::runtime::mark_self_write_content_for(&app, &path, &target);
+    if collection {
+        let id = flowix_sync::v2_path_note_id(&notebook_id, &relative_path);
+        if let Err(error) = state.cloud_sync.record_v2_local_change(&notebook_id, &id, flowix_sync::LocalChangeKind::Put, &flowix_sync::v2_content_hash(&target)) {
+            tracing::warn!("failed to record restored collection for cloud sync: {error}");
+        }
+    }
     // The disk write has committed. Ensure sync observes it even if an index
     // or media refresh below fails after the watcher self-write marker.
     schedule_notebook_sync_observation(app.clone(), notebook_id.clone(), true);
-    if attachment {
+    if collection {
+        drop(_guard);
+        crate::commands::collection::refresh_path(&memo_file, &path);
+        let _ = app.emit("file-management-changed", serde_json::json!({"notebookId": notebook_id, "notebookPath": notebook.path}));
+        let _ = app.emit("collection-changed", serde_json::json!({"notebookId": notebook_id, "notebookPath": notebook.path, "relativePath": relative_path}));
+    } else if attachment {
         memo_file
             .refresh_indexed_resource_path(&notebook_id, &relative_path)
             .map_err(sync_error)?;

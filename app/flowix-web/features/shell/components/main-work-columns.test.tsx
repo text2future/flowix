@@ -177,7 +177,9 @@ describe('MainWorkColumns browser column toggle animation', () => {
     document.body.append(host);
     root = createRoot(host);
     await act(async () => root?.render(<MainWorkColumns {...props()} browserColumnVisible />));
-    expect(grid().style.gridTemplateColumns).toBe('900px 400px');
+    expect(grid().className).toContain('overflow-x-hidden');
+    expect(grid().className).not.toContain('overflow-x-auto');
+    expect(grid().style.gridTemplateColumns).toBe('minmax(420px, 900fr) minmax(420px, 400fr)');
     expect(grid().className).not.toContain('document-columns-layout--animating');
 
     await act(async () => root?.render(<MainWorkColumns {...props()} browserColumnVisible={false} />));
@@ -206,6 +208,6 @@ describe('MainWorkColumns browser column toggle animation', () => {
 
     await act(async () => vi.advanceTimersByTime(200));
     expect(grid().className).not.toContain('document-columns-layout--animating');
-    expect(grid().style.gridTemplateColumns).toBe('900px 400px');
+    expect(grid().style.gridTemplateColumns).toBe('minmax(420px, 900fr) minmax(420px, 400fr)');
   });
 });

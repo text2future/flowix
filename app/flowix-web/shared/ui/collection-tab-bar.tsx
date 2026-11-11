@@ -10,7 +10,7 @@
  *
  *   collectionTabClassName  单个 tab 的唯一样式（视图 tab 与宿主 tab 必须同款）
  *   CollectionTabButton     普通按钮形态的 tab
- *   CollectionTabBar        吸顶的一行（不透明底色、宽度锁面板宽）
+ *   CollectionTabBar        可选吸顶的一行（不透明底色、宽度锁面板宽）
  *   CollectionTabStrip      tab 组（横滚 + 溢出渐隐；紧跟在它后面的「···」固定可见，
  *                           不随 tab 滚动）
  *
@@ -49,17 +49,19 @@ export function CollectionTabButton({ label, active, onClick, disabled, title }:
 }
 
 /**
- * 吸顶的 tab 行。
+ * 集合 tab 行，可按场景关闭吸顶。
  *
  * - `pinned`：整页滚动模式（集合外壳）。纵向吸在 Work 标题栏下沿（偏移 =
  *   `--work-titlebar-h`，集合内容上穿标题栏时由外壳注入；无穿透的容器里回落 0，
  *   即吸在容器顶）；横向 `sticky left-0` 钉在左缘、宽度恒为面板宽，宽表整页横滚时
  *   不会跟着跑偏；底色必须不透明，否则吸住后行内容会透出来。
- * - 非整页滚动（编辑器内嵌表格）：只纵向吸顶，不锁宽度。
+ * - `sticky` 可关闭吸顶；编辑器内嵌集合随编辑器内容滚动。
  */
-export function CollectionTabBar({ children, pinned = false, label, dataTitleVisible, className }: {
+export function CollectionTabBar({ children, pinned = false, sticky = true, label, dataTitleVisible, className }: {
   children: ReactNode;
   pinned?: boolean;
+  /** 是否吸顶；编辑器内嵌集合关闭此项。 */
+  sticky?: boolean;
   /** 无障碍名称（这一条 tab 条是什么）。 */
   label?: string;
   /** 容器查询用：标题在窄容器里让位给 tab。 */
@@ -71,10 +73,10 @@ export function CollectionTabBar({ children, pinned = false, label, dataTitleVis
     aria-label={label}
     data-title-visible={dataTitleVisible}
     className={cn(
-      'collection-tab-bar flex min-w-0 shrink-0 items-center gap-1 px-4 py-1',
-      pinned
+      'collection-tab-bar flex min-w-0 shrink-0 items-center gap-1 px-12 py-1',
+      sticky && (pinned
         ? 'sticky left-0 top-[var(--work-titlebar-h,0px)] z-30 w-[var(--collection-viewport-w,100%)] bg-[var(--document-bg)]'
-        : 'sticky top-0 z-10',
+        : 'sticky top-0 z-10'),
       className,
     )}
   >{children}</div>;

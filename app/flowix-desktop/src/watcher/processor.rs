@@ -322,6 +322,51 @@ impl PathNoteEventProcessor {
             }
         }
 
+        let collection_path = |root: &Path, path: &Path| {
+            path.strip_prefix(root).ok().is_some_and(|relative| {
+                flowix_core::collection::is_collection_document_path(relative)
+                    && !relative.starts_with("attachments") && !relative.starts_with(".flowix")
+            })
+        };
+        if collection_path(&ctx.root, &event.path)
+            || event.rename_from.as_ref().is_some_and(|path| collection_path(event.rename_from_root.as_deref().unwrap_or(&ctx.root), path))
+        {
+            let moved = event.rename_from.as_ref().and_then(|old| {
+                let old_root = event.rename_from_root.as_deref().unwrap_or(&ctx.root);
+                if event.rename_from_notebook_id.as_ref().is_some_and(|id| id != &ctx.notebook_id)
+                    || !collection_path(old_root, old) || !collection_path(&ctx.root, &event.path) {
+                    return None;
+                }
+                Some((notebook_relative_path(old_root, old).ok()?, notebook_relative_path(&ctx.root, &event.path).ok()?))
+            }).is_some_and(|(old, new)| record_confirmed_cloud_move(app, &ctx.notebook_id, &old, &new));
+            if !moved {
+            if let Some(old) = event.rename_from.as_ref() {
+                let old_ctx = NotebookWatchContext {
+                    notebook_id: event.rename_from_notebook_id.clone().unwrap_or_else(|| ctx.notebook_id.clone()),
+                    root: event.rename_from_root.clone().unwrap_or_else(|| ctx.root.clone()),
+                };
+                if collection_path(&old_ctx.root, old) {
+                    if let Ok(relative) = notebook_relative_path(&old_ctx.root, old) {
+                        if !relative.starts_with("attachments/") && !relative.starts_with(".flowix/") {
+                            record_cloud_path_change(app, &old_ctx, &relative, true);
+                        }
+                    }
+                }
+            }
+            if collection_path(&ctx.root, &event.path) {
+                if let Ok(relative) = notebook_relative_path(&ctx.root, &event.path) {
+                    if !relative.starts_with("attachments/") && !relative.starts_with(".flowix/") {
+                        record_cloud_path_change(app, ctx, &relative, !event.path.exists());
+                    }
+                }
+            }
+            }
+            if let Ok(memo) = memo_file.read() {
+                if let Some(old) = event.rename_from.as_ref() { crate::commands::collection::refresh_path(&memo, old); }
+                crate::commands::collection::refresh_path(&memo, &event.path);
+            }
+            return;
+        }
         if process_indexed_resource_event(event, memo_file, ctx) {
             if let Some(old_path) = event.rename_from.as_ref() {
                 if let Ok(memo_file) = memo_file.read() {

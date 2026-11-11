@@ -30,12 +30,43 @@ pub(super) use local_snapshot::{
     v2_account_snapshot,
 };
 pub(super) use remote_apply::{RemoteApplyError, RemoteConflict,
-    apply_v2_report_preserving_local, safe_cloud_file_path, safe_cloud_note_path,
+    apply_v2_report_preserving_local, safe_cloud_collection_path, safe_cloud_file_path, safe_cloud_note_path,
 };
 
 #[cfg(test)]
 mod conflict_file_tests {
     use super::*;
+
+    #[test]
+    fn collection_paths_allow_only_visible_notebook_documents() {
+        let root = tempfile::tempdir().unwrap();
+        for name in [".index.yaml", "folder/.index.yaml", "Tasks.table.yaml", "Views.index.yaml"] {
+            assert!(super::remote_apply::safe_cloud_collection_path(root.path(), name).is_ok(), "{name}");
+        }
+        for name in ["../outside.table.yaml", ".flowix/database/Tasks.table.yaml", "folder/.private/Tasks.table.yaml", "folder/.index.yml", "notes.md"] {
+            assert!(super::remote_apply::safe_cloud_collection_path(root.path(), name).is_err(), "{name}");
+        }
+        #[cfg(unix)] {
+            std::os::unix::fs::symlink(root.path(), root.path().join("link")).unwrap();
+            assert!(super::remote_apply::safe_cloud_collection_path(root.path(), "link/Tasks.table.yaml").is_err());
+        }
+    }
+
+    #[test]
+    fn table_note_cloud_paths_exclude_private_state() {
+        let root = tempfile::tempdir().unwrap();
+        let good = ".flowix/database/col_test/Note.md";
+        assert_eq!(safe_cloud_note_path(root.path(), good).unwrap(), root.path().join(good));
+        for bad in [".flowix/versions/Note.md", ".flowix/database2/Note.md", "nested/.flowix/database/Note.md", ".flowix/database/.private/Note.md", ".flowix/database/../secret.md"] {
+            assert!(safe_cloud_note_path(root.path(), bad).is_err(), "{bad}");
+        }
+        #[cfg(unix)]
+        {
+            std::fs::create_dir(root.path().join(".flowix")).unwrap();
+            std::os::unix::fs::symlink(root.path(), root.path().join(".flowix/database")).unwrap();
+            assert!(safe_cloud_note_path(root.path(), good).is_err());
+        }
+    }
 
     #[cfg(unix)]
     #[test]

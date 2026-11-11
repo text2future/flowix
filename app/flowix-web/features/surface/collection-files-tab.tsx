@@ -313,7 +313,7 @@ export function CollectionFilesTab({ rootPath, notebookId, notebookPath, collect
 
   // Keep the header sticky to the page while the rows own their horizontal scroll.
   // The header's hidden overflow lets it follow the row scroller without widening the page.
-  return <div className="min-w-0 pb-2 pl-4 pr-4">
+  return <div className="min-w-0 pb-2 px-12">
     {/* 右键菜单包住整块列表区域（表头 + 行）：条目按「文件树 tab」给。 */}
     <CollectionAreaMenu items={areaMenuItems}>
     <div ref={headerScrollerRef} className="sticky top-[calc(var(--work-titlebar-h,0px)+var(--collection-tab-bar-h))] z-[1] min-w-0 overflow-hidden bg-[var(--document-bg)]">

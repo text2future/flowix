@@ -62,3 +62,34 @@ describe('editor floating layers', () => {
     expect(zIndexFor(linkCss, '.editor-link-inline-editor')).toBe('var(--layer-editor-overlay)');
   });
 });
+
+describe('link hover tooltip icon sizing', () => {
+  it('pins unlink/copy to 14x14 and forbids flex shrinking', () => {
+    const buckets = new Map<string, Map<string, string>>();
+    parse(linkCss).walkRules((rule) => {
+      const selectors = rule.selectors.map(entry => entry.trim());
+      let key: 'icons' | 'buttons' | null = null;
+      if (selectors.some(entry => entry.includes("[data-link-action='remove']"))) {
+        key = 'icons';
+      } else if (selectors.includes('.editor-link-hover-tooltip .editor-link-hover-tooltip-button')) {
+        key = 'buttons';
+      }
+      if (!key) return;
+
+      const bucket = buckets.get(key) ?? new Map<string, string>();
+      rule.walkDecls((declaration) => {
+        bucket.set(declaration.prop, declaration.value.trim());
+      });
+      buckets.set(key, bucket);
+    });
+
+    // 14×14 是固定尺寸; svg 和 26px 方按钮都不参与收缩, 长 URL 只压缩地址文案,
+    // 描边图标不会被挤成椭圆。规则带 .editor-link-hover-tooltip 前缀, 不波及
+    // 选区 / 表格气泡里同款的 15px Lucide 图标。
+    const icons = buckets.get('icons');
+    expect(icons?.get('width')).toBe('14px');
+    expect(icons?.get('height')).toBe('14px');
+    expect(icons?.get('flex')).toBe('0 0 auto');
+    expect(buckets.get('buttons')?.get('flex')).toBe('0 0 auto');
+  });
+});

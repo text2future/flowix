@@ -122,3 +122,45 @@ it.each(['loaded', 'failed', 'switched'] as const)(
     }
   },
 );
+
+it('rebases a burst of folder moves in one preference write', async () => {
+  system.setNotebookPinnedFolders.mockClear();
+  system.getNotebookFileTreePreferences.mockResolvedValue({ pinnedFolders: ['a', 'a/child', 'b'] });
+  const host = document.createElement('div');
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  const environment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
+  environment.IS_REACT_ACT_ENVIRONMENT = true;
+  try {
+    await act(async () => root.render(<Observer />));
+    await act(async () => {
+      for (const notify of changes) {
+        notify({
+          kind: 'path-moved', notebookId: 'first', directory: true,
+          previousRelativePath: 'a', relativePath: 'x',
+        });
+        notify({
+          kind: 'path-moved', notebookId: 'first', directory: true,
+          previousRelativePath: 'x', relativePath: 'z',
+        });
+        notify({
+          kind: 'path-moved', notebookId: 'first', directory: true,
+          previousRelativePath: 'b', relativePath: 'y',
+        });
+      }
+    });
+    // One write for the whole burst is the point: each move used to cost its
+    // own sequential preference-file write.
+    expect(system.setNotebookPinnedFolders.mock.calls).toEqual([['first', ['z', 'z/child', 'y']]]);
+    expect(host.textContent).toBe(JSON.stringify(['z', 'z/child', 'y']));
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    environment.IS_REACT_ACT_ENVIRONMENT = false;
+  }
+});
+
+function Observer() {
+  const preferences = useNotebookTreeSections('first', true);
+  return <output>{JSON.stringify(preferences.pinnedFolders)}</output>;
+}

@@ -12,6 +12,7 @@ import { createTableResizeIndicatorPlugin } from './table-resize-indicator';
 import { createTableTextSelectionPlugin } from './table-text-selection';
 import { createTableReorderPlugin, type TableReorderLabels } from './table-reorder';
 import { createTableEditingCellPlugin } from './table-editing-cell';
+import { createTableSelectionFramePlugin } from './table-selection-frame';
 import { createTableCompositionPlugin } from './table-composition';
 import { createEditorTable } from '@features/editor/extensions/table/flowix-table';
 import { normalizeTableStyleId, TablePresentation } from '@features/editor/extensions/table/table-presentation';
@@ -98,6 +99,7 @@ export function createTablePlugin({ labels }: TablePluginOptions = {}) {
         createTableResizeIndicatorPlugin(),
         createTableColumnDecorationsPlugin(),
         createTableEditingCellPlugin(),
+        createTableSelectionFramePlugin(),
         createTableTextSelectionPlugin(),
       ];
     },

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { normalizeTagInput } from '@features/document/properties/frontmatter-model';
 import { autoContentColumnWidth, autoTagColumnWidth } from './tag-column-width';
+import { TABLE_FIELD_WIDTHS } from './table-view-helpers';
 
 export interface AutoColumnContent {
   id: string;
@@ -127,7 +128,7 @@ export function useAutoContentColumnWidths(tableRef: RefObject<HTMLTableElement 
             const lines = text.split(/\r\n|\r|\n/);
             const textWidth = lines.reduce((widest, line) => Math.max(widest, measureTextWidth(line)), 0);
             return textWidth + extraWidth;
-          }), chromeWidth, headerWidth);
+          }), chromeWidth, headerWidth, column.type === 'primary' ? TABLE_FIELD_WIDTHS.primary : undefined);
         return [column.id, width];
       }));
       setWidths((current) => Object.keys(current).length === Object.keys(next).length

@@ -49,19 +49,15 @@ export function useMainPanelController({
     noteNavigationWidth: 0,
   });
 
-  // True while the memo list is mid-collapse/expand. Consumers use this to
-  // gate transitions on the sibling columns so their widths interpolate in
-  // lockstep with ListColumn's animated width — otherwise the flex row
-  // overflows the container for the duration of the transition and
-  // overflow-x-auto flashes a horizontal scrollbar.
+  // True while the memo list is mid-collapse/expand. MainWorkColumns hides the
+  // fixed-position resize handle until the fluid tracks reach their final size.
   const [isMemoListAnimating, setIsMemoListAnimating] = useState(false);
   const memoListAnimateTimerRef = useRef<number | null>(null);
-  const hasSeenInitialMemoListVisible = useRef(false);
-  useEffect(() => {
-    if (!hasSeenInitialMemoListVisible.current) {
-      hasSeenInitialMemoListVisible.current = true;
-      return;
-    }
+  const previousMemoListVisibleRef = useRef(memoListVisible);
+  useLayoutEffect(() => {
+    if (previousMemoListVisibleRef.current === memoListVisible) return;
+    previousMemoListVisibleRef.current = memoListVisible;
+
     setIsMemoListAnimating(true);
     if (memoListAnimateTimerRef.current !== null) {
       window.clearTimeout(memoListAnimateTimerRef.current);
@@ -110,11 +106,8 @@ export function useMainPanelController({
     setMemoListVisible(!memoListVisible);
   }, [memoListVisible, setMemoListVisible]);
 
-  // 展开右栏（column-2，覆盖显式 toggle 与列表点行/恢复会话等所有
-  // visible false→true 路径）时，若双列放不下两个最小列，在展开的同一帧
-  // 收起左侧列表侧边栏让出宽度。判定见 shouldCollapseSidebarOnBrowserExpand。
-  // 用 layout effect：收起必须在首帧 paint 前生效，否则展开瞬间会闪一帧
-  // 「侧边栏占位 + canSplit=false 网格」的溢出/横向滚动条。
+  // Only constrain the initial opening of the browser column. Expanding the
+  // sidebar is always an explicit user action and must not be auto-adjusted.
   const prevBrowserColumnVisibleRef = useRef(browserColumnVisible);
   useLayoutEffect(() => {
     const wasVisible = prevBrowserColumnVisibleRef.current;

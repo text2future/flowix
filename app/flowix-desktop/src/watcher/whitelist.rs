@@ -66,13 +66,13 @@ impl WhitelistConfig {
 
     /// �?���?��通过白名单�?查。返�?`Ok(())` 放�?, `Err(DropReason)` 拒绝�?
     pub fn allows(&self, path: &Path) -> Result<(), DropReason> {
-        // `.flowix` is always a system directory. This check intentionally
-        // precedes `watch_hidden`, so enabling hidden-file watching can never
-        // expose internal versions or plugin artifacts as notes.
-        if path
-            .components()
-            .any(|component| component.as_os_str() == ".flowix")
-        {
+        // The notebook policy checks that this is the root database subtree.
+        // Other Flowix internals remain blocked at this additional filter.
+        let components: Vec<_> = path.components().collect();
+        if components.iter().enumerate().any(|(index, component)| {
+            component.as_os_str() == ".flowix"
+                && components.get(index + 1).is_none_or(|next| next.as_os_str() != "database")
+        }) {
             return Err(DropReason::InternalDirectory);
         }
 
@@ -90,7 +90,7 @@ impl WhitelistConfig {
 
         // 2. 璺宠繃鐩綍 (component-level)
         for skip in &self.skip_dirs {
-            if path.components().any(|c| c.as_os_str() == skip.as_str()) {
+            if skip != ".flowix" && path.components().any(|c| c.as_os_str() == skip.as_str()) {
                 return Err(DropReason::PathBlacklisted);
             }
         }
@@ -111,7 +111,7 @@ impl WhitelistConfig {
                 .and_then(|e| e.to_str())
                 .map(|e| e.to_ascii_lowercase())
                 .unwrap_or_default();
-            if !self
+            if !flowix_core::collection::is_collection_document_path(path) && !self
                 .allowed_extensions
                 .iter()
                 .any(|e| e.to_ascii_lowercase() == ext)
@@ -191,6 +191,14 @@ mod tests {
             w.allows(Path::new("/x/.flowix/versions/memo/v_1.md")),
             Err(DropReason::InternalDirectory)
         );
+    }
+
+    #[test]
+    fn table_database_notes_pass_but_other_internals_remain_blocked() {
+        let w = WhitelistConfig::default();
+        assert!(w.allows(Path::new("/x/.flowix/database/col_1/note.md")).is_ok());
+        assert_eq!(w.allows(Path::new("/x/.flowix/plugin/database/note.md")), Err(DropReason::InternalDirectory));
+        assert_eq!(w.allows(Path::new("/x/.flowix/database/.flowix/versions/note.md")), Err(DropReason::InternalDirectory));
     }
 
     /// Name-based exclusions (`.DS_Store`, `attachments`, …) moved to the

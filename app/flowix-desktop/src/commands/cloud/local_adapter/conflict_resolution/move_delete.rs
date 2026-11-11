@@ -15,6 +15,30 @@ pub(crate) fn resolve_v2_move_conflict(
         .get_notebook_config_by_id(&movement.notebook_id)
         .ok_or_else(|| "NOTEBOOK_NOT_FOUND".to_string())?;
     let root = Path::new(&notebook.path);
+    if flowix_core::collection::is_collection_document_path(Path::new(&movement.to_path))
+        && !movement.to_path.starts_with("attachments/")
+    {
+        let target = safe_cloud_collection_path(root, &movement.to_path)?;
+        let conflict_path = cloud_conflict_copy_path(&target, &movement.operation_id);
+        match std::fs::read(&target) {
+            Ok(local) => {
+                record_rejected_cloud_version(&memo_file, &movement.notebook_id, root, &target, &local)?;
+                crate::watcher::runtime::mark_self_write_missing_for(app, &target);
+                match safely_remove_conflict_file(&target, &local, &movement.operation_id, &conflict_path)? {
+                    ConflictFileOutcome::Applied { preserved: None } => {},
+                    _ => return Err("CLOUD_COLLECTION_MOVE_CONFLICT: local changes preserved".into()),
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {},
+            Err(error) => return Err(sync_error(error)),
+        }
+        state.cloud_sync.discard_v2_move_after_conflict(movement).map_err(sync_error)?;
+        drop(_guard);
+        crate::commands::collection::refresh_path(&memo_file, &target);
+        let _ = app.emit("file-management-changed", serde_json::json!({"notebookId": movement.notebook_id, "notebookPath": notebook.path}));
+        let _ = app.emit("collection-changed", serde_json::json!({"notebookId": movement.notebook_id, "notebookPath": notebook.path, "relativePath": movement.to_path}));
+        return Ok(());
+    }
     let attachment = movement.to_path.starts_with("attachments/");
     let target = safe_cloud_file_path(root, &movement.to_path, attachment)?;
     let conflict_path = cloud_conflict_copy_path(&target, &movement.operation_id);

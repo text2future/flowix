@@ -198,6 +198,42 @@ function BorderExtendsHint({ editor, edge }: { editor: Editor; edge: 'top' | 'bo
   return extendsSelection ? <p className={HINT_CLASS}>{t('editor.table.borderMergedHint')}</p> : null;
 }
 
+export function TableColumnAlignmentOptions({ editor, value }: { editor: Editor; value: string }) {
+  const { t } = useI18n();
+  const columns = optionEntries<TableColumnRole>(t, [
+    ['label', 'editor.table.columnAlignLeft'],
+    ['note', 'editor.table.columnAlignCenter'],
+    ['right', 'editor.table.columnAlignRight'],
+    ['amount', 'editor.table.columnAmount'],
+  ]);
+  return <TableOptionList options={columns} value={value === 'default' ? 'label' : value}
+    onSelect={role => setTableColumnRole(editor, role)} />;
+}
+
+export function TableBorderMenuSections({ editor, selected }: {
+  editor: Editor;
+  selected: NonNullable<ReturnType<typeof getTablePresentationSelection>>;
+}) {
+  const { t } = useI18n();
+  const borders = optionEntries<TableBorderStyle>(t, [
+    ['single', 'editor.table.borderSingle'],
+    ['double', 'editor.table.borderDouble'],
+    ['none', 'editor.table.borderNone'],
+    ['auto', 'editor.table.borderAuto'],
+  ]);
+  return <>
+    <TableMenuSection label={t('editor.table.borderTop')} value={selected.borderTop}
+      options={borders.map(option => ({ ...option, icon: <TableBorderIcon edge="top" style={option.value} /> }))}
+      hint={<BorderExtendsHint editor={editor} edge="top" />}
+      onSelect={value => setTableCellBorder(editor, 'top', value)} />
+    <TableMenuSection label={t('editor.table.borderBottom')} value={selected.borderBottom}
+      options={borders.map(option => ({ ...option, icon: <TableBorderIcon edge="bottom" style={option.value} /> }))}
+      hint={<BorderExtendsHint editor={editor} edge="bottom" />}
+      separatorBefore
+      onSelect={value => setTableCellBorder(editor, 'bottom', value)} />
+  </>;
+}
+
 function TableHeaderToggle({ label, checked, disabled, disabledReason, onToggle }: {
   label: string;
   checked: boolean;
@@ -240,12 +276,6 @@ export function TableStyleControls({ editor }: { editor: Editor }) {
     ['subtotal', 'editor.table.rowSubtotal'],
     ['total', 'editor.table.rowTotal'],
   ]).filter(option => TABLE_STYLE_ROW_ROLES[selected.style].includes(option.value));
-  const columns = optionEntries<TableColumnRole>(t, [
-    ['label', 'editor.table.columnAlignLeft'],
-    ['note', 'editor.table.columnAlignCenter'],
-    ['right', 'editor.table.columnAlignRight'],
-    ['amount', 'editor.table.columnAmount'],
-  ]);
   const borders = optionEntries<TableBorderStyle>(t, [
     ['single', 'editor.table.borderSingle'],
     ['double', 'editor.table.borderDouble'],
@@ -301,15 +331,7 @@ export function TableStyleControls({ editor }: { editor: Editor }) {
         triggerText={null} icon={<TableBordersIcon />}
         tooltip={t('editor.table.borderStyle')}
         open={openMenu === 'border'} onOpenChange={open => setOpenMenu(open ? 'border' : null)}>
-        <TableMenuSection label={t('editor.table.borderTop')} value={selected.borderTop}
-          options={borders.map(option => ({ ...option, icon: <TableBorderIcon edge="top" style={option.value} /> }))}
-          hint={<BorderExtendsHint editor={editor} edge="top" />}
-          onSelect={value => setTableCellBorder(editor, 'top', value)} />
-        <TableMenuSection label={t('editor.table.borderBottom')} value={selected.borderBottom}
-          options={borders.map(option => ({ ...option, icon: <TableBorderIcon edge="bottom" style={option.value} /> }))}
-          hint={<BorderExtendsHint editor={editor} edge="bottom" />}
-          separatorBefore
-          onSelect={value => setTableCellBorder(editor, 'bottom', value)} />
+        <TableBorderMenuSections editor={editor} selected={selected} />
       </TableMenuShell>
       <TableMenuShell label={t('editor.table.font')} statusLabel={fontStatus} triggerText={null}
         icon={<TextAUnderlineIcon size={16} weight="bold" />}
@@ -328,8 +350,7 @@ export function TableStyleControls({ editor }: { editor: Editor }) {
         {rows.length > 0 && <TableMenuSection label={t('editor.table.rowStyle')} value={selected.row}
           options={rows} onSelect={value => setTableRowRole(editor, value)} />}
         <TableMenuGroup label={t('editor.table.columnStyle')} separatorBefore={rows.length > 0}>
-          <TableOptionList options={columns} value={selected.column === 'default' ? 'label' : selected.column}
-            onSelect={value => setTableColumnRole(editor, value)} />
+          <TableColumnAlignmentOptions editor={editor} value={selected.column} />
         </TableMenuGroup>
       </TableMenuShell>
       <TableMenuShell label={t('editor.table.color')} triggerText={null} palette

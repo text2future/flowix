@@ -56,16 +56,39 @@ pub(crate) fn record_rejected_cloud_version(
         )
         .map_err(sync_error)?;
     if created.is_none() {
-        let hash = flowix_sync::v2_content_hash(bytes);
         if !memo_file
             .list_path_versions(notebook_id, &relative)
             .iter()
-            .any(|version| version.content_hash == hash)
+            .any(|version| memo_file.read_path_version_bytes(notebook_id, &relative, &version.id).as_deref() == Some(bytes))
         {
             return Err("CLOUD_CONFLICT_VERSION_UNAVAILABLE".into());
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod collection_history_tests {
+    use super::*;
+
+    #[test]
+    fn rejected_collection_version_is_recoverable_and_idempotent() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("book");
+        std::fs::create_dir(&root).unwrap();
+        let memo = flowix_core::memo_file::MemoFile::new(temp.path().join("config"));
+        memo.write_notebook_configs(&[flowix_core::memo_file::NotebookConfig {
+            id: "book".into(), name: "Book".into(), icon: None,
+            path: root.to_string_lossy().into_owned(), is_default: true,
+            sort: 0, created_at: 1, updated_at: 1,
+        }]).unwrap();
+        let path = root.join("Tasks.table.yaml");
+        record_rejected_cloud_version(&memo, "book", &root, &path, b"offline").unwrap();
+        record_rejected_cloud_version(&memo, "book", &root, &path, b"offline").unwrap();
+        let versions = memo.list_path_versions("book", "Tasks.table.yaml");
+        assert_eq!(versions.len(), 1);
+        assert_eq!(memo.read_path_version_bytes("book", "Tasks.table.yaml", &versions[0].id).as_deref(), Some(b"offline".as_slice()));
+    }
 }
 
 pub(super) fn choose_markdown_conflict_content(

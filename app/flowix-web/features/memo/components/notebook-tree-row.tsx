@@ -721,7 +721,7 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
         {!isFolder && onOpenInNewTab && (
           <ContextMenuItem onClick={() => onOpenInNewTab(item.fullPath)} className={TREE_MENU_ITEM_CLASS}>
             <SquareSplitHorizontalIcon className="mr-2 h-4 w-4" aria-hidden="true" />
-            {t('memo.action.openInSplit')}
+            {t('memo.fileTree.openInRight')}
           </ContextMenuItem>
         )}
         <NotebookCreateContextMenuItems

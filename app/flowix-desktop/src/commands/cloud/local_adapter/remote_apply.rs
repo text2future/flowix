@@ -10,6 +10,8 @@ pub(crate) fn safe_cloud_file_path(
     attachment: bool,
 ) -> Result<PathBuf, String> {
     let candidate = Path::new(filename);
+    let user_data = !attachment
+        && flowix_core::memo_file::FileManagementPolicy::is_user_data_path(candidate);
     if (!attachment && !candidate.is_md())
         || (attachment && !filename.starts_with("attachments/"))
         || filename.contains('\\')
@@ -17,9 +19,10 @@ pub(crate) fn safe_cloud_file_path(
         || candidate
             .components()
             .any(|component| !matches!(component, std::path::Component::Normal(_)))
-        || candidate
-            .components()
-            .any(|component| component.as_os_str().to_string_lossy().starts_with('.'))
+        || candidate.components().enumerate().any(|(index, component)| {
+            component.as_os_str().to_string_lossy().starts_with('.')
+                && !(user_data && index == 0)
+        })
     {
         return Err("INVALID_CLOUD_FILENAME".to_string());
     }
@@ -30,6 +33,27 @@ pub(crate) fn safe_cloud_file_path(
             if metadata.file_type().is_symlink() {
                 return Err("CLOUD_PATH_SYMLINK".to_string());
             }
+        }
+    }
+    Ok(path)
+}
+
+pub(crate) fn safe_cloud_collection_path(base: &Path, filename: &str) -> Result<PathBuf, String> {
+    let candidate = Path::new(filename);
+    if !flowix_core::collection::is_collection_document_path(candidate)
+        || filename.contains('\\') || filename.starts_with('/')
+        || candidate.components().enumerate().any(|(index, component)| {
+            let std::path::Component::Normal(name) = component else { return true };
+            let name = name.to_string_lossy();
+            name.starts_with('.') && !(index + 1 == candidate.components().count() && name.eq_ignore_ascii_case(".index.yaml"))
+        }) {
+        return Err("INVALID_CLOUD_COLLECTION_FILENAME".to_string());
+    }
+    let mut path = base.to_path_buf();
+    for component in candidate.components() {
+        path.push(component.as_os_str());
+        if std::fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+            return Err("CLOUD_PATH_SYMLINK".to_string());
         }
     }
     Ok(path)
@@ -90,6 +114,18 @@ fn apply_v2_note_changes(
 ) -> Result<(), RemoteApplyError> {
     apply_v2_note_changes_locked(state, app, notebook_id, changes)?;
     let memo_file = read_lock(&state.memo_file, "memo_file");
+    if let Some(notebook) = memo_file.get_notebook_config_by_id(notebook_id) {
+        for filename in changes.iter().filter_map(|change| match *change {
+            V2RemoteApply::Note { filename, .. } if flowix_core::collection::is_collection_document_path(Path::new(filename)) => Some(filename),
+            _ => None,
+        }) {
+            if let Ok(path) = safe_cloud_collection_path(Path::new(&notebook.path), filename) {
+                crate::commands::collection::refresh_path(&memo_file, &path);
+                let _ = app.emit("file-management-changed", serde_json::json!({"notebookId": notebook_id, "notebookPath": notebook.path}));
+                let _ = app.emit("collection-changed", serde_json::json!({"notebookId": notebook_id, "notebookPath": notebook.path, "relativePath": filename}));
+            }
+        }
+    }
     for relative_path in changes.iter().filter_map(|change| {
         let V2RemoteApply::Note {
             filename, deleted, ..
@@ -97,7 +133,7 @@ fn apply_v2_note_changes(
         else {
             return None;
         };
-        (*deleted && !filename.starts_with("attachments/")).then_some(filename.as_str())
+        (*deleted && !filename.starts_with("attachments/") && !flowix_core::collection::is_collection_document_path(Path::new(filename))).then_some(filename.as_str())
     }) {
         crate::commands::document_list::remove_table_note_records(
             &memo_file,
@@ -136,6 +172,44 @@ fn apply_v2_note_changes_locked(
         else {
             continue;
         };
+        if flowix_core::collection::is_collection_document_path(Path::new(filename)) && !filename.starts_with("attachments/") {
+            let path = safe_cloud_collection_path(&base, filename)?;
+            let local = match std::fs::read(&path) {
+                Ok(bytes) => Some(bytes),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                Err(error) => return Err(sync_error(error).into()),
+            };
+            let local_hash = local.as_ref().map(|bytes| v2_content_hash(bytes));
+            let baseline = state.cloud_sync.v2_note_state(note_id).map_err(sync_error)?
+                .and_then(|value| value.content_hash);
+            let pending = state.cloud_sync.has_pending_v2_note_change(note_id).map_err(sync_error)?;
+            if !*deleted && local_hash.as_deref() == content_hash.as_deref() && local.is_some() {
+                continue;
+            }
+            if v2_local_content_diverged(local_hash.as_deref(), baseline.as_deref(), pending) {
+                return Err(RemoteApplyError::conflict(RemoteConflict::LocalEdit, format!("local collection preserved at {filename}")));
+            }
+            let copy = cloud_conflict_copy_path(&path, note_id);
+            let outcome = if *deleted {
+                crate::watcher::runtime::mark_self_write_missing_for(app, &path);
+                match local.as_deref() {
+                    Some(bytes) => safely_remove_conflict_file(&path, bytes, note_id, &copy)?,
+                    None => continue,
+                }
+            } else {
+                let bytes = content.as_deref().ok_or_else(|| format!("CLOUD_COLLECTION_CONTENT_MISSING: {note_id}"))?;
+                if content_hash.as_deref() != Some(v2_content_hash(bytes).as_str()) {
+                    return Err(format!("CLOUD_COLLECTION_HASH_MISMATCH: {filename}").into());
+                }
+                if let Some(parent) = path.parent() { std::fs::create_dir_all(parent).map_err(sync_error)?; }
+                crate::watcher::runtime::mark_self_write_content_for(app, &path, bytes);
+                safely_replace_cloud_file(&path, local.as_deref(), bytes, note_id, &copy)?
+            };
+            if !matches!(outcome, ConflictFileOutcome::Applied { preserved: None }) {
+                return Err(RemoteApplyError::conflict(RemoteConflict::LocalEdit, format!("collection changed during sync: {filename}")));
+            }
+            continue;
+        }
         if filename.starts_with("attachments/") {
             let path = safe_cloud_file_path(&base, filename, true)?;
             let local_bytes = match std::fs::read(&path) {

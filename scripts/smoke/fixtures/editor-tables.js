@@ -370,7 +370,16 @@ for (const axis of ['column', 'row']) {
   await checkAsync(`drag ${axis} through its handle and preserve widths`, async () => {
     assert(!handle.hidden, 'Reorder handle visible');
     const tick = getComputedStyle(handle, '::before');
-    assertEqual(axis === 'column' ? tick.height : tick.width, '2px', 'Quiet handle is a thin tick');
+    assertEqual(axis === 'column' ? tick.height : tick.width, '2px', 'Quiet tick is as thick as the selection frame');
+    // The frame is 2px running inwards from the table edge, while a centred
+    // tick covers [edge - 1, edge + 1]: the 1px inward offset lands the tick on
+    // the frame band so it covers the selection colour completely.
+    assertEqual(tick.transform, axis === 'column' ? 'matrix(1, 0, 0, 1, 0, 1)' : 'matrix(1, 0, 0, 1, 1, 0)', 'Quiet tick sits inside the table edge, on the frame band');
+    // The quiet tick has no halo; its only separation from the table line is a
+    // 2px background gap at either end, painted through content-box clipping.
+    assertEqual(axis === 'column' ? tick.paddingLeft : tick.paddingTop, '2px', 'Quiet tick leaves a 2px gap at each end');
+    assertEqual(tick.boxShadow, 'none', 'Quiet tick has no halo to wash out the border');
+    assertEqual(tick.backgroundClip, 'content-box, border-box', 'Quiet tick fill stops at the end gaps while the gaps stay opaque');
     handle.dispatchEvent(new MouseEvent('mouseenter'));
     handle.dispatchEvent(new MouseEvent('mouseleave'));
     const box = handle.getBoundingClientRect();
@@ -408,9 +417,10 @@ for (const axis of ['column', 'row']) {
     assertEqual(getComputedStyle(firstPreviewCell).fontWeight, getComputedStyle(firstSourceCell).fontWeight, 'Preview retains header/body font weight');
     assertEqual(getComputedStyle(firstPreviewCell).whiteSpace, getComputedStyle(firstSourceCell).whiteSpace, 'Preview retains original wrapping');
     assertEqual(getComputedStyle(firstPreviewCell.querySelector('p')).marginTop, getComputedStyle(firstSourceCell.querySelector('p')).marginTop, 'Preview retains paragraph spacing');
-    assertEqual(getComputedStyle(firstPreviewCell, '::after').position, 'absolute', 'Selection background overlays cell fill');
-    assertEqual(getComputedStyle(firstPreviewCell, '::after').backgroundColor, 'color(srgb 0 0.521569 0.901961 / 0.1)', 'Preview uses the 10% info selection fill');
-    assertEqual(getComputedStyle(firstSourceCell, '::after').backgroundColor, getComputedStyle(firstPreviewCell, '::after').backgroundColor, 'Row/column selection and preview share the same fill');
+    assertEqual(getComputedStyle(firstPreviewCell, '::after').position, 'absolute', 'Preview fill overlays the cell fill');
+    assertEqual(getComputedStyle(firstPreviewCell, '::after').backgroundColor, 'color(srgb 0 0.521569 0.901961 / 0.1)', 'Preview keeps the 10% info fill: the floating copy has no outline to carry the state');
+    assertEqual(getComputedStyle(firstSourceCell, '::after').backgroundColor, 'rgba(0, 0, 0, 0)', 'Selection paints no fill, so row and column fills stay readable');
+    assertEqual(getComputedStyle(firstSourceCell, '::after').borderTopWidth, '2px', 'Selected row/column is outlined, not filled');
     assertEqual(getComputedStyle(preview, '::before').borderRadius, '5px', 'Drag preview grip matches the 5px corner radius');
     assert(preview.textContent.includes(axis === 'column' ? 'Cell 2:0 paragraph' : 'Cell 1:2 paragraph'), 'Preview displays dragged content');
     const previewBounds = preview.getBoundingClientRect();

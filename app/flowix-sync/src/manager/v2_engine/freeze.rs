@@ -126,6 +126,8 @@ impl SyncManager {
                             filename: note.filename.clone(),
                             file_kind: if note.filename.starts_with("attachments/") {
                                 "attachment".into()
+                            } else if flowix_core::collection::is_collection_document_path(std::path::Path::new(&note.filename)) {
+                                "collection".into()
                             } else {
                                 "markdown".into()
                             },

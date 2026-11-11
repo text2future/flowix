@@ -92,12 +92,26 @@
   flex: 0 0 auto;
 }
 
-/* 图标尺寸统一 15px。上色方式由各图标自己声明: 复制 / 移除链接 / 已复制勾选
- * 都是 Lucide 描边图标 (stroke="currentColor", fill="none"), 所以这里不统一
- * 定义上色。 */
-.editor-link-hover-tooltip-button svg {
-  width: 15px;
-  height: 15px;
+/* 链接 hover 气泡里的 unlink / 复制 (以及复制成功后的勾选) 固定 14×14。
+ * 只按动作标记命中这两个图标按钮: 选区 / 表格气泡的同款 Lucide 图标仍是
+ * 15px, 链接输入态的「保存」是文字按钮且没有 svg, 都不受这条影响。
+ *
+ * 上色方式由各图标自己声明: 都是 Lucide 描边图标
+ * (stroke="currentColor", fill="none"), 所以这里不统一定义上色。 */
+.editor-link-hover-tooltip [data-link-action='remove'] svg,
+.editor-link-hover-tooltip [data-link-action='copy'] svg {
+  width: 14px;
+  height: 14px;
+  /* 图标是按钮里的 flex item: 禁止收缩, 否则长 URL 把气泡撑到 380px 上限
+   * 时会连按钮一起被压窄, 圆形笔画被挤成椭圆。 */
+  flex: 0 0 auto;
+}
+
+/* 气泡是 inline-flex, 长地址会让所有可收缩项一起变窄。地址文案自己带
+ * flex: 1 1 auto + min-width: 0, 让文案独自承担压缩; 按钮固定 26×26,
+ * svg 保持上面的 14×14 正方形。 */
+.editor-link-hover-tooltip .editor-link-hover-tooltip-button {
+  flex: 0 0 auto;
 }
 
 /* 复制成功后的勾选图标 (描边) 短暂换成成功色: 不额外弹 toast, 避免在气泡

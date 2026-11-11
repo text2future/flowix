@@ -337,17 +337,24 @@ html.flowix-drag-drop-active * {
 	animation: none;
 }
 
+/* 拖入提示与树行的 hover / 选中态统一用 --muted 实色: 靠「整段文件夹+
+ * 后代变灰」与单行选中区分。用语义类承载颜色, 测试只断言类名。 */
+.notebook-file-tree__drop-hint {
+	background-color: var(--muted);
+}
+
 /* 拖放到文件夹时, 背景只覆盖与文件夹行相同的左右范围。
- * 使用绝对定位的伪元素, 不改变子项自身按 depth 计算的布局位置。 */
+ * 使用绝对定位的伪元素, 不改变子项自身按 depth 计算的布局位置。
+ * 实色底必须画在行之下(z-index 0 < 行的 1), 否则会盖住行的文字。 */
 .folder-file-tree__group[data-drag-over='true']::before {
 	position: absolute;
 	top: 0;
 	right: var(--folder-file-tree-drop-right);
 	bottom: 0;
 	left: var(--folder-file-tree-drop-left);
-	z-index: 2;
+	z-index: 0;
 	border-radius: 0.5rem;
-	background: color-mix(in oklch, var(--brand) 15%, transparent);
+	background: var(--muted);
 	content: '';
 	pointer-events: none;
 }
@@ -369,6 +376,46 @@ html.flowix-drag-drop-active * {
 .notebook-file-tree--dragging,
 .notebook-file-tree--dragging * {
 	cursor: default !important;
+}
+
+/* 拖拽预览是源行的克隆, 挂在 body 上: 与行等宽等高、共用同一份图标与选中态,
+ * 只额外补一层侧边栏底色、无 Y 偏移的柔和投影、0.6 不透明度和多选数量角标。 */
+.notebook-file-tree__drag-preview {
+	position: fixed;
+	left: 0;
+	top: 0;
+	z-index: 2147483647;
+	box-sizing: border-box;
+	pointer-events: none;
+	border-radius: 8px;
+	background: var(--list-bg);
+	box-shadow: 0 0 9px -3px rgb(0 0 0 / 16%);
+	opacity: 0.6;
+	transform: translate3d(0, 0, 0);
+	will-change: transform;
+}
+
+/* 克隆出来的行不会处于 :hover, 手动补上与树行 hover / 选中态相同的背景。 */
+.notebook-file-tree__drag-preview > .folder-file-tree__item {
+	background-color: var(--muted);
+}
+
+.notebook-file-tree__drag-preview-count {
+	position: absolute;
+	right: -8px;
+	top: -8px;
+	display: inline-flex;
+	min-width: 18px;
+	height: 18px;
+	align-items: center;
+	justify-content: center;
+	padding: 0 5px;
+	border-radius: 9px;
+	background: var(--brand);
+	color: var(--primary-foreground);
+	font-size: 11px;
+	line-height: 1;
+	box-shadow: 0 0 0 2px var(--list-bg);
 }
 
 .notebook-file-tree__default-file-icon {
@@ -545,7 +592,7 @@ html.flowix-drag-drop-active * {
 		 * Hover-state micro transitions (colors, opacity on buttons/tree rows)
 		 * are intentionally NOT routed through these tokens. */
 		--flowix-motion-duration: 180ms;
-		--flowix-motion-easing: cubic-bezier(0.16, 1, 0.3, 1);
+		--flowix-motion-easing: cubic-bezier(0.22, 0.72, 0.36, 0.9);
 
 		/* 集合外壳版式（非颜色 token）。
 		 * tab 条高度 = tab 高 h-7 (1.75rem) + 上下 py-1 (0.5rem)；
@@ -707,17 +754,6 @@ html.flowix-drag-drop-active * {
 	 * BROWSER_COLUMN_ANIMATION_MS = 200) so drags and viewport resizes snap. */
 	.document-columns-layout--animating {
 		transition: grid-template-columns 200ms var(--flowix-motion-easing);
-	}
-
-	/* Dual columns never show their own horizontal scrollbar: when the two
-	 * minimum-width tracks (2 x BROWSER_COLUMN_MIN_WIDTH) exceed the viewport,
-	 * scrolling stays available (trackpad/swipe) but the bar itself is hidden. */
-	[data-document-columns-layout='split'] {
-		scrollbar-width: none;
-	}
-
-	[data-document-columns-layout='split']::-webkit-scrollbar {
-		display: none;
 	}
 
 	@media (prefers-reduced-motion: reduce) {

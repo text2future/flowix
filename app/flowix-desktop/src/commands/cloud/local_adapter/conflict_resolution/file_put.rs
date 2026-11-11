@@ -16,6 +16,37 @@ pub(crate) fn resolve_v2_file_put_conflict(
     let notebook = memo_file
         .get_notebook_config_by_id(&material.notebook_id)
         .ok_or_else(|| "NOTEBOOK_NOT_FOUND".to_string())?;
+    if flowix_core::collection::is_collection_document_path(Path::new(&material.remote.filename))
+        && !material.remote.filename.starts_with("attachments/")
+    {
+        let root = Path::new(&notebook.path);
+        let path = safe_cloud_collection_path(root, &material.remote.filename)?;
+        let local = std::fs::read(&path).map_err(sync_error)?;
+        record_rejected_cloud_version(&memo_file, &material.notebook_id, root, &path, &local)?;
+        let copy = cloud_conflict_copy_path(&path, &material.operation_id);
+        let outcome = if material.remote.deleted || material.relocated.is_some() {
+            crate::watcher::runtime::mark_self_write_missing_for(app, &path);
+            safely_remove_conflict_file(&path, &local, &material.operation_id, &copy)?
+        } else {
+            let remote = material.remote_content.as_deref().ok_or("CLOUD_CONFLICT_REMOTE_UNAVAILABLE")?;
+            crate::watcher::runtime::mark_self_write_content_for(app, &path, remote);
+            safely_replace_conflict_file(&path, &local, remote, &material.operation_id, &copy)?
+        };
+        if !matches!(outcome, ConflictFileOutcome::Applied { preserved: None }) {
+            return Err("CLOUD_COLLECTION_CONFLICT: local changes preserved".into());
+        }
+        if let Some(target) = &material.relocated {
+            safe_cloud_collection_path(root, &target.filename)?;
+            state.cloud_sync.v2_rebase_moved_conflict(&material.remote, target).map_err(sync_error)?;
+        } else {
+            state.cloud_sync.v2_rebase_after_conflict(&material.remote).map_err(sync_error)?;
+        }
+        drop(_guard);
+        crate::commands::collection::refresh_path(&memo_file, &path);
+        let _ = app.emit("file-management-changed", serde_json::json!({"notebookId": material.notebook_id, "notebookPath": notebook.path}));
+        let _ = app.emit("collection-changed", serde_json::json!({"notebookId": material.notebook_id, "notebookPath": notebook.path, "relativePath": material.remote.filename}));
+        return Ok(());
+    }
     if material.remote.filename.starts_with("attachments/") {
         let notebook_root = Path::new(&notebook.path);
         let path = safe_cloud_file_path(notebook_root, &material.remote.filename, true)?;

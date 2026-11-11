@@ -158,15 +158,53 @@ export function useNotebookTreeSections(notebookId: string | null, isActive: boo
     });
   }, [notebookId]);
 
+  // One folder move per event would mean one preference-file write per event;
+  // a bulk move or a sync pull publishes them back to back. Collect them and
+  // rebase the whole batch in a single write, still in arrival order so that
+  // chained moves (a → b → c) resolve to the final path.
+  const pendingMovesRef = useRef<Array<{ previousRelativePath: string; relativePath: string }>>([]);
+  const flushScheduledRef = useRef(false);
+  const drainMovesRef = useRef<() => void>(() => {});
+  drainMovesRef.current = () => {
+    flushScheduledRef.current = false;
+    if (pendingMovesRef.current.length === 0) return;
+    const moves = pendingMovesRef.current;
+    pendingMovesRef.current = [];
+    const applyMoves = (paths: string[]): string[] | null => {
+      let next = paths;
+      for (const move of moves) {
+        next = rebasePinnedFolderPaths(next, move.previousRelativePath, move.relativePath) ?? next;
+      }
+      return next === paths ? null : next;
+    };
+    void updatePinnedFolders(applyMoves).catch(() => undefined);
+  };
+
+  // A queued move must land before an explicit toggle, otherwise the toggle is
+  // written against the pre-move list and the move rebase overwrites it.
+  const enqueuePinnedFoldersUpdate = useCallback((update: (paths: string[]) => string[] | null) => {
+    drainMovesRef.current();
+    return updatePinnedFolders(update);
+  }, [updatePinnedFolders]);
+
   useEffect(() => {
     if (!isActive || !notebookId) return;
-    return subscribeNotebookChanges((change) => {
+    const unsubscribe = subscribeNotebookChanges((change) => {
       if (change.notebookId !== notebookId || change.kind !== 'path-moved' || !change.directory) return;
-      void updatePinnedFolders((paths) => (
-        rebasePinnedFolderPaths(paths, change.previousRelativePath, change.relativePath)
-      )).catch(() => undefined);
+      pendingMovesRef.current.push({
+        previousRelativePath: change.previousRelativePath,
+        relativePath: change.relativePath,
+      });
+      if (flushScheduledRef.current) return;
+      flushScheduledRef.current = true;
+      queueMicrotask(() => drainMovesRef.current());
     });
-  }, [isActive, notebookId, updatePinnedFolders]);
+    return () => {
+      unsubscribe();
+      pendingMovesRef.current = [];
+      flushScheduledRef.current = false;
+    };
+  }, [isActive, notebookId]);
 
-  return { sectionOrder, hiddenSections, pinnedFolders, updateSections, updatePinnedFolders };
+  return { sectionOrder, hiddenSections, pinnedFolders, updateSections, updatePinnedFolders: enqueuePinnedFoldersUpdate };
 }

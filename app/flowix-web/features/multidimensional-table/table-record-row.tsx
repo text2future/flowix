@@ -1,28 +1,40 @@
 import { sortFields } from './field-order';
 import { builtinTableFieldValue, builtinPresetTableField, builtinPresetValue, type BuiltinTableField } from './builtin-fields';
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { ChevronDown, ChevronUp, FileText, MoreHorizontal } from 'lucide-react';
-import { ArrowUpRightIcon, ArrowsLeftRightIcon, LightningIcon, MinusCircleIcon, TrashSimpleIcon } from '@phosphor-icons/react';
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { GripVertical, Minus, MoreHorizontal, Plus } from 'lucide-react';
+import { ArrowUpRightIcon, LightningIcon, MinusCircleIcon, TrashSimpleIcon } from '@phosphor-icons/react';
 import type { NoteEntry } from '@platform/tauri/client';
+import { useI18n } from '@/lib/i18n';
 import { joinNotebookMemoPath } from '@/lib/path';
 import { displayTitleFromFilename } from '@/lib/utils';
-import { canonicalizePropertyKey } from '@features/properties/property-key';
-import { useComposingValue } from '@shared/hooks/use-composing-value';
+import { canonicalizePropertyKey } from '@features/properties/public/property-key-api';
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@shared/ui/context-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '@shared/ui/popover';
 import { FlowixCheckbox } from '@shared/ui/flowix-checkbox';
-import { DateValueInput } from '@features/document/components/note-properties/date-value-input';
-import { ColorValueInput } from '@features/document/properties/color-value-input';
-import { ImageValueInput } from '@features/document/properties/image-value-input';
-import { IconValueInput } from '@features/document/properties/icon-value-input';
-import { MultiSelectValueInput } from '@features/document/properties/multi-select-value-input';
-import { SelectValueInput } from '@features/document/properties/select-value-input';
+import {
+  ColorValueInput,
+  DateValueInput,
+  IconValueInput,
+  ImageValueInput,
+  MultiSelectValueInput,
+  SelectValueInput,
+} from '@features/document/public/table-property-input-api';
 import { TableTagValueInput } from './table-tag-value-input';
 import { TableTextValueInput } from './table-text-value-input';
 import { NoteCreatePicker } from './note-create-picker';
+import { ContentIcon } from '@features/content/public/content-api';
 import type { TableField, TableRecord } from './model';
 import type { TableCellSaveStatus } from './use-table-cell-writer';
 
-const EMPTY_AVAILABLE_NOTES: NoteEntry[] = [];
+function isWeakUrl(value: string): boolean {
+  if (!value) return true;
+  try {
+    const url = new URL(value);
+    return (url.protocol === 'http:' || url.protocol === 'https:') && Boolean(url.hostname);
+  } catch {
+    return false;
+  }
+}
 
 export function TableBooleanInput({ value, disabled, ariaLabel, onChange }: {
   value: unknown;
@@ -82,71 +94,84 @@ export function TableNumberInput({
   value: initialValue,
   disabled,
   placeholder,
-  className,
   onChange,
 }: {
   value: unknown;
   disabled: boolean;
   placeholder: string;
-  className: string;
   onChange: (value: number | null) => void;
 }) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const stepCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const commit = () => {
-    if (stepCommitTimerRef.current) {
-      clearTimeout(stepCommitTimerRef.current);
-      stepCommitTimerRef.current = null;
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(initialValue == null || initialValue === '' ? '' : String(initialValue));
+  const currentValue = initialValue == null || initialValue === '' ? null : Number(initialValue);
+
+  useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (disabled) return;
+    if (nextOpen) {
+      setDraft(currentValue == null ? '' : String(currentValue));
+      setOpen(true);
+      return;
     }
-    if (disabled) return;
-    const rawValue = inputRef.current?.value ?? '';
-    const nextValue = rawValue === '' ? null : Number(rawValue);
-    const currentValue = initialValue == null || initialValue === '' ? null : Number(initialValue);
-    if (Object.is(nextValue, currentValue)) return;
-    onChange(nextValue);
+    const trimmed = draft.trim();
+    const nextValue = trimmed === '' ? null : Number(trimmed);
+    if ((nextValue === null || Number.isFinite(nextValue)) && !Object.is(nextValue, currentValue)) onChange(nextValue);
+    setOpen(false);
   };
+
   const step = (direction: 'up' | 'down') => {
-    if (disabled) return;
-    const input = inputRef.current;
-    if (!input) return;
-    if (direction === 'up') input.stepUp();
-    else input.stepDown();
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    if (stepCommitTimerRef.current) clearTimeout(stepCommitTimerRef.current);
-    stepCommitTimerRef.current = setTimeout(() => {
-      stepCommitTimerRef.current = null;
-      commit();
-    }, 1000);
+    const current = draft.trim() === '' ? 0 : Number(draft);
+    if (!Number.isFinite(current)) return;
+    setDraft(String(current + (direction === 'up' ? 1 : -1)));
   };
 
-  useEffect(() => () => {
-    if (stepCommitTimerRef.current) clearTimeout(stepCommitTimerRef.current);
-  }, []);
-
-  return <div className="relative flex min-w-0 items-center">
-    <input
-      ref={inputRef}
-      type="number"
-      className={`${className} multidimensional-table__number-input pr-6 disabled:cursor-not-allowed disabled:opacity-50`}
-      disabled={disabled}
-      placeholder={placeholder}
-      defaultValue={initialValue == null ? '' : String(initialValue)}
-      onBlur={commit}
-    />
-    <span className="absolute right-0 flex flex-col items-center">
-      <button type="button" disabled={disabled} aria-label="增加数值" title="增加数值" className="flex h-3 w-6 items-center justify-center bg-transparent p-0 text-[var(--muted-foreground)] hover:bg-transparent hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-40" onMouseDown={(event) => event.preventDefault()} onClick={() => step('up')}>
-        <ChevronUp className="h-3 w-3" aria-hidden="true" />
+  return <Popover open={disabled ? false : open} onOpenChange={handleOpenChange} cellPopup>
+    <PopoverTrigger asChild anchorToCell>
+      <button
+        type="button"
+        disabled={disabled}
+        aria-label={placeholder || '编辑数值'}
+        className="multidimensional-table__text-value min-h-8 w-full min-w-0 border-0 bg-transparent px-0 py-1 text-left text-sm disabled:cursor-not-allowed"
+      >
+        {currentValue == null ? <span className="text-[var(--muted-foreground)] opacity-80">{placeholder}</span> : String(currentValue)}
       </button>
-      <button type="button" disabled={disabled} aria-label="减少数值" title="减少数值" className="flex h-3 w-6 items-center justify-center bg-transparent p-0 text-[var(--muted-foreground)] hover:bg-transparent hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-40" onMouseDown={(event) => event.preventDefault()} onClick={() => step('down')}>
-        <ChevronDown className="h-3 w-3" aria-hidden="true" />
-      </button>
-    </span>
-  </div>;
+    </PopoverTrigger>
+    <PopoverContent
+      align="start"
+      side="bottom"
+      sideOffset={4}
+      className="multidimensional-table__field-editor-popover !z-[170]"
+      matchAnchorWidth={1.02}
+      matchAnchorHeight={1.08}
+      style={{ maxWidth: 'calc(100vw - 8px)' }}
+    >
+      <div className="flex min-w-0 items-center gap-1">
+        <button type="button" disabled={disabled} aria-label="减少数值" title="减少数值" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-transparent p-0 text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-40" onMouseDown={(event) => event.preventDefault()} onClick={() => step('down')}>
+          <Minus className="h-3 w-3" aria-hidden="true" />
+        </button>
+        <input
+          autoFocus
+          type="number"
+          value={draft}
+          disabled={disabled}
+          aria-label={placeholder || '数值'}
+          onChange={(event) => setDraft(event.target.value)}
+          className="multidimensional-table__text-value multidimensional-table__number-input block h-8 min-w-0 flex-1 rounded-lg border-0 bg-transparent px-1.5 py-1 text-center text-sm outline-none focus:border-0"
+        />
+        <button type="button" disabled={disabled} aria-label="增加数值" title="增加数值" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-transparent p-0 text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-40" onMouseDown={(event) => event.preventDefault()} onClick={() => step('up')}>
+          <Plus className="h-3 w-3" aria-hidden="true" />
+        </button>
+      </div>
+    </PopoverContent>
+  </Popover>;
 }
 
 interface TableRecordRowProps {
   record: TableRecord;
   isDropPreview?: boolean;
+  canReorder?: boolean;
+  isDragging?: boolean;
   showBottomBorder?: boolean;
   imagePaths: (value: unknown) => string[];
   notePropertyEditorValue: (note: NoteEntry | undefined, field: TableField) => unknown;
@@ -166,7 +191,11 @@ interface TableRecordRowProps {
   saving: boolean;
   cellStatuses: ReadonlyMap<string, TableCellSaveStatus>;
   rowActionOpen: boolean;
+  isSelected?: boolean;
+  onToggleSelected?: (recordId: string) => void;
+  onRowContextMenu?: (recordId: string) => void;
   onRetryNoteLookup: () => void;
+  onMissingNote: (record: TableRecord) => void;
   onReplaceNote: (recordId: string, noteKey: string) => void;
   onCreateAndLinkRecordNote: (recordId: string, title: string) => Promise<boolean>;
   onAutoOpenHandled: () => void;
@@ -175,34 +204,38 @@ interface TableRecordRowProps {
   onDeleteNote: (note: NoteEntry) => void;
   onSelectImage: (record: TableRecord, note: NoteEntry, field: TableField) => Promise<void>;
   onUpdateCell: (record: TableRecord, note: NoteEntry | undefined, field: TableField, value: unknown) => void;
+  onCreateFieldOption?: (field: TableField, label: string) => Promise<{ id: string; label: string } | null>;
   onDeleteRecord: (recordId: string) => void;
+  onDeleteRow?: (recordId: string) => void;
   onRowActionOpenChange: (open: boolean, recordId: string) => void;
 }
 
 export const TableRecordRow = memo(function TableRecordRow({
   record,
   isDropPreview = false,
+  canReorder = false,
+  isDragging = false,
   showBottomBorder = true,
   imagePaths,
   notePropertyEditorValue,
   fields,
   builtinFields = [],
   fieldOrder,
-  allowSwitchNote = true,
   titleField,
   note,
   isRuleLinked,
   notebookPath,
-  getAvailableNotes,
-  subscribeAvailableNotes,
   noteStatus,
   autoOpenPrimaryEditor,
   imageUrls,
   saving,
   cellStatuses,
   rowActionOpen,
+  isSelected = false,
+  onToggleSelected,
+  onRowContextMenu,
   onRetryNoteLookup,
-  onReplaceNote,
+  onMissingNote,
   onCreateAndLinkRecordNote,
   onAutoOpenHandled,
   onRenameNote,
@@ -210,15 +243,15 @@ export const TableRecordRow = memo(function TableRecordRow({
   onDeleteNote,
   onSelectImage,
   onUpdateCell,
+  onCreateFieldOption = async () => null,
   onDeleteRecord,
+  onDeleteRow,
   onRowActionOpenChange,
 }: TableRecordRowProps) {
+  const { t } = useI18n();
   const [editingPrimary, setEditingPrimary] = useState(false);
   const [primaryTitleDraft, setPrimaryTitleDraft] = useState('');
-  const primaryTitleInput = useComposingValue(primaryTitleDraft, setPrimaryTitleDraft);
   const [renamingPrimary, setRenamingPrimary] = useState(false);
-  const [switchNoteOpen, setSwitchNoteOpen] = useState(false);
-  const [switchNoteSearch, setSwitchNoteSearch] = useState('');
   const [uploadingImageFieldId, setUploadingImageFieldId] = useState<string | null>(null);
   const primaryTitleInputRef = useRef<HTMLTextAreaElement>(null);
   const resizePrimaryTitleInput = useCallback((input = primaryTitleInputRef.current) => {
@@ -226,28 +259,7 @@ export const TableRecordRow = memo(function TableRecordRow({
     input.style.height = 'auto';
     input.style.height = `${Math.min(input.scrollHeight, window.innerHeight * 0.5)}px`;
   }, []);
-  const setPrimaryTitleInputRef = useCallback((input: HTMLTextAreaElement | null) => {
-    primaryTitleInputRef.current = input;
-    if (input) resizePrimaryTitleInput(input);
-  }, [resizePrimaryTitleInput]);
   const creatingDraftNoteRef = useRef(false);
-  const shouldLoadAvailableNotes = switchNoteOpen || (editingPrimary && !note && allowSwitchNote);
-  const subscribeToAvailableNotes = useCallback((listener: () => void) => (
-    shouldLoadAvailableNotes ? subscribeAvailableNotes(listener) : () => {}
-  ), [shouldLoadAvailableNotes, subscribeAvailableNotes]);
-  const getAvailableNotesSnapshot = useCallback(() => (
-    shouldLoadAvailableNotes ? getAvailableNotes() : EMPTY_AVAILABLE_NOTES
-  ), [getAvailableNotes, shouldLoadAvailableNotes]);
-  const availableNotes = useSyncExternalStore(
-    subscribeToAvailableNotes,
-    getAvailableNotesSnapshot,
-    getAvailableNotesSnapshot,
-  );
-  const filteredAvailableNotes = availableNotes.filter((availableNote) => {
-    const query = switchNoteSearch.trim().toLocaleLowerCase();
-    return !query || `${availableNote.title ?? ''} ${availableNote.relativePath}`.toLocaleLowerCase().includes(query);
-  });
-
   useLayoutEffect(() => {
     const input = primaryTitleInputRef.current;
     if (!editingPrimary || !input) return;
@@ -259,15 +271,14 @@ export const TableRecordRow = memo(function TableRecordRow({
     if (!autoOpenPrimaryEditor) return;
     setPrimaryTitleDraft('');
     setEditingPrimary(true);
-    setSwitchNoteOpen(false);
     onAutoOpenHandled();
-  }, [allowSwitchNote, autoOpenPrimaryEditor, onAutoOpenHandled]);
+  }, [autoOpenPrimaryEditor, onAutoOpenHandled]);
 
-  const finishPrimaryEdit = async (keepOpen = false): Promise<NoteEntry | null> => {
+  const finishPrimaryEdit = async (): Promise<NoteEntry | null> => {
     if (!note) return null;
     const nextTitle = primaryTitleDraft.trim();
     const currentTitle = displayTitleFromFilename(note.relativePath);
-    if (!keepOpen) setEditingPrimary(false);
+    setEditingPrimary(false);
     if (!nextTitle) {
       setPrimaryTitleDraft(currentTitle);
       return note;
@@ -290,7 +301,6 @@ export const TableRecordRow = memo(function TableRecordRow({
       const created = await onCreateAndLinkRecordNote(record.id, title);
       if (created) {
         setEditingPrimary(false);
-        setSwitchNoteOpen(false);
       }
       return created;
     } finally {
@@ -298,33 +308,55 @@ export const TableRecordRow = memo(function TableRecordRow({
     }
   };
 
-  const selectDraftAvailableNote = (relativePath: string) => {
-    onReplaceNote(record.id, relativePath.replace(/\\/g, '/'));
-    setEditingPrimary(false);
-    setSwitchNoteOpen(false);
-  };
+  const firstVisibleFieldId = sortFields(
+    [...fields, ...builtinFields.flatMap((field) => builtinPresetTableField(field.id) ? [builtinPresetTableField(field.id)!] : [])],
+    (field) => field.id,
+    fieldOrder ?? [...fields.map((field) => field.id), ...builtinFields.map((field) => field.id)],
+  )[0]?.id;
 
   const handlePrimaryEditorOpenChange = (open: boolean) => {
     if (open) {
       setPrimaryTitleDraft(note ? displayTitleFromFilename(note.relativePath) : '');
-      setSwitchNoteOpen(false);
       setEditingPrimary(true);
     } else if (!open && editingPrimary) {
       if (note) void finishPrimaryEdit();
       else {
         setEditingPrimary(false);
-        setSwitchNoteOpen(false);
         if (primaryTitleDraft.trim()) void createDraftPrimary();
       }
     }
   };
 
-  return <tr
-    data-table-record={isDropPreview ? undefined : record.id}
-    aria-hidden={isDropPreview || undefined}
-    inert={isDropPreview || undefined}
-    className={`hover:bg-[var(--muted)]/25 ${isDropPreview ? 'pointer-events-none opacity-50' : ''}`}
-  >
+  return <ContextMenu>
+    <ContextMenuTrigger asChild>
+      <tr
+        onContextMenu={() => onRowContextMenu?.(record.id)}
+        data-table-record={isDropPreview ? undefined : record.id}
+        data-table-reorderable-record={!isDropPreview && canReorder ? record.id : undefined}
+        data-row-dragging-source={isDragging || undefined}
+        data-selected={isSelected || undefined}
+        aria-hidden={isDropPreview || undefined}
+        inert={isDropPreview || undefined}
+        className={`${isDropPreview ? 'pointer-events-none opacity-50' : ''}`}
+      >
+    <td className="multidimensional-table__row-control-cell">
+      <div className="multidimensional-table__row-leading-controls" onClick={(event) => event.stopPropagation()}>
+        {canReorder && !isDropPreview && <button
+          type="button"
+          disabled={saving}
+          data-row-drag-handle
+          aria-label={t('editor.table.reorderRow')}
+          title={t('editor.table.reorderRow')}
+          className="multidimensional-table__row-drag-handle"
+        ><GripVertical aria-hidden="true" /></button>}
+        <FlowixCheckbox
+          checked={isSelected}
+          aria-label={isSelected ? '取消选中行' : '选中行'}
+          onCheckedChange={() => onToggleSelected?.(record.id)}
+          className="multidimensional-table__row-selection-checkbox"
+        />
+      </div>
+    </td>
     {sortFields([...[...fields, ...builtinFields.flatMap((field) => {
       const preset = builtinPresetTableField(field.id);
       return preset ? [preset] : [];
@@ -344,154 +376,73 @@ export const TableRecordRow = memo(function TableRecordRow({
           setUploadingImageFieldId(null);
         }
       };
+      const canOpenPrimaryEditorFromCell = field.type === 'primary'
+        && (noteStatus === 'draft' || Boolean(note && notebookPath));
       return <td
         key={field.id}
         title={cellStatus?.error}
-        className={`${showBottomBorder ? 'border-b' : ''} border-r border-[var(--border)] p-0 ${isWrappingContent ? 'overflow-visible align-middle' : 'h-10 max-h-10 overflow-hidden align-middle'} ${cellStatus?.error ? 'ring-1 ring-inset ring-[var(--destructive)]' : ''}`}
+        className={`relative ${showBottomBorder ? 'border-b' : ''} border-r border-[var(--border)] p-0 ${field.id === firstVisibleFieldId || isWrappingContent ? 'overflow-visible align-middle' : 'h-10 max-h-10 overflow-hidden align-middle'} ${cellStatus?.error ? 'ring-1 ring-inset ring-[var(--destructive)]' : ''}`}
+        onClick={canOpenPrimaryEditorFromCell ? (event) => {
+          if (event.target instanceof Element && event.target.closest('.multidimensional-table__open-note')) return;
+          setPrimaryTitleDraft(note ? displayTitleFromFilename(note.relativePath) : '');
+          setEditingPrimary(true);
+        } : undefined}
       >
         <div className={`multidimensional-table__cell-content${field.type === 'primary' ? ' multidimensional-table__primary-cell group' : ''}`}>
           {field.type === 'primary' ? (() => {
             const path = note && notebookPath ? joinNotebookMemoPath(notebookPath, note.relativePath) : null;
-            return note && path
-              ? <>
-                <Popover open={editingPrimary} onOpenChange={handlePrimaryEditorOpenChange} cellPopup>
-                  <PopoverTrigger asChild anchorToCell>
-                    <button type="button" disabled={saving} className="multidimensional-table__primary-title !py-1" title={displayTitleFromFilename(note.relativePath)}>
+            if (noteStatus === 'missing') return <button type="button" disabled={saving} className="multidimensional-table__primary-title multidimensional-table__primary-title--placeholder !py-1" onClick={() => onMissingNote(record)}>
+              未找到笔记 {displayTitleFromFilename(record.note_path)}
+            </button>;
+            const canEditPrimary = Boolean((note && path) || noteStatus === 'draft');
+            if (!canEditPrimary) {
+              return noteStatus === 'unknown'
+                ? <button
+                  type="button"
+                  disabled={saving}
+                  title={record.note_path}
+                  className="max-w-full truncate px-0 text-left text-sm text-[var(--muted-foreground)] opacity-80 hover:opacity-100 disabled:opacity-50"
+                  onClick={onRetryNoteLookup}
+                >无法确认关联状态，点击重试</button>
+                : null;
+            }
+            return <>
+              <Popover open={editingPrimary} onOpenChange={handlePrimaryEditorOpenChange} cellPopup>
+                <PopoverTrigger asChild anchorToCell>
+                  {note && path
+                    ? <button type="button" disabled={saving} className="multidimensional-table__primary-title !py-1" title={displayTitleFromFilename(note.relativePath)}>
                       {isRuleLinked && !editingPrimary && <LightningIcon className="multidimensional-table__rule-link-icon" aria-hidden="true" />}
+                      <ContentIcon content={{ kind: 'note' }} className="multidimensional-table__note-icon" />
                       <span>{displayTitleFromFilename(note.relativePath)}</span>
                     </button>
-                  </PopoverTrigger>
-                  <PopoverContent align="start" side="bottom" sideOffset={4} fitViewport className="w-[240px] max-w-[calc(100vw-1rem)] rounded-xl px-2 py-2 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
-                    <div className="multidimensional-table__primary-editor">
-                      <textarea
-                        ref={setPrimaryTitleInputRef}
-                        autoFocus
-                        aria-label="笔记文件名"
-                        rows={1}
-                        value={primaryTitleInput.value}
-                        disabled={renamingPrimary || saving}
-                        className="multidimensional-table__primary-title-input"
-                        onChange={primaryTitleInput.onChange}
-                        onCompositionStart={primaryTitleInput.onCompositionStart}
-                        onCompositionEnd={primaryTitleInput.onCompositionEnd}
-                        onKeyDown={(event) => {
-                          if (primaryTitleInput.isComposingKeyboardEvent(event.nativeEvent)) {
-                            if (event.key === 'Escape' || event.key === 'Enter') event.stopPropagation();
-                            return;
-                          }
-                          if (event.key === 'Escape') {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            setPrimaryTitleDraft(displayTitleFromFilename(note.relativePath));
-                            setEditingPrimary(false);
-                          }
-                        }}
-                      />
-                      <div className="multidimensional-table__primary-editor-actions">
-                        <button type="button" aria-label="跳转到目标文档" title="跳转到目标文档" disabled={renamingPrimary || saving} onMouseDown={(event) => event.preventDefault()} onClick={async () => {
-                          const renamed = await finishPrimaryEdit();
-                          if (renamed) onOpenNote(renamed);
-                        }}>
-                          <ArrowUpRightIcon size={14} weight="bold" aria-hidden="true" />
-                        </button>
-                        <button type="button" aria-label="切换文档" aria-expanded={switchNoteOpen} title="切换文档" disabled={!allowSwitchNote || renamingPrimary || saving} onMouseDown={(event) => event.preventDefault()} onClick={async () => {
-                          const renamed = await finishPrimaryEdit(true);
-                          if (renamed) setSwitchNoteOpen((open) => {
-                            const next = !open;
-                            if (next) setSwitchNoteSearch('');
-                            return next;
-                          });
-                        }}>
-                          <ArrowsLeftRightIcon size={14} weight="bold" aria-hidden="true" />
-                        </button>
-                        <button type="button" aria-label="从表格移除此行" title="从表格移除此行" disabled={renamingPrimary || saving} onMouseDown={(event) => event.preventDefault()} onClick={async () => {
-                          const renamed = await finishPrimaryEdit();
-                          if (renamed) onDeleteRecord(record.id);
-                        }}>
-                          <MinusCircleIcon size={14} weight="bold" aria-hidden="true" />
-                        </button>
-                      </div>
-                      {allowSwitchNote && switchNoteOpen && <div className="min-w-0">
-                        <input
-                          autoFocus
-                          type="search"
-                          aria-label="搜索并添加笔记"
-                          placeholder={availableNotes.length ? '搜索并添加笔记' : '没有可更换的文档'}
-                          value={switchNoteSearch}
-                          disabled={saving || renamingPrimary || availableNotes.length === 0}
-                          onChange={(event) => setSwitchNoteSearch(event.target.value)}
-                          className="h-8 w-full border-0 bg-transparent px-0 text-sm outline-none placeholder:text-[var(--muted-foreground)]"
-                        />
-                        <div role="listbox" aria-label="新文档" className="-mx-1 max-h-48 overflow-y-auto">
-                          {filteredAvailableNotes.map((availableNote) => <button
-                            key={availableNote.relativePath}
-                            type="button"
-                            role="option"
-                            aria-selected={false}
-                            disabled={saving || renamingPrimary}
-                            onMouseDown={(event) => event.preventDefault()}
-                            onClick={() => {
-                              onReplaceNote(record.id, availableNote.relativePath.replace(/\\/g, '/'));
-                              setSwitchNoteOpen(false);
-                              setEditingPrimary(false);
-                            }}
-                            className="flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-1 text-left text-sm text-[var(--foreground)] outline-none hover:bg-[var(--hover-bg)] disabled:opacity-50"
-                            title={availableNote.relativePath}
-                          >
-                            <FileText className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)]" aria-hidden="true" />
-                            <span className="truncate">{availableNote.title || availableNote.relativePath}</span>
-                          </button>)}
-                          {availableNotes.length > 0 && filteredAvailableNotes.length === 0 && <p className="px-1 py-2 text-sm text-[var(--muted-foreground)]">没有匹配的文档</p>}
-                        </div>
-                      </div>}
-                    </div>
-                  </PopoverContent>
-                </Popover>
-                <button
-                  type="button"
-                  aria-label={`打开笔记 ${note.title || note.relativePath}`}
-                  title="打开"
-                  className="multidimensional-table__open-note"
-                  onClick={() => onOpenNote(note)}
-                >
-                  <ArrowUpRightIcon className="h-3.5 w-3.5" weight="bold" aria-hidden="true" />
-                </button>
-              </>
-                : noteStatus === 'draft' || noteStatus === 'missing'
-                ? <Popover open={editingPrimary} onOpenChange={handlePrimaryEditorOpenChange} cellPopup>
-                  <PopoverTrigger asChild anchorToCell>
-                    <button type="button" disabled={saving} className="multidimensional-table__primary-title multidimensional-table__primary-title--placeholder !py-1" title={noteStatus === 'missing' ? `未找到笔记 ${displayTitleFromFilename(record.note_path)}` : allowSwitchNote ? "新建或选择笔记" : "新建笔记"}>
-                      {noteStatus === 'missing' ? `未找到笔记 ${displayTitleFromFilename(record.note_path)}` : allowSwitchNote ? "新建或选择笔记" : "新建笔记"}
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent align="start" side="bottom" sideOffset={4} fitViewport className="w-[240px] max-w-[calc(100vw-1rem)] rounded-xl px-2 py-2 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
-                    <NoteCreatePicker
-                      value={primaryTitleDraft}
-                      onChange={setPrimaryTitleDraft}
-                      notes={availableNotes}
-                      allowSelect={allowSwitchNote}
-                      disabled={saving}
-                      onCreate={createDraftPrimary}
-                      onSelect={(selectedNote) => selectDraftAvailableNote(selectedNote.relativePath)}
-                      onCancel={() => {
-                        setPrimaryTitleDraft('');
-                        setEditingPrimary(false);
-                      }}
-                      actions={<button type="button" aria-label="从表格移除此行" title="从表格移除此行" disabled={saving} onMouseDown={(event) => event.preventDefault()} onClick={() => onDeleteRecord(record.id)}>
-                        <MinusCircleIcon size={14} weight="bold" aria-hidden="true" />
-                      </button>}
-                    />
-                  </PopoverContent>
-                </Popover>
-                : noteStatus === 'unknown'
-                  ? <button
-                    type="button"
-                    disabled={saving}
-                    title={record.note_path}
-                    className="max-w-full truncate px-0 text-left text-sm text-[var(--muted-foreground)] opacity-80 hover:opacity-100 disabled:opacity-50"
-                    onClick={onRetryNoteLookup}
-                  >无法确认关联状态，点击重试</button>
-                  : null;
+                    : <button type="button" disabled={saving} aria-label="创建笔记" className="multidimensional-table__primary-title multidimensional-table__primary-title--placeholder !py-1" />}
+                </PopoverTrigger>
+                <PopoverContent align="start" side="bottom" sideOffset={4} fitViewport matchAnchorWidth={1.02} matchAnchorHeight={1.08} className="multidimensional-table__cell-editor-popover max-w-[calc(100vw-1rem)] rounded-lg px-2 py-0 shadow-[0_0px_24px_-3px_rgb(0_0_0_/_0.12)]">
+                  <NoteCreatePicker
+                    value={primaryTitleDraft}
+                    onChange={setPrimaryTitleDraft}
+                    mode={note && path ? 'edit' : 'create'}
+                    allowSelect={false}
+                    showCreateButton={false}
+                    disabled={renamingPrimary || saving}
+                    onCreate={note && path ? finishPrimaryEdit : createDraftPrimary}
+                    onCancel={() => {
+                      setPrimaryTitleDraft(note && path ? displayTitleFromFilename(note.relativePath) : '');
+                      setEditingPrimary(false);
+                    }}
+                  />
+                </PopoverContent>
+              </Popover>
+              {note && path && <button
+                type="button"
+                aria-label={`打开笔记 ${note.title || note.relativePath}`}
+                title="打开"
+                className="multidimensional-table__open-note"
+                onClick={() => onOpenNote(note)}
+              >
+                <ArrowUpRightIcon className="h-3.5 w-3.5" weight="bold" aria-hidden="true" />
+              </button>}
+            </>;
           })()
             : field.type === 'Image' ? (() => {
               const path = imagePaths(value)[0];
@@ -500,6 +451,7 @@ export const TableRecordRow = memo(function TableRecordRow({
                 src={path ? imageUrls[`${record.id}:${field.id}:${path}`] : null}
                 disabled={cellDisabled}
                 uploading={uploadingImageFieldId === field.id}
+                emptyLabel="Upload"
                 onSelect={() => void chooseImage()}
               />;
             })()
@@ -522,6 +474,11 @@ export const TableRecordRow = memo(function TableRecordRow({
                       disabled={cellDisabled}
                       variant="table"
                       onChange={(next) => onUpdateCell(record, note, field, next.split(',').map((item) => item.trim()).filter(Boolean))}
+                      onCreateOption={async (label) => {
+                        const option = await onCreateFieldOption(field, label);
+                        if (option) onUpdateCell(record, note, { ...field, options: [...(field.options ?? []), option] }, option.id);
+                        return null;
+                      }}
                     />
                       : field.type === 'Date' ? <DateValueInput
                         value={typeof value === 'string' ? value : ''}
@@ -535,6 +492,11 @@ export const TableRecordRow = memo(function TableRecordRow({
                           disabled={cellDisabled}
                           variant="table"
                           onChange={(id) => onUpdateCell(record, note, field, id || null)}
+                          onCreateOption={async (label) => {
+                            const option = await onCreateFieldOption(field, label);
+                            if (option) onUpdateCell(record, note, { ...field, options: [...(field.options ?? []), option] }, option.id);
+                            return null;
+                          }}
                         />
                           : field.type === 'Tag' ? <TableTagValueInput
                             value={Array.isArray(value) ? value.map(String) : typeof value === 'string' ? value.split(',').map((item) => item.trim()).filter(Boolean) : []}
@@ -546,16 +508,18 @@ export const TableRecordRow = memo(function TableRecordRow({
                               value={value}
                               disabled={cellDisabled}
                               placeholder={field.id === titleField?.id ? '输入名称' : ''}
-                              className={inputClass}
                               onChange={(nextValue) => onUpdateCell(record, note, field, nextValue)}
                             />
-                              : field.type === 'Text' ? <TableTextValueInput
+                              : field.type === 'Text' || field.type === 'URL' ? <TableTextValueInput
                                 value={value == null ? '' : String(value)}
                                 disabled={cellDisabled}
                                 placeholder={field.id === titleField?.id ? '输入名称' : ''}
+                                singleLineDisplay={field.type === 'URL'}
+                                validate={field.type === 'URL' ? isWeakUrl : undefined}
+                                validationMessage={field.type === 'URL' ? '请输入有效链接' : undefined}
                                 onChange={(nextValue) => onUpdateCell(record, note, field, nextValue)}
                               />
-                                : <input className={inputClass} type={field.type === 'URL' ? 'url' : 'text'} disabled={cellDisabled} placeholder={field.id === titleField?.id ? '输入名称' : ''} onBlur={(event) => {
+                                : <input className={inputClass} type="text" disabled={cellDisabled} placeholder={field.id === titleField?.id ? '输入名称' : ''} onBlur={(event) => {
                                   if (cellDisabled) return;
                                   const nextValue = event.target.value || null;
                                   if (nextValue !== value) onUpdateCell(record, note, field, nextValue);
@@ -586,18 +550,38 @@ export const TableRecordRow = memo(function TableRecordRow({
           }} className="flex h-7 w-full items-center justify-start rounded-lg px-2 py-0 text-left text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--muted)] disabled:opacity-50">
             <ArrowUpRightIcon className="mr-2 h-4 w-4" aria-hidden="true" />打开笔记
           </button>
-          <button type="button" disabled={saving || !note} onClick={() => {
-            if (!note) return;
+          <button type="button" disabled={saving || (!note && noteStatus !== 'missing')} onClick={() => {
             onRowActionOpenChange(false, record.id);
-            onDeleteNote(note);
+            if (note) onDeleteNote(note);
+            else if (noteStatus === 'missing') onMissingNote(record);
           }} className="flex h-7 w-full items-center justify-start rounded-lg px-2 py-0 text-left text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--destructive)] disabled:opacity-50">
             <TrashSimpleIcon className="mr-2 h-4 w-4" aria-hidden="true" />删除笔记
           </button>
-          <button type="button" disabled={saving} onClick={() => onDeleteRecord(record.id)} className="flex h-7 w-full items-center justify-start rounded-lg px-2 py-0 text-left text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--destructive)] disabled:opacity-50">
-            <MinusCircleIcon className="mr-2 h-4 w-4" aria-hidden="true" />移除记录
-          </button>
+          {!record.note_path && <button type="button" disabled={saving} onClick={() => onDeleteRecord(record.id)} className="flex h-7 w-full items-center justify-start rounded-lg px-2 py-0 text-left text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--destructive)] disabled:opacity-50">
+            <MinusCircleIcon className="mr-2 h-4 w-4" aria-hidden="true" />删除空记录
+          </button>}
         </PopoverContent>
       </Popover>
     </td>
-  </tr>;
+    </tr>
+    </ContextMenuTrigger>
+    <ContextMenuContent className="min-w-[160px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+      <ContextMenuItem
+        disabled={saving || !note}
+        onSelect={() => { if (note) onOpenNote(note); }}
+        className="group h-7 items-center justify-start gap-2 rounded-lg px-2 py-0 text-left text-sm hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"
+      >
+        <ArrowUpRightIcon className="h-4 w-4 shrink-0" aria-hidden="true" />
+        <span>{t('editor.noteLink.openNote')}</span>
+      </ContextMenuItem>
+      <ContextMenuItem
+        disabled={!onDeleteRow}
+        onSelect={() => onDeleteRow?.(record.id)}
+        className="group h-7 items-center justify-start gap-2 rounded-lg px-2 py-0 text-left text-sm hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"
+      >
+        <TrashSimpleIcon className="h-4 w-4 shrink-0" aria-hidden="true" />
+        <span>{t('editor.table.deleteRow')}</span>
+      </ContextMenuItem>
+    </ContextMenuContent>
+  </ContextMenu>;
 });

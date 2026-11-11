@@ -257,7 +257,7 @@ function AgentRepositoryItem({
       </div>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-[180px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
-        {!isFolder && <ContextMenuItem onClick={() => onOpenFileInBrowserColumn(item.fullPath, repository.path)} className="h-7 items-center justify-start rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"><SquareSplitHorizontalIcon className="mr-2 h-4 w-4" aria-hidden="true" />{t('workColumn.context.openInBrowserColumn')}</ContextMenuItem>}
+        {!isFolder && <ContextMenuItem onClick={() => onOpenFileInBrowserColumn(item.fullPath, repository.path)} className="h-7 items-center justify-start rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"><SquareSplitHorizontalIcon className="mr-2 h-4 w-4" aria-hidden="true" />{t('memo.fileTree.openInRight')}</ContextMenuItem>}
         <ContextMenuSubmenu label={t('memo.fileTree.import')} icon={<Plus className="h-4 w-4" aria-hidden="true" />}>
           <ContextMenuItem onClick={() => { void importIntoRepository(isFolder ? item.fullPath : parentDirectoryPath(item.fullPath, repository.path)); }} className="h-7 items-center justify-start rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]">
             {t('memo.fileTree.importFiles')}

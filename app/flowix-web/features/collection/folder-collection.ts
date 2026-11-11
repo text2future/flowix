@@ -36,13 +36,9 @@ export function initializeFolderCollectionBanner(properties: Record<string, Coll
 export function createFolderCollectionContent(kind: FolderCollectionKind, folderName: string, folderPath: string | null = null): string {
   if (kind === 'notes') {
     const document = createTableDocument('table', folderName, 'folder');
-    // 笔记视图按文件夹位置递归收集；文件树与其它数据域保留各自的展示范围。
+    // 文件树负责文件夹浏览；笔记表格默认只展示显式关联的记录。
     document.dataset.source = { scope: 'containing_folder' };
-    document.dataset.filter = {
-      path: folderPath,
-      match: 'all',
-      conditions: [{ field: 'kind', op: 'eq', value: 'note' }],
-    };
+    document.dataset.filter = null;
     initializeFolderCollectionBanner(document.collection.properties);
     return serializeTableDocument(document);
   }
@@ -69,11 +65,7 @@ function buildDomainTemplate(domain: CollectionDomain, relativeFolder: string | 
     const document = createTableDocument('table', 'folder', placement);
     document.dataset.source = placement === 'folder'
       ? { scope: 'containing_folder' } : { scope: 'notebook' };
-    document.dataset.filter = placement === 'folder' ? {
-      path: relativeFolder,
-      match: 'all',
-      conditions: [{ field: 'kind', op: 'eq', value: 'note' }],
-    } : null;
+    document.dataset.filter = null;
     const view = document.views.items[0];
     return { dataset: document.dataset as unknown as Record<string, unknown>, view: view as unknown as Record<string, unknown> };
   }
@@ -316,14 +308,14 @@ function appendDomain(source: string, indexPath: string, notebookPath: string, d
   }
   const original = hybrid ? null : parseCollectionDocumentV2(source);
   const owner = hybrid
-    ? Object.values(hybrid.payload.domains)[0]
-    : original?.payload.dataset;
+    ? hybrid.payload.domains.media ?? hybrid.payload.domains.work_documents
+    : original && original.collection.type !== 'table' ? original.payload.dataset : undefined;
   const newDataset = next.payload.domains[domain]!;
   const existingAssets = hybrid?.payload.domains ?? {};
   const assetOwner = existingAssets.media ?? existingAssets.work_documents;
-  if (owner) {
+  if (owner && domain !== 'notes') {
     next.payload.domains[domain] = withDatasetLocation(
-      domain !== 'notes' && assetOwner ? { ...newDataset, filter: assetOwner.filter } : newDataset,
+      assetOwner ? { ...newDataset, filter: assetOwner.filter } : newDataset,
       datasetLocation(owner), owner.source);
   }
   return serializeHybridCollectionDocument(next);
@@ -398,7 +390,7 @@ export async function setCollectionAssetFilter(
 function applyAssetFilter(source: string, condition: AssetFilterCondition, options: AssetFilterSaveOptions): string {
   if (!isHybridSource(source)) throw new Error('仅集合文件支持共享资料筛选');
   const parsed = parseHybridCollection(source);
-  const owner = parsed.payload.domains.notes ?? parsed.payload.domains.media ?? parsed.payload.domains.work_documents!;
+  const owner = parsed.payload.domains.media ?? parsed.payload.domains.work_documents ?? {};
   const requestedFilter = assetFilterFromCondition(condition);
   const filter = options.updateLocation ? requestedFilter
     : withDatasetLocation({ filter: requestedFilter }, datasetLocation(owner)).filter;
@@ -411,7 +403,7 @@ function applyAssetFilter(source: string, condition: AssetFilterCondition, optio
     domains[domain] = { ...dataset, filter };
     changed = true;
   }
-  if (!changed && Object.values(domains).every((dataset) => datasetLocation(dataset) === datasetLocation({ filter }))) return source;
+  if (!changed && (['media', 'work_documents'] as const).every((domain) => !domains[domain] || datasetLocation(domains[domain]!) === datasetLocation({ filter }))) return source;
   const next: HybridCollectionDocument = {
     format: 'flowix.collection',
     schema_version: 3,
@@ -419,7 +411,7 @@ function applyAssetFilter(source: string, condition: AssetFilterCondition, optio
     payload: {
       schema_version: 3,
       file_tree: parsed.payload.file_tree,
-      domains: shareDatasetLocation(domains, { ...owner, filter }),
+      domains: { ...shareDatasetLocation(domains, { ...owner, filter }), ...(domains.notes ? { notes: domains.notes } : {}) },
       views: parsed.payload.views,
     },
   };

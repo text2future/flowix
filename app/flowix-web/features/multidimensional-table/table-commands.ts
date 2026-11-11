@@ -6,11 +6,10 @@ import type { PropertyPreset } from '@features/document/properties/presets';
 import { type MultidimensionalTableDocument, type TableField, type TableFieldType, type TableView } from './model';
 import { collectionFilterUsesField, type DatasetFilter } from '@features/collection/rule-filter';
 import { BUILTIN_TABLE_FIELDS, builtinPresetTableField } from './builtin-fields';
+import { addVisibleField, removeFieldFromView, viewRequiresField, visibleFieldIds, withVisibleField } from './table-view-config';
 
 export function viewsRequiringField(document: MultidimensionalTableDocument, fieldId: string): TableView[] {
-  return document.views.items.filter((view) =>
-    (view.layout === 'kanban' && view.config.group_by === fieldId)
-    || (view.layout === 'calendar' && view.config.date_field === fieldId));
+  return document.views.items.filter((view) => viewRequiresField(view, fieldId));
 }
 
 export function renameField(document: MultidimensionalTableDocument, fieldId: string, name: string): MultidimensionalTableDocument {
@@ -54,15 +53,7 @@ export function removeField(document: MultidimensionalTableDocument, fieldId: st
   if (collectionFilterUsesField(document.dataset.filter as unknown as DatasetFilter | null, fieldId)) {
     throw new Error('请先调整引用此属性的笔记条件匹配');
   }
-  const views = document.views.items.map((view) => {
-    const config = { ...view.config };
-    for (const key of ['group_by', 'date_field', 'title_field']) if (config[key] === fieldId) delete config[key];
-    if (view.layout === 'table' || view.layout === 'gallery') {
-      config.visible_fields = (config.visible_fields as string[]).filter((id) => id !== fieldId);
-    }
-    const sort = view.sort.filter((item) => item.field !== fieldId && item.field !== field.property_key);
-    return { ...view, config, sort };
-  });
+  const views = document.views.items.map((view) => removeFieldFromView(view, fieldId, field.property_key));
   return {
     ...document,
     collection: reviseCollection(document.collection),
@@ -80,9 +71,7 @@ function appendFieldToDataset(document: MultidimensionalTableDocument, field: Ta
       fields: [...document.dataset.schema.fields, field],
       field_order: [...document.dataset.schema.field_order, field.id],
     } },
-    views: { ...document.views, items: document.views.items.map((view) => view.layout === 'table'
-      ? { ...view, config: { ...view.config, visible_fields: [...new Set([...view.config.visible_fields as string[], field.id])] } }
-      : view) },
+    views: { ...document.views, items: document.views.items.map((view) => addVisibleField(view, field.id)) },
   };
 }
 
@@ -121,7 +110,7 @@ export function removePresetField(document: MultidimensionalTableDocument, prese
   const fieldId = schemaField?.id ?? builtin?.id;
   if (!fieldId) return document;
   const tableViews = document.views.items.filter((view) => view.layout === 'table');
-  if (tableViews.some((view) => (view.config.visible_fields as string[]).includes(fieldId))) {
+  if (tableViews.some((view) => visibleFieldIds(view).includes(fieldId))) {
     throw new Error('仅支持移除隐藏字段');
   }
   if (!builtin) return removeField(document, fieldId);
@@ -135,13 +124,7 @@ export function removePresetField(document: MultidimensionalTableDocument, prese
       preset_fields: document.dataset.schema.preset_fields.filter((id) => id !== builtin.id),
       field_order: document.dataset.schema.field_order.filter((id) => id !== builtin.id),
     } },
-    views: { ...document.views, items: document.views.items.map((view) => ({
-      ...view,
-      ...(view.layout === 'table' || view.layout === 'gallery'
-        ? { config: { ...view.config, visible_fields: (view.config.visible_fields as string[]).filter((id) => id !== builtin.id) } }
-        : {}),
-      sort: view.sort.filter((item) => item.field !== builtin.id),
-    })) },
+    views: { ...document.views, items: document.views.items.map((view) => removeFieldFromView(view, fieldId)) },
   };
 }
 
@@ -158,13 +141,7 @@ export function removeBuiltinField(document: MultidimensionalTableDocument, fiel
       preset_fields: document.dataset.schema.preset_fields.filter((id) => id !== fieldId),
       field_order: document.dataset.schema.field_order.filter((id) => id !== fieldId),
     } },
-    views: { ...document.views, items: document.views.items.map((view) => ({
-      ...view,
-      ...(view.layout === 'table' || view.layout === 'gallery'
-        ? { config: { ...view.config, visible_fields: (view.config.visible_fields as string[]).filter((id) => id !== fieldId) } }
-        : {}),
-      sort: view.sort.filter((item) => item.field !== fieldId),
-    })) },
+    views: { ...document.views, items: document.views.items.map((view) => removeFieldFromView(view, fieldId)) },
   };
 }
 
@@ -173,15 +150,13 @@ export function toggleDatasetTableFieldVisibility(document: MultidimensionalTabl
   if (fieldId === document.dataset.schema.primary_field_id) return document;
   const tableViews = document.views.items.filter((view) => view.layout === 'table');
   if (!tableViews.length) return document;
-  const visible = !tableViews.every((view) => (view.config.visible_fields as string[]).includes(fieldId));
+  const visible = !tableViews.every((view) => visibleFieldIds(view).includes(fieldId));
   return {
     ...document,
     collection: reviseCollection(document.collection),
     views: { ...document.views, items: document.views.items.map((view) => {
       if (view.layout !== 'table') return view;
-      const fields = view.config.visible_fields as string[];
-      const nextFields = visible ? fields.includes(fieldId) ? fields : [...fields, fieldId] : fields.filter((id) => id !== fieldId);
-      return { ...view, config: { ...view.config, visible_fields: nextFields } };
+      return withVisibleField(view, fieldId, visible);
     }) },
   };
 }

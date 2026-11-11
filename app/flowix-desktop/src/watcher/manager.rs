@@ -1306,6 +1306,16 @@ mod tests {
     }
 
     #[test]
+    fn table_database_watch_scope_is_root_relative() {
+        let root = Path::new("/notebook");
+        assert!(path_allowed_for_watch(root, &root.join(".flowix/database/col_1/note.md"), false));
+        assert!(path_allowed_for_watch(root, &root.join(".flowix/database/col_1"), true));
+        assert!(!path_allowed_for_watch(root, &root.join(".flowix/versions/note.md"), false));
+        assert!(!path_allowed_for_watch(root, &root.join("nested/.flowix/database/col_1/note.md"), false));
+        assert!(!path_allowed_for_watch(root, &root.join(".flowix/database2/note.md"), false));
+    }
+
+    #[test]
     fn watcher_batch_does_not_coalesce_across_rename_events() {
         let root = PathBuf::from("/notes");
         let context = || NotebookWatchContext {

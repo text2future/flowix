@@ -1,7 +1,8 @@
 /* Row/column sorting chrome. Table geometry belongs to editor-table-layout.css.
  * The preview is a body portal, so its unique classes deliberately have no
  * .markdown-editor ancestor. Hover/selected handles stay inside the table rail.
- * No selected-table or preview outline: selection is conveyed through fill.
+ * No selected-table or preview outline: the selection itself is framed in
+ * editor.css, while the floating copy keeps a fill it has no frame to carry it.
  */
 .markdown-editor .table-reorder-handle--column:where(:not(.agent-conversation-surface, .agent-conversation-surface *)),
 .table-reorder-preview--column {
@@ -33,6 +34,10 @@
   cursor: pointer;
   user-select: none;
   touch-action: none;
+  /* Quiet tick shade: 60% muted-foreground over the surface, i.e. a step
+   * lighter than the text colour so the hairline reads as chrome rather than
+   * content. The hover grip uses plain currentColor and stays darker. */
+  --table-reorder-tick: color-mix(in srgb, var(--muted-foreground) 60%, var(--background));
 }
 .markdown-editor .table-reorder-handle--column:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   width: 44px;
@@ -42,20 +47,48 @@
   width: 26px;
   height: 44px;
 }
+/* No halo around the tick: a spread shadow washed out the table border around
+ * the pill (228 -> 238 on a white page), which is what made the line look
+ * shifted beside it. The separation is a 2px surface-coloured gap at either end
+ * instead. The gap is painted, not transparent: the table border runs behind it,
+ * so a see-through gap would leave the line untouched. The fill and the gaps are
+ * two background layers with separate clips, keeping the rounded caps. */
 .markdown-editor .table-reorder-handle:where(:not(.agent-conversation-surface, .agent-conversation-surface *))::before {
   content: '';
   display: block;
+  box-sizing: content-box;
   border-radius: 2px;
-  background: color-mix(in srgb, var(--muted-foreground) 88%, var(--background));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--background) 36%, transparent);
+  /* Two image layers, not a colour plus an image: Blink drops the trailing
+   * background-clip values down to the number of image layers, so a colour layer
+   * would be clipped to the content box as well and the end gaps would come out
+   * transparent, letting the line show straight through them. */
+  background-image:
+    linear-gradient(var(--table-reorder-tick), var(--table-reorder-tick)),
+    linear-gradient(var(--background), var(--background));
+  background-clip: content-box, border-box;
+  box-shadow: none;
 }
+/* The tick is 2px thick so it can cover the whole selection frame, which is
+ * 2px wide and runs inwards from the table's outer edge: the frame's sides are
+ * drawn with `inset: -1px` on a cell that starts 1px inside the table border,
+ * so the band is [edge, edge + 2]. A centred tick covers [edge - 1, edge + 1],
+ * which leaves the frame's inner half blue and pokes 1px out of the table —
+ * the "handle sits beside the line" look. The 1px inward offset below puts the
+ * tick exactly on the frame band, so it covers the selection colour completely
+ * and still hides the border when nothing is selected. The 2px end gaps stay:
+ * they are painted in the surface colour, so they notch the frame and the
+ * border alike at both ends of the tick. */
 .markdown-editor .table-reorder-handle--column:where(:not(.agent-conversation-surface, .agent-conversation-surface *))::before {
   width: 15px;
   height: 2px;
+  padding: 0 2px;
+  transform: translateY(1px);
 }
 .markdown-editor .table-reorder-handle--row:where(:not(.agent-conversation-surface, .agent-conversation-surface *))::before {
   width: 2px;
   height: 15px;
+  padding: 2px 0;
+  transform: translateX(1px);
 }
 .markdown-editor .table-reorder-handle:is(:hover, :focus-visible, [data-selected]):where(:not(.agent-conversation-surface, .agent-conversation-surface *))::after {
   content: '';
@@ -72,8 +105,15 @@
   z-index: 1;
   width: var(--table-reorder-dots-width);
   height: var(--table-reorder-dots-height);
+  /* The grippable area is the dots themselves; the quiet tick's end gaps would
+   * shrink the dot grid and clip it. */
+  padding: 0;
   border-radius: 0;
   box-shadow: none;
+  background-clip: border-box;
+  /* The grip is centred in the handle; drop the quiet tick's inward offset so
+   * the dot grid stays centred inside the pill. */
+  transform: none;
   background: radial-gradient(circle, currentColor 0.75px, transparent 1px) 0 0 / 4px 4px;
 }
 .markdown-editor .table-reorder-marker:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
@@ -149,7 +189,7 @@
   content: '';
   position: absolute;
   inset: 0;
-  background: var(--editor-table-selection-bg);
+  background: var(--editor-table-drag-fill);
   pointer-events: none;
 }
 .table-reorder-preview--row .table-reorder-preview-cell:not(:last-child) {

@@ -10,9 +10,14 @@
    * offset in agent-thread-card/editor-host.css and the insertion-caret
    * compensation below both read it. */
   --editor-first-block-offset: 0.8rem;
-  /* Cell/row selection fill: info state color at 10% opacity, matching the
-   * solid info fill of selected row/column controls, instead of a hardcoded blue. */
-  --editor-table-selection-bg: color-mix(in srgb, var(--info) 10%, transparent);
+  /* Table selection is an outline, not a fill: the info state color frames the
+   * selection rectangle and nothing is painted inside it, so cell fills, zebra
+   * rows and header tints keep their own colors while selected. Only the
+   * rectangle's outline is painted, never the inner cell grid. */
+  --editor-table-selection-frame: var(--info);
+  /* Drag previews float outside the table with no frame to carry the state, so
+   * the copied row/column keeps the fill the selection itself no longer has. */
+  --editor-table-drag-fill: color-mix(in srgb, var(--info) 10%, transparent);
   /* Divider selection: same info-derived tint as .is-block-selected and the
    * text selection. A 1px rule box cannot paint a band by itself, so the
    * selected state expands it with a spread shadow that costs no layout.
@@ -527,6 +532,9 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
   margin: 0 auto;
   box-sizing: border-box;
   padding: 0 var(--editor-document-padding-inline, 3rem) 10rem;
+  /* Full-width table viewports extend beyond the centered prose column.
+   * The outer editor-content scroller owns clipping at the pane boundary. */
+  overflow: visible;
   outline: none;
   font-family: var(--editor-font-family, var(--font-sans));
   font-size: var(--editor-font-size, 16px);
@@ -920,14 +928,55 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
   caret-color: transparent;
 }
 
-.markdown-editor .tiptap:not(.agent-composer__input-content) .selectedCell:where(:not(.agent-conversation-surface, .agent-conversation-surface *))::after,
-.markdown-editor .tiptap.ProseMirror-focused[contenteditable="true"]:not(.agent-composer__input-content) .table-editing-cell:where(:not(.agent-conversation-surface, .agent-conversation-surface *))::after {
+/* Cell and caret-cell selection paint one info-colored outline instead of a
+ * solid tint. `data-flowix-cell-frame` (written by the selection frame plugin)
+ * marks which sides of a cell sit on the selection rectangle's outline, so a
+ * rectangular drag draws its block border and leaves the inner grid unmarked.
+ * ::after carries the horizontal sides, ::before the vertical ones, so each
+ * pseudo element only ever needs two borders. */
+.markdown-editor .tiptap:not(.agent-composer__input-content) :where(.selectedCell, .ProseMirror-focused[contenteditable="true"] .table-editing-cell):where(:not(.agent-conversation-surface, .agent-conversation-surface *))::after,
+.markdown-editor .tiptap:not(.agent-composer__input-content) :where(.selectedCell, .ProseMirror-focused[contenteditable="true"] .table-editing-cell):where(:not(.agent-conversation-surface, .agent-conversation-surface *))::before {
   content: "";
   position: absolute;
+  /* Pulled out by the cell's own 1px right/bottom border: at inset 0 the frame
+   * sits inside the padding box and a grey table edge shows between two
+   * neighbouring frames, which breaks the block into separate boxes. */
+  inset: -1px;
   z-index: 2;
-  inset: 0;
-  background-color: var(--editor-table-selection-bg);
+  box-sizing: border-box;
+  border: 0 solid var(--editor-table-selection-frame);
   pointer-events: none;
+}
+
+/* The caret cell is always a single cell, so its whole perimeter is the frame. */
+.markdown-editor .tiptap.ProseMirror-focused[contenteditable="true"]:not(.agent-composer__input-content) .table-editing-cell:where(:not(.agent-conversation-surface, .agent-conversation-surface *))::after,
+.markdown-editor .tiptap.ProseMirror-focused[contenteditable="true"]:not(.agent-composer__input-content) .table-editing-cell:where(:not(.agent-conversation-surface, .agent-conversation-surface *))::before {
+  border-width: 2px;
+}
+
+.markdown-editor .tiptap:not(.agent-composer__input-content) .selectedCell[data-flowix-cell-frame~="t"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *))::after {
+  border-top-width: 2px;
+}
+
+.markdown-editor .tiptap:not(.agent-composer__input-content) .selectedCell[data-flowix-cell-frame~="b"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *))::after {
+  border-bottom-width: 2px;
+}
+
+.markdown-editor .tiptap:not(.agent-composer__input-content) .selectedCell[data-flowix-cell-frame~="l"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *))::before {
+  border-left-width: 2px;
+}
+
+.markdown-editor .tiptap:not(.agent-composer__input-content) .selectedCell[data-flowix-cell-frame~="r"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *))::before {
+  border-right-width: 2px;
+}
+
+/* Editing state is not content: a printed or exported document shows the plain
+ * table, without the caret cell or the selection block. */
+@media print {
+  .markdown-editor .tiptap:not(.agent-composer__input-content) :where(.selectedCell, .table-editing-cell)::after,
+  .markdown-editor .tiptap:not(.agent-composer__input-content) :where(.selectedCell, .table-editing-cell)::before {
+    content: none;
+  }
 }
 
 /* Upstream cell widgets retain resize semantics. A single rail overlay paints
@@ -961,8 +1010,8 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
 }
 
 /* relative 定位: 作为 column-resize-handle 的定位上下文 */
-.markdown-editor .tiptap:not(.agent-composer__input-content) table td:where(:not(.agent-conversation-surface, .agent-conversation-surface *)),
-.markdown-editor .tiptap:not(.agent-composer__input-content) table th:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+.markdown-editor .tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) td:where(:not(.agent-conversation-surface, .agent-conversation-surface *)),
+.markdown-editor .tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) th:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   position: relative;
 }
 

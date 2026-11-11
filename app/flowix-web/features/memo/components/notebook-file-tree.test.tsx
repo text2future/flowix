@@ -353,7 +353,7 @@ describe('NotebookFileTree pointer dragging', () => {
   }
 
   it('reuses flattened data for status changes and invalidates only affected tree inputs', async () => {
-    const loadedSpy = vi.spyOn(folderTreeModule, 'flattenLoadedTree');
+    const loadedSpy = vi.spyOn(folderTreeModule, 'buildLoadedTreeIndex');
     const visibleSpy = vi.spyOn(folderTreeModule, 'flattenVisibleTree');
     const { root, tree } = await mount(successfulMove);
     const roots = tree.rootChildren;
@@ -850,7 +850,7 @@ describe('NotebookFileTree pointer dragging', () => {
     await act(async () => noteRow.dispatchEvent(pointerEvent('pointerdown', 10, 10)));
     expect(HTMLElement.prototype.setPointerCapture).toHaveBeenCalledWith(7);
     await act(async () => noteRow.dispatchEvent(pointerEvent('pointermove', 20, 10)));
-    expect(folderRow.className).not.toContain('bg-[color-mix(in_oklch,var(--brand)_15%,transparent)]');
+    expect(folderRow.className).not.toContain('notebook-file-tree__drop-hint');
     expect(folderGroup.dataset.dragOver).toBe('true');
     expect(host.textContent).not.toContain('memo.fileTree.dropToMove');
     await act(async () => noteRow.dispatchEvent(pointerEvent('pointerup', 20, 10)));
@@ -861,22 +861,22 @@ describe('NotebookFileTree pointer dragging', () => {
     await act(async () => root.unmount());
   });
 
-  it('renders the drag preview under the pointer', async () => {
-    const onMoveNote = vi.fn<TestMoveNote>(successfulMove);
-    const { root } = await mount(onMoveNote);
+  it('keeps the drag preview at the grabbed point', async () => {
+    const { root } = await mount(successfulMove);
     const noteRow = host.querySelector<HTMLElement>('[data-notebook-tree-kind="note"]')!;
     const folderRow = host.querySelector<HTMLElement>('[data-notebook-tree-kind="folder"]')!;
     vi.mocked(document.elementFromPoint).mockReturnValue(folderRow);
-
-    await act(async () => noteRow.dispatchEvent(pointerEvent('pointerdown', 10, 10)));
-    await act(async () => noteRow.dispatchEvent(pointerEvent('pointermove', 20, 10)));
-
-    const preview = host.querySelector<HTMLElement>('.fixed.left-0.top-0');
-    expect(preview).not.toBeNull();
-    expect(preview?.textContent).toContain('a');
-    expect(preview?.style.transform).toBe('translate3d(32px, 22px, 0)');
-
-    await act(async () => noteRow.dispatchEvent(pointerEvent('pointercancel', 20, 10)));
+    vi.spyOn(noteRow, 'getBoundingClientRect').mockReturnValue({
+      x: 0, y: 0, left: 0, top: 0, right: 240, bottom: 32, width: 240, height: 32, toJSON: () => ({}),
+    } as DOMRect);
+    await act(async () => noteRow.dispatchEvent(pointerEvent('pointerdown', 120, 16)));
+    await act(async () => noteRow.dispatchEvent(pointerEvent('pointermove', 130, 20)));
+    const preview = document.body.querySelector<HTMLElement>('.notebook-file-tree__drag-preview')!;
+    expect(preview.style.transform).toBe('translate3d(10px, 4px, 0)');
+    expect(preview.querySelector('.folder-file-tree__item')?.className).toBe(noteRow.className);
+    await act(async () => noteRow.dispatchEvent(pointerEvent('pointermove', 200, 60)));
+    expect(preview.style.transform).toBe('translate3d(80px, 44px, 0)');
+    await act(async () => noteRow.dispatchEvent(pointerEvent('pointercancel', 200, 60)));
     await act(async () => root.unmount());
   });
 
@@ -941,7 +941,7 @@ describe('NotebookFileTree pointer dragging', () => {
     await act(async () => rootNoteRow.dispatchEvent(pointerEvent('pointermove', 20, 10)));
 
     expect(folderGroup.dataset.dragOver).toBe('true');
-    expect(treeRoot.className).not.toContain('bg-[color-mix(in_oklch,var(--brand)_10%,transparent)]');
+    expect(treeRoot.className).not.toContain('notebook-file-tree__drop-hint');
     expect(childNoteRow.hasAttribute('data-notebook-drop-path')).toBe(false);
     const dropRange = host.querySelector<HTMLElement>('.notebook-file-tree__drop-range')!;
     expect(dropRange.style.top).toBe('0px');
@@ -1022,7 +1022,7 @@ describe('NotebookFileTree pointer dragging', () => {
         },
       }));
     });
-    expect(treeRoot.className).toContain('bg-[color-mix(in_oklch,var(--brand)_10%,transparent)]');
+    expect(treeRoot.className).toContain('notebook-file-tree__drop-hint');
 
     await act(async () => {
       dropSurface.dispatchEvent(new CustomEvent(EXTERNAL_FILE_DROP_EVENT, {
@@ -1050,7 +1050,7 @@ describe('NotebookFileTree pointer dragging', () => {
     await act(async () => noteRow.dispatchEvent(pointerEvent('pointermove', 20, 10)));
     await act(async () => noteRow.dispatchEvent(pointerEvent('pointerup', 20, 10)));
 
-    expect(treeRoot.className).not.toContain('bg-[color-mix(in_oklch,var(--brand)_10%,transparent)]');
+    expect(treeRoot.className).not.toContain('notebook-file-tree__drop-hint');
     expect(onMoveNote).not.toHaveBeenCalled();
     await act(async () => root.unmount());
   });
@@ -1081,7 +1081,7 @@ describe('NotebookFileTree pointer dragging', () => {
     await act(async () => childNoteRow.dispatchEvent(pointerEvent('pointerdown', 10, 10)));
     await act(async () => childNoteRow.dispatchEvent(pointerEvent('pointermove', 20, 10)));
 
-    expect(treeRoot.className).toContain('bg-[color-mix(in_oklch,var(--brand)_10%,transparent)]');
+    expect(treeRoot.className).toContain('notebook-file-tree__drop-hint');
     await act(async () => childNoteRow.dispatchEvent(pointerEvent('pointerup', 20, 10)));
     await vi.waitFor(() => expect(onMoveNote).toHaveBeenCalledWith([moveSource('/notes/projects/child.md')], '/notes'));
     await act(async () => root.unmount());

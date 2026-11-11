@@ -186,6 +186,40 @@ describe('notebook pinned entries', () => {
     expect(mocks.list).toHaveBeenCalledTimes(2);
   });
 
+  it('collapses a burst of pin events into one trailing read', async () => {
+    let resolveFirst!: (value: PinnedEntryPage) => void;
+    mocks.list
+      .mockReturnValueOnce(new Promise<PinnedEntryPage>((resolve) => { resolveFirst = resolve; }))
+      .mockResolvedValueOnce(page([noteEntry('a.md')]))
+      .mockResolvedValueOnce(page([noteEntry('a.md'), documentEntry('b.html', 5)]));
+    vi.useFakeTimers();
+    try {
+      await act(async () => root.render(createElement(Harness)));
+      expect(mocks.list).toHaveBeenCalledTimes(1);
+
+      // A sync burst while the first read is still in flight must not queue one
+      // read per event; the hook marks the read stale and re-reads once.
+      await act(async () => {
+        for (let index = 0; index < 20; index++) mocks.pinnedChanged?.({ notebookId: 'nb-1' });
+      });
+      expect(mocks.list).toHaveBeenCalledTimes(1);
+
+      await act(async () => { resolveFirst(page([noteEntry('a.md')])); });
+      expect(mocks.list).toHaveBeenCalledTimes(1);
+
+      await act(async () => { vi.advanceTimersByTime(200); });
+      expect(mocks.list).toHaveBeenCalledTimes(2);
+      expect(data().pinnedItems.map((item) => item.name)).toEqual(['a.md']);
+
+      // Further events after the burst are cheap: the hook is idle again.
+      await act(async () => mocks.pinnedChanged?.({ notebookId: 'nb-1' }));
+      expect(mocks.list).toHaveBeenCalledTimes(3);
+      expect(data().pinnedItems.map((item) => item.name)).toEqual(['a.md', 'b.html']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('keeps the current page when an unloaded note only changes metadata', async () => {
     mocks.list
       .mockResolvedValueOnce(page([noteEntry('first.md')], { nextCursor: 'page-2', hasMore: true }))

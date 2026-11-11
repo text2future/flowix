@@ -7,7 +7,7 @@ export function autoTagColumnWidth(rowWidths: readonly number[], chromeWidth: nu
 }
 
 /** Fit the widest displayed text plus cell padding and any fixed inline controls. */
-export function autoContentColumnWidth(contentWidths: readonly number[], chromeWidth: number, headerWidth = 0): number {
+export function autoContentColumnWidth(contentWidths: readonly number[], chromeWidth: number, headerWidth = 0, minWidth = TAG_COLUMN_MIN_WIDTH): number {
   const widestContent = contentWidths.reduce((width, content) => Math.max(width, content), 0);
-  return Math.min(TAG_COLUMN_MAX_WIDTH, Math.max(TAG_COLUMN_MIN_WIDTH, Math.ceil(widestContent + chromeWidth), Math.ceil(headerWidth)));
+  return Math.min(TAG_COLUMN_MAX_WIDTH, Math.max(minWidth, Math.ceil(widestContent + chromeWidth), Math.ceil(headerWidth)));
 }
