@@ -54,8 +54,7 @@ export function MemoListRows({ enabled, items, scrollElement, queryKey, revealKe
   useLayoutEffect(() => {
     if (rowsEnabled) lastContentHeightRef.current = visibleContentHeight;
   }, [rowsEnabled, visibleContentHeight]);
-  // A hidden pane has no measurable viewport. Avoid mounting the entire list
-  // while waiting for its first usable rectangle.
+  // Keep a spacer for inactive tabs so the shared scroller retains its offset.
   const mountedRows = isVirtualizationReady ? virtualItems : virtualItems.slice(0, INITIAL_ROW_COUNT);
   return <div className="relative min-w-0 w-full" style={{
     height: enabled

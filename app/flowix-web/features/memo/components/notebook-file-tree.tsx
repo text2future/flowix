@@ -17,6 +17,7 @@ import { AgentTasksSection } from '@features/agent/public/shell-api';
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -512,9 +513,13 @@ export function NotebookFileTree({
     scrollMargin: treeContentOffset,
     unmeasuredItemLimit: TREE_INITIAL_RENDER_COUNT,
   });
+  const lastTreeSizeRef = useRef(0);
+  useLayoutEffect(() => {
+    if (treeRowsEnabled) lastTreeSizeRef.current = measuredTreeSize;
+  }, [measuredTreeSize, treeRowsEnabled]);
   const virtualTreeSize = treeRowsEnabled
     ? measuredTreeSize
-    : renderRows.length * TREE_ROW_SIZE;
+    : Math.max(lastTreeSizeRef.current, renderRows.length * TREE_ROW_SIZE);
   // Keep fallback work and mounted DOM bounded until the viewport can be measured.
   useEffect(() => {
     if (!isActive || !draft) return;

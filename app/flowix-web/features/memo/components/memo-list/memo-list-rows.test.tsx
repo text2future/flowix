@@ -35,7 +35,7 @@ function Harness({ items = notes, measurable = true, revealKey, onRevealed }: { 
       scrollHeight: { configurable: true, get: () => Number.parseFloat((element.firstElementChild as HTMLElement)?.style.height || '0') },
     });
   }, [measurable]);
-  return <div ref={setScroller}><MemoListRows items={items} scrollElement={scrollElement} queryKey="book:all" revealKey={revealKey} onRevealed={onRevealed}
+  return <div ref={setScroller}><MemoListRows enabled items={items} scrollElement={scrollElement} queryKey="book:all" revealKey={revealKey} onRevealed={onRevealed}
     renderRow={(item, onKeepAliveChange) => <Row item={item} onKeepAliveChange={onKeepAliveChange} />} /></div>;
 }
 

@@ -714,7 +714,7 @@ export function MemoList({
           aria-hidden={showFolderView}
         >
           <MemoListViewport
-            active={isActive && memoListView !== 'folders'}
+            active={isActive && !showFolderView}
             items={listItems}
             notebooksExist={notebooks.length > 0}
             scrollElement={listScrollElement}
