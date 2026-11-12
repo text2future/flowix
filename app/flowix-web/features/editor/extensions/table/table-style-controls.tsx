@@ -294,19 +294,19 @@ export function TableStyleControls({ editor }: { editor: Editor }) {
   }> = [
     { label: t('editor.table.rowOperations'), operations: [
       { label: t('editor.table.insertRowBefore'), icon: <TableInsertRowIcon placement="above" />,
-        can: () => editor.can().addRowBefore(), run: () => editor.chain().focus().addRowBefore().run() },
+        can: () => editor.can().addRowBefore(), run: () => editor.chain().focus(null, { scrollIntoView: false }).addRowBefore().run() },
       { label: t('editor.table.insertRowAfter'), icon: <TableInsertRowIcon placement="below" />,
-        can: () => editor.can().addRowAfter(), run: () => editor.chain().focus().addRowAfter().run() },
+        can: () => editor.can().addRowAfter(), run: () => editor.chain().focus(null, { scrollIntoView: false }).addRowAfter().run() },
       { label: t('editor.table.deleteRow'), icon: <TableDeleteRowIcon />,
-        can: () => editor.can().deleteRow(), run: () => editor.chain().focus().deleteRow().run() },
+        can: () => editor.can().deleteRow(), run: () => editor.chain().focus(null, { scrollIntoView: false }).deleteRow().run() },
     ] },
     { label: t('editor.table.columnOperations'), operations: [
       { label: t('editor.table.insertColumnBefore'), icon: <TableInsertColumnIcon placement="left" />,
-        can: () => editor.can().addColumnBefore(), run: () => editor.chain().focus().addColumnBefore().run() },
+        can: () => editor.can().addColumnBefore(), run: () => editor.chain().focus(null, { scrollIntoView: false }).addColumnBefore().run() },
       { label: t('editor.table.insertColumnAfter'), icon: <TableInsertColumnIcon placement="right" />,
-        can: () => editor.can().addColumnAfter(), run: () => editor.chain().focus().addColumnAfter().run() },
+        can: () => editor.can().addColumnAfter(), run: () => editor.chain().focus(null, { scrollIntoView: false }).addColumnAfter().run() },
       { label: t('editor.table.deleteColumn'), icon: <TableDeleteColumnIcon />,
-        can: () => editor.can().deleteColumn(), run: () => editor.chain().focus().deleteColumn().run() },
+        can: () => editor.can().deleteColumn(), run: () => editor.chain().focus(null, { scrollIntoView: false }).deleteColumn().run() },
     ] },
   ];
 
@@ -340,11 +340,11 @@ export function TableStyleControls({ editor }: { editor: Editor }) {
         <div className="space-y-0.5">
           <TableHeaderToggle label={t('editor.table.headerColumn')} checked={selected.columnHeader}
             disabled={!selected.canToggleHeaderColumn}
-            onToggle={() => editor.chain().focus().toggleHeaderColumn().run()} />
+            onToggle={() => editor.chain().focus(null, { scrollIntoView: false }).toggleHeaderColumn().run()} />
           <TableHeaderToggle label={t('editor.table.headerRow')} checked={selected.rowHeader}
             disabled={!selected.canToggleHeaderRow}
             disabledReason={selected.headerRowLocked ? t('editor.table.headerRowRequired') : undefined}
-            onToggle={() => editor.chain().focus().toggleHeaderRow().run()} />
+            onToggle={() => editor.chain().focus(null, { scrollIntoView: false }).toggleHeaderRow().run()} />
         </div>
         <div className={POPUP_SEPARATOR_CLASS} aria-hidden="true" />
         {rows.length > 0 && <TableMenuSection label={t('editor.table.rowStyle')} value={selected.row}

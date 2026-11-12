@@ -203,9 +203,9 @@ class TableEdgeInsertView {
     positionSelectionInCell(this.view, cellPos);
 
     if (kind === 'column') {
-      this.editor.chain().focus().addColumnAfter().run();
+      this.editor.chain().focus(null, { scrollIntoView: false }).addColumnAfter().run();
     } else {
-      this.editor.chain().focus().addRowAfter().run();
+      this.editor.chain().focus(null, { scrollIntoView: false }).addRowAfter().run();
     }
 
     this.hide();

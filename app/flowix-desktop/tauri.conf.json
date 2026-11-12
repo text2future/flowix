@@ -56,7 +56,7 @@
       ],
       "dangerousInsecureTransportProtocol": false,
       "windows": {
-        "installMode": "quiet"
+        "installMode": "passive"
       }
     }
   },

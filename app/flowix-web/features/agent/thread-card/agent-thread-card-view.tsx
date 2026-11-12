@@ -1541,7 +1541,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
   private focusFullscreenSurface(): void {
     window.requestAnimationFrame(() => {
       if (!this.isFullscreen || this.isDestroyed) return;
-      this.composerController.focus();
+      focusWithoutScroll(this.dom);
     });
   }
 

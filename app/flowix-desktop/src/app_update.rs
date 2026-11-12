@@ -11,11 +11,8 @@ mod update_cache;
 mod update_download;
 #[path = "app_update_state.rs"]
 mod update_state;
-use self::update_cache::{prepare_update_package, verify_cached_package, PreparedUpdate};
+use self::update_cache::{prepare_update_package, PreparedUpdate, VerifiedUpdate};
 use self::update_state::UpdatePhase;
-
-#[cfg(target_os = "windows")]
-use std::path::PathBuf;
 
 #[derive(Clone, Default)]
 pub struct AppUpdateState {
@@ -57,107 +54,69 @@ pub struct AppUpdateInstallResult {
     pub message: Option<String>,
 }
 
-/// Read and clear the result left by a quiet Windows NSIS update.
+/// Consume the shared app/installer record; corrupt state remains available for diagnosis.
 #[tauri::command]
 pub fn consume_app_update_result(app: AppHandle) -> Option<AppUpdateInstallResult> {
-    #[cfg(target_os = "windows")]
+    #[cfg(windows)]
     {
-        let path = app_update_result_path()?;
-        let content = std::fs::read_to_string(&path).ok()?;
-        let target_path = app_update_target_path()?;
-        let target_version = std::fs::read_to_string(&target_path)
-            .ok()
-            .map(|value| value.trim().to_string());
-        let _ = std::fs::remove_file(path);
-        let _ = std::fs::remove_file(target_path);
-        let (status, message) = content.trim().split_once('|')?;
-        let current_version = app.package_info().version.to_string();
-        return match status {
-            "success" if target_version.as_deref() == Some(current_version.as_str()) => {
-                Some(AppUpdateInstallResult {
-                    status: "success".to_string(),
-                    message: None,
-                })
+        let dir = crate::runtime_state::windows_state_dir().ok()?;
+        return match flowix_installer_helper::update_result::consume(
+            &dir,
+            &app.package_info().version.to_string(),
+        ) {
+            Ok(result) => result.map(|r| AppUpdateInstallResult {
+                status: r.status,
+                message: r.message,
+            }),
+            Err(error) => {
+                tracing::warn!("cannot consume application update result: {error}");
+                None
             }
-            "success" => Some(AppUpdateInstallResult {
-                status: "failed".to_string(),
-                message: Some(format!(
-                    "Installer reported success for {}, but Flowix started as {current_version}.",
-                    target_version.as_deref().unwrap_or("the requested version")
-                )),
-            }),
-            "failed" => Some(AppUpdateInstallResult {
-                status: "failed".to_string(),
-                message: (!message.is_empty()).then(|| message.to_string()),
-            }),
-            "pending" => Some(AppUpdateInstallResult {
-                status: "failed".to_string(),
-                message: Some(format!(
-                    "Installer did not report a completed update to {message}; Flowix started as {current_version}."
-                )),
-            }),
-            _ => None,
         };
     }
-
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(not(windows))]
     {
         let _ = app;
         None
     }
 }
 
-#[cfg(target_os = "windows")]
-fn app_update_result_path() -> Option<PathBuf> {
-    crate::runtime_state::windows_state_dir()
-        .ok()
-        .map(|path| path.join("app-update-result.txt"))
-}
-
-#[cfg(target_os = "windows")]
-fn app_update_target_path() -> Option<PathBuf> {
-    crate::runtime_state::windows_state_dir()
-        .ok()
-        .map(|path| path.join("app-update-target.txt"))
-}
-
-#[cfg(target_os = "windows")]
-fn write_pending_app_update_result(version: &str) -> Result<(), String> {
-    let target_path =
-        app_update_target_path().ok_or_else(|| "LOCALAPPDATA is unavailable".to_string())?;
-    let parent = target_path
-        .parent()
-        .ok_or_else(|| "update target path has no parent directory".to_string())?;
-    std::fs::create_dir_all(parent)
-        .map_err(|error| format!("failed to create update target directory: {error}"))?;
-    std::fs::write(target_path, version)
-        .map_err(|error| format!("failed to persist update target version: {error}"))?;
-    write_app_update_result("pending", version)
-}
-
-#[cfg(target_os = "windows")]
-fn write_app_update_result(status: &str, message: &str) -> Result<(), String> {
-    let path = app_update_result_path().ok_or_else(|| "LOCALAPPDATA is unavailable".to_string())?;
-    let parent = path
-        .parent()
-        .ok_or_else(|| "update result path has no parent directory".to_string())?;
-    std::fs::create_dir_all(parent)
-        .map_err(|error| format!("failed to create update result directory: {error}"))?;
-    std::fs::write(path, format!("{status}|{message}\n"))
-        .map_err(|error| format!("failed to persist update result: {error}"))
-}
-
-#[cfg(not(target_os = "windows"))]
-fn write_pending_app_update_result(_version: &str) -> Result<(), String> {
+fn write_pending_app_update_result(version: &str, attempt_id: &str) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        let dir = crate::runtime_state::windows_state_dir()?;
+        flowix_installer_helper::update_result::begin(&dir, version, attempt_id)
+            .map_err(|e| format!("failed to persist update state: {e}"))?;
+    }
+    let _ = (version, attempt_id);
     Ok(())
 }
 
-#[cfg(not(target_os = "windows"))]
-fn write_app_update_result(_status: &str, _message: &str) -> Result<(), String> {
+fn write_failed_app_update_result(
+    version: &str,
+    attempt_id: &str,
+    message: &str,
+) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        let dir = crate::runtime_state::windows_state_dir()?;
+        flowix_installer_helper::update_result::finish(
+            &dir,
+            version,
+            Some(attempt_id),
+            flowix_installer_helper::update_result::Status::Failed,
+            message,
+        )
+        .map_err(|e| format!("failed to persist update result: {e}"))?;
+    }
+    let _ = (version, attempt_id, message);
     Ok(())
 }
 
-fn updater(app: &AppHandle) -> Result<tauri_plugin_updater::Updater, String> {
+fn updater(
+    app: &AppHandle,
+    attempt_id: Option<&str>,
+) -> Result<tauri_plugin_updater::Updater, String> {
     let endpoint = match std::env::consts::OS {
         "macos" => "https://download.flowix.cc/updater/macos/latest.json",
         "windows" => "https://download.flowix.cc/updater/windows/latest.json",
@@ -167,6 +126,7 @@ fn updater(app: &AppHandle) -> Result<tauri_plugin_updater::Updater, String> {
     let endpoint = url::Url::parse(endpoint)
         .map_err(|error| format!("failed to parse updater endpoint: {error}"))?;
     app.updater_builder()
+        .installer_args(attempt_id.map(|id| format!("/FLOWIXATTEMPT={id}")))
         .timeout(std::time::Duration::from_secs(30))
         .endpoints(vec![endpoint])
         .map_err(|error| format!("failed to configure updater endpoint: {error}"))?
@@ -206,8 +166,9 @@ async fn download_requested_update(
     app: &AppHandle,
     prepared_state: &Arc<Mutex<Option<PreparedUpdate>>>,
     version: &str,
-) -> Result<(Update, Vec<u8>), String> {
-    let update = updater(app)?
+) -> Result<VerifiedUpdate, String> {
+    let attempt_id = uuid::Uuid::new_v4().to_string();
+    let update = updater(app, Some(&attempt_id))?
         .check()
         .await
         .map_err(|error| format!("failed to check for update: {error}"))?
@@ -216,16 +177,12 @@ async fn download_requested_update(
         return Err(format!("requested update {version} is no longer available"));
     }
 
-    let prepared = prepare_update_package(app, update, true).await?;
-    let bytes = tokio::fs::read(&prepared.package_path)
-        .await
-        .map_err(|error| format!("failed to read prepared application update: {error}"))?;
-    verify_cached_package(app, &prepared.update, &bytes)?;
+    let package = prepare_update_package(app, update, true, attempt_id).await?;
     *prepared_state
         .lock()
         .map_err(|_| "application update state is unavailable".to_string())? =
-        Some(prepared.clone());
-    Ok((prepared.update, bytes))
+        Some(package.prepared());
+    Ok(package)
 }
 
 #[tauri::command]
@@ -237,7 +194,7 @@ pub async fn check_app_update(
     let _check_guard = state.check_lock.lock().await;
     ensure_update_is_idle(state.inner())?;
 
-    let update = updater(&app)?
+    let update = updater(&app, None)?
         .check()
         .await
         .map_err(|error| format!("failed to check for update: {error}"))?;
@@ -304,45 +261,38 @@ pub async fn install_app_update(
     let check_lock = state.check_lock.clone();
     let prepared_state = state.prepared.clone();
     let task = async move {
-        let (update, bytes) = {
+        let package = {
             let _check_guard = check_lock.lock().await;
             let prepared = prepared_state
                 .lock()
                 .map_err(|_| "application update state is unavailable".to_string())?
                 .clone()
-                .filter(|prepared| prepared.update.version == version);
+                .filter(|prepared| prepared.version() == version);
 
-            if let Some(prepared) = prepared {
-                if let Ok(bytes) = tokio::fs::read(&prepared.package_path).await {
-                    if verify_cached_package(&download_app, &prepared.update, &bytes).is_ok() {
-                        (prepared.update, bytes)
-                    } else {
-                        let _ = tokio::fs::remove_file(&prepared.package_path).await;
-                        *prepared_state
-                            .lock()
-                            .map_err(|_| "application update state is unavailable".to_string())? =
-                            None;
-                        download_requested_update(&download_app, &prepared_state, &version).await?
-                    }
-                } else {
+            let cached = match prepared {
+                Some(prepared) => prepared.read_verified(&download_app).await.ok(),
+                None => None,
+            };
+            match cached {
+                Some(package) => package,
+                None => {
+                    *prepared_state
+                        .lock()
+                        .map_err(|_| "application update state is unavailable".to_string())? = None;
                     download_requested_update(&download_app, &prepared_state, &version).await?
                 }
-            } else {
-                download_requested_update(&download_app, &prepared_state, &version).await?
             }
         };
-
-        verify_cached_package(&download_app, &update, &bytes)?;
 
         #[cfg(windows)]
         let document_guard =
             crate::commands::window_shutdown::prepare_for_update(&download_app).await?;
         #[cfg(not(windows))]
         let document_guard = ();
-        Ok::<_, String>((update, bytes, document_guard))
+        Ok::<_, String>((package, document_guard))
     };
 
-    let (update, bytes, document_guard) = Abortable::new(task, abort_registration)
+    let (package, document_guard) = Abortable::new(task, abort_registration)
         .await
         .map_err(|_| "application update cancelled".to_string())??;
     {
@@ -359,22 +309,23 @@ pub async fn install_app_update(
     }
     let _ = app.emit(
         "app-update-progress",
-        json!({ "phase": "installing", "downloadedBytes": bytes.len() }),
+        json!({ "phase": "installing", "downloadedBytes": package.len() }),
     );
 
     tauri::async_runtime::spawn_blocking(move || {
         let _active_guard = active_guard;
         let _document_guard = document_guard;
         // Persist before teardown so a filesystem error leaves runtimes usable.
-        write_pending_app_update_result(&update.version)?;
+        let version = package.version().to_string();
+        let attempt_id = package.attempt_id().to_string();
+        write_pending_app_update_result(&version, &attempt_id)?;
         #[cfg(windows)]
         let _runtime_guard = crate::app::bootstrap::prepare_for_update(&app);
-        match update.install(bytes) {
+        match package.install() {
             Ok(()) => Ok(()),
             Err(error) => {
-                let message = format!("failed to install update: {error}");
-                let _ = write_app_update_result("failed", &message);
-                Err(message)
+                let _ = write_failed_app_update_result(&version, &attempt_id, &error);
+                Err(error)
             }
         }
     })

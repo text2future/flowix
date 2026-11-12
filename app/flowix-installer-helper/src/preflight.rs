@@ -1,6 +1,5 @@
 use super::{
-    can_replace_file, close_target_executable, enumerate_target_pids, log, normalize_path,
-    CloseError,
+    can_replace_file, close_target_windows, enumerate_target_pids, log, normalize_path, CloseError,
 };
 use std::{
     path::{Path, PathBuf},
@@ -103,14 +102,12 @@ pub fn prepare_install(
         if (file.parent() == Some(root) && name.eq_ignore_ascii_case("flowix-cli.exe"))
             || (file.starts_with(root.join("pi")) && name.eq_ignore_ascii_case("pi.exe"))
         {
-            close_target_executable(file, timeout, interval, log_path)
+            close_target_windows(file, deadline, interval, log_path)
                 .map_err(|e| failure(file, e))?;
         }
     }
-    let files_deadline = Instant::now() + timeout;
     for file in &files {
-        wait_until_replaceable(file, files_deadline, interval, log_path)
-            .map_err(|e| failure(file, e))?;
+        wait_until_replaceable(file, deadline, interval, log_path).map_err(|e| failure(file, e))?;
     }
     log(
         log_path,

@@ -94,6 +94,60 @@ Production Flowix builds require `TAURI_SIGNING_PRIVATE_KEY` (and optionally
 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`). `FLOWIX_ALLOW_UNSIGNED=1` is reserved
 for local builds and disables updater artifact generation.
 
+## Windows installation coordination
+
+Windows updates use Tauri's `passive` mode: the user sees installation progress
+without stepping through the setup wizard. The app saves documents and stops
+its background work before handing the verified package to Tauri. The NSIS
+adapter normalizes Tauri's executable path and delegates process/file checks
+to `flowix-installer-helper`. Desktop shutdown, owned CLI cleanup and file-lock
+waiting share one deadline; system API and filesystem enumeration overhead is
+not a hard real-time guarantee. Other applications are never force-closed.
+
+The app and installer share `FlowixData/app-update-state.json`. It records a
+schema version, attempt UUID, target version, status and optional error. Writes
+are atomic, with a cross-process lock around state transitions. The app passes
+the UUID as `/FLOWIXATTEMPT=<uuid>` to NSIS; callbacks with another UUID or target
+version cannot complete the current attempt. `/UPDATE`, rather than silent UI
+mode, identifies updater installs. Manual successful installs clear stale state.
+
+The helper imports the old target/result markers and writes the old result file
+only for a legacy-client attempt, so a failed upgrade is still reported by the
+old app. Keep this bridge and the old-directory migration while clients using
+those protocols are supported. Remove them together only after the minimum
+supported updater client no longer creates those markers.
+
+`VerifiedUpdate` owns the update metadata and immutable verified bytes. Its
+private constructor performs signature verification; its consuming `install`
+method is the only installation entry point in this flow. Downloads and
+completed partial files retain the verified buffer instead of immediately
+reading and verifying it again. Only path/metadata are retained between UI
+commands, so installation reloads and verifies the disk cache. The pinned
+updater's `install` method does not perform
+the download method's signature check, so the cache verification must remain.
+
+The private helper CLI has separate `prepare`, `close-cli`, `record-update` and
+`clear-update` subcommands. Process operations use `--target`; result operations
+use `--state-dir`. Each command validates its own required options, statuses and
+positive durations. The old permissive `--mode` parser is removed. Installer
+hooks and the helper must be packaged together; older distributed installers
+already contain their own helper, while their update-state protocol remains
+supported by the compatibility bridge above.
+
+NSIS uses `FLOWIX_RUN_HELPER` for all operations. It extracts the packaged helper
+once per installer process, invokes the subcommand, and records failures in one
+place. The preflight adapter alone handles interactive retry/abort behavior.
+
+Windows production builds run `scripts/verify-windows-installer-preflight.mjs`
+after packaging. It runs the real hook and helper in an isolated directory,
+covering full paths with spaces, quiet/passive result callbacks, UTF-16 error
+handoff and manual-install state cleanup. It does not install the product or change file associations. For local
+checks, `FLOWIX_INSTALLER_HELPER` can point to a freshly built debug helper.
+
+```powershell
+cargo test --manifest-path app/Cargo.toml -p flowix-installer-helper
+```
+
 ## Verifying a manifest locally
 
 `scripts/verify-updater-release.mjs` validates a single manifest against the

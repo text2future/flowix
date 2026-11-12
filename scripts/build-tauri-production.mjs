@@ -139,6 +139,7 @@ if (targetPlatform === 'win32') {
   if (requireUpdaterArtifacts) {
     requireArtifact(freshArtifacts, file => file === `${installer}.sig`, 'NSIS updater signature')
   }
+  run(process.execPath, ['scripts/verify-windows-installer-preflight.mjs'])
 } else if (targetPlatform === 'darwin') {
   for (const target of tauriTargets) {
     const targetFiles = freshArtifacts.filter(file => file.includes(`${path.sep}${target}${path.sep}`))

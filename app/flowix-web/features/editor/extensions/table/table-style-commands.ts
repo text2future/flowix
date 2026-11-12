@@ -107,7 +107,7 @@ export function getBorderExtendsHint(editor: Editor, edge: 'top' | 'bottom'): bo
 export function setTableCellBorder(editor: Editor, edge: 'top' | 'bottom', style: TableBorderStyle): boolean {
   if (editor.isDestroyed || !editor.isEditable || !isInTable(editor.state)) return false;
   if (normalizeTableBorderStyle(style) !== style) return false;
-  return editor.chain().focus().command(({ tr, state }) => {
+  return editor.chain().focus(null, { scrollIntoView: false }).command(({ tr, state }) => {
     const rect = selectedRect(state);
     const { targets } = getSharedBorderEdges(rect, edge);
     closeHistory(tr);
@@ -125,7 +125,7 @@ export function setTableCellBorder(editor: Editor, edge: 'top' | 'bottom', style
 export function setTableStyle(editor: Editor, styleId: TableStyleId, language: AppLanguage = DEFAULT_APP_LANGUAGE): boolean {
   if (editor.isDestroyed || !editor.isEditable || !isInTable(editor.state)) return false;
   if (normalizeTableStyleId(styleId) !== styleId) return false;
-  return editor.chain().focus().command(({ tr, state }) => {
+  return editor.chain().focus(null, { scrollIntoView: false }).command(({ tr, state }) => {
     const { table, tableStart, left } = selectedRect(state);
     if (TABLE_TEMPLATE_OPTIONS.find(option => option.styleId === styleId)?.hasContent) {
       // Only empty paragraphs are blank; media, references and other nodes are content.
@@ -157,7 +157,7 @@ export function setTableStyle(editor: Editor, styleId: TableStyleId, language: A
 
 export function setTableRowRole(editor: Editor, role: TableRowRole): boolean {
   if (!isInTable(editor.state)) return false;
-  return editor.chain().focus().command(({ tr, state }) => {
+  return editor.chain().focus(null, { scrollIntoView: false }).command(({ tr, state }) => {
     const { table, tableStart, top, bottom } = selectedRect(state);
     table.forEach((row, offset, index) => {
       if (index >= top && index < bottom) {
@@ -171,7 +171,7 @@ export function setTableRowRole(editor: Editor, role: TableRowRole): boolean {
 /** Column roles belong to cells, so removing a preceding column cannot shift them. */
 export function setTableColumnRole(editor: Editor, columnRole: TableColumnRole): boolean {
   if (!isInTable(editor.state)) return false;
-  return editor.chain().focus().command(({ tr, state }) => {
+  return editor.chain().focus(null, { scrollIntoView: false }).command(({ tr, state }) => {
     const { table, tableStart, map, left, right } = selectedRect(state);
     const positions = new Set<number>();
     for (let row = 0; row < map.height; row += 1) {

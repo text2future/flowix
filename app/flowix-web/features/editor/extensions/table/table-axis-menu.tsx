@@ -125,12 +125,12 @@ export function TableAxisMenu({ editor }: { editor: Editor }) {
       }}>
       <button type="button" role="menuitem" className={itemClass} onMouseDown={event => event.preventDefault()}
         disabled={row ? !editor.can().addRowBefore() : !editor.can().addColumnBefore()}
-        onClick={() => run(() => { if (row) editor.chain().focus().addRowBefore().run(); else editor.chain().focus().addColumnBefore().run(); })}>
+        onClick={() => run(() => { if (row) editor.chain().focus(null, { scrollIntoView: false }).addRowBefore().run(); else editor.chain().focus(null, { scrollIntoView: false }).addColumnBefore().run(); })}>
         {row ? <TableInsertRowIcon placement="above" /> : <TableInsertColumnIcon placement="left" />}{before}
       </button>
       <button type="button" role="menuitem" className={itemClass} onMouseDown={event => event.preventDefault()}
         disabled={row ? !editor.can().addRowAfter() : !editor.can().addColumnAfter()}
-        onClick={() => run(() => { if (row) editor.chain().focus().addRowAfter().run(); else editor.chain().focus().addColumnAfter().run(); })}>
+        onClick={() => run(() => { if (row) editor.chain().focus(null, { scrollIntoView: false }).addRowAfter().run(); else editor.chain().focus(null, { scrollIntoView: false }).addColumnAfter().run(); })}>
         {row ? <TableInsertRowIcon placement="below" /> : <TableInsertColumnIcon placement="right" />}{after}
       </button>
       <div role="separator" className={POPUP_SEPARATOR_CLASS} />
@@ -162,7 +162,7 @@ export function TableAxisMenu({ editor }: { editor: Editor }) {
       <div role="separator" className={POPUP_SEPARATOR_CLASS} />
       <button type="button" role="menuitem" className={itemClass} onMouseDown={event => event.preventDefault()}
         disabled={row ? !editor.can().deleteRow() : !editor.can().deleteColumn()}
-        onClick={() => run(() => { if (row) editor.chain().focus().deleteRow().run(); else editor.chain().focus().deleteColumn().run(); })}>
+        onClick={() => run(() => { if (row) editor.chain().focus(null, { scrollIntoView: false }).deleteRow().run(); else editor.chain().focus(null, { scrollIntoView: false }).deleteColumn().run(); })}>
         {row ? <TableDeleteRowIcon /> : <TableDeleteColumnIcon />}<span>{t(row ? 'editor.table.deleteRow' : 'editor.table.deleteColumn')}</span>
       </button>
     </div>, document.body,

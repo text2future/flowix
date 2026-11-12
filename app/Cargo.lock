@@ -1337,7 +1337,13 @@ dependencies = [
 name = "flowix-installer-helper"
 version = "1.5.18"
 dependencies = [
+ "clap",
  "dunce",
+ "fs2",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "uuid",
  "windows",
 ]
 

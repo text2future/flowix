@@ -6,7 +6,7 @@ import { isFlowixTextColor, type FlowixTextColor } from '../flowix-text-colors';
 export function setTableBackground(editor: Editor, axis: 'row' | 'column', color: FlowixTextColor | null): boolean {
   if (editor.isDestroyed || !editor.isEditable || !isInTable(editor.state)) return false;
   if (color !== null && !isFlowixTextColor(color)) return false;
-  return editor.chain().focus().command(({ tr, state }) => {
+  return editor.chain().focus(null, { scrollIntoView: false }).command(({ tr, state }) => {
     const { table, tableStart, map, top, bottom, left, right } = selectedRect(state);
     if (axis === 'row') {
       table.forEach((row, offset, index) => {

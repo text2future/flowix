@@ -47,7 +47,7 @@ impl Fixture {
     }
     fn prepare_named(&self, install: &Path, main_executable: &str) -> std::process::Output {
         Command::new(env!("CARGO_BIN_EXE_flowix-installer-helper"))
-            .args(["--mode", "prepare", "--target"])
+            .args(["prepare", "--target"])
             .arg(install)
             .args(["--main-executable", main_executable])
             .args(["--timeout-ms", "600", "--interval-ms", "50", "--log"])
@@ -122,7 +122,7 @@ fn prepare_requires_a_scoped_main_executable() {
     for name in [None, Some("../other/Flowix.exe"), Some("C:\\Flowix.exe")] {
         let mut command = Command::new(env!("CARGO_BIN_EXE_flowix-installer-helper"));
         command
-            .args(["--mode", "prepare", "--target"])
+            .args(["prepare", "--target"])
             .arg(&f.root)
             .arg("--log")
             .arg(f.root.join("update.log"));
@@ -193,7 +193,7 @@ fn waits_for_a_temporary_external_lock_on_the_desktop_executable() {
         .open(&file)
         .unwrap();
     let mut installer = Command::new(env!("CARGO_BIN_EXE_flowix-installer-helper"))
-        .args(["--mode", "prepare", "--target"])
+        .args(["prepare", "--target"])
         .arg(f.root.join("install"))
         .args(["--main-executable", "Flowix.exe"])
         .args(["--timeout-ms", "3000", "--interval-ms", "50", "--log"])
@@ -238,4 +238,80 @@ fn locked_bundled_library_reports_path_and_blocks_install() {
     let result = f.prepare(&f.root.join("install"));
     assert_eq!(result.status.code(), Some(22));
     assert!(String::from_utf8_lossy(&result.stderr).contains("runtime.dll"));
+}
+
+#[test]
+#[ignore]
+fn fixture_delayed_graceful() {
+    flowix_installer_helper::listen_for_shutdown(|| {
+        std::thread::sleep(Duration::from_millis(1100));
+        std::process::exit(0);
+    });
+    fs::write(
+        std::env::current_exe().unwrap().with_extension("ready"),
+        "ready",
+    )
+    .unwrap();
+    std::thread::sleep(Duration::from_secs(60));
+}
+
+#[test]
+fn desktop_exit_and_file_locks_share_one_timeout_budget() {
+    use std::os::windows::fs::OpenOptionsExt;
+    let mut f = Fixture::new();
+    let desktop = f.program("install/Flowix.exe");
+    f.children.push(
+        Command::new(&desktop)
+            .args(["--exact", "fixture_delayed_graceful", "--ignored"])
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let ready_deadline = std::time::Instant::now() + Duration::from_secs(3);
+    while !desktop.with_extension("ready").exists() {
+        assert!(
+            std::time::Instant::now() < ready_deadline,
+            "desktop fixture did not start"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let library = f.root.join("install/runtime.dll");
+    fs::write(&library, b"locked library").unwrap();
+    let _lock = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(0)
+        .open(&library)
+        .unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_flowix-installer-helper"))
+        .args(["prepare", "--target"])
+        .arg(f.root.join("install"))
+        .args([
+            "--main-executable",
+            "Flowix.exe",
+            "--timeout-ms",
+            "1500",
+            "--interval-ms",
+            "20",
+            "--log",
+        ])
+        .arg(f.root.join("update.log"))
+        .output()
+        .unwrap();
+    assert_eq!(result.status.code(), Some(22), "{result:?}");
+    // Measure waiting, excluding Restart Manager's subsequent diagnostic call,
+    // which can take extra time on a loaded machine. Old per-stage budgets
+    // reached file-lock-timeout after at least 1100 + 1500 ms.
+    let log = fs::read_to_string(f.root.join("update.log")).unwrap();
+    let timestamp = |event: &str| -> u128 {
+        log.lines()
+            .find(|line| line.contains(event))
+            .unwrap()
+            .split_whitespace()
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap()
+    };
+    let waiting_ms = timestamp("file-lock-timeout") - timestamp("installer-check-start");
+    assert!(waiting_ms < 2200, "waiting took {waiting_ms}ms: {log}");
 }

@@ -3133,7 +3133,7 @@ describe("AgentThreadCard NodeView streaming", () => {
     expect(editor.state.selection.toJSON()).toEqual(selectionBefore);
   });
 
-  it("focuses the composer input row after entering fullscreen", async () => {
+  it("focuses the fullscreen card without focusing its composer", async () => {
     const { AgentThreadCard } =
       await import("@features/agent/thread-card");
     const host = document.createElement("div");
@@ -3165,6 +3165,10 @@ describe("AgentThreadCard NodeView streaming", () => {
 
     const input = getComposerInput(host);
     const row = input.parentElement;
+    const card = input.closest<HTMLElement>(".agent-thread-card");
+    expect(card).not.toBeNull();
+    expect(document.activeElement).toBe(card);
+    expect(getComposerEditor(input).view.hasFocus()).toBe(false);
     expect(row?.classList.contains("agent-composer__input-row")).toBe(true);
     expect(input.closest(".agent-composer")?.classList.contains("agent-composer--expanded")).toBe(true);
 

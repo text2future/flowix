@@ -11,8 +11,61 @@ use tauri_plugin_updater::Update;
 
 #[derive(Clone)]
 pub(super) struct PreparedUpdate {
-    pub(super) update: Update,
-    pub(super) package_path: PathBuf,
+    update: Update,
+    package_path: PathBuf,
+    attempt_id: String,
+}
+
+/// Only this module can create a package. The bytes are immutable after verification.
+pub(super) struct VerifiedUpdate {
+    prepared: PreparedUpdate,
+    bytes: Vec<u8>,
+}
+
+impl PreparedUpdate {
+    pub(super) fn version(&self) -> &str {
+        &self.update.version
+    }
+
+    pub(super) async fn read_verified(&self, app: &AppHandle) -> Result<VerifiedUpdate, String> {
+        let bytes = tokio::fs::read(&self.package_path)
+            .await
+            .map_err(|e| format!("failed to read cached application update: {e}"))?;
+        match VerifiedUpdate::verify(app, self.clone(), bytes) {
+            Ok(package) => Ok(package),
+            Err(error) => {
+                let _ = tokio::fs::remove_file(&self.package_path).await;
+                Err(error)
+            }
+        }
+    }
+}
+
+impl VerifiedUpdate {
+    fn verify(app: &AppHandle, prepared: PreparedUpdate, bytes: Vec<u8>) -> Result<Self, String> {
+        verify_cached_package(app, &prepared.update, &bytes)?;
+        Ok(Self { prepared, bytes })
+    }
+
+    pub(super) fn prepared(&self) -> PreparedUpdate {
+        self.prepared.clone()
+    }
+    pub(super) fn version(&self) -> &str {
+        self.prepared.version()
+    }
+    pub(super) fn attempt_id(&self) -> &str {
+        &self.prepared.attempt_id
+    }
+    pub(super) fn len(&self) -> usize {
+        self.bytes.len()
+    }
+
+    pub(super) fn install(self) -> Result<(), String> {
+        self.prepared
+            .update
+            .install(self.bytes)
+            .map_err(|e| format!("failed to install update: {e}"))
+    }
 }
 
 fn update_cache_location(app: &AppHandle, update: &Update) -> Result<PathBuf, String> {
@@ -40,11 +93,7 @@ fn update_cache_location(app: &AppHandle, update: &Update) -> Result<PathBuf, St
     Ok(directory.join(format!("update-{package_key}.bundle")))
 }
 
-pub(super) fn verify_cached_package(
-    app: &AppHandle,
-    update: &Update,
-    bytes: &[u8],
-) -> Result<(), String> {
+fn verify_cached_package(app: &AppHandle, update: &Update, bytes: &[u8]) -> Result<(), String> {
     use base64::Engine as _;
 
     let encoded_key = app
@@ -93,8 +142,15 @@ pub(super) async fn prepare_update_package(
     app: &AppHandle,
     update: Update,
     report_progress: bool,
-) -> Result<PreparedUpdate, String> {
+    attempt_id: String,
+) -> Result<VerifiedUpdate, String> {
     let package_path = update_cache_location(app, &update)?;
+    let prepared = PreparedUpdate {
+        update,
+        package_path: package_path.clone(),
+        attempt_id,
+    };
+    let update = &prepared.update;
     let directory = package_path
         .parent()
         .ok_or_else(|| "application update cache path has no parent directory".to_string())?;
@@ -103,16 +159,15 @@ pub(super) async fn prepare_update_package(
         .map_err(|error| format!("failed to create application update cache: {error}"))?;
 
     match tokio::fs::read(&package_path).await {
-        Ok(bytes) if verify_cached_package(app, &update, &bytes).is_ok() => {
-            remove_old_update_packages(directory, &package_path).await;
-            return Ok(PreparedUpdate {
-                update,
-                package_path,
-            });
-        }
-        Ok(_) => {
-            let _ = tokio::fs::remove_file(&package_path).await;
-        }
+        Ok(bytes) => match VerifiedUpdate::verify(app, prepared.clone(), bytes) {
+            Ok(package) => {
+                remove_old_update_packages(directory, &package_path).await;
+                return Ok(package);
+            }
+            Err(_) => {
+                let _ = tokio::fs::remove_file(&package_path).await;
+            }
+        },
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => {
             return Err(format!("failed to read cached application update: {error}"));
@@ -122,23 +177,35 @@ pub(super) async fn prepare_update_package(
     let partial_path = package_path.with_extension("part");
     let metadata_path = partial_path.with_extension("resume.json");
     // An exit after the last byte but before publication needs no new request.
-    let complete = partial_may_be_complete(&partial_path) && match tokio::fs::read(&partial_path).await {
-        Ok(bytes) => verify_cached_package(app, &update, &bytes).is_ok(),
-        Err(_) => false,
+    let resumed = if partial_may_be_complete(&partial_path) {
+        tokio::fs::read(&partial_path)
+            .await
+            .ok()
+            .and_then(|bytes| VerifiedUpdate::verify(app, prepared.clone(), bytes).ok())
+    } else {
+        None
     };
-    if !complete {
+    let package = if let Some(package) = resumed {
+        package
+    } else {
         let mut builder = reqwest::Client::builder()
             .https_only(true)
             .connect_timeout(Duration::from_secs(30))
             .timeout(Duration::from_secs(10 * 60))
-            .no_gzip().no_brotli().no_deflate().no_zstd()
+            .no_gzip()
+            .no_brotli()
+            .no_deflate()
+            .no_zstd()
             .user_agent(concat!("Flowix/", env!("CARGO_PKG_VERSION")));
         if update.no_proxy {
             builder = builder.no_proxy();
         } else if let Some(proxy) = &update.proxy {
-            builder = builder.proxy(reqwest::Proxy::all(proxy.as_str()).map_err(|e| e.to_string())?);
+            builder =
+                builder.proxy(reqwest::Proxy::all(proxy.as_str()).map_err(|e| e.to_string())?);
         }
-        let client = builder.build().map_err(|e| format!("failed to configure update download: {e}"))?;
+        let client = builder
+            .build()
+            .map_err(|e| format!("failed to configure update download: {e}"))?;
         let mut last_progress = Instant::now();
         let mut started = false;
         download_to_file(&client, &update.download_url, update.headers.clone(), &partial_path, |downloaded, total| {
@@ -157,26 +224,30 @@ pub(super) async fn prepare_update_package(
             tracing::warn!(event = "app_update.download_failed", version = %update.version, %error, "application update download failed; partial file retained");
             error
         })?;
-    }
-    let bytes = tokio::fs::read(&partial_path).await
-        .map_err(|e| format!("failed to read downloaded application update: {e}"))?;
-    if let Err(error) = verify_cached_package(app, &update, &bytes) {
-        tracing::warn!(event = "app_update.verification_failed", version = %update.version, %error, "discarding invalid application update");
-        // Never keep a corrupt complete file that would fail every future attempt.
-        let _ = tokio::fs::remove_file(&partial_path).await;
-        let _ = tokio::fs::remove_file(&metadata_path).await;
-        return Err(error);
-    }
-    tokio::fs::rename(&partial_path, &package_path).await
+        let bytes = tokio::fs::read(&partial_path)
+            .await
+            .map_err(|e| format!("failed to read downloaded application update: {e}"))?;
+        match VerifiedUpdate::verify(app, prepared.clone(), bytes) {
+            Ok(package) => package,
+            Err(error) => {
+                tracing::warn!(event = "app_update.verification_failed", version = %update.version, %error, "discarding invalid application update");
+                let _ = tokio::fs::remove_file(&partial_path).await;
+                let _ = tokio::fs::remove_file(&metadata_path).await;
+                return Err(error);
+            }
+        }
+    };
+    tokio::fs::rename(&partial_path, &package_path)
+        .await
         .map_err(|e| format!("failed to publish cached application update: {e}"))?;
     let _ = tokio::fs::remove_file(&metadata_path).await;
     if report_progress {
-        let _ = app.emit("app-update-progress", json!({ "phase": "finished", "downloadedBytes": bytes.len() }));
+        let _ = app.emit(
+            "app-update-progress",
+            json!({ "phase": "finished", "downloadedBytes": package.len() }),
+        );
     }
     remove_old_update_packages(directory, &package_path).await;
 
-    Ok(PreparedUpdate {
-        update,
-        package_path,
-    })
+    Ok(package)
 }

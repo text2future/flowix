@@ -4,6 +4,9 @@
 !define FLOWIX_LEGACY_CLI_SHIM "${FLOWIX_CLI_BIN_DIR}\flowix-cli.cmd"
 !define FLOWIX_HELPER_SOURCE "${__FILEDIR__}\flowix-installer-helper.exe"
 Var FlowixSavedOutDir
+Var FlowixUpdateAttempt
+Var FlowixIsUpdate
+Var FlowixInstallerVersion
 
 !macro FLOWIX_BROADCAST_ENVIRONMENT_CHANGE
   System::Call 'user32::SendMessageTimeout(i 0xffff, i 0x001A, i 0, t "Environment", i 0, i 5000, *i .r0)'
@@ -19,32 +22,64 @@ Var FlowixSavedOutDir
   ${EndIf}
 !macroend
 
-!macro FLOWIX_RECORD_SILENT_UPDATE_RESULT result message
-  ${If} ${Silent}
-  ${AndIf} ${FileExists} "${FLOWIX_STATE_DIR}\app-update-target.txt"
-    CreateDirectory "${FLOWIX_STATE_DIR}"
-    FileOpen $0 "${FLOWIX_STATE_DIR}\app-update-result.txt" w
-    ${If} $0 != ""
-      FileWrite $0 "${result}|${message}$\r$\n"
-      FileClose $0
-    ${EndIf}
+!macro FLOWIX_PARSE_UPDATE_MODE
+  StrCpy $FlowixIsUpdate 0
+  ClearErrors
+  ${GetOptions} $CMDLINE "/UPDATE" $0
+  ${IfNot} ${Errors}
+    StrCpy $FlowixIsUpdate 1
+  ${EndIf}
+  ClearErrors
+!macroend
+
+!macro FLOWIX_RECORD_UPDATE_RESULT result message
+  ; /UPDATE identifies updater installs in quiet and passive modes alike.
+  !insertmacro FLOWIX_PARSE_UPDATE_MODE
+  ${If} $FlowixIsUpdate = 1
+    StrCpy $FlowixUpdateAttempt ""
+    ${GetOptions} $CMDLINE "/FLOWIXATTEMPT=" $FlowixUpdateAttempt
+    ClearErrors
+    !insertmacro FLOWIX_RUN_HELPER "record-update" '--state-dir "${FLOWIX_STATE_DIR}" --version "$FlowixInstallerVersion" --attempt-id "$FlowixUpdateAttempt" --status "${result}" --message "${message}" --message-file "$PLUGINSDIR\flowix-error.txt"'
   ${EndIf}
 !macroend
 
-; The standard template calls this for install and uninstall. Replace its
-; name-only kill with a path-scoped preflight. Test when upgrading Tauri.
+; All helper operations share extraction, logging, and exit-code handling.
+; $1 is the operation's result; preflight alone adds retry/abort behavior.
+!macro FLOWIX_RUN_HELPER operation arguments
+  !insertmacro FLOWIX_EXTRACT_HELPER
+  nsExec::ExecToLog '"$PLUGINSDIR\flowix-installer-helper.exe" ${operation} ${arguments} --source nsis --log "${FLOWIX_STATE_DIR}\app-update.log"'
+  Pop $1
+  ${If} $1 != 0
+    !insertmacro FLOWIX_LOG "helper-failed command=${operation} exit=$1"
+  ${EndIf}
+!macroend
+
+!macro FLOWIX_EXTRACT_HELPER
+  InitPluginsDir
+  ${IfNot} ${FileExists} "$PLUGINSDIR\flowix-installer-helper.exe"
+    StrCpy $FlowixSavedOutDir $OUTDIR
+    SetOutPath "$PLUGINSDIR"
+    File /oname=flowix-installer-helper.exe "${FLOWIX_HELPER_SOURCE}"
+    SetOutPath "$FlowixSavedOutDir"
+  ${EndIf}
+!macroend
+
+; Tauri calls this for install and uninstall. Its default Restart Manager
+; shutdown is replaced with cooperative app exit and product-owned CLI cleanup.
+; Keep this adapter thin and exercise it when upgrading the Tauri template.
 !ifmacrondef CheckIfAppIsRunning
   !error "Tauri CheckIfAppIsRunning macro is missing; review installer integration before upgrading Tauri."
 !endif
 !macroundef CheckIfAppIsRunning
-!macro CheckIfAppIsRunning executableName productName
-  StrCpy $FlowixSavedOutDir $OUTDIR
-  InitPluginsDir
-  SetOutPath "$PLUGINSDIR"
-  File /oname=flowix-installer-helper.exe "${FLOWIX_HELPER_SOURCE}"
+!macro CheckIfAppIsRunning executablePath productName
+  ; VERSION is declared after the hook include in Tauri's template. Capture it
+  ; at the call site, rather than expanding it in the early .onInstFailed body.
+  StrCpy $FlowixInstallerVersion "${VERSION}"
+  ; Tauri passes $INSTDIR\<binary>.exe. The helper deliberately accepts only
+  ; a filename under --target, so normalize the template argument here.
+  ${GetFileName} "${executablePath}" $R8
 flowix_preflight_retry:
-  nsExec::ExecToLog '"$PLUGINSDIR\flowix-installer-helper.exe" --mode prepare --target "$INSTDIR" --main-executable "${executableName}" --source nsis --version "${VERSION}" --timeout-ms 30000 --interval-ms 200 --log "${FLOWIX_STATE_DIR}\app-update.log" --error-file "$PLUGINSDIR\flowix-error.txt"'
-  Pop $1
+  !insertmacro FLOWIX_RUN_HELPER "prepare" '--target "$INSTDIR" --main-executable "$R8" --timeout-ms 30000 --interval-ms 200 --error-file "$PLUGINSDIR\flowix-error.txt"'
   ${If} $1 != 0
     StrCpy $2 "Flowix could not prepare installation. See ${FLOWIX_STATE_DIR}\app-update.log."
     ClearErrors
@@ -55,27 +90,31 @@ flowix_preflight_retry:
     ${EndIf}
     !insertmacro FLOWIX_LOG "preflight-failed exit=$1 reason=$2"
     ${IfNot} ${Silent}
-      MessageBox MB_ICONEXCLAMATION|MB_RETRYCANCEL|MB_DEFBUTTON2 "$2" IDRETRY flowix_preflight_retry
+      ; Passive mode shows progress but must not open a retry/cancel dialog.
+      ClearErrors
+      ${GetOptions} $CMDLINE "/P" $0
+      ${If} ${Errors}
+        MessageBox MB_ICONEXCLAMATION|MB_RETRYCANCEL|MB_DEFBUTTON2 "$2" IDRETRY flowix_preflight_retry
+      ${EndIf}
     ${EndIf}
-    SetOutPath "$FlowixSavedOutDir"
     SetErrorLevel 1
     Abort
   ${EndIf}
-  SetOutPath "$FlowixSavedOutDir"
   ClearErrors
 !macroend
 
 ; Tauri owns .onInstSuccess. Extraction failures also reach this callback.
 Function .onInstFailed
   !insertmacro FLOWIX_LOG "installation-failed"
-  !insertmacro FLOWIX_RECORD_SILENT_UPDATE_RESULT "failed" "Installation failed. Check the installer log and run setup again."
+  !insertmacro FLOWIX_RECORD_UPDATE_RESULT "failed" "Installation failed. Check the installer log and run setup again."
   SetErrorLevel 1
 FunctionEnd
 
 !macro NSIS_HOOK_PREINSTALL
   ; An older app updater wrote these markers beside its executable. Adopt only
   ; its update status, never its program directory or user data.
-  ${If} ${Silent}
+  !insertmacro FLOWIX_PARSE_UPDATE_MODE
+  ${If} $FlowixIsUpdate = 1
   ${AndIfNot} ${FileExists} "${FLOWIX_STATE_DIR}\app-update-target.txt"
   ${AndIf} ${FileExists} "$LOCALAPPDATA\Flowix\app-update-target.txt"
     CreateDirectory "${FLOWIX_STATE_DIR}"
@@ -236,11 +275,11 @@ FunctionEnd
 !macro NSIS_HOOK_POSTINSTALL
   !insertmacro FLOWIX_CLEANUP_LEGACY_DOCUMENT_ASSOCIATIONS
   !insertmacro FLOWIX_APPLY_DOCUMENT_ICON
-  ; Visible/manual installs clear stale updater status without emitting a toast.
-  IfSilent flowix_status_clear_done 0
-  Delete "${FLOWIX_STATE_DIR}\app-update-result.txt"
-  Delete "${FLOWIX_STATE_DIR}\app-update-target.txt"
-flowix_status_clear_done:
+  ; Manual installs clear stale updater status without emitting a toast.
+  !insertmacro FLOWIX_PARSE_UPDATE_MODE
+  ${If} $FlowixIsUpdate != 1
+    !insertmacro FLOWIX_RUN_HELPER "clear-update" '--state-dir "${FLOWIX_STATE_DIR}"'
+  ${EndIf}
   CreateDirectory "${FLOWIX_CLI_BIN_DIR}"
   Delete "${FLOWIX_LEGACY_CLI_SHIM}"
   FileOpen $0 "${FLOWIX_CLI_SHIM}" w
@@ -251,7 +290,7 @@ flowix_status_clear_done:
   ${EndIf}
   !insertmacro FLOWIX_ADD_CLI_TO_USER_PATH
   !insertmacro FLOWIX_LOG "installation-complete"
-  !insertmacro FLOWIX_RECORD_SILENT_UPDATE_RESULT "success" ""
+  !insertmacro FLOWIX_RECORD_UPDATE_RESULT "success" ""
 !macroend
 
 !macro NSIS_HOOK_POSTUNINSTALL

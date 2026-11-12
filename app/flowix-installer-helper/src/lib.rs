@@ -1,6 +1,8 @@
 use std::path::Path;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+pub mod update_result;
+
 pub const EXIT_CLI_RUNNING: i32 = 20;
 pub const EXIT_PERMISSION_DENIED: i32 = 21;
 pub const EXIT_FILE_IN_USE: i32 = 22;
@@ -49,7 +51,7 @@ pub fn close_target_executable(
 
     #[cfg(target_os = "windows")]
     {
-        close_target_windows(target, timeout, interval, log_path)
+        close_target_windows(target, Instant::now() + timeout, interval, log_path)
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -93,7 +95,7 @@ impl Drop for OwnedHandle {
 #[cfg(target_os = "windows")]
 fn close_target_windows(
     target: &Path,
-    timeout: Duration,
+    deadline: Instant,
     interval: Duration,
     log_path: &Path,
 ) -> Result<(), CloseError> {
@@ -105,7 +107,6 @@ fn close_target_windows(
         PROCESS_SYNCHRONIZE, PROCESS_TERMINATE,
     };
     let expected_path = normalize_path(target);
-    let deadline = Instant::now() + timeout;
     let mut attempt = 0_u32;
     let mut saw_uninspectable_candidate = false;
 
