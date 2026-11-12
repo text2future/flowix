@@ -48,7 +48,7 @@ npm run tauri:dev
 # 构建生产版本
 npm run tauri:build:prod
 ```
-环境要求 `Node.js 20+`、 `Rust 1.75+` 与 `Tauri v2` ，桌面应用支持 macOS 14+ 与 Windows 10+。鸿蒙、Linux 等系统需自行探索体验。
+环境要求 `Node.js 20+`、 `Rust 1.75+` 与 `Tauri v2` ，桌面应用支持 `macOS 14+`  与 `Windows 10+` 。鸿蒙、Linux 等系统需自行探索体验。
 
 ## 许可协议
 产品客户端源码基于 GNU AGPL 协议开源。
