@@ -6,8 +6,6 @@
 
 不知道 AI 在工作空间写了什么，记录了什么，任务成不成全靠缘分？flowix 帮你管理，让 AI 工作空间可视化。
 
-[去下载](https://flowix-memo.com/)
-
 &nbsp;
 
 继续了解 AI 工作空间  ↓↓↓
@@ -105,3 +103,5 @@ npm run tauri:build:prod
 ## 许可协议
 
 产品客户端源码基于 GNU AGPL 协议开源。
+
+[体验产品](https://flowix-memo.com/)
