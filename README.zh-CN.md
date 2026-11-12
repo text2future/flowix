@@ -1,4 +1,4 @@
-English | **简体中文**
+[English](./README.en.md) | **简体中文**
 
 <p align="center">
   <img src="./docs/images/app-icon.png" width="120" alt="Flowix" />
