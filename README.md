@@ -1,6 +1,7 @@
 [English](./README.en.md) | **简体中文**
 ## 探索 AI Agent 工作空间
 不知道 AI 在工作空间写了什么，记录了什么，任务成不成全靠缘分？flowix 帮你管理，让 AI 工作空间可视化。
+
 继续了解 AI 工作空间  ↓↓↓
 ### 要点1：整理目录结构
 一套高质量的结构，可以按照 **输入**、**过程**、**输出** 组织。
@@ -35,6 +36,7 @@ AI 工作空间，是大部分 Agent 都有的一个主文件夹。不论你看�
 ### 管理文件夹和文档、作品
 管理本地文件夹、文档、数据库（多维表格视图）。整体体验接近 Notion，额外扩展图片上下文能力、多皮肤、网页文件等。
 <table style="width: 554px;"><colgroup><col style="width: 185px;"><col style="width: 185px;"><col style="width: 184px;"></colgroup><tbody><tr><td colspan="1" rowspan="1" colwidth="185"><div class="editor-image-attachment is-loaded" data-image-attachment="true" data-file-name="截屏2026-11-12 15.02.43.png" data-mime-type="image/jpeg" data-storage-mode="attachment" data-storage-key="./docs/images/readme-04.jpg"><img class="editor-image-attachment__image is-loaded" src="./docs/images/readme-04.jpg" alt="截屏2026-11-12 15.02.43.png" title="截屏2026-11-12 15.02.43.png"></div></td><td colspan="1" rowspan="1" colwidth="185"><div class="editor-image-attachment is-loaded" data-image-attachment="true" data-file-name="截屏2026-11-12 15.05.23.png" data-mime-type="image/jpeg" data-storage-mode="attachment" data-storage-key="./docs/images/readme-05.jpg"><img class="editor-image-attachment__image is-loaded" src="./docs/images/readme-05.jpg" alt="截屏2026-11-12 15.05.23.png" title="截屏2026-11-12 15.05.23.png"></div></td><td colspan="1" rowspan="1" colwidth="184"><div class="editor-image-attachment is-loaded" data-image-attachment="true" data-file-name="截屏2026-11-12 15.03.47.png" data-mime-type="image/jpeg" data-storage-mode="attachment" data-storage-key="./docs/images/readme-01.jpg"><img class="editor-image-attachment__image is-loaded" src="./docs/images/readme-01.jpg" alt="截屏2026-11-12 15.03.47.png" title="截屏2026-11-12 15.03.47.png"></div></td></tr><tr><td colspan="1" rowspan="1" colwidth="185"><div class="editor-image-attachment is-loaded" data-image-attachment="true" data-file-name="截屏2026-11-12 15.06.19.png" data-mime-type="image/jpeg" data-storage-mode="attachment" data-storage-key="./docs/images/readme-06.jpg"><img class="editor-image-attachment__image is-loaded" src="./docs/images/readme-06.jpg" alt="截屏2026-11-12 15.06.19.png" title="截屏2026-11-12 15.06.19.png"></div></td><td colspan="1" rowspan="1" colwidth="185"><div class="editor-image-attachment is-loaded" data-image-attachment="true" data-file-name="image.png" data-mime-type="image/jpeg" data-storage-mode="attachment" data-storage-key="./docs/images/readme-07.jpg"><img class="editor-image-attachment__image is-loaded" src="./docs/images/readme-07.jpg" alt="image.png" title="image.png"></div></td><td colspan="1" rowspan="1" colwidth="184"><div class="editor-image-attachment is-loaded" data-image-attachment="true" data-file-name="image.png" data-mime-type="image/jpeg" data-storage-mode="attachment" data-storage-key="./docs/images/readme-08.jpg"><img class="editor-image-attachment__image is-loaded" src="./docs/images/readme-08.jpg" alt="image.png" title="image.png"></div></td></tr></tbody></table>
+
 ## 开源安装说明
 ### 本地开发
 ```bash
