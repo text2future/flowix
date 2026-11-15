@@ -2,12 +2,34 @@ import { Extension } from '@tiptap/core';
 import { GapCursor, gapCursor } from '@tiptap/pm/gapcursor';
 import type { Node as ProseMirrorNode, ResolvedPos } from '@tiptap/pm/model';
 import { NodeSelection, Plugin, Selection, TextSelection, type EditorState, type Transaction } from '@tiptap/pm/state';
-import { Decoration, DecorationSet } from '@tiptap/pm/view';
+import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view';
 
 // ProseMirror uses this validator internally but omits it from its public types.
 // Keep the compatibility boundary here so hot zones use precisely its rules.
 export function isValidBlockGap($pos: ResolvedPos): boolean {
   return (GapCursor as typeof GapCursor & { valid(pos: ResolvedPos): boolean }).valid($pos);
+}
+
+/** Resolve blank space below the last block before native pointer selection. */
+export function focusTerminalBlockGap(view: EditorView, event: MouseEvent): boolean {
+  if (!view.editable || event.button !== 0 || event.defaultPrevented
+    || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return false;
+  const target = event.target;
+  // Only editor surface/padding, never a nested NodeView or its controls.
+  if (!(target instanceof HTMLElement) || (target !== view.dom && !target.contains(view.dom))) return false;
+  const { doc } = view.state;
+  const last = doc.lastChild;
+  if (!last || last.type.name === 'frontmatter' || isOpenTextBlock(last)) return false;
+  const $end = doc.resolve(doc.content.size);
+  if (!isValidBlockGap($end)) return false;
+  const lastDOM = view.nodeDOM(doc.content.size - last.nodeSize);
+  if (!(lastDOM instanceof HTMLElement) || event.clientY < lastDOM.getBoundingClientRect().bottom) return false;
+  const bounds = view.dom.getBoundingClientRect();
+  if (event.clientX < bounds.left || event.clientX > bounds.right) return false;
+  event.preventDefault();
+  view.dispatch(view.state.tr.setSelection(new GapCursor($end)).setMeta('pointer', true));
+  view.focus();
+  return true;
 }
 
 // Ordinary inline content makes a boundary invalid. Check this before resolve,
@@ -202,6 +224,7 @@ export const BlockGapCursor = Extension.create({
     return [
       new Plugin({
         props: {
+          handleDOMEvents: { mousedown: focusTerminalBlockGap },
           decorations(state) {
             return editor.isEditable ? buildBlockGapDecorations(state.doc) : null;
           },

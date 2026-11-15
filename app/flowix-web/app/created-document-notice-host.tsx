@@ -1,3 +1,4 @@
+import { SCROLLBAR_HIDE_DELAY_MS } from '@shared/lib/scrollbar-config';
 import { useEffect, useRef, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { useNoteStore } from '@features/memo/store/note-store';
@@ -6,7 +7,6 @@ import { CreatedDocumentNoticeCard } from './created-document-notice-card';
 import { NOTICE_PAGE_SIZE, useCreatedDocumentNoticeStack } from './use-created-document-notice-stack';
 
 const COLLAPSE_DELAY_MS = 180;
-const SCROLL_IDLE_MS = 700;
 /** A single card already carries its own dismiss button; bulk clear only earns its place past this count. */
 const CLEAR_ACTION_MIN_NOTICES = 3;
 
@@ -48,7 +48,7 @@ export function CreatedDocumentNoticeHost() {
   const handleScroll = () => {
     setIsScrolling(true);
     if (scrollEndTimer.current) clearTimeout(scrollEndTimer.current);
-    scrollEndTimer.current = setTimeout(() => setIsScrolling(false), SCROLL_IDLE_MS);
+    scrollEndTimer.current = setTimeout(() => setIsScrolling(false), SCROLLBAR_HIDE_DELAY_MS);
   };
   const visible = notices.slice(0, visibleCount);
   const { stackHeight, cardStyle, onHeight } = useCreatedDocumentNoticeStack(visible, expanded);

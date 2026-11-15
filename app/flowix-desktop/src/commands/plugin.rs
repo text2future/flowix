@@ -6,7 +6,7 @@ use crate::agent_wire::{AgentRuntimeConfig, AgentUserMessage, RuntimePathConfig}
 use crate::app::state::AppState;
 use crate::commands::agent::runtime::start_plugin_chat;
 use crate::commands::agent::runtime::stop_any_runtime_chat;
-use crate::plugin::{self, PluginArtifact, PluginCatalogSnapshot, PluginDescriptor};
+use crate::plugin::{self, PluginCatalogSnapshot, PluginDescriptor};
 
 #[tauri::command]
 pub fn plugin_list() -> Result<Vec<PluginDescriptor>, String> {

@@ -21,7 +21,7 @@ import {
 } from '@features/document/store/document-identity';
 import { fileNameFromPath } from '@/lib/path';
 import { getWorkspaceMemoState } from '@features/memo/public/workspace-api';
-import { resolveNotebookIdForPath } from '@features/document/use-cases/resolve-notebook-id-for-path';
+import { getDocumentResourceContext } from '@features/document/public/resource-context';
 import { toast } from '@/lib/toast';
 import { files, product } from '@platform/tauri/client/desktop';
 import { externalDocuments } from '@platform/tauri/client/memos';
@@ -149,15 +149,9 @@ export function DocumentContainer({
   const renameInProgressRef = useRef(false);
   const previousFilePathRef = useRef(filePath);
   const getCurrentFilePath = useCallback(() => documentIdentity.path, [documentIdentity]);
-  const getAttachmentNotebookId = useCallback(() => {
-    return resolveNotebookIdForPath(documentIdentity.path, getWorkspaceMemoState().notebooks);
-  }, [documentIdentity]);
-  const imageNotebookId = getAttachmentNotebookId();
-  const imageScopePath = getWorkspaceMemoState().notebooks.find(notebook => notebook.id === imageNotebookId)?.path ?? externalScopePath;
-  const getAttachmentOwnerPath = useCallback(() => {
-    // COSEC: Uploads must belong to a note inside a registered notebook.
-    return getAttachmentNotebookId() ? getCurrentFilePath() : undefined;
-  }, [getAttachmentNotebookId, getCurrentFilePath]);
+  const getAttachmentContext = useCallback(() => getDocumentResourceContext(documentIdentity.path), [documentIdentity]);
+  const getAttachmentNotebookId = useCallback(() => getAttachmentContext().notebookId, [getAttachmentContext]);
+  const imageScopePath = getAttachmentContext().rootPath ?? externalScopePath;
   const {
     state,
     setState,
@@ -604,8 +598,7 @@ export function DocumentContainer({
         {shouldMountRichEditor && richEditorMountReadyFor === documentInstanceKey && (
           <LazyDocumentEditor
             ownerPath={documentIdentity.path}
-            getAttachmentOwnerPath={getAttachmentOwnerPath}
-            getAttachmentNotebookId={getAttachmentNotebookId}
+            getAttachmentContext={getAttachmentContext}
             workspaceHost={hostId}
             propertyTargetId={propertyTargetId}
             onPropertyAreaHoverChange={handlePropertyAreaHoverChange}
@@ -645,7 +638,7 @@ export function DocumentContainer({
             }}
             linkContext={{
               documentPath: filePath,
-              openLocalPath: (target) => openDocumentLocalLink(target, externalScopePath),
+              openLocalPath: (target) => openDocumentLocalLink(target, externalScopePath, filePath),
             }}
           />
         )}

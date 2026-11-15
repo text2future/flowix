@@ -21,6 +21,7 @@ type PinnedTreeRowActions = Pick<TreeRowProps,
   | 'onImportFiles'
   | 'onImportFolder'
   | 'onRename'
+  | 'onDeleteFolder'
   | 'onDeleteFile'
   | 'onDeleteSelected'
   | 'onPointerDown'
@@ -47,7 +48,10 @@ interface NotebookPinnedTreeRowProps {
   controller: NotebookPinnedTreeRowController;
 }
 
-/** Adapts a pinned entry and its list state to the shared notebook tree row. */
+/**
+ * Adapts pinned placement state to the shared row. File operations pass through
+ * unchanged and continue to target each item's real full path.
+ */
 export const NotebookPinnedTreeRow = memo(function NotebookPinnedTreeRow({ item, controller }: NotebookPinnedTreeRowProps) {
   const { actions } = controller;
   const presentation = controller.getPresentation(item);
@@ -78,6 +82,7 @@ export const NotebookPinnedTreeRow = memo(function NotebookPinnedTreeRow({ item,
       onCreateMediaLibrary={actions.onCreateMediaLibrary}
       onCreateWorkDocuments={actions.onCreateWorkDocuments}
       onRename={actions.onRename}
+      onDeleteFolder={actions.onDeleteFolder}
       onDeleteFile={actions.onDeleteFile}
       onPointerDown={actions.onPointerDown}
       onKeepAliveChange={actions.onKeepAliveChange}

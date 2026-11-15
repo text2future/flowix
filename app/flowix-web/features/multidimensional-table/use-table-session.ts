@@ -417,7 +417,6 @@ export function useTableSession({ filePath, fileIdentity, notebookPath: rawNoteb
   }, [expectedCollectionId, sessionKey]);
 
   const collectionId = document?.collection.id;
-  const pendingCollectionRefreshRef = useRef<{ key: string; path: string } | null>(null);
   /** 保存在进行中收到的内容广播：保存结束（saving=false）后补采用一次。 */
   const pendingCollectionContentRef = useRef<{ key: string; content: string } | null>(null);
 
@@ -443,33 +442,12 @@ export function useTableSession({ filePath, fileIdentity, notebookPath: rawNoteb
     if (sourceContentRef.current?.content !== pending.content) acceptContent(pending.content);
   }, [acceptContent, saving, sessionKey]);
 
-  const refreshCollection = useCallback((path: string) => {
-    const sequence = loadSequenceRef.current;
-    const key = sessionKey;
-    void externalDocuments.read(path, notebookPath).then((content) => {
-      if (!isCurrentSession(sequence, key)) return;
-      if (savingRef.current) {
-        pendingCollectionRefreshRef.current ??= { key, path };
-        return;
-      }
-      acceptContent(content);
-    }).catch(() => undefined);
-  }, [acceptContent, isCurrentSession, notebookPath, sessionKey]);
   useEffect(() => subscribe<{ notebookId: string; collectionId: string; relativePath: string }>('collection-changed', (event) => {
     if (event.notebookId !== resolvedNotebookId || event.collectionId !== collectionId || !notebookPath) return;
-    const path = `${canonicalDirectoryPath(notebookPath)}/${event.relativePath}`;
-    if (savingRef.current) {
-      pendingCollectionRefreshRef.current = { key: sessionKey, path };
-      return;
-    }
-    refreshCollection(path);
-  }), [collectionId, notebookPath, refreshCollection, resolvedNotebookId, sessionKey, t]);
-  useEffect(() => {
-    if (saving) return;
-    const pending = pendingCollectionRefreshRef.current;
-    pendingCollectionRefreshRef.current = null;
-    if (pending?.key === sessionKey) refreshCollection(pending.path);
-  }, [refreshCollection, saving, sessionKey]);
+    // 同时刷新集合定义和笔记索引。独立表格的笔记放在隐藏目录中，文件 watcher
+    // 不会单独发笔记路径事件；集合事件是新增记录后更新表格行数据的可靠通知。
+    void syncNotes({ notebookId: event.notebookId, kind: 'query-invalidated', relativePath: null });
+  }), [collectionId, notebookPath, resolvedNotebookId, syncNotes]);
 
   const stateIsCurrent = stateSessionKey === sessionKey;
   return {

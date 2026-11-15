@@ -1,18 +1,23 @@
-import { act } from 'react';
+import { act, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { FolderCollectionSummary } from '@features/collection/public/folder-api';
+import type { CollectionProperty, FolderCollectionSummary } from '@features/collection/public/folder-api';
 
 const api = vi.hoisted(() => ({
-  ensureFolderCollection: vi.fn(),
   updateCollectionProperties: vi.fn(),
   resolveCollectionScope: vi.fn(() => ({ relativePath: '客户周报', depth: 'descendants' as const })),
+  useFolderAppearance: vi.fn(),
+  saveFolderAppearance: vi.fn(),
 }));
 
 vi.mock('@features/collection/public/folder-api', () => ({
-  ensureFolderCollection: api.ensureFolderCollection,
   updateCollectionProperties: api.updateCollectionProperties,
   resolveCollectionScope: api.resolveCollectionScope,
+}));
+/** 文件夹外观现在住在 `folder_index` 表里，与集合文件属性是两条互不相干的写路径。 */
+vi.mock('@features/collection/folder-appearance', () => ({
+  useFolderAppearance: api.useFolderAppearance,
+  saveFolderAppearance: api.saveFolderAppearance,
 }));
 vi.mock('@/lib/toast', () => ({ toast: { error: vi.fn() } }));
 
@@ -24,7 +29,11 @@ const created = {
   collectionId: 'folder-collection', revision: 0, properties: {},
 };
 
-function AppearanceProbe({ setSummary, existing = null }: { existing?: FolderCollectionSummary | null; setSummary: (value: FolderCollectionSummary) => void }) {
+function AppearanceProbe({ setSummary, existing = null, folderOnly = true }: {
+  existing?: FolderCollectionSummary | null;
+  setSummary: (value: FolderCollectionSummary) => void;
+  folderOnly?: boolean;
+}) {
   const appearance = useCollectionAppearance({
     existing,
     indexPath: '/book/客户周报/.index.yaml',
@@ -32,15 +41,16 @@ function AppearanceProbe({ setSummary, existing = null }: { existing?: FolderCol
     notebookId: 'book',
     isFolderCollection: true,
     currentFolderPath: '/book/客户周报',
-    folderName: '客户周报',
     editable: true,
     setSummary,
+    folderOnly,
   });
   return <>
     <span data-testid="icon">{appearance.icon.value}</span>
     <button data-save-icon onClick={() => appearance.icon.save('custom-icon')}>save icon</button>
     <button data-reset-icon onClick={() => appearance.icon.save('')}>reset icon</button>
     <span data-testid="visible">{String(appearance.banner.visible)}</span>
+    <span data-testid="scope">{`${appearance.banner.scope?.relativePath ?? ''}:${appearance.banner.scope?.depth ?? ''}`}</span>
     <button data-toggle onClick={appearance.banner.toggleHidden}>toggle</button>
     <span data-testid="selected-image">{appearance.banner.selectedImage}</span>
     <button onClick={() => appearance.banner.selectImage('https://example.test/banner.jpg')}>select</button>
@@ -56,73 +66,82 @@ afterEach(async () => {
   host?.remove();
   host = undefined;
   vi.clearAllMocks();
+  api.useFolderAppearance.mockReturnValue(undefined);
 });
 
+function mount(element: ReactNode) {
+  host = document.createElement('div');
+  document.body.append(host);
+  root = createRoot(host);
+  return act(async () => root?.render(element));
+}
+
 describe('useCollectionAppearance', () => {
-  it('reads the persisted icon and saves or resets it in collection properties', async () => {
-    const saved = { ...created, properties: { icon: { type: 'Text' as const, value: 'saved-icon' } } };
-    api.updateCollectionProperties.mockResolvedValue(saved);
-    host = document.createElement('div');
-    root = createRoot(host);
-    const setSummary = vi.fn();
-    await act(async () => root?.render(<AppearanceProbe existing={saved} setSummary={setSummary} />));
-    expect(host.querySelector('[data-testid="icon"]')?.textContent).toBe('saved-icon');
-    await act(async () => host?.querySelector<HTMLButtonElement>('[data-save-icon]')?.click());
-    expect(api.updateCollectionProperties).toHaveBeenLastCalledWith(expect.objectContaining({
-      properties: { icon: { type: 'Text', value: 'custom-icon' } },
-    }));
-    await act(async () => host?.querySelector<HTMLButtonElement>('[data-reset-icon]')?.click());
-    expect(api.updateCollectionProperties).toHaveBeenLastCalledWith(expect.objectContaining({ properties: { icon: null } }));
-    expect(api.ensureFolderCollection).not.toHaveBeenCalled();
-  });
+  it('文件夹读 folder_index 的图标，写回同一张表，不碰集合属性', async () => {
+    api.useFolderAppearance.mockReturnValue({ icon: { type: 'Text', value: 'saved-icon' } } as Record<string, CollectionProperty>);
+    api.saveFolderAppearance.mockResolvedValue({});
+    await mount(<AppearanceProbe setSummary={vi.fn()} />);
 
-  it('explicitly enables the banner from its hidden default', async () => {
-    api.ensureFolderCollection.mockResolvedValue(created);
-    api.updateCollectionProperties.mockResolvedValue(created);
-    host = document.createElement('div');
-    root = createRoot(host);
-    await act(async () => root?.render(<AppearanceProbe setSummary={vi.fn()} />));
-    await act(async () => { host?.querySelector<HTMLButtonElement>('[data-toggle]')?.click(); });
-    expect(api.updateCollectionProperties).toHaveBeenCalledWith(expect.objectContaining({
-      properties: { banner_hidden: { type: 'Boolean', value: false } },
-    }));
-  });
-
-  it('keeps a folder-scoped image source and creates the folder collection when its first banner is selected', async () => {
-    api.ensureFolderCollection.mockResolvedValue(created);
-    api.updateCollectionProperties.mockResolvedValue({
-      ...created,
-      revision: 1,
-      properties: { banner_image: { type: 'Text', value: 'https://example.test/banner.jpg' } },
+    expect(host!.querySelector('[data-testid="icon"]')?.textContent).toBe('saved-icon');
+    await act(async () => host!.querySelector<HTMLButtonElement>('[data-save-icon]')?.click());
+    expect(api.saveFolderAppearance).toHaveBeenLastCalledWith('/book', '客户周报', {
+      icon: { type: 'Text', value: 'custom-icon' },
     });
-    const setSummary = vi.fn();
-    host = document.createElement('div');
-    document.body.append(host);
-    root = createRoot(host);
-    await act(async () => root?.render(<AppearanceProbe setSummary={setSummary} />));
+    await act(async () => host!.querySelector<HTMLButtonElement>('[data-reset-icon]')?.click());
+    expect(api.saveFolderAppearance).toHaveBeenLastCalledWith('/book', '客户周报', { icon: null });
+    expect(api.updateCollectionProperties).not.toHaveBeenCalled();
+  });
 
-    expect(host.querySelector('[data-testid="selected-image"]')?.textContent).toBe('');
-    expect(host.querySelector('[data-testid="visible"]')?.textContent).toBe('false');
-    expect(api.resolveCollectionScope).toHaveBeenCalledWith(
-      { scope: 'containing_folder' },
-      '/book/客户周报/.index.yaml',
-      '/book',
-    );
+  it('文件夹头图按目录取图，默认隐藏，开启时写 banner_hidden', async () => {
+    api.saveFolderAppearance.mockResolvedValue({});
+    await mount(<AppearanceProbe setSummary={vi.fn()} />);
 
+    expect(host!.querySelector('[data-testid="scope"]')?.textContent).toBe('客户周报:descendants');
+    expect(host!.querySelector('[data-testid="visible"]')?.textContent).toBe('false');
+
+    await act(async () => host!.querySelector<HTMLButtonElement>('[data-toggle]')?.click());
+    expect(api.saveFolderAppearance).toHaveBeenCalledWith('/book', '客户周报', {
+      banner_hidden: { type: 'Boolean', value: false },
+    });
+    // 文件夹没有媒体域，头图范围不走集合的 dataset.source 换算。
+    expect(api.resolveCollectionScope).not.toHaveBeenCalled();
+  });
+
+  it('文件夹选头图直接写表，不会为了存外观创建集合文件', async () => {
+    api.saveFolderAppearance.mockResolvedValue({});
+    await mount(<AppearanceProbe setSummary={vi.fn()} />);
+
+    expect(host!.querySelector('[data-testid="selected-image"]')?.textContent).toBe('');
     await act(async () => {
       [...host!.querySelectorAll('button')].find((button) => button.textContent === 'select')?.click();
       await Promise.resolve();
-      await Promise.resolve();
     });
 
-    expect(api.ensureFolderCollection).toHaveBeenCalledWith('/book/客户周报', '/book', '客户周报', 'notes');
-    expect(api.updateCollectionProperties).toHaveBeenCalledWith(expect.objectContaining({
+    expect(api.saveFolderAppearance).toHaveBeenCalledWith('/book', '客户周报', {
+      banner_image: { type: 'Text', value: 'https://example.test/banner.jpg' },
+    });
+    expect(api.updateCollectionProperties).not.toHaveBeenCalled();
+  });
+
+  it('集合文件仍走集合属性（图标 / 头图同源）', async () => {
+    const saved: FolderCollectionSummary = {
+      ...created,
+      properties: { icon: { type: 'Text', value: 'saved-icon' } },
+    };
+    api.updateCollectionProperties.mockResolvedValue(saved);
+    const setSummary = vi.fn();
+    await mount(<AppearanceProbe existing={saved} folderOnly={false} setSummary={setSummary} />);
+
+    expect(host!.querySelector('[data-testid="icon"]')?.textContent).toBe('saved-icon');
+    await act(async () => host!.querySelector<HTMLButtonElement>('[data-save-icon]')?.click());
+
+    expect(api.updateCollectionProperties).toHaveBeenLastCalledWith(expect.objectContaining({
       notebookId: 'book',
       notebookPath: '/book',
       collectionId: 'folder-collection',
       expectedRevision: 0,
-      properties: { banner_image: { type: 'Text', value: 'https://example.test/banner.jpg' } },
+      properties: { icon: { type: 'Text', value: 'custom-icon' } },
     }));
-    expect(setSummary).toHaveBeenCalledTimes(2);
+    expect(api.saveFolderAppearance).not.toHaveBeenCalled();
   });
 });

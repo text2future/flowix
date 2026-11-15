@@ -103,12 +103,12 @@ it('keeps remote and attachment images on their existing loaders', async () => {
     .toEqual(['https://example.com/a.jpg', 'https://asset.localhost/a.jpg']);
 });
 
-it('requires an authorized scope and decodes paths without applying the web-link heuristics', () => {
+it('resolves local images for the native reader to authorize, including external documents without a notebook scope', () => {
   expect(resolveEditorImageSource('配图/图片%20%232.jpg', context))
     .toMatchObject({ kind: 'local', path: '/book/05 我的作品/小红书历史笔记/配图/图片 #2.jpg' });
   expect(resolveEditorImageSource('配图/无扩展名', context)).toMatchObject({ kind: 'local' });
   expect(resolveEditorImageSource('file:///book/a%20b.jpg', context)).toMatchObject({ kind: 'local', path: '/book/a b.jpg' });
-  expect(resolveEditorImageSource('配图/a.jpg', { ...context, scopePath: null })).toMatchObject({ kind: 'unavailable' });
+  expect(resolveEditorImageSource('配图/a.jpg', { ...context, scopePath: null })).toMatchObject({ kind: 'local', scopePath: undefined });
   expect(resolveEditorImageSource('javascript:alert(1)', context)).toMatchObject({ kind: 'unavailable' });
 });
 

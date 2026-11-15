@@ -2,9 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { resolveDocumentTitlebarTarget } from './document-titlebar-model';
 
 const fileIdentity = { path: '/book/a.md', displayId: 'a' };
-const session = { fileIdentity, scopePath: '/book', notebookId: 'book', relativePath: 'a.md', indexable: true };
+const session = { fileIdentity, scopePath: '/repository', notebookId: 'book', notebookPath: '/book', relativePath: 'a.md', indexable: true };
 
 describe('document titlebar target', () => {
+  it('retains Windows notebook metadata when the same displayed path differs in casing', () => {
+    const displayed = { path: 'c:/notes/Folder/Plan.md', displayId: 'windows-note' };
+    expect(resolveDocumentTitlebarTarget(displayed, {
+      fileIdentity: { ...displayed, path: 'C:/Notes/Folder/Plan.md' },
+      scopePath: 'C:/Notes', notebookId: 'windows-book', notebookPath: 'C:/Notes', relativePath: 'Folder/Plan.md', indexable: true,
+    }, '/other')).toMatchObject({ notebookId: 'windows-book', indexable: true, isOutsideCurrentNotebook: false });
+  });
   it('binds notebook metadata to the displayed identity', () => {
     expect(resolveDocumentTitlebarTarget(fileIdentity, session, '/book')).toMatchObject({
       notebookId: 'book', relativePath: 'a.md', indexable: true, isOutsideCurrentNotebook: false,
@@ -14,7 +21,7 @@ describe('document titlebar target', () => {
     const other = { path: '/other/note.md', displayId: 'other' };
     for (const selected of ['/book', null]) {
       expect(resolveDocumentTitlebarTarget(other, {
-        fileIdentity: other, scopePath: '/other', notebookId: 'other-book', relativePath: 'note.md', indexable: true,
+        fileIdentity: other, scopePath: '/other', notebookId: 'other-book', notebookPath: '/other', relativePath: 'note.md', indexable: true,
       }, selected)).toMatchObject({ notebookId: 'other-book', isOutsideCurrentNotebook: false });
     }
   });

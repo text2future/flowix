@@ -1,8 +1,10 @@
 'use client';
 
+import { TREE_ICON_COLOR_CLASS } from '@shared/ui/tree-icon-color';
+
 import { Fragment, useCallback, useEffect, useRef, useState, type ComponentType, type CSSProperties, type ReactNode } from 'react';
-import { ChevronRight, FoldVertical, MoreHorizontal } from 'lucide-react';
-import { FolderOpenIcon, FolderSimpleIcon, TrashSimpleIcon } from '@phosphor-icons/react';
+import { ChevronRight, FoldVertical, MoreHorizontal, Trash2 } from 'lucide-react';
+import { FolderOpenIcon, FolderSimpleIcon } from '@phosphor-icons/react';
 import { toast } from '@/lib/toast';
 import { FileTreeLoadingSkeleton } from '@shared/ui/file-tree-loading-skeleton';
 import { cn, displayTitleFromFilename, isTableDocumentFilename, tableDocumentExtension } from '@/lib/utils';
@@ -10,6 +12,7 @@ import { files, type DocTreeItem } from '@platform/tauri/client';
 import { localDocumentOperations } from '@features/document/public/file-operations-api';
 import { renameWorkspaceFile } from '@features/workspace/public/shell-api';
 import { openPath } from '@platform/tauri/opener';
+import { PopupScrollArea } from '@shared/ui/popup-scroll-area';
 import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
 import {
   ListSurfaceSpinner,
@@ -35,9 +38,9 @@ const ITEM_INLINE_PADDING = 6;
 const ITEM_ICON_SIZE = 16;
 const INDENT_PER_LEVEL = 20;
 const FOLDER_MENU_CLASS =
-  'min-w-[188px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]';
+  'min-w-[188px] rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]';
 const FOLDER_MENU_ITEM_CLASS =
-  'h-7 items-center justify-start gap-2 rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]';
+  'h-7 items-center justify-start gap-2 rounded-lg px-2 py-0 text-left hover:bg-[var(--hover-bg)]';
 
 type FileTreeFileIcon = ComponentType<{ path: string; className?: string }>;
 function ContentFileIcon({ path, className }: { path: string; className?: string }) {
@@ -227,6 +230,7 @@ export function FolderFileTree({
 
   const closeLabel = tree.error ? t('memo.fileTree.unreadable') : folderName;
   const contentSized = layout === 'content';
+  const TreeScrollArea = contentSized ? PopupScrollArea : OverlayScrollbar;
 
   // 保留每个 folder 的子树容器, 让收起也能从当前高度过渡到 0。
   // 子项仍由 nodes 缓存提供, 因此收起再展开不会重复请求已加载的目录。
@@ -279,16 +283,21 @@ export function FolderFileTree({
             >
               {isRenamingRow ? (
                 <>
+                  {/* 普通态文件夹的图标住在 18px 槽里 (16px 图标居中, 左侧留 1px,
+                      同时承载 hover 才出现的展开箭头)。重命名态没有那个槽, 必须自己保持
+                      同样的宽度, 否则图标左移 1px、输入框左移 2px。 */}
                   {isFolder ? (
-                    FolderIcon ? (
-                      <FolderIcon
-                        expanded={isExpanded}
-                        hidden={isHiddenFolder}
-                        className="h-4 w-4 shrink-0 text-[var(--muted-foreground)]"
-                      />
-                    ) : (
-                      <DefaultFolderIcon className="h-4 w-4 shrink-0 text-[var(--muted-foreground)]" />
-                    )
+                    <span className="relative h-[18px] w-[18px] shrink-0">
+                      {FolderIcon ? (
+                        <FolderIcon
+                          expanded={isExpanded}
+                          hidden={isHiddenFolder}
+                          className="absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 text-[var(--muted-foreground)]"
+                        />
+                      ) : (
+                        <DefaultFolderIcon className="absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
+                      )}
+                    </span>
                   ) : (
                     <FileIcon
                       path={item.name}
@@ -315,7 +324,7 @@ export function FolderFileTree({
                       <ChevronRight
                         aria-hidden="true"
                         className={cn(
-                          'absolute left-1/2 top-1/2 h-[15px] w-[15px] -translate-x-1/2 -translate-y-1/2 text-[color-mix(in_oklch,var(--foreground)_70%,black_30%)] [[data-theme="dark"]_&]:text-[var(--foreground)] [[data-theme="mist"]_&]:text-[var(--foreground)] opacity-0 transition-[opacity,transform] duration-150 group-hover:opacity-100 group-focus-visible:opacity-100',
+                          `absolute left-1/2 top-1/2 h-[15px] w-[15px] -translate-x-1/2 -translate-y-1/2 ${TREE_ICON_COLOR_CLASS} opacity-0 transition-[opacity,transform] duration-150 group-hover:opacity-100 group-focus-visible:opacity-100`,
                           isExpanded && 'rotate-90',
                         )}
                       />
@@ -327,7 +336,7 @@ export function FolderFileTree({
                         />
                       ) : (
                         <DefaultFolderIcon className={cn(
-                          'absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 text-[color-mix(in_oklch,var(--foreground)_70%,black_30%)] [[data-theme="dark"]_&]:text-[var(--foreground)] [[data-theme="mist"]_&]:text-[var(--foreground)] transition-opacity duration-150 group-hover:opacity-0 group-focus-visible:opacity-0',
+                          `absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 ${TREE_ICON_COLOR_CLASS} transition-opacity duration-150 group-hover:opacity-0 group-focus-visible:opacity-0`,
                         )} />
                       )}
                     </span>
@@ -373,7 +382,7 @@ export function FolderFileTree({
                           <MoreHorizontal aria-hidden="true" className="h-4 w-4" />
                         </button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" side="bottom" className={FOLDER_MENU_CLASS}>
+                      <DropdownMenuContent align="end" side="bottom" scrollerClassName="space-y-0.5" className={FOLDER_MENU_CLASS}>
                         <div className="select-text rounded-lg px-2 py-1 text-[11px] leading-[1.6] text-[var(--muted-foreground)]">
                           <div className="flex items-center gap-0.5">
                             <span className="opacity-70">{t('memo.fileTree.createdAt')}</span>
@@ -418,9 +427,9 @@ export function FolderFileTree({
                         <div role="separator" aria-hidden="true" className={POPUP_SEPARATOR_CLASS} />
                         <DropdownMenuItem
                           onClick={() => void handleDelete(item)}
-                          className={cn(FOLDER_MENU_ITEM_CLASS, 'hover:bg-transparent hover:text-[var(--destructive)]')}
+                          className={cn(FOLDER_MENU_ITEM_CLASS, 'hover:bg-[var(--hover-bg)] hover:text-[var(--destructive)]')}
                         >
-                          <TrashSimpleIcon className="h-4 w-4" />
+                          <Trash2 className="h-4 w-4" />
                           {t('memo.fileTree.delete')}
                         </DropdownMenuItem>
                       </DropdownMenuContent>
@@ -430,7 +439,7 @@ export function FolderFileTree({
               )}
             </div>
           </ContextMenuTrigger>
-          <ContextMenuContent className={FOLDER_MENU_CLASS}>
+          <ContextMenuContent scrollerClassName="space-y-0.5" className={FOLDER_MENU_CLASS}>
             {!isFolder && onFileOpenInNewTab && (
               <ContextMenuItem onClick={() => onFileOpenInNewTab(item.fullPath)} className={FOLDER_MENU_ITEM_CLASS}>
                 {t('memo.fileTree.openInNewTab')}
@@ -480,9 +489,9 @@ export function FolderFileTree({
             <div role="separator" aria-hidden="true" className={POPUP_SEPARATOR_CLASS} />
             <ContextMenuItem
               onClick={() => void handleDelete(item)}
-              className={cn(FOLDER_MENU_ITEM_CLASS, 'hover:bg-transparent hover:text-[var(--destructive)]')}
+              className={cn(FOLDER_MENU_ITEM_CLASS, 'hover:bg-[var(--hover-bg)] hover:text-[var(--destructive)]')}
             >
-              <TrashSimpleIcon className="h-4 w-4" />
+              <Trash2 className="h-4 w-4" />
               {t('memo.fileTree.delete')}
             </ContextMenuItem>
           </ContextMenuContent>
@@ -530,7 +539,7 @@ export function FolderFileTree({
       embedded && 'border-l-0',
     )}>
       {/* 标题行 ── 标题右侧下拉菜单用于在访达中显示当前资料文件夹。 */}
-      <div className="flex items-center justify-between px-2 py-1.5 gap-2">
+      <div className={cn('flex items-center justify-between py-1.5 gap-2', contentSized ? 'px-3' : 'px-2')}>
         <div className="flex min-w-0 flex-1 items-center gap-0">
           {headerLeading}
           {embedded && onRequestClose && (
@@ -557,7 +566,10 @@ export function FolderFileTree({
             aria-label={t('memo.fileTree.collapseAll')}
             title={t('memo.fileTree.collapseAll')}
             onClick={() => tree.collapseAll()}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+            className={cn(
+              'flex h-7 w-7 items-center rounded-md text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]',
+              contentSized ? 'justify-end' : 'justify-center',
+            )}
           >
             <FoldVertical aria-hidden="true" className="h-3.5 w-3.5" />
           </button>
@@ -566,7 +578,7 @@ export function FolderFileTree({
       {/* 与 AgentConversationList 同款分割线, 落在 root 文件夹标题与子级列表之间 */}
       <hr className={cn('mx-2', DROPDOWN_DIVIDER_SKIN)} />
       <ListSurfaceViewport className={contentSized ? 'flex-none' : undefined}>
-        <OverlayScrollbar
+        <TreeScrollArea
           className={cn(
             contentSized ? 'h-auto' : 'h-full',
             treeViewportClassName,
@@ -643,7 +655,7 @@ export function FolderFileTree({
               </div>
             )}
           </div>
-        </OverlayScrollbar>
+        </TreeScrollArea>
         {tree.loading && !hasRootItems && !contentSized && (
           <FileTreeLoadingSkeleton
             variant="folder"

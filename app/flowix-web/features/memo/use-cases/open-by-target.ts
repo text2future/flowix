@@ -1,4 +1,4 @@
-/** Open Markdown by notebook ID and relative path or by a physical file path. */
+/** Open a notebook-relative or physical target: Markdown, collection files, HTML, media. */
 
 import { openWorkspaceSurface as openInColumn } from '@features/workspace/public/session-opening-api';
 import type { OpenWorkspaceSurfaceRequest } from '@features/workspace/public/open-surface-api';
@@ -98,7 +98,8 @@ function hiddenNotebookForPhysicalTarget(rawPath: string): { path: string; noteb
   return notebook ? { path, notebookPath: notebook.path } : null;
 }
 
-/** Resolve a path link through the notebook path index and open the document. */
+/** Resolve a `flowix://open` / notebook path link through the notebook path
+ * index and open whatever it addresses: Markdown, a collection file, HTML, media. */
 export async function openNoteByDeepLink(
   url: string,
   anchorOverride: string | null = null,
@@ -194,7 +195,24 @@ async function openNoteDestination(
   return locationFromOpenResult(opened);
 }
 
-/** Open a note by notebook ID + relative path; returns where the content landed. */
+/**
+ * A notebook-relative link can address more than a note. These two predicates
+ * decide how it is opened; they intentionally sit next to the code that uses
+ * them rather than being unified with the dispatcher's own suffix checks —
+ * each answers a different question (does it exist / which column).
+ */
+const NOTE_FILE = /\.(?:md|markdown)$/i;
+/** The four suffixes `openExternalTarget` turns into collection surfaces. */
+const COLLECTION_FILE = /\.(?:table|workdocs|lib)\.ya?ml$|\.index\.yaml$/i;
+
+/**
+ * Open a notebook-relative target; returns where the content landed.
+ *
+ * Despite the name, this is the resolver behind `flowix://open?f=…`: anything
+ * that is not Markdown — a collection file, an HTML page, a piece of media —
+ * travels the same `{kind:'external'}` request and is routed by the external
+ * dispatcher, so only the Markdown branch behaves like "open a note".
+ */
 export async function openNoteByNotebookPath(
   notebookId: string,
   relativePath: string,
@@ -213,12 +231,21 @@ export async function openNoteByNotebookPath(
   if (!notebook) throw new Error(`Notebook is unavailable: ${notebookId}`);
   const path = joinNotebookMemoPath(notebook.path, normalized);
   if (!path) throw new Error('Invalid notebook-relative note path');
-  if (await notesClient.pathStatus(path) === 'missing') {
+  const isNote = NOTE_FILE.test(normalized);
+  // `pathStatus` answers for Markdown only: its Rust guard reports "note path is
+  // outside a notebook or is not Markdown" for anything else, which rejected
+  // every collection link before the dispatcher below could route it. The
+  // surfaces handle a missing file themselves.
+  if (isNote && await notesClient.pathStatus(path) === 'missing') {
     throw new Error(translate(getCurrentAppLanguage(), 'memo.open.missing', {
       path: `${notebook.name}/${normalized}`,
     }));
   }
-  if (options?.destination === 1) {
+  // A collection is not a conversation-row document: the browser column would
+  // show the collection file (or, for `.index.yaml`, a file browser rooted at
+  // the folder) instead of the collection. It always opens in the work column,
+  // where the external dispatcher routes the suffix to the collection surface.
+  if (options?.destination === 1 && !COLLECTION_FILE.test(normalized)) {
     const opened = locationFromOpenResult(
       await openNoteTarget(options, {
         index: 1,

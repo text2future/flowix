@@ -15,11 +15,11 @@ import { CollectionNoteFilterSlot } from '@shared/ui/collection-note-filter-slot
  *   列表   当前 tab 的内容（表格 / 文件树 / 图墙 / 列表）
  *   底部   悬浮 AI 输入框（针对任意集合）
  *
- * 打开文件夹与直接打开 `集合.index.yaml` 走同一份代码，差别只有「入口给了什么」：
- *   - `folderPath`：文件夹类型的集合（集合体就是所在文件夹）。它同时决定两件事：
- *     集合缺失时就地建齐、`文件树` tab 是否存在（还要 `.index.yaml` 的
- *     `payload.file_tree` 标记为真）。直接打开集合文件时没有文件树 tab。
- *   - `filePath`：直接打开集合文件，tab 只有表格视图 + 各数据域。
+ * 两种入口共用这一套框架，但**文件夹不是集合**（`folderOnly`）：
+ *   - `folderPath`：文件夹表面。没有集合体、**不读也不写 `.index.yaml`**，
+ *     外观属性（图标 / 头图 / 副标题）来自索引库的 `folder_index` 表，
+ *     tab 固定只有「文件」一个。
+ *   - `filePath`：直接打开集合文件（`.index.yaml` 等），tab 是表格视图 + 各数据域。
  *
  * 外壳拥有唯一一条 tab 栏与「···」菜单，文件树、笔记视图、图墙、列表平铺。
  * 面板只提供内容与数据操作；表格在集合中关闭内部导航，筛选操作传入外壳操作槽。
@@ -28,17 +28,20 @@ import { CollectionNoteFilterSlot } from '@shared/ui/collection-note-filter-slot
  */
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
+import { toast } from '@/lib/toast';
+import { friendlyErrorMessage } from '@/lib/friendly-error-message';
+import { useTitleEditCaret } from '@shared/hooks/use-title-edit-caret';
 import { CollectionScrollContext } from '@shared/ui/collection-scroll-context';
 import { notebookRelativeDirectoryPath } from '@/lib/path';
 import { readCollectionHostTab } from '@/lib/collection-host-tab';
 import { FILES_TAB_KEY, noteViewIdFromTabKey } from '@/lib/collection-tab-key';
 import { useCollectionTitleVisibility } from '@/lib/collection-title-visibility';
 import { registerCollectionBannerControl } from '@/lib/collection-banner-visibility';
-import { CollectionNameHeader, collectionHeaderTitle, useCollectionNameEdit } from '@features/collection/public/title-api';
+import { CollectionNameHeader, collectionHeaderTitle, folderHeaderTitle, useCollectionNameEdit, type CollectionNameEditControls } from '@features/collection/public/title-api';
 import { filesHostTab } from '@features/collection/public/tab-api';
-import { collectionIndexPathForFolder } from '@features/collection/public/folder-api';
 import { CollectionActionsSlot, INACTIVE_COLLECTION_ACTIONS_HOST } from '@shared/ui/collection-actions';
 import { requestCollectionDatasetFilter, type CollectionDatasetFilterTarget } from '@features/collection/public/dataset-filter-api';
+import { files } from '@platform/tauri/client';
 import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
 import { getPropertyIconOption } from '@features/document/public/property-display-api';
 import { CollectionIconPickerButton } from './collection-icon-button';
@@ -85,38 +88,48 @@ export function CollectionShell({ host, filePath: filePathProp = null, folderPat
   const { t } = useI18n();
   const { titleVisible, toggleTitleVisibility } = useCollectionTitleVisibility();
   const { notebookPath, notebookId, expectedCollectionId } = tableProps;
-  /** 集合体地址：文件入口直接用给定路径，文件夹入口走唯一的「文件夹 → 集合文件」换算。 */
-  const sourceIndexPath = filePathProp ?? (folderPath ? collectionIndexPathForFolder(folderPath) : '');
+  /**
+   * 文件夹表面：没有集合体、没有 `.index.yaml`，只有目录本身。
+   * 外观（图标 / 头图 / 副标题）存在 `folder_index` 表里，tab 固定只有一个「文件」。
+   */
+  const folderOnly = folderPath !== null && filePathProp === null;
+  /** 集合体地址：只有直接打开集合文件时才有；文件夹表面没有集合体。 */
+  const sourceIndexPath = folderOnly ? '' : (filePathProp ?? '');
   /**
    * 改名后的新地址。改名不动数据域与视图，所以只覆盖路径，不重读集合
-   * （重读会把已挂载的面板与当前 tab 打回初始态）。
+   * （重读会把已挂载的面板与当前 tab 打回初始态）。文件夹改名改的是目录本身，
+   * 所以单独记一份目录路径。
    */
   const [noteViewId, setNoteViewId] = useState<string | null>(tableProps.initialViewId ?? null);
   const [renamedIndexPath, setRenamedIndexPath] = useState<string | null>(null);
-  useEffect(() => { setRenamedIndexPath(null); }, [sourceIndexPath]);
-  const indexPath = renamedIndexPath ?? sourceIndexPath;
-  /** 文件夹集合改名会连目录一起移动，所以根目录跟着新集合体地址走。 */
-  const currentFolderPath = folderPath === null
-    ? null
-    : (renamedIndexPath ? renamedIndexPath.split('/').slice(0, -1).join('/') : folderPath);
+  const [renamedFolderPath, setRenamedFolderPath] = useState<string | null>(null);
+  useEffect(() => {
+    setRenamedFolderPath(null);
+    setRenamedIndexPath(null);
+  }, [folderPath, sourceIndexPath]);
+  const indexPath = folderOnly ? '' : (renamedIndexPath ?? sourceIndexPath);
+  /** 文件夹表面改名 = 目录改名，所以单独记一份目录路径。 */
+  const currentFolderPath = folderOnly ? (renamedFolderPath ?? folderPath) : null;
   /** 文件树 tab 的根目录（仅文件夹类型有意义）。 */
   const filesRoot = currentFolderPath ?? '';
   /** 文件树 tab 的数据集位置 = 集合所在文件夹（笔记本相对路径；'' = 笔记本根目录）。位置固定不可改。 */
   const filesFixedFolderPath = notebookPath && currentFolderPath
     ? notebookRelativeDirectoryPath(notebookPath, currentFolderPath) ?? ''
     : '';
-  const folderName = currentFolderPath ? (currentFolderPath.split('/').filter(Boolean).pop() ?? '') : '';
-  const headerTitle = useMemo(() => collectionHeaderTitle(indexPath), [indexPath]);
+  /** 大标题：文件夹显示目录名，集合文件显示文件名（去后缀）。 */
+  const headerTitle = useMemo(() => (folderOnly
+    ? folderHeaderTitle(currentFolderPath ?? '')
+    : collectionHeaderTitle(indexPath)), [currentFolderPath, folderOnly, indexPath]);
   // 操作区的挂载目标由 React ref 同步，异步加载和槽位替换都会通知面板。
   const [actionsTarget, setActionsTarget] = useState<HTMLDivElement | null>(null);
   const actionsHost = useMemo(() => ({ target: actionsTarget }), [actionsTarget]);
   const { existing, missing: collectionMissing, domains, tableReady, banner, subtitle, icon, tabs } = useCollectionSurfaceState({
-    sourceIndexPath, folderPath, indexPath, currentFolderPath, folderName, notebookPath, notebookId, editable: tableProps.editable ?? true,
+    sourceIndexPath, folderPath, indexPath, currentFolderPath, notebookPath, notebookId, editable: tableProps.editable ?? true, folderOnly,
   });
   const collectionKey = expectedCollectionId ?? existing?.collectionId ?? sourceIndexPath;
   useEffect(() => { setNoteViewId(tableProps.initialViewId ?? null); }, [collectionKey, tableProps.initialViewId]);
-  /** 自定义集合图标（属性图标 URL）：集合属性 `icon` 指定时覆盖默认文件夹 / 表格图标。 */
-  const defaultIcon = collectionDefaultIcon(existing?.views ?? []);
+  /** 自定义图标（属性图标 URL）：文件夹与集合都从各自的外观属性 `icon` 读。 */
+  const defaultIcon = folderOnly ? 'folder' as const : collectionDefaultIcon(existing?.views ?? []);
   const collectionIconSrc = icon.value ? getPropertyIconOption(icon.value)?.src : undefined;
   const { active: activeHostTab, activeDomain, list: hostTabList, mountDomain, selectNoteView } = tabs;
   /** Which panel temporarily owns the shared action slot while its filter menu is open. */
@@ -128,30 +141,45 @@ export function CollectionShell({ host, filePath: filePathProp = null, folderPat
 
   /**
    * 把「显示头图」的写入口交给 Work 列 header 的「···」菜单。头图的真实状态在
-   * 集合状态里（只有它持有 summary 与写属性的能力），header 在另一棵树上，靠注册表通信。
+   * 表面状态里（只有它持有属性与写能力），header 在另一棵树上，靠注册表通信。
+   * 文件夹表面用目录路径当键，与 `collectionIndexPath` 的换算保持一致。
    */
+  const bannerControlKey = folderOnly ? (currentFolderPath ?? '') : indexPath;
   useEffect(() => {
-    if (!indexPath) return;
-    return registerCollectionBannerControl(indexPath, { visible: banner.visible, toggle: banner.toggleHidden });
-  }, [banner.toggleHidden, banner.visible, indexPath]);
+    if (!bannerControlKey) return;
+    return registerCollectionBannerControl(bannerControlKey, { visible: banner.visible, toggle: banner.toggleHidden });
+  }, [banner.toggleHidden, banner.visible, bannerControlKey]);
 
   /**
-   * 大标题的改名：名字就是路径（文件夹集合改目录名、集合文件改文件名），
-   * 与表格 nav 小标题同一个落盘入口 `renameCollectionAtPath`。
+   * 大标题的改名：集合文件改文件名；文件夹改目录名（走了另一条入口，因为文件夹
+   * 已经没有集合体，改名不该再经过集合的 mutation 日志）。
+   *
+   * 两个 hook 都必须在顶层调用（hooks 规则），folderOnly 时把集合那条禁用掉。
    */
-  const nameEdit = useCollectionNameEdit({
+  const collectionNameEdit = useCollectionNameEdit({
     filePath: indexPath,
     notebookPath,
     notebookId,
     // 集合身份优先用外部给的，其次用读到的 summary：路径可能被复用，id 不会。
     expectedCollectionId: expectedCollectionId ?? existing?.collectionId ?? null,
     currentName: headerTitle.name,
-    editable: editable && !collectionMissing && indexPath !== '' && notebookPath !== null,
+    editable: editable && !folderOnly && !collectionMissing && indexPath !== '' && notebookPath !== null,
     onRenamed: (nextFilePath) => {
       setRenamedIndexPath(nextFilePath);
       tableProps.onFilePathChange?.(nextFilePath);
     },
   });
+  const folderNameEdit = useFolderNameEdit({
+    folderPath: currentFolderPath,
+    notebookPath,
+    currentName: headerTitle.name,
+    editable: editable && folderOnly && notebookPath !== null,
+    onRenamed: (nextFolderPath) => {
+      setRenamedFolderPath(nextFolderPath);
+      tableProps.onFilePathChange?.(nextFolderPath);
+    },
+  });
+  const nameEdit = folderOnly ? folderNameEdit : collectionNameEdit;
 
   /** 表格内置视图 tab 被选中 → 退出宿主 tab。 */
   const handleActiveViewChange = useCallback((viewId: string) => {
@@ -180,8 +208,8 @@ export function CollectionShell({ host, filePath: filePathProp = null, folderPat
       if (viewId) handleActiveViewChange(viewId);
     });
   }, [editable, handleActiveViewChange, addNoteView]);
-  // 缺集合时只有文件树一个 tab：仍走同一套 tab 状（键来自语法表，不就地拼）。
-  const navigationTabs: CollectionHostTabsState = collectionMissing && folderPath
+  // 文件夹表面只有「文件」一个 tab：tab 条由这一份状态渲染，不就地拼键。
+  const navigationTabs: CollectionHostTabsState = folderOnly
     ? { ...tabs, active: FILES_TAB_KEY, list: [filesHostTab(t('collection.filesTab'))] }
     : tabs;
   const noteViews = existing?.views.filter((view) => view.domain === 'notes') ?? [];
@@ -305,8 +333,8 @@ export function CollectionShell({ host, filePath: filePathProp = null, folderPat
         notebookId={notebookId}
         title={headerTitle.name}
         scope={banner.scope}
-        // 文件夹可在缺少 .index.yaml 时先展示头图；首次更换时再创建集合并保存属性。
-        editable={editable && (existing !== null || (collectionMissing && folderPath !== null && notebookPath !== null && notebookId !== null))}
+        // 文件夹的头图写在 `folder_index` 表里，与是否「已有集合」无关。
+        editable={editable && (existing !== null || folderOnly)}
         selectedImage={banner.selectedImage}
         onSelectImage={banner.selectImage}
       />
@@ -332,7 +360,7 @@ export function CollectionShell({ host, filePath: filePathProp = null, folderPat
     iconSlot={titleIconSlot}
     subtitle={{
       value: subtitle.value,
-      editable: editable && existing !== null,
+      editable: editable && (folderOnly || existing !== null),
       inputLabel: t('collection.subtitleInputLabel'),
       placeholder: t('collection.subtitlePlaceholder'),
       onSave: subtitle.save,
@@ -376,6 +404,7 @@ export function CollectionShell({ host, filePath: filePathProp = null, folderPat
           <CollectionHostNavigation
             tabs={navigationTabs}
             busy={tabs.busy}
+            folderOnly={folderOnly}
             source={domains.includes('notes') ? existing?.source : undefined}
             onOpenFieldManager={tableReady ? () => panelControlsRef.current?.openFieldManager() : undefined}
             actions={hostActions}
@@ -390,7 +419,7 @@ export function CollectionShell({ host, filePath: filePathProp = null, folderPat
             onSelectNoteView={handleActiveViewChange}
             onAddNoteView={handleAddNoteView}
           />
-          {collectionMissing && folderPath ? <CollectionFilesTab rootPath={filesRoot} notebookId={notebookId} notebookPath={notebookPath} host={host} editable={editable} reportPresentation={tableProps.reportPresentation} />
+          {folderOnly ? <CollectionFilesTab rootPath={filesRoot} notebookId={notebookId} notebookPath={notebookPath} host={host} editable={editable} reportPresentation={tableProps.reportPresentation} />
             : collectionMissing ? tableBody : !existing ? PANEL_FALLBACK : <>
               {tableReady ? <div className={activeHostTab === null ? 'flex flex-col' : 'hidden'}>{tableBody}</div> : null}
               {hostTabContent}
@@ -400,12 +429,74 @@ export function CollectionShell({ host, filePath: filePathProp = null, folderPat
     </OverlayScrollbar>
 
     <CollectionAgentComposer
+      kind={folderOnly ? 'folder' : 'collection'}
       notebookId={notebookId}
-      collectionId={expectedCollectionId ?? existing?.collectionId ?? null}
+      collectionId={folderOnly ? null : (expectedCollectionId ?? existing?.collectionId ?? null)}
       collectionName={headerTitle.name}
       collectionPath={currentFolderPath ?? indexPath}
-      indexPath={indexPath || null}
+      indexPath={folderOnly ? null : (indexPath || null)}
+      supportsNotes={domains.includes('notes')}
       host={host}
     />
   </div></CollectionScrollContext></CollectionNoteFilterSlot.Provider>;
+}
+
+/**
+ * 文件夹大标题的改名 —— 改的是目录本身。
+ *
+ * 与集合改名共用同一份交互约定（双击进入、Enter / 失焦保存、Esc 退出、保存中
+ * spinner），但落盘走文件系统的 `rename_folder`：文件夹已经没有集合体，改名
+ * 不该再经过集合的 mutation 日志与 revision 校验。目录移动后后端会把
+ * `folder_index` 里的外观整棵搬过去，前端缓存由 `folder-index-changed` /
+ * `path-moved` 维护。
+ */
+function useFolderNameEdit({ folderPath, notebookPath, currentName, editable, onRenamed }: {
+  folderPath: string | null;
+  notebookPath: string | null;
+  currentName: string;
+  editable: boolean;
+  onRenamed?: (nextFolderPath: string) => void;
+}): CollectionNameEditControls {
+  const { t } = useI18n();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+  const savingRef = useRef(false);
+  const { inputRef, captureCaret } = useTitleEditCaret(editing);
+  const unavailable = !editable || busy || !notebookPath || !folderPath;
+
+  const beginEdit = useCallback(() => {
+    if (unavailable || savingRef.current) return;
+    setDraft(currentName);
+    setEditing(true);
+  }, [currentName, unavailable]);
+
+  const commit = useCallback(async (raw: string) => {
+    setEditing(false);
+    const name = raw.trim();
+    if (unavailable || savingRef.current || !notebookPath || !folderPath || !name || name === currentName) return;
+    if (/[\\/]/.test(name)) {
+      toast.error('文件名不能包含路径分隔符');
+      return;
+    }
+    savingRef.current = true;
+    setDraft(name);
+    setBusy(true);
+    try {
+      const nextFolderPath = await files.renameFolder(folderPath, name, notebookPath);
+      onRenamed?.(nextFolderPath);
+    } catch (error) {
+      toast.error(friendlyErrorMessage(error, t, 'errors.friendly.tableRename'));
+    } finally {
+      savingRef.current = false;
+      setBusy(false);
+    }
+  }, [currentName, folderPath, notebookPath, onRenamed, t, unavailable]);
+
+  const cancel = useCallback(() => {
+    setEditing(false);
+    setDraft(currentName);
+  }, [currentName]);
+
+  return { editing, draft, setDraft, inputRef, captureCaret, beginEdit, commit, cancel, disabled: !editable, busy };
 }

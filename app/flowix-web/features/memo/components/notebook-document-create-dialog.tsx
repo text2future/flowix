@@ -7,7 +7,7 @@ import { toast } from '@/lib/toast';
 import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
 import { createTableDocumentFile, type TableViewType } from '@features/multidimensional-table/public/create-api';
 import { createMediaLibraryFile } from '@features/media-library/model';
-import { createWorkDocumentsCollectionFile } from '@features/work-documents/model';
+import { createWorkDocumentsCollectionFile } from '@features/collection/public/work-documents-model-api';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@shared/ui/dialog';
 import { Button } from '@shared/ui/button';
 

@@ -73,7 +73,7 @@ export function useTableCalendarNotes(input: UseTableCalendarNotesInput) {
       field.id,
       field.type === 'Date' && field.id === fieldId ? date
         : field.type === 'Boolean' ? false
-          : field.type === 'MultiSelect' || field.type === 'Tag' || field.type === 'Color' || (field.type === 'Image' && field.multiple) ? []
+          : field.type === 'MultiSelect' || field.type === 'Tag' || field.type === 'Color' || field.type === 'Image' ? []
             : '',
     ])));
     calendar.openAddDialog(date, anchorRect, fieldId);
@@ -175,7 +175,7 @@ export function useTableCalendarNotes(input: UseTableCalendarNotesInput) {
     setCalendarEditingRecord(record);
     setCalendarCreatePropertyValues(Object.fromEntries(calendarCreateFields.map((field) => {
       const value = notePropertyEditorValue(note, field);
-      return [field.id, value ?? (field.type === 'Boolean' ? false : field.type === 'MultiSelect' || field.type === 'Tag' || field.type === 'Color' || (field.type === 'Image' && field.multiple) ? [] : '')];
+      return [field.id, value ?? (field.type === 'Boolean' ? false : field.type === 'MultiSelect' || field.type === 'Tag' || field.type === 'Color' || field.type === 'Image' ? [] : '')];
     })));
     calendar.openAddDialog(date, anchorRect, calendarDateFieldId ?? '');
     calendar.setTitle(note.title);

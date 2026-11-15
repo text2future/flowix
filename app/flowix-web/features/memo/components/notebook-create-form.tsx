@@ -409,7 +409,7 @@ export function NotebookCreateForm({
                           <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
                         </button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" sideOffset={0} className="min-w-[180px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+                      <DropdownMenuContent scrollerClassName="space-y-0.5" align="end" sideOffset={0} className="min-w-[180px] rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
                         <div className="px-2 py-1.5 text-xs leading-4 text-[var(--muted-foreground)]">{t('notebook.create.readAiSpaceMenuHint')}</div>
                         {importWorkBuddyProjectLabel && importCodexProjectLabel && onImportProject && (
                           <>
@@ -447,12 +447,12 @@ export function NotebookCreateForm({
                                 <ChevronRight className="h-4 w-4" aria-hidden="true" />
                               </button>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent
+                            <DropdownMenuContent scrollerClassName="space-y-0.5"
                               align="start"
                               side="right"
                               sideOffset={6}
                               keepParentMenuOpen
-                              className="min-w-[300px] max-w-[min(420px,90vw)] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]"
+                              className="min-w-[300px] max-w-[min(420px,90vw)] rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]"
                             >
                               {obsidianVaultsLoading ? (
                                 <div className="flex items-center gap-2 px-3 py-3 text-sm text-[var(--muted-foreground)]">

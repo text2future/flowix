@@ -34,31 +34,32 @@ describe('queryMentionNotes', () => {
     });
   });
 
-  it('reads each notebook once no matter how many queries are typed', async () => {
-    const first = await queryMentionNotes('会');
-    const second = await queryMentionNotes('日');
+  it('reads only the requested notebook once no matter how many queries are typed', async () => {
+    const first = await queryMentionNotes('会', 'nb-a');
+    const second = await queryMentionNotes('记录', 'nb-a');
 
-    expect(listSummaries).toHaveBeenCalledTimes(2);
+    expect(listSummaries).toHaveBeenCalledTimes(1);
+    expect(listSummaries).toHaveBeenCalledWith('nb-a');
     expect(first.map((item) => item.title)).toEqual(['会议记录']);
-    expect(second.map((item) => item.title)).toEqual(['日记']);
+    expect(second.map((item) => item.title)).toEqual(['会议记录']);
   });
 
-  it('returns every note newest first when the query is empty', async () => {
-    const items = await queryMentionNotes('');
+  it('returns the requested notebook notes newest first when the query is empty', async () => {
+    const items = await queryMentionNotes('', 'nb-a');
 
-    expect(items.map((item) => item.title)).toEqual(['会议记录', '日记']);
+    expect(items.map((item) => item.title)).toEqual(['会议记录']);
   });
 
   it('refetches after the notebook cache is invalidated', async () => {
-    await queryMentionNotes('会');
-    invalidateMentionNotes();
-    await queryMentionNotes('会');
+    await queryMentionNotes('会', 'nb-a');
+    invalidateMentionNotes('nb-a');
+    await queryMentionNotes('会', 'nb-a');
 
-    expect(listSummaries).toHaveBeenCalledTimes(4);
+    expect(listSummaries).toHaveBeenCalledTimes(2);
   });
 
   it('keeps the notebook metadata on every item', async () => {
-    const items = await queryMentionNotes('日记');
+    const items = await queryMentionNotes('日记', 'nb-b');
 
     expect(items[0]).toMatchObject({
       filename: '日记.md',

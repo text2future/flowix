@@ -76,7 +76,6 @@ export function MemoListCardsContent({
   const [showScrollTopHintState, setShowScrollTopHintState] = useState(false);
   const notes = useNoteStore((store) => active ? store.notes : EMPTY_MEMO_LIST);
   const notebooksExist = useNoteStore((store) => store.notebooks.length > 0);
-  const triggerMemoListRefresh = useNoteStore((store) => store.triggerMemoListRefresh);
 
   const attachListScroller = useCallback((element: HTMLDivElement | null) => {
     listContainerRef.current = element;
@@ -94,8 +93,7 @@ export function MemoListCardsContent({
     scrollerRef: listContainerRef,
     isActive: paginationActive,
   });
-  const { handleFavoriteToggleAction, handleColorsChangeAction } = useMemoListItemActions({
-    triggerMemoListRefresh,
+  const { handleFavoriteToggleAction } = useMemoListItemActions({
     scrollListToTop,
   });
 
@@ -166,6 +164,7 @@ export function MemoListCardsContent({
   return (
     <MemoListViewport
       active={active}
+      showIntro={Boolean(notebook)}
       items={notes}
       notebooksExist={notebooksExist}
       scrollElement={listScrollElement}
@@ -198,7 +197,6 @@ export function MemoListCardsContent({
                 onOpenInWindow={handleOpenMemoWindow}
                 onFavoriteToggle={handleFavoriteToggleAction}
                 onDelete={handleRequestDeleteMemo}
-                onColorsChange={handleColorsChangeAction}
                 onKeepAliveChange={onKeepAliveChange}
               />
               <hr className={cn('mx-3', DROPDOWN_DIVIDER_SKIN)} />

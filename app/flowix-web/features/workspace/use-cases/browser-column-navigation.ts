@@ -1,3 +1,5 @@
+import { createNotebookNavigationScope } from './notebook-navigation-scope';
+import { getSessionId } from '../store/workspace-session-store';
 import { navigateWorkspaceSession } from './session-navigation';
 import type { BrowserColumnNavigationResult } from '../model/surface-opening';
 import { collections, externalDocuments, notebooks } from '@platform/tauri/client';
@@ -75,16 +77,25 @@ export function targetContentIcon(target: BrowserColumnTarget): string | null {
 export function openBrowserColumnTarget(target: BrowserColumnTarget, options?: { history?: 'push' | 'skip'; navigationEntryId?: string }): Promise<BrowserColumnNavigationResult> {
   return enqueueBrowserColumnNavigation(async () => {
     target = await prepareCollectionBrowserTarget(target);
-    const alreadyOpen = !!findWorkspaceContentLocations(browserColumnTargetIdentity(target)).browserColumn;
-    ensureBrowserTargetFileIdentity(target);
-    const id = options?.navigationEntryId ?? `browser:${crypto.randomUUID()}`;
-    const surfaceId = useBrowserColumnStore.getState().openContent({
-      id,
-      title: targetContentTitle(target),
-      icon: targetContentIcon(target),
-      target,
-    }, options);
-    return { host: 'column-2', surfaceId, alreadyOpen };
+    const scope = createNotebookNavigationScope(() => getSessionId(0) === 'column-2', 'column-2');
+    try {
+      if (getSessionId(0) === 'column-2' && 'notebookId' in target && target.notebookId) {
+        await scope.switchTo(target.notebookId, 0);
+      }
+      const alreadyOpen = !!findWorkspaceContentLocations(browserColumnTargetIdentity(target)).browserColumn;
+      ensureBrowserTargetFileIdentity(target);
+      const id = options?.navigationEntryId ?? `browser:${crypto.randomUUID()}`;
+      const surfaceId = useBrowserColumnStore.getState().openContent({
+        id,
+        title: targetContentTitle(target),
+        icon: targetContentIcon(target),
+        target,
+      }, options);
+      return { host: 'column-2', surfaceId, alreadyOpen };
+    } catch (error) {
+      await scope.rollback(0);
+      throw error;
+    }
   });
 }
 

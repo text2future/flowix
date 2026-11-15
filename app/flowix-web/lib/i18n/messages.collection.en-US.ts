@@ -9,6 +9,7 @@ const enUS: Record<keyof typeof zhCN, string> = {
   "collection.composerSend": "Send to {name}",
   "collection.composerAdd": "Add attachment",
   "collection.agentSwitch": "Switch agent type",
+  "collection.createConversation": "New conversation with {name}",
   "collection.filesTab": "Folder",
   "collection.emptyFiles": "This collection is empty",
   "collection.noteView": "Table",

@@ -1,3 +1,5 @@
+import type { DocumentResourceContext } from '@/lib/document-resource-context';
+import { useDocumentAttachmentContext } from './use-document-attachment-context';
 import { useEditorImageSources } from './use-editor-image-sources';
 import type { EditorImageContext } from './editor-image-source';
 import { useSessionViewChannel } from '@features/workspace/public/session-view-state-api';
@@ -34,6 +36,7 @@ import {
   isBlankEditorDocument,
 } from './editor-body-navigation';
 import { attachEditorViewRecovery } from './editor-view-recovery';
+import { focusTerminalBlockGap } from './extensions/block-gap-cursor';
 import { isSlashMenuOpen } from './extensions/slash-menu';
 import { normalizeTaskItemPlaceholders, resetEditorHistory } from './editor-document-reset';
 import { useSearchPanelState, type SearchPanelControlProps } from './use-search-panel-state';
@@ -44,8 +47,7 @@ type MarkdownEditorProps = SearchPanelControlProps & {
   /** Workspace surface hosting this editor, passed to surface-aware NodeViews. */
   workspaceHost?: WorkspaceColumnId;
   /** Read the current path when an upload starts, including after a rename. */
-  getAttachmentOwnerPath?: () => string | undefined;
-  getAttachmentNotebookId?: () => string | undefined;
+  getAttachmentContext?: () => DocumentResourceContext;
   propertyTargetId?: string;
   onPropertyAreaHoverChange?: (hovered: boolean) => void;
   onViewSourceMode?: () => void;
@@ -98,8 +100,7 @@ export interface MarkdownEditorHandle {
 export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(function MarkdownEditor({
   ownerPath,
   workspaceHost = 'column-1',
-  getAttachmentOwnerPath,
-  getAttachmentNotebookId,
+  getAttachmentContext,
   propertyTargetId,
   onPropertyAreaHoverChange,
   onViewSourceMode,
@@ -158,7 +159,6 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
   const onFocusTitleRef = useRef(onFocusTitle);
   const onAppendToTitleRef = useRef(onAppendToTitle);
   const editableRef = useRef(editable);
-  const attachmentOwnerRef = useRef({ ownerPath, getAttachmentOwnerPath, getAttachmentNotebookId });
   // 链接导航上下文走 ref：mount effect 不因文档路径变化重建编辑器，
   // 点击时始终读取最新值。
   const linkContextRef = useRef<EditorLinkContext | undefined>(linkContext);
@@ -169,17 +169,16 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
   onFocusTitleRef.current = onFocusTitle;
   onAppendToTitleRef.current = onAppendToTitle;
   editableRef.current = editable;
-  attachmentOwnerRef.current = { ownerPath, getAttachmentOwnerPath, getAttachmentNotebookId };
   linkContextRef.current = linkContext;
   imageContextRef.current = imageContext;
 
   useEditorImageSources(editorRef, imageContext);
 
-  const getCurrentAttachmentOwnerPath = useCallback(() => {
-    const current = attachmentOwnerRef.current;
-    return current.getAttachmentOwnerPath ? current.getAttachmentOwnerPath() : current.ownerPath;
-  }, []);
-  const getCurrentAttachmentNotebookId = useCallback(() => attachmentOwnerRef.current.getAttachmentNotebookId?.(), []);
+  const {
+    getContext: getCurrentAttachmentContext,
+    getOwnerPath: getCurrentAttachmentOwnerPath,
+    getDocumentPath: getCurrentDocumentPath,
+  } = useDocumentAttachmentContext(ownerPath, getAttachmentContext);
 
   const {
     pendingDirtyRef: pendingSerializeDirtyRef,
@@ -236,7 +235,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     // serializes, it is only a reconciliation echo. Calling setContent here
     // would unnecessarily destroy the editor's history and make the previous
     // paste appear non-undoable.
-    const currentEditorContent = serializeEditorMarkdown(editor);
+    const currentEditorContent = serializeEditorMarkdown(editor, getCurrentDocumentPath());
     if (nextContent === currentEditorContent) {
       contentRef.current = nextContent;
       return;
@@ -279,7 +278,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       scrollEl.scrollTop = scrollTop;
       scrollEl.scrollLeft = scrollLeft;
     }
-  }, [clearSerializeTimer, findScrollable, logEditorPerf, pendingSerializeDirtyRef]);
+  }, [clearSerializeTimer, findScrollable, getCurrentDocumentPath, logEditorPerf, pendingSerializeDirtyRef]);
 
   const focusBodyStart = useCallback(() => {
     const editor = editorRef.current;
@@ -299,7 +298,9 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
 
     const editor = editorRef.current;
     const editorMount = editorMountRef.current;
-    if (!editor || editor.isDestroyed || !editorMount || !isBlankEditorDocument(editor)) {
+    if (!editor || editor.isDestroyed || !editorMount) return;
+    if (focusTerminalBlockGap(editor.view, event.nativeEvent)) return;
+    if (!isBlankEditorDocument(editor)) {
       return;
     }
 
@@ -453,9 +454,9 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     const extensionsBuildStartedAt = performance.now();
     const editorExtensions = createMarkdownEditorExtensions({
       ownerPath,
-      getOwnerPath: getCurrentAttachmentOwnerPath,
+      getAttachmentContext: getCurrentAttachmentContext,
       getImageContext: () => imageContextRef.current,
-      getAttachmentNotebookId: getCurrentAttachmentNotebookId,
+      getLinkContext: () => linkContextRef.current,
       propertyTargetId,
       onPropertyAreaHoverChange,
       onViewSourceMode,
@@ -570,7 +571,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     });
 
     onBeforeCreate?.(editor);
-    editor.getMarkdown = () => serializeEditorMarkdown(editor);
+    editor.getMarkdown = () => serializeEditorMarkdown(editor, getCurrentDocumentPath());
     editorRef.current = editor;
     setEditorInstance(editor);
     const editorDom = editor.view.dom;
@@ -639,7 +640,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     applyExternalContent,
     findScrollable,
     getCurrentAttachmentOwnerPath,
-    getCurrentAttachmentNotebookId,
+    getCurrentAttachmentContext,
     handleBackspaceAtBodyStart,
     pendingSerializeDirtyRef,
     schedulePendingSerialization,

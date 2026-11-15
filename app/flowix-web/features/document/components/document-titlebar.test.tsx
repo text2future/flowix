@@ -27,7 +27,7 @@ vi.mock('./use-document-titlebar-actions', () => ({
     colors: [], changeColors: vi.fn(), fontSwitch: {}, selectedFontSizeMode: null,
     setEditorFontSizeMode: vi.fn(), confirmVersion: null, setConfirmVersion: vi.fn(),
     restoringVersionId: null, versionRefreshKey: 0,
-    restorePathVersion: vi.fn(), copyFolderPath: vi.fn(), revealFile: vi.fn(),
+    restorePathVersion: vi.fn(), copyFolderPath: vi.fn(), copyDocumentPath: vi.fn(), revealFile: vi.fn(),
   }),
 }));
 vi.mock('@features/collection/public/folder-api', () => ({ FolderCollectionSwitchConfirmDialog: () => null }));
@@ -55,7 +55,7 @@ beforeEach(() => {
     sidebar: { hidden: true, onToggle: vi.fn() },
     navigation: { title: 'note A', canNavigateBack: true, canNavigateForward: false, onNavigateBack: vi.fn(), onNavigateForward: vi.fn() },
     contentCapabilities: { memoColors: true, copyFullText: true, exportContent: true, saveAsTemplate: true, versionHistory: false },
-    actions: { onCopyLink: vi.fn(), onCopyFullText: vi.fn(), onExportMarkdown: vi.fn(), onExportWord: vi.fn(), onExportPdf: vi.fn(), onSaveAsTemplate: vi.fn(), onDeleteExternalFile: vi.fn() },
+    actions: { onCopyFullText: vi.fn(), onExportMarkdown: vi.fn(), onExportWord: vi.fn(), onExportPdf: vi.fn(), onSaveAsTemplate: vi.fn(), onDeleteExternalFile: vi.fn() },
   };
 });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
@@ -261,6 +261,26 @@ for (const [platform, Titlebar] of [['mac', DocumentTitlebarMac], ['windows', Do
       await act(async () => copy.click());
       expect(mocks.copyFullText).toHaveBeenCalledOnce();
       expect(props.actions.onCopyFullText).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['Markdown', 'onExportMarkdown'],
+      ['Word', 'onExportWord'],
+      ['PDF', 'onExportPdf'],
+    ] as const)('exports %s through the nested export menu', async (format, action) => {
+      await act(async () => root.render(<Titlebar {...props} />));
+      await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="document.titlebar.moreTooltip"]')!.click());
+      const exportMenu = [...document.querySelectorAll<HTMLButtonElement>('button')]
+        .find((button) => button.textContent === 'document.action.exportAs')!;
+      expect(exportMenu).toBeDefined();
+      expect([...document.querySelectorAll<HTMLButtonElement>('button')].some((button) => button.textContent === format)).toBe(false);
+      await act(async () => exportMenu.click());
+      expect(exportMenu.getAttribute('aria-expanded')).toBe('true');
+      const option = [...document.querySelectorAll<HTMLButtonElement>('button')]
+        .find((button) => button.textContent === format)!;
+      await act(async () => option.click());
+      expect(props.actions[action]).toHaveBeenCalledOnce();
+      expect(document.querySelector('[aria-expanded="true"][aria-haspopup="menu"]')).toBeNull();
     });
 
     it('clears a pending delete confirmation when the displayed file changes', async () => {

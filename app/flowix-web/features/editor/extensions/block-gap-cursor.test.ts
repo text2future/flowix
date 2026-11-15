@@ -3,8 +3,12 @@ import { Editor, Node } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import { GapCursor } from '@tiptap/pm/gapcursor';
 import { closeHistory } from '@tiptap/pm/history';
+import { Table } from '@tiptap/extension-table';
+import TableRow from '@tiptap/extension-table-row';
+import TableCell from '@tiptap/extension-table-cell';
+import TableHeader from '@tiptap/extension-table-header';
 import { Plugin, TextSelection } from '@tiptap/pm/state';
-import { BlockGapCursor, paragraphAtGap, isValidBlockGap } from './block-gap-cursor';
+import { BlockGapCursor, paragraphAtGap, isValidBlockGap, focusTerminalBlockGap } from './block-gap-cursor';
 
 const editors: Editor[] = [];
 
@@ -21,6 +25,10 @@ function createEditor() {
         renderHTML: () => ['section', 0] }),
       Node.create({ name: 'atomText', group: 'block', content: 'inline*', atom: true,
         renderHTML: () => ['section', 0] }),
+      ...['image', 'collection', 'videoAttachment', 'videoEmbed'].map(name => Node.create({
+        name, group: 'block', atom: true, renderHTML: () => ['figure'],
+      })),
+      Table, TableRow, TableCell, TableHeader,
       BlockGapCursor,
     ],
     content: { type: 'doc', content: [{ type: 'card' }, { type: 'card' }] },
@@ -50,6 +58,107 @@ function expectedGapPositions(editor: Editor): number[] {
 afterEach(() => { editors.splice(0).forEach(editor => editor.destroy()); });
 
 describe('block gap cursor', () => {
+  it.each(['card', 'image', 'collection', 'videoAttachment', 'videoEmbed', 'table'])(
+    'clicking after a terminal %s keeps a gap until Enter creates a writable paragraph', type => {
+      const editor = createEditor();
+      const block = type === 'table' ? { type, content: [{ type: 'tableRow', content: [
+        { type: 'tableCell', content: [{ type: 'paragraph' }] },
+      ] }] } : { type };
+      editor.commands.setContent({ type: 'doc', content: [block] });
+      selectGap(editor, 0);
+      editor.view.dispatch(closeHistory(editor.state.tr));
+      const before = editor.getJSON();
+      const hits = editor.view.dom.querySelectorAll('.editor-block-gap__hit');
+      hits[hits.length - 1].dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+      expect(editor.getJSON()).toEqual(before);
+      expect(editor.state.selection).toBeInstanceOf(GapCursor);
+      editor.view.dom.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      expect(editor.state.doc.lastChild?.type.name).toBe('paragraph');
+      expect(editor.state.selection).toBeInstanceOf(TextSelection);
+      expect(editor.state.selection.from).toBe(editor.state.doc.content.size - 1);
+      editor.commands.undo();
+      expect(editor.getJSON()).toEqual(before);
+      editor.commands.redo();
+      editor.commands.insertContent('after');
+      expect(editor.state.doc.lastChild?.textContent).toBe('after');
+    },
+  );
+
+  it('keeps keyboard navigation to the final gap free of document changes', () => {
+    const editor = createEditor();
+    selectGap(editor, 1);
+    editor.view.dom.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    expect(editor.state.selection).toBeInstanceOf(GapCursor);
+    expect(editor.state.doc.childCount).toBe(2);
+  });
+
+  it('focuses the terminal gap from distant surface space on first open without adding a paragraph', () => {
+    const editor = createEditor();
+    const surface = document.createElement('div');
+    surface.appendChild(editor.view.dom);
+    document.body.appendChild(surface);
+    vi.spyOn(editor.view.dom, 'getBoundingClientRect').mockReturnValue({ left: 0, right: 600 } as DOMRect);
+    const lastDOM = editor.view.nodeDOM(1) as HTMLElement;
+    vi.spyOn(lastDOM, 'getBoundingClientRect').mockReturnValue({ bottom: 200 } as DOMRect);
+    const before = editor.getJSON();
+    surface.addEventListener('mousedown', event => focusTerminalBlockGap(editor.view, event));
+    const click = () => surface.dispatchEvent(new MouseEvent('mousedown', {
+      bubbles: true, cancelable: true, clientX: 300, clientY: 500,
+    }));
+    click();
+    expect(editor.state.selection).toBeInstanceOf(GapCursor);
+    expect(editor.state.selection.from).toBe(editor.state.doc.content.size);
+    expect(editor.getJSON()).toEqual(before);
+    editor.view.dom.blur();
+    click();
+    expect(editor.getJSON()).toEqual(before);
+    surface.remove();
+  });
+
+  it.each(['shiftKey', 'ctrlKey', 'metaKey', 'altKey', 'right-button', 'above', 'outside', 'node', 'readonly', 'prevented', 'text-tail'])(
+    'leaves %s clicks to their existing handlers', scenario => {
+      const editor = createEditor();
+      const surface = document.createElement('div');
+      surface.appendChild(editor.view.dom);
+      if (scenario === 'text-tail') editor.commands.setContent({ type: 'doc', content: [
+        { type: 'card' }, { type: 'paragraph' },
+      ] });
+      vi.spyOn(editor.view.dom, 'getBoundingClientRect').mockReturnValue({ left: 100, right: 600 } as DOMRect);
+      const lastDOM = editor.view.nodeDOM(editor.state.doc.content.size - editor.state.doc.lastChild!.nodeSize) as HTMLElement;
+      vi.spyOn(lastDOM, 'getBoundingClientRect').mockReturnValue({ bottom: 200 } as DOMRect);
+      if (scenario === 'readonly') editor.setEditable(false);
+      const before = editor.state;
+      const event = new MouseEvent('mousedown', {
+        cancelable: true, clientX: scenario === 'outside' ? 50 : 300,
+        clientY: scenario === 'above' ? 150 : 500,
+        button: scenario === 'right-button' ? 2 : 0,
+        [scenario]: true,
+      });
+      Object.defineProperty(event, 'target', { value: scenario === 'node' ? lastDOM : surface });
+      if (scenario === 'prevented') event.preventDefault();
+      expect(focusTerminalBlockGap(editor.view, event)).toBe(false);
+      expect(editor.state).toBe(before);
+    },
+  );
+
+  it('handles blank padding through the ProseMirror event pipeline only once', () => {
+    const editor = createEditor();
+    document.body.appendChild(editor.view.dom);
+    vi.spyOn(editor.view.dom, 'getBoundingClientRect').mockReturnValue({ left: 0, right: 600 } as DOMRect);
+    vi.spyOn(editor.view.nodeDOM(1) as HTMLElement, 'getBoundingClientRect')
+      .mockReturnValue({ bottom: 200 } as DOMRect);
+    const before = editor.getJSON();
+    const event = new MouseEvent('mousedown', { cancelable: true, bubbles: true, clientX: 300, clientY: 500 });
+    editor.view.dom.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(editor.view.hasFocus()).toBe(true);
+    expect(editor.state.selection).toBeInstanceOf(GapCursor);
+    expect(editor.state.selection.from).toBe(2);
+    expect(editor.getJSON()).toEqual(before);
+    expect(focusTerminalBlockGap(editor.view, event)).toBe(false);
+    editor.view.dom.remove();
+  });
+
   it.each(['end', 'card', 'text'])('Backspace removes only the empty paragraph after a non-selectable block before %s', following => {
     const editor = createEditor();
     const tail = following === 'end' ? [] : following === 'card'
@@ -184,7 +293,7 @@ describe('block gap cursor', () => {
       const expected = expectedGapPositions(editor);
       expect(expected).toHaveLength(2);
       expect(editor.view.dom.querySelectorAll('.editor-block-gap')).toHaveLength(expected.length);
-      expected.forEach((pos, index) => {
+      expected.filter(pos => pos !== editor.state.doc.content.size).forEach((pos, index) => {
         editor.view.dom.querySelectorAll('.editor-block-gap__hit')[index]
           .dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
         expect(editor.state.selection).toBeInstanceOf(GapCursor);

@@ -6,8 +6,6 @@ import { createMarkdownEditorExtensions } from './markdown-editor-extensions';
 import { FLOWIX_AGENT_THREAD_CARD_MARKER } from '@features/agent/thread-card/agent-thread-card-markdown';
 
 const editorContext = {
-  getOwnerPath: () => undefined,
-  getAttachmentNotebookId: () => undefined,
   workspaceHost: 'column-1' as const,
   getPlaceholder: () => '',
 };

@@ -1,0 +1,547 @@
+<!doctype html>
+<!--
+  模板 workbench：笔记本工作台，零 JS。
+
+  这一页只用声明式绑定（data-fx-*），不写一行 <script>。适合做「概览 / 导航」，
+  数据在页面加载后由宿主自动拉取，笔记本一变就自动重渲染。
+
+  三条规则（都是踩过的坑）：
+  1. 想让页面自动拿到数据，必须写 <meta name="flowix-data">，值是下面四个键之一：
+     stats / views / custom-views / theme。缺了它，一个字段都拿不到。
+  2. data-fx-style 一次只设一个 CSS 属性（值里的第一个冒号就切开了），
+     所以这里给四个不同元素各挂一个自定义属性，而不是一元素写多个。
+  3. 嵌套循环必须用 data-fx-as 换个名字，否则内层 item 会遮住外层。
+
+  集合标题是可点的：href 取自 collections[].href（宿主给的 flowix://open 深链），
+  不要换成 file:// 或自己拼相对路径 —— 那会被当成外部文件，打不开集合。
+
+  要行数据（表格 / 看板 / 列表）就换库表模板：flowix html --template table。
+-->
+<html lang="zh-CN" data-fx-style="--bg:theme.tokens.background">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="flowix-data" content="views stats theme">
+<meta name="flowix-scroll-container" content="body">
+<title>笔记本工作台</title>
+<style>
+  /* 有值就用产品主题，没值（外部打开 / 还没到）就用这套暖纸色兜底 */
+  :root {
+    --bg: #fbfaf7; --fg: #24211c; --muted: #8a8177;
+    --card: #ffffff; --brand: #c2603a; --border: #e7e1d8;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body {
+    margin: 0; padding: 28px;
+    background: var(--bg); color: var(--fg);
+    font: 14px/1.6 -apple-system, "Segoe UI", "PingFang SC", sans-serif;
+  }
+  h1 { margin: 0 0 4px; font-size: 20px; font-weight: 650; }
+  h2 { margin: 28px 0 12px; font-size: 13px; font-weight: 600; color: var(--muted);
+       letter-spacing: .08em; text-transform: uppercase; }
+  .hint { margin: 0; color: var(--muted); font-size: 12px; }
+  .empty-state { padding: 16px 0; text-align: center; }
+  .empty-state:empty { display: none; }
+  header { margin-bottom: 20px; }
+  .workbench-notice { position: sticky; top: 8px; z-index: 20; display: flex; align-items: center; justify-content: space-between;
+                      gap: 8px; width: min(290px, 100%); margin: -8px auto 20px; padding: 10px 12px 10px 14px; border: 1px solid var(--border);
+                      border-radius: 10px; background: var(--card); box-shadow: 0 4px 16px rgb(0 0 0 / 7%); color: var(--fg); font-size: 13px; }
+  .workbench-notice button { display: grid; place-items: center; flex: none; width: 24px; height: 24px; padding: 0; border: 0;
+                             border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; font-size: 19px; line-height: 1; }
+  .workbench-notice button:hover { background: var(--bg); color: var(--fg); }
+  .workbench-notice button:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+  .cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+  .card {
+    padding: 14px 16px; border: 1px solid var(--border); border-radius: 12px;
+    background: var(--card);
+  }
+  .card b { display: block; font-size: 26px; font-weight: 650; line-height: 1.2; }
+  .card span { color: var(--muted); font-size: 12px; }
+
+  .tag-list { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tag-item { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border: 1px solid var(--border);
+              border-radius: 8px; background: var(--card); color: var(--fg); font-size: 12px; }
+  .tag-item .count { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+
+  .collection-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+  .collection-item { display: inline-block; max-width: 100%; padding: 5px 10px; border: 1px solid var(--border);
+                     border-radius: 8px; background: var(--card); color: var(--fg); font-size: 12px;
+                     text-decoration: none; overflow-wrap: anywhere; }
+  .collection-item:hover { border-color: var(--brand); color: var(--brand); }
+  .collection-item:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+  .collection-item[href=""] { pointer-events: none; }
+  .composer { margin: 24px 0 0; }
+  .composer h2 { margin: 0 0 10px; color: var(--fg); font-size: 15px; letter-spacing: 0; }
+  .composer-box { padding: 12px 12px 10px 16px; border: 1px solid var(--border); border-radius: 16px;
+                  background: var(--card); box-shadow: 0 2px 24px -3px rgb(0 0 0 / 6%);
+                  transition: border-color 150ms, box-shadow 150ms; }
+  .composer-box:focus-within { border-color: var(--muted); box-shadow: 0 2px 24px -3px rgb(0 0 0 / 9%); }
+  .composer textarea { display: block; width: 100%; min-height: 92px; max-height: 240px; padding: 2px 0;
+                       resize: vertical; border: 0; outline: 0; background: transparent; color: var(--fg);
+                       font: inherit; line-height: 1.7; }
+  .composer textarea::placeholder { color: var(--muted); opacity: .85; }
+  .image-list { display: flex; gap: 6px; overflow-x: auto; margin-top: 8px; }
+  .image-list:empty { display: none; }
+  .image-chip { display: flex; align-items: center; gap: 6px; max-width: 180px; padding: 4px 7px; border-radius: 7px; background: var(--bg); color: var(--muted); font-size: 12px; }
+  .image-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .composer .image-chip button { width: 18px; height: 18px; flex: none; background: transparent; color: inherit; }
+  .composer-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; }
+  .composer-left { display: flex; align-items: center; min-width: 0; gap: 0; }
+  .composer-destination { position: relative; min-width: 0; }
+  .composer #add-images { flex: none; background: transparent; color: var(--muted); }
+  .composer #add-images:hover:not(:disabled) { color: var(--fg); }
+  .composer-actions { display: flex; flex: none; align-items: center; gap: 10px; }
+  .composer button { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0;
+                     border-radius: 10px; background: var(--fg); color: var(--card); cursor: pointer; transition: opacity 150ms; }
+  .composer button svg { width: 16px; height: 16px; }
+  .composer button:hover:not(:disabled) { opacity: .8; }
+  .composer button:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+  .composer button:disabled { opacity: .3; cursor: not-allowed; }
+  .composer .folder-trigger { display: flex; align-items: center; gap: 6px; width: auto; max-width: min(55vw, 300px);
+    height: 32px; padding: 0 8px; border-radius: 7px; background: transparent; color: var(--muted); font: inherit; font-size: 12px; }
+  .composer .folder-trigger:hover:not(:disabled), .composer .folder-trigger[aria-expanded="true"] { background: var(--bg); color: var(--fg); opacity: 1; }
+  .composer .folder-trigger:disabled { opacity: .65; }
+  .folder-trigger svg { flex: none; width: 15px; height: 15px; }
+  .folder-trigger .folder-chevron { width: 12px; height: 12px; transition: transform 150ms; }
+  .folder-trigger[aria-expanded="true"] .folder-chevron { transform: rotate(180deg); }
+  .folder-trigger-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .folder-menu { position: absolute; z-index: 10; top: calc(100% + 6px); left: 0; width: min(260px, calc(100vw - 32px));
+    max-height: min(60vh, 280px); overflow: hidden; padding: 4px; border: 1px solid var(--border); border-radius: 12px;
+    background: var(--card); box-shadow: 0 4px 24px -3px rgb(0 0 0 / 24%); }
+  .folder-menu-header { height: 32px; display: flex; align-items: center; padding: 0 9px; color: var(--muted); font-size: 12px; font-weight: 600; }
+  .folder-tree { max-height: calc(min(60vh, 280px) - 40px); overflow: auto; scrollbar-width: thin; }
+  .folder-row { display: flex; align-items: center; min-width: 0; height: 32px; padding-right: 8px; border-radius: 8px; }
+  .folder-row:hover, .folder-row:focus-within, .folder-row.is-selected { background: var(--bg); }
+  .composer .folder-toggle { display: grid; place-items: center; flex: 0 0 20px; width: 20px; height: 24px; border-radius: 5px;
+    padding: 0; background: transparent; color: var(--muted); }
+  .composer .folder-toggle:hover { color: var(--fg); opacity: 1; }
+  .composer .folder-menu button:focus-visible { outline: none; }
+  .folder-toggle svg { width: 13px; height: 13px; transition: transform 150ms; }
+  .folder-toggle[aria-expanded="true"] svg { transform: rotate(90deg); }
+  .folder-toggle-spacer { flex: 0 0 20px; }
+  .composer .folder-option { display: flex; align-items: center; flex: 1; gap: 8px; min-width: 0; width: auto; height: 100%;
+    padding: 0; border-radius: 7px; background: transparent; color: var(--fg); text-align: left; font: inherit; font-size: 13px; }
+  .composer .folder-option:hover, .composer .folder-option:focus-visible { outline: none; opacity: 1; }
+  .folder-option svg { flex: none; width: 18px; height: 18px; color: var(--muted); }
+  .folder-option-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .folder-option-default { flex: none; color: var(--muted); font-size: 11px; }
+  .folder-option-check { flex: none; width: 15px; color: var(--brand); text-align: center; }
+  .composer-status { margin: 8px 4px 0; color: var(--muted); font-size: 12px; }
+  .composer-status:empty { display: none; }
+  .recent-section { margin: 24px 0 26px; min-width: 0; }
+  .recent-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+  .recent-heading h2 { margin: 0; font-size: 13px; }
+  .recent-feed { display: flex; flex-direction: column; gap: 10px; }
+  .recent-card { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 18px; border: 1px solid var(--border); border-radius: 14px; background: var(--card);
+                 color: var(--fg); }
+  .recent-card-header { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 12px; }
+  .recent-card-open { display: grid; place-items: center; width: 24px; height: 24px; color: var(--muted); border-radius: 6px; text-decoration: none; }
+  .recent-card-open:hover { color: var(--fg); background: var(--bg); }
+  .recent-card-open:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+  .recent-card-open svg { width: 16px; height: 16px; }
+  .recent-card-time { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .recent-card-preview { color: var(--fg); font-size: 14px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .recent-card-image { display: block; width: auto; max-width: min(100%, 240px); max-height: 320px; object-fit: contain;
+                       border: 1px solid var(--border); border-radius: 12px; }
+  .recent-card-title { max-width: 100%; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+  .recent-more { display: block; width: 100%; margin-top: 4px; padding: 12px; border: 0;
+                 background: transparent; color: var(--brand); font: inherit; cursor: pointer; }
+  .recent-more:hover:not(:disabled) { background: color-mix(in srgb, var(--fg) 4%, transparent); }
+  .recent-more:disabled { color: var(--muted); cursor: default; }
+  .recent-more:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+
+</style>
+</head>
+<body data-fx-style="--fg:theme.tokens.foreground">
+<main data-fx-style="--card:theme.tokens.card">
+
+  <aside id="workbench-notice" class="workbench-notice" hidden>
+    <span>工作台可通过 AI 按需调整样式和布局</span>
+    <button id="dismiss-workbench-notice" type="button" aria-label="关闭提示" title="关闭提示">×</button>
+  </aside>
+  <header data-fx-style="--brand:theme.tokens.brand">
+    <h1>笔记本工作台</h1>
+    <p id="writing-quote" class="hint">文章合为时而著，歌诗合为事而作</p>
+  </header>
+
+  <section class="cards">
+    <div class="card"><b data-fx-text="stats.totalMemos">—</b><span>笔记</span></div>
+    <div class="card"><b data-fx-text="stats.todoMemos">—</b><span>待办</span></div>
+    <div class="card"><b data-fx-text="stats.databaseCount">—</b><span>数据库</span></div>
+  </section>
+
+  <section class="composer" aria-labelledby="composer-title">
+    <h2 id="composer-title">记录这一刻</h2>
+    <div class="composer-box">
+      <textarea id="entry-content" aria-label="记录内容" placeholder="今天有什么想记录的？"></textarea>
+      <div id="image-list" class="image-list" aria-label="已选图片"></div>
+      <div class="composer-footer">
+        <div class="composer-left">
+        <div class="composer-destination">
+          <button id="folder-trigger" class="folder-trigger" type="button" aria-label="保存位置" aria-haspopup="tree" aria-expanded="false" aria-controls="folder-tree" disabled>
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4h4l2 2h7A2.5 2.5 0 0 1 21 8.5v9a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/></svg>
+            <span id="folder-label" class="folder-trigger-label">正在读取文件夹…</span>
+            <svg class="folder-chevron" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div id="folder-menu" class="folder-menu" hidden><div class="folder-menu-header">写入位置</div><div id="folder-tree" class="folder-tree" role="tree" aria-label="写入位置"></div></div>
+        </div>
+          <button id="add-images" type="button" aria-label="插入图片" title="插入图片"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg></button>
+        </div>
+        <div class="composer-actions">
+          <span id="entry-count" class="hint">0 字</span>
+          <button id="entry-publish" type="button" aria-label="发布记录" title="发布记录" disabled><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
+        </div>
+      </div>
+    </div>
+    <p id="folder-status" class="composer-status" role="status" aria-live="polite">正在读取文件夹…</p>
+    <p id="entry-status" class="composer-status" role="status" aria-live="polite"></p>
+  </section>
+
+  <section class="recent-section" aria-labelledby="recent-title">
+    <div class="recent-heading"><h2 id="recent-title">最近</h2></div>
+    <p id="recent-status" class="hint empty-state" role="status"></p>
+    <div class="recent-list"><div id="recent-feed" class="recent-feed" aria-label="最近创建的笔记"></div><button id="recent-more" class="recent-more" type="button" disabled>更多</button></div>
+  </section>
+
+  <h2>标签分布</h2>
+  <div class="tag-list">
+    <template data-fx-each="stats.topTags">
+      <span class="tag-item"><span data-fx-text="item.name"></span><span class="count" data-fx-text="item.count"></span></span>
+    </template>
+  </div>
+  <!-- 初值先 hidden，交给绑定在「确实为空」时放开，避免加载中闪一下空态 -->
+  <p class="hint empty-state" hidden data-fx-if="stats.topTags.length == 0">还没有标签信息</p>
+
+  <h2>数据库</h2>
+  <div class="collection-grid">
+    <template data-fx-each="views.collections">
+      <a class="collection-item" data-fx-attr="href:item.href" data-fx-text="item.name"></a>
+    </template>
+  </div>
+  <p class="hint empty-state" hidden data-fx-if="views.collections.length == 0">还没有文件数据库</p>
+
+</main>
+<script>
+(() => {
+  const workbenchNotice = document.getElementById('workbench-notice');
+  const dismissNotice = document.getElementById('dismiss-workbench-notice');
+  if (!document.querySelector('meta[name="flowix-dismissed-notice"][content="workbench-ai-layout"]')) {
+    workbenchNotice.hidden = false;
+  }
+  dismissNotice.addEventListener('click', async () => {
+    dismissNotice.disabled = true;
+    try {
+      if (!window.flowix) throw new Error('Flowix unavailable');
+      await window.flowix.request('dismiss-html-notice', { id: 'workbench-ai-layout' });
+      workbenchNotice.hidden = true;
+    } catch {
+      dismissNotice.disabled = false;
+      dismissNotice.title = '保存失败，请重试';
+      dismissNotice.setAttribute('aria-label', '保存失败，点击重试');
+    }
+  });
+  const quotes = [
+    '文章合为时而著，歌诗合为事而作',
+    '读书破万卷，下笔如有神',
+    '文章本天成，妙手偶得之',
+    '纸上得来终觉浅，绝知此事要躬行',
+    '操千曲而后晓声，观千剑而后识器',
+    '吟安一个字，捻断数茎须',
+    '两句三年得，一吟双泪流',
+    '文章千古事，得失寸心知',
+    '为人性僻耽佳句，语不惊人死不休',
+    '删繁就简三秋树，领异标新二月花',
+  ];
+  document.getElementById('writing-quote').textContent = quotes[Math.floor(Math.random() * quotes.length)];
+  const content = document.getElementById('entry-content');
+  const count = document.getElementById('entry-count');
+  const folderTrigger = document.getElementById('folder-trigger');
+  const folderLabel = document.getElementById('folder-label');
+  const folderMenu = document.getElementById('folder-menu');
+  const folderTree = document.getElementById('folder-tree');
+  const status = document.getElementById('entry-status');
+  const recentList = document.getElementById('recent-feed');
+  const recentMore = document.getElementById('recent-more');
+  let recentCursor = null;
+  let recentLoading = false;
+  const recentStatus = document.getElementById('recent-status');
+  const folderStatus = document.getElementById('folder-status');
+  const publish = document.getElementById('entry-publish');
+  let requestVersion = 0;
+  let sending = false;
+  let attempt = null;
+  let images = [];
+  let selectingImages = false;
+  const imageList = document.getElementById('image-list');
+  const addImages = document.getElementById('add-images');
+  function renderImages() {
+    imageList.replaceChildren();
+    images.forEach((path, index) => {
+      const chip = document.createElement('div'); chip.className = 'image-chip';
+      const label = document.createElement('span'); label.textContent = path.split('/').pop(); label.title = label.textContent;
+      const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = '×'; remove.setAttribute('aria-label', `移除图片 ${label.textContent}`);
+      remove.disabled = sending; remove.addEventListener('click', () => { images.splice(index, 1); renderImages(); });
+      chip.append(label, remove); imageList.append(chip);
+    });
+    addImages.disabled = sending || selectingImages || images.length >= 20;
+  }
+  addImages.addEventListener('click', async () => {
+    if (selectingImages || sending) return;
+    selectingImages = true; renderImages(); updateButton();
+    try {
+      const result = await window.flowix.request('select-note-images');
+      const combined = [...new Set([...images, ...result.images])];
+      images = combined.slice(0, 20);
+      status.textContent = combined.length > 20 ? '最多添加 20 张图片，其余图片已保存到附件目录。' : '';
+    } catch (error) { status.textContent = error?.code === 'E_UNSUPPORTED' ? '当前 Flowix 版本不支持插入图片，请更新或重启开发版。' : '图片选择或保存失败，请重试。'; }
+    finally { selectingImages = false; renderImages(); updateButton(); }
+  });
+  let folders = [];
+  let selectedFolder = '';
+  let recentRequestVersion = 0;
+  let collapsedFolders = new Set();
+  const updateButton = () => { publish.disabled = sending || selectingImages || folderTrigger.disabled || !content.value.trim(); };
+  const closeMenu = (restoreFocus = false) => {
+    folderMenu.hidden = true;
+    folderTrigger.setAttribute('aria-expanded', 'false');
+    if (restoreFocus) folderTrigger.focus();
+  };
+  function renderFolders() {
+    const visible = folders.filter((folder) => {
+      const segments = folder.relativePath.split('/');
+      return !segments.slice(0, -1).some((_, index) => collapsedFolders.has(segments.slice(0, index + 1).join('/')));
+    });
+    folderTree.replaceChildren(...visible.map((folder) => {
+      const hasChildren = folder.relativePath !== '' && folders.some((candidate) => candidate.relativePath.startsWith(`${folder.relativePath}/`));
+      const expanded = hasChildren && !collapsedFolders.has(folder.relativePath);
+      const row = document.createElement('div');
+      row.className = `folder-row${folder.relativePath === selectedFolder ? ' is-selected' : ''}`;
+      row.style.paddingLeft = `${folder.relativePath ? 8 + Math.min(folder.depth || folder.relativePath.split('/').length, 12) * 12 : 8}px`;
+      if (hasChildren) {
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'folder-toggle';
+        toggle.setAttribute('aria-label', `${expanded ? '折叠' : '展开'} ${folder.name || folder.relativePath}`);
+        toggle.setAttribute('aria-expanded', String(expanded));
+        toggle.innerHTML = '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>';
+        toggle.addEventListener('click', () => {
+          if (expanded) collapsedFolders.add(folder.relativePath); else collapsedFolders.delete(folder.relativePath);
+          renderFolders();
+          const next = Array.from(folderTree.querySelectorAll('.folder-toggle')).find((el) => el.dataset.path === folder.relativePath);
+          next?.focus();
+        });
+        toggle.dataset.path = folder.relativePath;
+        row.append(toggle);
+      } else if (folder.relativePath) {
+        const spacer = document.createElement('span');
+        spacer.className = 'folder-toggle-spacer';
+        spacer.setAttribute('aria-hidden', 'true');
+        row.append(spacer);
+      }
+      const option = document.createElement('button');
+      option.type = 'button';
+      option.className = 'folder-option';
+      option.setAttribute('role', 'treeitem');
+      option.setAttribute('aria-level', String(folder.relativePath ? (folder.depth || folder.relativePath.split('/').length) + 1 : 1));
+      if (hasChildren) option.setAttribute('aria-expanded', String(expanded));
+      option.setAttribute('aria-selected', String(folder.relativePath === selectedFolder));
+      option.title = folder.relativePath || '笔记本根目录';
+      option.innerHTML = '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4h4l2 2h7A2.5 2.5 0 0 1 21 8.5v9a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/></svg>';
+      const name = document.createElement('span');
+      name.className = 'folder-option-name';
+      name.textContent = folder.relativePath ? (folder.name || folder.relativePath.split('/').pop()) : '笔记本根目录';
+      option.append(name);
+      if (folder.isDefault) {
+        const badge = document.createElement('span');
+        badge.className = 'folder-option-default';
+        badge.textContent = '默认';
+        option.append(badge);
+      }
+      const check = document.createElement('span');
+      check.className = 'folder-option-check';
+      check.setAttribute('aria-hidden', 'true');
+      check.textContent = folder.relativePath === selectedFolder ? '✓' : '';
+      option.append(check);
+      option.addEventListener('click', () => {
+        selectedFolder = folder.relativePath;
+        folderLabel.textContent = folder.relativePath || '笔记本根目录';
+        folderTrigger.setAttribute('aria-label', `保存位置：${folderLabel.textContent}`);
+        renderFolders();
+        closeMenu(true);
+        updateButton();
+      });
+      row.append(option);
+      return row;
+    }));
+  }
+  folderTrigger.addEventListener('click', () => {
+    if (!folderMenu.hidden) { closeMenu(); return; }
+    collapsedFolders = new Set(folders.filter((folder) => folder.relativePath && folders.some((candidate) => candidate.relativePath.startsWith(`${folder.relativePath}/`))).map((folder) => folder.relativePath));
+    renderFolders();
+    folderMenu.hidden = false;
+    folderTrigger.setAttribute('aria-expanded', 'true');
+    (folderTree.querySelector('[aria-selected="true"]') || folderTree.querySelector('[role="treeitem"]'))?.focus();
+  });
+  folderMenu.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') { event.preventDefault(); closeMenu(true); return; }
+    if (event.key === 'Tab') { closeMenu(); return; }
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const options = Array.from(folderTree.querySelectorAll('[role="treeitem"]'));
+    const current = options.indexOf(document.activeElement);
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? options.length - 1
+      : event.key === 'ArrowDown' ? Math.min(current + 1, options.length - 1) : Math.max(current - 1, 0);
+    options[next]?.focus();
+  });
+  document.addEventListener('pointerdown', (event) => {
+    if (!event.target.closest('.composer-destination')) closeMenu();
+  });
+  content.addEventListener('input', () => { count.textContent = `${Array.from(content.value).length} 字`; updateButton(); });
+  content.addEventListener('paste', async (event) => {
+    const files = Array.from(event.clipboardData?.items ?? [])
+      .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+      .map((item) => item.getAsFile()).filter(Boolean);
+    if (!files.length) return;
+    if (sending || selectingImages) { status.textContent = '请等待当前操作完成后再粘贴图片。'; return; }
+    const remaining = 20 - images.length;
+    if (remaining <= 0) { status.textContent = '最多添加 20 张图片。'; return; }
+    const selected = files.slice(0, remaining);
+    if (selected.some((file) => !['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(file.type) || !file.size || file.size > 20 * 1024 * 1024)) {
+      status.textContent = '图片须为 PNG、JPEG、GIF 或 WebP，单张不超过 20 MB。'; return;
+    }
+    selectingImages = true; renderImages(); updateButton();
+    status.textContent = '正在保存粘贴的图片…';
+    let saved = 0;
+    try {
+      for (const file of selected) {
+        const result = await window.flowix.request('upload-note-image', { file });
+        if (!images.includes(result.relativePath)) images.push(result.relativePath);
+        saved += 1; renderImages();
+      }
+      status.textContent = files.length > remaining ? '最多添加 20 张图片，部分图片未添加。' : '';
+    } catch (error) {
+      status.textContent = error?.code === 'E_UNSUPPORTED' ? '当前 Flowix 版本不支持粘贴图片，请更新或重启开发版。' : `图片保存失败，已保存 ${saved} 张，请重试。`;
+    } finally { selectingImages = false; renderImages(); updateButton(); }
+  });
+  publish.addEventListener('click', async () => {
+    if (sending || selectingImages || folderTrigger.disabled || !content.value.trim()) return;
+    const body = content.value;
+    const folder = selectedFolder;
+    if (!attempt || attempt.content !== body || attempt.parentRelativePath !== folder || JSON.stringify(attempt.images) !== JSON.stringify(images)) {
+      const bytes = new Uint8Array(16);
+      crypto.getRandomValues(bytes);
+      attempt = { content: body, parentRelativePath: folder, images: [...images], clientRequestId: Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('') };
+    }
+    sending = true;
+    updateButton();
+    renderImages();
+    status.textContent = '正在创建笔记…';
+    try {
+      await window.flowix.request('create-note', attempt);
+      if (content.value === body) { content.value = ''; count.textContent = '0 字'; }
+      images = images.filter((path) => !attempt.images.includes(path));
+      attempt = null;
+      status.textContent = '';
+    } catch (error) {
+      status.textContent = error?.code === 'E_UNSUPPORTED' ? '当前 Flowix 版本不支持创建笔记，请更新或重启开发版。'
+        : '未能确认创建结果。内容已保留；可再次点击发布以重试同一次提交。';
+    } finally { sending = false; updateButton(); renderImages(); }
+  });
+
+  async function loadFolders() {
+    const version = ++requestVersion;
+    if (!window.flowix) {
+      folderLabel.textContent = '请在 Flowix 中打开此页面';
+      folderStatus.textContent = '请在 Flowix 的笔记本预览中打开此页面。';
+      return;
+    }
+    try {
+      const result = await window.flowix.request('notebook-folders');
+      if (version !== requestVersion) return;
+      const previous = folderTrigger.disabled ? null : selectedFolder;
+      folders = result.folders;
+      selectedFolder = previous !== null && folders.some((folder) => folder.relativePath === previous)
+        ? previous : result.defaultAvailable ? result.defaultRelativePath : '';
+      folderLabel.textContent = selectedFolder || '笔记本根目录';
+      folderTrigger.setAttribute('aria-label', `保存位置：${folderLabel.textContent}`);
+      if (!folderMenu.hidden) closeMenu(folderMenu.contains(document.activeElement));
+      renderFolders();
+      folderTrigger.disabled = false;
+      updateButton();
+      folderStatus.textContent = result.truncated
+        ? '文件夹列表未全部加载。'
+        : !result.defaultAvailable ? '默认文件夹不可用，请选择位置。'
+        : '';
+    } catch (error) {
+      if (version !== requestVersion) return;
+      folderTrigger.disabled = true;
+      closeMenu();
+      folderLabel.textContent = '无法读取文件夹';
+      folderStatus.textContent = error?.code === 'E_UNSUPPORTED'
+        ? '当前 Flowix 版本不支持文件夹接口，请更新或重启开发版。'
+        : '无法读取文件夹，请确认页面在笔记本中打开并重试。';
+      updateButton();
+    }
+  }
+  async function loadRecentNotes(append = false) {
+    if (append && (recentLoading || !recentCursor)) return;
+    const cursor = append ? recentCursor : null;
+    const version = ++recentRequestVersion;
+    recentLoading = true;
+    recentMore.disabled = true;
+    recentMore.textContent = '加载中…';
+    if (!window.flowix) { recentStatus.textContent = '请在 Flowix 中打开'; recentMore.textContent = '更多'; recentLoading = false; return; }
+    try {
+      const params = { limit: 10, sortBy: 'createdAt', order: 'desc', includeImages: true };
+      if (cursor) params.cursor = cursor;
+      const result = await window.flowix.request('notes-list', params);
+      if (version !== recentRequestVersion) return;
+      const cards = result.notes.filter((note) => note.href).map((note) => {
+        const card = document.createElement('article');
+        card.className = 'recent-card';
+        const time = document.createElement('time'); time.className = 'recent-card-time';
+        const date = new Date(note.createdAt);
+        if (Number.isFinite(date.getTime())) {
+          time.dateTime = date.toISOString();
+          time.textContent = date.toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+        }
+        const preview = document.createElement('div'); preview.className = 'recent-card-preview';
+        preview.textContent = note.preview || '暂无内容';
+        const title = document.createElement('span'); title.className = 'recent-card-title';
+        title.textContent = note.title || note.relativePath.split('/').pop().replace(/\.(md|markdown)$/i, '');
+        const header = document.createElement('div'); header.className = 'recent-card-header';
+        const open = document.createElement('a'); open.className = 'recent-card-open'; open.href = note.href;
+        open.title = '打开笔记'; open.setAttribute('aria-label', `打开笔记 ${title.textContent}`);
+        open.innerHTML = '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 5h6v6M19 5l-9 9"/><path d="M19 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></svg>';
+        header.append(time, open); card.append(header, preview);
+        if (note.imagePreview) {
+          const image = document.createElement('img'); image.className = 'recent-card-image';
+          image.src = note.imagePreview; image.alt = ''; image.loading = 'lazy';
+          card.append(image);
+        }
+        card.append(title);
+        return card;
+      });
+      if (append) recentList.append(...cards); else recentList.replaceChildren(...cards);
+      recentCursor = result.nextCursor ?? null;
+      recentStatus.textContent = recentList.childElementCount ? '' : '还没有笔记';
+      recentMore.disabled = !recentCursor;
+      recentMore.textContent = recentCursor ? '更多' : '没有更多了';
+    } catch (error) {
+      if (version !== recentRequestVersion) return;
+      if (error?.code === 'E_UNSUPPORTED') recentCursor = null;
+      recentStatus.textContent = error?.code === 'E_UNSUPPORTED' ? '列表已变化，请重新加载' : '最近笔记加载失败，请重试';
+      recentMore.disabled = false;
+      recentMore.textContent = '重试';
+    } finally { if (version === recentRequestVersion) recentLoading = false; }
+  }
+  recentMore.addEventListener('click', () => void loadRecentNotes(Boolean(recentCursor)));
+  void loadFolders();
+  void loadRecentNotes();
+  window.flowix?.onInvalidate(() => { void loadFolders(); void loadRecentNotes(); });
+})();
+</script>
+</body>
+</html>

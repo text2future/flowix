@@ -10,5 +10,4 @@ pub(crate) mod notebook_agents;
 pub(crate) mod runtime;
 pub(crate) mod terminal;
 
-pub(crate) mod skill_frontmatter;
 pub(crate) mod skill_package;

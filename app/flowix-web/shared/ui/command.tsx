@@ -4,6 +4,7 @@ import * as React from 'react';
 import { Command as CommandPrimitive, useCommandState } from 'cmdk';
 import { Search, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
+import { PopupScrollArea } from './popup-scroll-area';
 import { cn } from '@/lib/utils';
 import { POPUP_SEPARATOR_CLASS } from '@shared/ui/popup-separator';
 import { useI18n } from '@/lib/i18n';
@@ -275,15 +276,16 @@ CommandInput.displayName = CommandPrimitive.Input.displayName;
 const CommandList = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive.List>,
   React.ComponentPropsWithoutRef<typeof CommandPrimitive.List>
->(({ className, ...props }, ref) => (
-  <CommandPrimitive.List
-    ref={ref}
-    className={cn(
-      'max-h-[420px] overflow-y-auto overflow-x-hidden scroll-py-1 p-1',
-      className,
-    )}
-    {...props}
-  />
+>(({ className, children, onScroll, onMouseDown, onWheel, ...props }, ref) => (
+  <PopupScrollArea
+    className={cn('max-h-[420px]', className)}
+    scrollerClassName="scroll-py-1 p-1"
+    scrollerRef={ref ?? undefined}
+    onScroll={onScroll}
+    onMouseDown={onMouseDown}
+    onWheel={onWheel}
+    renderScroller={(viewportProps) => <CommandPrimitive.List {...props} {...viewportProps} />}
+  >{children}</PopupScrollArea>
 ));
 CommandList.displayName = CommandPrimitive.List.displayName;
 

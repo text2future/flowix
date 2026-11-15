@@ -25,7 +25,7 @@ async function mount(options: Partial<Parameters<typeof CollectionViewMenu>[0]> 
 it('复用原按钮和弹层样式，管理视图支持返回、改名及删除确认请求', async () => {
   const { renameTab, onRequestDelete } = await mount();
   expect(button('显示设置').className).toContain('p-1.5');
-  const popup = button('管理视图').closest('[data-slot="popover-content"]') ?? button('管理视图').parentElement?.parentElement;
+  const popup = button('管理视图').closest('[data-flowix-surface="popover"]');
   expect(popup?.className).toContain('rounded-xl');
   expect(popup?.className).toContain('shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]');
   await act(async () => button('管理视图').click());

@@ -23,7 +23,10 @@ import {
 import {
   ComposerFolderToken,
   composerFolderMarkdownToPrompt,
+  insertComposerFolderToken,
 } from "@features/agent/thread-card/composer/composer-folder-token";
+import { buildCollectionAgentReferenceMetadata } from '@features/collection/public/agent-reference-api';
+import type { AgentConversationReference } from '@features/agent/model/conversation-reference';
 import {
   ComposerFolderController,
   type ComposerFolderReference,
@@ -37,7 +40,8 @@ import type {
   ComposerSlashSkill,
 } from "@features/agent/thread-card/composer/composer-slash-command-controller";
 import type { AgentTypeKey } from "@/types/agent";
-import { ComposerNoteReference } from "@features/editor/extensions/note-link";
+import { getDocumentResourceSnapshot } from "@features/document/public/resource-context";
+import { ComposerNoteReference, normalizeNoteReferenceDocument } from "@features/editor/extensions/note-link";
 import { ComposerStableCaret } from "@features/editor/extensions/stable-caret";
 import { ComposerAttachmentToken, composerAttachmentMarkdownToPrompt } from "./composer-attachment-token";
 import { ComposerInlineAtomCaret } from "./composer-inline-atom-caret";
@@ -68,6 +72,7 @@ export interface ComposerControllerOptions {
   getRuntimeState: () => ComposerRuntimeState;
   getHasAttachments: () => boolean;
   getHasPendingAttachments: () => boolean;
+  getNoteNotebookId?: () => string | null;
   agentType?: AgentTypeKey;
   getSkillsScopeId?: () => string | undefined;
   listDshSkills?: () => Promise<readonly ComposerSlashSkill[]>;
@@ -77,6 +82,8 @@ export interface ComposerControllerOptions {
   folderGroupLabel?: string;
   listNotes?: (query: string) => Promise<readonly MentionNoteItem[]>;
   noteGroupLabel?: string;
+  noteEmptyLabel?: string;
+  noteErrorLabel?: string;
   onModelSelect?: () => void;
   onPermissionSelect?: () => void;
   onDirectCommand?: (command: ComposerSlashCommand) => void;
@@ -208,8 +215,10 @@ export class ComposerController {
       composer: this.composer,
       listFolders: options.listFolders ?? (() => []),
       groupLabel: options.folderGroupLabel,
-      listNotes: options.listNotes ?? queryMentionNotes,
+      listNotes: options.listNotes ?? ((query) => queryMentionNotes(query, options.getNoteNotebookId?.())),
       noteGroupLabel: options.noteGroupLabel,
+      noteEmptyLabel: options.noteEmptyLabel,
+      noteErrorLabel: options.noteErrorLabel,
       onChange: () => this.handleEditorUpdate(),
       focusInput: () => this.focus(),
     });
@@ -383,6 +392,31 @@ export class ComposerController {
     this.updateMultiLineState();
   }
 
+  insertConversationReference(reference: AgentConversationReference): void {
+    if (reference.kind === 'note') {
+      this.insertMemoReference({
+        notebookId: reference.notebookId,
+        relativePath: reference.relativePath,
+        filename: reference.filename,
+        title: reference.title,
+      });
+      return;
+    }
+
+    if (this.editor.isDestroyed) return;
+    if (reference.kind === 'file') {
+      insertComposerFolderToken(this.editor, reference.path, reference.displayName, undefined, { kind: 'file' });
+    } else {
+      insertComposerFolderToken(this.editor, reference.collectionPath, reference.displayName, undefined, {
+        kind: 'collection',
+        collectionMetadata: buildCollectionAgentReferenceMetadata(reference),
+      });
+    }
+    this.resetHistoryNavigation();
+    this.persistInputDraft();
+    this.updateMultiLineState();
+  }
+
   updateMultiLineState(): void {
     const prompt = this.getPrompt();
     if (prompt === "") {
@@ -464,7 +498,10 @@ export class ComposerController {
   };
 
   getDraftMarkdown(): string {
-    return this.editor.getMarkdown();
+    const document = normalizeNoteReferenceDocument(this.editor.getJSON(), {
+      ...getDocumentResourceSnapshot(), documentPath: '',
+    });
+    return this.editor.markdown?.serialize(document) ?? this.editor.getMarkdown();
   }
 
   private readonly handleSelectionUpdate = (): void => {

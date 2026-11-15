@@ -19,7 +19,7 @@ import {
 } from './model';
 import { createTableDocument, createTableView, parseTableDocument, serializeTableDocument, type MultidimensionalTableDocument } from '@features/multidimensional-table/model';
 import { createMediaLibrary, parseMediaLibrary, serializeMediaLibrary } from '@features/media-library/model';
-import { createWorkDocumentsCollection, parseWorkDocumentsCollection, serializeWorkDocumentsCollection } from '@features/work-documents/model';
+import { createWorkDocumentsCollection, parseWorkDocumentsCollection, serializeWorkDocumentsCollection } from './work-documents-model';
 
 export interface CollectionRecoveryResult {
   collectionId: string;

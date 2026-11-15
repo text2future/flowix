@@ -11,6 +11,8 @@ import { mergeNoteMetadata, noteMetadata } from '../services/note-metadata-servi
 const logger = createLogger('folder-tree');
 const REFRESH_DEDUP_WINDOW_MS = 350;
 const WATCHER_REFRESH_DEBOUNCE_MS = 250;
+/** 需要走 `canonicalPath` 的路径：带反斜杠、重复斜杠或尾斜杠。 */
+const NEEDS_CANONICAL = /\\|\/\/|\/$/;
 
 function deleteCachedSubtree(nodes: Map<string, DocTreeItem>, path: string): void {
   const key = canonicalPath(path);
@@ -173,7 +175,6 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [dirtyDirectories, setDirtyDirectories] = useState<Set<string>>(() => new Set());
   const [loading, setLoading] = useState(true);
-  const [loadedRootPath, setLoadedRootPath] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadingDirectories, setLoadingDirectories] = useState<Set<string>>(() => new Set());
   const [directoryErrors, setDirectoryErrors] = useState<Set<string>>(() => new Set());
@@ -405,7 +406,6 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
 
   const loadRoot = useCallback(async () => {
     const generation = ++generationRef.current;
-    setLoadedRootPath(null);
     setLoading(true);
     setError(null);
     setLoadingDirectories(new Set());
@@ -435,7 +435,6 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
     } finally {
       if (mountedRef.current && generation === generationRef.current) {
         setLoading(false);
-        setLoadedRootPath(canonicalDirectoryPath(folderPath));
       }
     }
   }, [folderPath, readWithLatestMetadata]);
@@ -773,31 +772,6 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
     }
   }, [rebasePath, refresh, refreshDirectoriesNow]);
 
-  /** Apply indexed note metadata without rereading a directory or requiring a list card. */
-  const updateNoteMetadata = useCallback((path: string, memoMeta: NonNullable<DocTreeItem['memoMeta']>) => {
-    const key = canonicalPath(path);
-    if (!isPathAtOrBelow(key, rootKey)) return;
-    noteMetadata.update(key, memoMeta);
-    const patch = (item: DocTreeItem): DocTreeItem => {
-      if (canonicalPath(item.fullPath) === key && item.type === 'document') return { ...item, memoMeta };
-      if (!item.children?.some((child) => canonicalPath(child.fullPath) === key)) return item;
-      return { ...item, children: item.children.map(patch) };
-    };
-    setRootChildren((items) => {
-      const next = items.map(patch);
-      return next.some((item, index) => item !== items[index]) ? next : items;
-    });
-    setNodes((previous) => {
-      if (!previous.has(key)) return previous;
-      const next = new Map(previous);
-      for (const [nodeKey, item] of previous) {
-        const updated = patch(item);
-        if (updated !== item) next.set(nodeKey, updated);
-      }
-      return next;
-    });
-  }, [rootKey]);
-
   const state: FolderTreeState = useMemo(
     () => ({ rootChildren, nodes, expanded, loading, error, loadingDirectories, directoryErrors }),
     [rootChildren, nodes, expanded, loading, error, loadingDirectories, directoryErrors],
@@ -805,7 +779,6 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
 
   return useMemo(() => ({
     ...state,
-    loadedRootPath,
     toggle,
     /** Load a directory's children into `nodes` without touching `expanded`. */
     loadDirectory: loadChildren,
@@ -818,8 +791,7 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
     rebasePath,
     renameFolder,
     ignoreCollectionPathEvents,
-    updateNoteMetadata,
-  }), [updateNoteMetadata,ignoreCollectionPathEvents, loadedRootPath, state, toggle, loadChildren, expandTo, collapseAll, refresh, refreshDirectories, loadRoot, retryDirectory, rebasePath, renameFolder]);
+  }), [ignoreCollectionPathEvents, state, toggle, loadChildren, expandTo, collapseAll, refresh, refreshDirectories, loadRoot, retryDirectory, rebasePath, renameFolder]);
 }
 
 export type FolderTreeController = ReturnType<typeof useFolderTree>;
@@ -830,60 +802,40 @@ export interface VisibleTreeNode {
   depth: number;
 }
 
-/** Flatten all currently loaded items, including items in collapsed folders. */
-export function flattenLoadedTree(
-  state: Pick<FolderTreeState, 'rootChildren' | 'nodes'>,
-): DocTreeItem[] {
-  const out: DocTreeItem[] = [];
-  const seen = new Set<string>();
-  const walkItem = (candidate: DocTreeItem) => {
-    const key = canonicalPath(candidate.fullPath);
-    if (seen.has(key)) return;
-    seen.add(key);
-
-    // Root and parent child arrays contain single-level placeholders. Prefer
-    // the node-table entry so a loaded folder contributes its real children.
-    const item = state.nodes.get(key) ?? candidate;
-    out.push(item);
-    if (item.type === 'folder') {
-      for (const child of item.children ?? []) walkItem(child);
-    }
-  };
-
-  for (const item of state.rootChildren) walkItem(item);
-  // Include any loaded nodes that are temporarily detached while concurrent
-  // watcher refreshes reconcile their parents, without revisiting subtrees.
-  for (const item of state.nodes.values()) walkItem(item);
-  return out;
-}
-
 /**
- * 访问空间渲染要的三张表同源（同一批 tree item），必须一次遍历一起产出：
- * 分开算就是三次全表遍历加三个中间数组，而 `nodes` 每次文件系统事件都会被
- * 整体替换，这条路径一直在跑。
+ * 访问空间要的路径索引：canonical path → node，以及其中的文件夹路径集合。
+ *
+ * 这一遍遍历不能省：`flattenVisibleTree` 下钻用的是「父节点的 children」，
+ * 而不是「子项自己在 `nodes` 里」，所以凡是能被渲染出来的行都必须能查到——
+ * 包括上级 reconcile 还没把子项单独登记的瞬间（拖拽移动、外部改名之后）。
+ * 少索引这类行，症状是行看得见但删不掉、拖不动、改不了名。
+ *
+ * 原来这一遍还顺手产出 `items`（全部已加载项，含收起目录里的），唯一消费方
+ * 是置顶区——它拿到数组后做的正是 `new Map(items.map(...))`，与 `itemByPath`
+ * 逐键等价。消费方改吃 `itemByPath` 后 `items` 已删除，`seen` 集合也并入
+ * `itemByPath.has`：遍历里每个节点只做一次去重判断，不再维护第二套键集。
  */
 export interface NotebookTreeItemIndex {
-  items: DocTreeItem[];
-  itemByPath: Map<string, DocTreeItem>;
-  folderPaths: Set<string>;
+  itemByPath: ReadonlyMap<string, DocTreeItem>;
+  folderPaths: ReadonlySet<string>;
 }
 
 export function buildLoadedTreeIndex(
   state: { rootChildren: readonly DocTreeItem[]; nodes: ReadonlyMap<string, DocTreeItem> },
 ): NotebookTreeItemIndex {
-  const items: DocTreeItem[] = [];
   const itemByPath = new Map<string, DocTreeItem>();
   const folderPaths = new Set<string>();
-  const seen = new Set<string>();
 
   const walk = (candidate: DocTreeItem) => {
-    const key = canonicalPath(candidate.fullPath);
-    if (seen.has(key)) return;
-    seen.add(key);
+    // 落盘路径几乎总是已归一化；只有真带反斜杠/重斜杠/尾斜杠时才走 canonicalPath，
+    // 免掉每个节点两次正则替换。
+    const key = NEEDS_CANONICAL.test(candidate.fullPath)
+      ? canonicalPath(candidate.fullPath)
+      : candidate.fullPath;
+    if (itemByPath.has(key)) return;
 
     // 根与父节点的 children 只是单层占位，真子节点在 nodes 里。
     const item = state.nodes.get(key) ?? candidate;
-    items.push(item);
     itemByPath.set(key, item);
     if (item.type !== 'folder') return;
     folderPaths.add(key);
@@ -892,7 +844,7 @@ export function buildLoadedTreeIndex(
 
   for (const item of state.rootChildren) walk(item);
   for (const item of state.nodes.values()) walk(item);
-  return { items, itemByPath, folderPaths };
+  return { itemByPath, folderPaths };
 }
 
 export type FolderTreeSort = 'createdAt' | 'updatedAt' | 'filenameAsc' | 'filenameDesc';

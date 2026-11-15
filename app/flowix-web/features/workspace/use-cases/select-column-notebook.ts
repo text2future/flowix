@@ -1,4 +1,5 @@
-import { getWorkspaceMemoState, setCurrentWorkspaceNotebook, type Notebook } from '@features/memo/public/workspace-api';
+import { createNotebookNavigationScope } from './notebook-navigation-scope';
+import { type Notebook } from '@features/memo/public/workspace-api';
 import { useWorkspaceSessionStore } from '../store/workspace-session-store';
 import { useBrowserColumnStore } from '../store/browser-column-store';
 import { enqueueBrowserColumnNavigation } from './browser-column-coordinator';
@@ -11,10 +12,15 @@ export async function selectNotebookInSecondColumn(notebook: Notebook): Promise<
   store.updateSession(columnId, (column) => ({ ...column, notebookSwitchesInFlight: column.notebookSwitchesInFlight + 1 }));
   try {
     const result = await enqueueBrowserColumnNavigation(async () => {
-      await setCurrentWorkspaceNotebook(notebook);
-      useBrowserColumnStore.getState().clearContent();
-      getWorkspaceMemoState().setSelectedNotebook(notebook);
-      return true;
+      const scope = createNotebookNavigationScope(() => true, 'column-2');
+      try {
+        await scope.switchTo(notebook.id, 0, notebook);
+        useBrowserColumnStore.getState().clearContent();
+        return true;
+      } catch (error) {
+        await scope.rollback(0);
+        throw error;
+      }
     });
     if (!result) throw new NavigationCancelledError('Notebook switching was cancelled');
   } finally {

@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils';
 import { DIALOG_HEADING_CLASS, DIALOG_OVERLAY_CLASS, DIALOG_SURFACE_CLASS } from './dialog-styles';
 import { DialogCloseButton } from './dialog-close-button';
 import { DialogAppearanceContext } from './dialog-appearance-context';
+export { DialogFooter } from './dialog-footer';
 
 interface DialogContextType {
 	open: boolean;

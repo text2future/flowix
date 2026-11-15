@@ -1,33 +1,17 @@
 /**
- * Bounds the source handed to Markdown tokenizers.
+ * Cuts a tokenizer's input down to the head it actually needs.
  *
- * Every block tokenizer receives the whole remaining document as `src`, and
- * the stock ones keep rescanning it: `start()` hooks search for the next
- * construct, list `tokenize` hooks split the remainder into lines. Both make
- * lexing O(blocks × document) — measured at roughly a third of lexing time on a
- * 200 KB note with ~2k blocks, and 5.8 s on 400 KB of short lists.
- *
- * `start` hooks only need the head of the string: a block construct always
- * starts a line, and paragraphs end at the next blank line long before the
- * window is exhausted (generous enough that even a long single paragraph cannot
- * hide a construct from it). `tokenize` hooks need the block, not the document,
- * which `limitToBlockHead` provides.
+ * 扫描窗口与 `scanHead` / `boundedIndexOf` / `boundedSearch` 已经下沉到
+ * `@/lib/bounded-source`：声明 markdown 节点的别的 feature 也要用它们，不该
+ * 为此依赖 editor。这里只保留「块头裁剪」这条编辑器特有的规则，并转发那几个
+ * 纯字符串工具，避免内部几十处导入一起改。
  */
-export const MARKDOWN_START_SCAN_WINDOW = 2048;
-
-export function scanHead(src: string): string {
-  return src.length > MARKDOWN_START_SCAN_WINDOW
-    ? src.slice(0, MARKDOWN_START_SCAN_WINDOW)
-    : src;
-}
-
-export function boundedIndexOf(src: string, needle: string): number {
-  return scanHead(src).indexOf(needle);
-}
-
-export function boundedSearch(src: string, pattern: RegExp | string): number {
-  return scanHead(src).search(pattern);
-}
+export {
+  MARKDOWN_START_SCAN_WINDOW,
+  boundedIndexOf,
+  boundedSearch,
+  scanHead,
+} from '@/lib/bounded-source';
 
 const INDENTED_LINE_RE = /^\s/;
 

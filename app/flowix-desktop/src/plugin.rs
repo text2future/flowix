@@ -773,7 +773,8 @@ pub fn write_output(
 
 #[cfg(test)]
 mod tests {
-    use super::manifest::PluginField;
+    use flowix_plugin_runtime::PluginField;
+
     use super::{
         clean_markdown, is_relative_plugin_path, parse_html, parse_json, parse_mindmap_markdown,
         read_plugin_as, read_plugin_source, valid_plugin_id, validate_manifest, PluginManifest,

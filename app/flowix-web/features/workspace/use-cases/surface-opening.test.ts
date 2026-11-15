@@ -34,7 +34,7 @@ vi.mock('./workspace-content-activation', () => ({
 }));
 vi.mock('@platform/tauri/client', () => ({ collections: {}, notebooks: {} }));
 
-import { openWorkspaceSurface } from './surface-opening';
+import { openWorkspaceSurface, openPreparedWorkspaceSurface } from './surface-opening';
 import { NavigationCancelledError } from '@/lib/navigation-cancelled-error';
 
 describe('public surface opening host contract', () => {
@@ -174,6 +174,27 @@ describe('public surface opening host contract', () => {
     } finally {
       debug.mockRestore();
     }
+  });
+
+  it('cancels slow target resolution when a later navigation has opened', async () => {
+    let finish!: (value: { target: typeof target }) => void;
+    const first = openPreparedWorkspaceSurface({ host: 'column-1', target },
+      () => new Promise((resolve) => { finish = resolve; }));
+    expect(canSwapSessions(useWorkspaceSessionStore.getState().sessions)).toBe(false);
+    const next = { ...target, path: '/notes/newer.md' };
+    await openWorkspaceSurface({ host: 'column-1', target: next });
+    finish({ target });
+    await expect(first).resolves.toMatchObject({ status: 'cancelled' });
+    expect(mocks.openWork).toHaveBeenCalledTimes(1);
+    expect(mocks.openWork).toHaveBeenCalledWith(next.path, expect.anything());
+  });
+
+  it('releases the preparation intent when target resolution fails', async () => {
+    await expect(openPreparedWorkspaceSurface({ host: 'column-1', target }, async () => {
+      throw new Error('resolution failed');
+    })).rejects.toThrow('resolution failed');
+    expect(canSwapSessions(useWorkspaceSessionStore.getState().sessions)).toBe(true);
+    expect(mocks.openWork).not.toHaveBeenCalled();
   });
 
 });

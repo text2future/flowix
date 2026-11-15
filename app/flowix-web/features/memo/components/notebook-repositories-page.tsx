@@ -10,6 +10,8 @@ import { AgentRepositoriesSection } from './notebook-repositories-section';
 interface NotebookRepositoriesPageProps {
   open: boolean;
   repositories: WorkspaceAgentRepository[];
+  expandRepositoryPath?: string | null;
+  expandRepositoryRequestId?: number;
   introEnabled: boolean;
   canAddRepository: boolean;
   onBack: () => void;
@@ -22,6 +24,8 @@ interface NotebookRepositoriesPageProps {
 export function NotebookRepositoriesPage({
   open,
   repositories,
+  expandRepositoryPath,
+  expandRepositoryRequestId,
   introEnabled,
   canAddRepository,
   onBack,
@@ -77,21 +81,21 @@ export function NotebookRepositoriesPage({
       data-page-active={open}
       inert={!open}
       aria-hidden={!open}
-      aria-label={t('memo.fileTree.repositoriesTitle')}
+      aria-label={t('memo.fileTree.repositoriesListTitle')}
     >
-      <div className="flex items-center justify-between gap-2 px-3 pb-2">
-        <div className="flex min-w-0 flex-1 items-center gap-2">
+      <div className="flex items-center justify-between gap-2 px-3 pt-2">
+        <div className="flex min-w-0 flex-1 items-center">
           <button
             type="button"
             onClick={onBack}
             aria-label={t('memo.navigation.backToFileTree')}
             title={t('memo.navigation.backToFileTree')}
-            className="group flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-xl border border-[var(--border)] bg-transparent p-0 text-sm text-[var(--foreground)] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)]"
+            className="group flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-xl bg-transparent p-0 text-sm text-[var(--foreground)] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)]"
           >
-            <ChevronLeft className="h-4 w-4 transition-[filter] duration-150 group-hover:brightness-125" aria-hidden="true" />
+            <ChevronLeft className="-translate-x-[3px] h-4 w-4 transition-[filter] duration-150 group-hover:brightness-125" aria-hidden="true" />
           </button>
-          <span className="text-sm font-medium">{t('memo.fileTree.repositoriesTitle')}</span>
-          <span className="text-xs text-[var(--muted-foreground)]">{repositories.length}</span>
+          <span className="-ml-1 text-sm font-medium">{t('memo.fileTree.repositoriesListTitle')}</span>
+          <span className="ml-2 text-xs text-[var(--muted-foreground)]">{repositories.length}</span>
         </div>
         <button
           type="button"
@@ -107,6 +111,8 @@ export function NotebookRepositoriesPage({
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         <AgentRepositoriesSection
           repositories={repositories}
+          expandRepositoryPath={expandRepositoryPath}
+          expandRepositoryRequestId={expandRepositoryRequestId}
           introEnabled={introEnabled}
           order={1}
           onHeightChange={() => {}}

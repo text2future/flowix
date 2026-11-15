@@ -156,14 +156,21 @@
 
 // Data bridge for embedded local HTML previews. Activates under the same
 // conditions as the link bridge above (sandboxed asset frames only). Exposes
-// window.flowix.{request,render,onData,data} plus the data-fx-* declarative
-// template syntax resolved from <meta name="flowix-data" content="...">.
+// window.flowix.{protocol,version,request,render,onData,onInvalidate,data} plus
+// the data-fx-* declarative template syntax resolved from
+// <meta name="flowix-data" content="...">. The published contract is
+// docs/EMBEDDED-HTML-API.md; capability names are defined once in
+// app/flowix-web/lib/html-embed-api.ts and asserted against this file.
 (() => {
   if (window === window.parent) return;
   const url = new URL(location.href);
   const local = (url.protocol === 'asset:' && url.hostname === 'localhost')
     || (['http:', 'https:'].includes(url.protocol) && url.hostname === 'asset.localhost');
   if (!local) return;
+
+  // Mirrored from @/lib/html-embed-api; html-embed-api.test.ts asserts both.
+  const PROTOCOL = 'flowix.embed';
+  const VERSION = 1;
 
   const pending = new Map();
   const pendingTemplateInstalls = new Map();
@@ -172,19 +179,28 @@
   const isRecord = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
   const post = (message) => window.parent.postMessage(message, '*');
 
+  const requestError = (code, message) => Object.assign(new Error(message), { code });
   const request = (kind, params) => {
-    if (typeof kind !== 'string' || !kind) return Promise.reject(new Error('kind is required'));
-    if (pending.size >= 16) return Promise.reject(new Error('too many inflight data requests'));
+    if (typeof kind !== 'string' || !kind) return Promise.reject(requestError('E_INVALID', 'kind is required'));
+    if (pending.size >= 16) return Promise.reject(requestError('E_BUSY', 'too many inflight data requests'));
     const requestId = `fx-${Date.now().toString(36)}-${++sequence}`;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
-        if (pending.delete(requestId)) reject(new Error('data request timeout'));
-      }, 15000);
+        if (pending.delete(requestId)) reject(requestError('E_TIMEOUT', 'data request timeout'));
+      }, (kind === 'create-note' || kind === 'select-note-images' || kind === 'upload-note-image') ? 300000 : 15000);
       pending.set(requestId, {
         resolve: (value) => { clearTimeout(timer); resolve(value); },
         reject: (error) => { clearTimeout(timer); reject(error); },
       });
-      post({ type: 'flowix:local-html-data-request', url: location.href, requestId, kind, params: params ?? null });
+      post({
+        type: 'flowix:local-html-data-request',
+        url: location.href,
+        protocol: PROTOCOL,
+        version: VERSION,
+        requestId,
+        kind,
+        params: params ?? null,
+      });
     });
   };
 
@@ -241,13 +257,24 @@
       const entry = pending.get(data.requestId);
       if (!entry) return;
       pending.delete(data.requestId);
-      if (data.ok) entry.resolve(data.payload);
-      else entry.reject(new Error(typeof data.error === 'string' ? data.error : 'data request failed'));
+      if (data.ok) {
+        entry.resolve(data.payload);
+      } else {
+        const error = new Error(typeof data.error === 'string' ? data.error : 'data request failed');
+        // Codes are stable across versions; the message is for humans only.
+        error.code = typeof data.code === 'string' ? data.code : 'E_INTERNAL';
+        entry.reject(error);
+      }
     } else if (data?.type === 'flowix:local-html-data-changed') {
       const kinds = Array.isArray(data.kinds)
-        ? new Set(data.kinds.filter((kind) => typeof kind === 'string'))
+        ? data.kinds.filter((kind) => typeof kind === 'string')
         : null;
-      void refreshAuto(kinds);
+      // Auto-pulled kinds re-fetch below, but a page that reads rows with its
+      // own `request('view-data')` calls has to ask again itself.
+      invalidateListeners.forEach((listener) => {
+        try { listener({ kinds }); } catch { /* page errors stay local */ }
+      });
+      void refreshAuto(kinds ? new Set(kinds) : null);
     }
   });
 
@@ -288,6 +315,9 @@
     // fragments are bound with their item scope merged over the outer scopes.
     fragment.querySelectorAll('template[data-fx-each]').forEach((tpl) => {
       const list = lookup(tpl.getAttribute('data-fx-each'));
+      // Nested loops need a distinct name: with the default `item`, an inner
+      // loop would shadow the outer item and make the parent unreachable.
+      const alias = (tpl.getAttribute('data-fx-as') ?? '').trim() || 'item';
       let node = tpl.nextElementSibling;
       while (node && node.hasAttribute('data-fx-rendered')) {
         const next = node.nextElementSibling;
@@ -298,7 +328,7 @@
       let cursor = tpl;
       for (const item of list.slice(0, 200)) {
         const clone = tpl.content.cloneNode(true);
-        bind(clone, { ...local, item }, root);
+        bind(clone, { ...local, [alias]: item }, root);
         let child = clone.firstElementChild;
         while (child) {
           child.setAttribute('data-fx-rendered', '');
@@ -323,6 +353,17 @@
       const value = lookup(declaration.slice(split + 1));
       if (name) el.setAttribute(name, value == null ? '' : String(value));
     });
+    // `style` cannot be composed through data-fx-attr (it would replace the
+    // whole declaration, e.g. style="62%"). This sets one CSS property.
+    fragment.querySelectorAll('[data-fx-style]').forEach((el) => {
+      if (el.closest('[data-fx-rendered]')) return;
+      const declaration = String(el.getAttribute('data-fx-style') ?? '');
+      const split = declaration.indexOf(':');
+      if (split <= 0) return;
+      const property = declaration.slice(0, split).trim();
+      const value = lookup(declaration.slice(split + 1));
+      if (property) el.style.setProperty(property, value == null ? '' : String(value));
+    });
     fragment.querySelectorAll('[data-fx-if]').forEach((el) => {
       if (el.closest('[data-fx-rendered]')) return;
       el.hidden = !evaluate(el.getAttribute('data-fx-if'), lookup);
@@ -332,6 +373,7 @@
   const render = (root) => bind(document, {}, isRecord(root) ? root : {});
 
   const listeners = new Set();
+  const invalidateListeners = new Set();
   let autoSources = [];
   let lastRoot = null;
   const refreshAuto = async (changedKinds = null) => {
@@ -350,6 +392,8 @@
   };
 
   window.flowix = {
+    protocol: PROTOCOL,
+    version: VERSION,
     request,
     installTemplate,
     openSkillMarketView,
@@ -357,6 +401,15 @@
     onData: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
+    },
+    /**
+     * Fires when notebook data changed underneath the page. Only auto-pulled
+     * kinds re-fetch by themselves; pages that read rows imperatively must
+     * refresh inside this callback. `kinds` is null when the host did not say.
+     */
+    onInvalidate: (listener) => {
+      invalidateListeners.add(listener);
+      return () => invalidateListeners.delete(listener);
     },
     get data() { return lastRoot; },
   };
@@ -385,5 +438,6 @@
     pendingMarketViews.forEach((entry) => entry.reject(new Error('page unloaded')));
     pendingMarketViews.clear();
     listeners.clear();
+    invalidateListeners.clear();
   }, { once: true });
 })();

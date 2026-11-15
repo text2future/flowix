@@ -1,0 +1,105 @@
+.mcp-supported-agent-icon {
+	display: inline-flex;
+	width: 18px;
+	height: 18px;
+	align-items: center;
+	justify-content: center;
+	flex: 0 0 18px;
+}
+
+.mcp-supported-agent-icon__image,
+.mcp-supported-agent-icon__mask {
+	width: 18px;
+	height: 18px;
+	object-fit: contain;
+}
+
+.mcp-supported-agent-icon__mask {
+	display: none;
+}
+
+:is([data-theme="dark"], [data-theme="mist"]) .mcp-supported-agent-icon[data-agent-icon="chatgpt"] .mcp-supported-agent-icon__image,
+:is([data-theme="dark"], [data-theme="mist"]) .mcp-supported-agent-icon[data-agent-icon="hermes"] .mcp-supported-agent-icon__image {
+	display: none;
+}
+
+:is([data-theme="dark"], [data-theme="mist"]) .mcp-supported-agent-icon[data-agent-icon="chatgpt"] .mcp-supported-agent-icon__mask,
+:is([data-theme="dark"], [data-theme="mist"]) .mcp-supported-agent-icon[data-agent-icon="hermes"] .mcp-supported-agent-icon__mask {
+	display: block;
+	background-color: var(--foreground);
+	mask-position: center;
+	mask-repeat: no-repeat;
+	mask-size: contain;
+}
+
+.theme-card__preview-surface {
+	background: var(--theme-preview-surface);
+	border-color: var(--theme-preview-accent);
+}
+
+.theme-card__preview-accent {
+	background: var(--theme-preview-accent);
+}
+
+.theme-card__preview-primary {
+	background: var(--theme-preview-primary);
+}
+
+.theme-card__preview-system-icon {
+	color: var(--theme-preview-primary);
+}
+
+.theme-card__preview-system-split {
+	background: linear-gradient(135deg, #ffffff 0%, #ffffff 50%, #0e1014 50%, #0e1014 100%);
+}
+
+:is([data-theme="dark"], [data-theme="mist"]) .theme-card__preview-surface {
+	background: color-mix(in oklch, var(--theme-preview-surface) 72%, var(--background));
+	border-color: color-mix(in oklch, var(--theme-preview-accent) 68%, var(--background));
+}
+
+:is([data-theme="dark"], [data-theme="mist"]) .theme-card__preview-accent {
+	background: color-mix(in oklch, var(--theme-preview-accent) 68%, var(--background));
+}
+
+:is([data-theme="dark"], [data-theme="mist"]) .theme-card__preview-primary {
+	background: color-mix(in oklch, var(--theme-preview-primary) 78%, var(--background));
+}
+
+:is([data-theme="dark"], [data-theme="mist"]) .theme-card__preview-system-icon {
+	color: color-mix(in oklch, var(--theme-preview-primary) 78%, var(--background));
+}
+
+:is([data-theme="dark"], [data-theme="mist"]) .theme-card__preview-system-split {
+	background: linear-gradient(
+		135deg,
+		color-mix(in oklch, white 76%, var(--background)) 0%,
+		color-mix(in oklch, white 76%, var(--background)) 50%,
+		var(--background) 50%,
+		var(--background) 100%
+	);
+}
+
+/* 深色 / Mist 主题卡片: 整卡按主题自身深色背景渲染, 骨架线改白色形式。
+ * 置于上方 dark 覆盖之后, 同优先级下后写胜出, 应用深浅模式下表现一致。 */
+[data-theme-preview-dark='true'] .theme-card__preview-accent {
+	background: color-mix(in oklch, #ffffff 14%, transparent);
+}
+
+[data-theme-preview-dark='true'] .theme-card__preview-surface {
+	background: color-mix(in oklch, #ffffff 7%, var(--theme-preview-surface));
+	border-color: color-mix(in oklch, #ffffff 18%, transparent);
+}
+
+
+
+/* 中间列顶部的产品图标: 深色模式使用单色白版，保留 PNG 的透明背景。 */
+:is([data-theme="dark"], [data-theme="mist"]) .product-icon {
+	filter: brightness(0) invert(0.82);
+}
+
+.memo-list-view-tab-icon > svg {
+	display: block;
+	height: 100%;
+	width: 100%;
+}

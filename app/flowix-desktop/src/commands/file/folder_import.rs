@@ -1,4 +1,15 @@
-use super::*;
+use std::fs;
+use std::path::Path;
+
+use tauri::{State, WebviewWindow};
+
+use super::mutate::{file_mutation_error, target_directory_error};
+use super::tree::is_browsable_scope;
+use crate::app::state::AppState;
+use crate::commands::helpers::{
+    can_access_document_path, can_access_scoped_file, FileOperationFailure,
+};
+use crate::lock_utils::read_lock;
 
 const MAX_IMPORT_FOLDER_FILES: usize = 2_000;
 const MAX_IMPORT_FOLDER_ENTRIES: usize = 5_000;
@@ -92,7 +103,7 @@ pub async fn import_folder(
             if !entry.file_type().is_file() {
                 continue;
             }
-            if is_cloud_file_not_downloaded(entry.path()) {
+            if flowix_core::file_copy::is_cloud_file_not_downloaded(entry.path()) {
                 return Err(FileOperationFailure::code("CLOUD_FILE_NOT_DOWNLOADED"));
             }
             let size = entry

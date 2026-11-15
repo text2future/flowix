@@ -93,7 +93,7 @@ import { createFolderCollectionContent } from '@features/collection/folder-colle
 import type { Notebook } from '@features/memo/store/note-store';
 
 vi.mock('@features/memo/components/use-folder-tree', () => ({
-  useFolderTree: () => ({ nodes: [], refresh: vi.fn(), refreshDirectories: vi.fn(), reload: vi.fn(), updateNoteMetadata: vi.fn() }),
+  useFolderTree: () => ({ nodes: [], refresh: vi.fn(), refreshDirectories: vi.fn(), reload: vi.fn() }),
 }));
 // Render only the tree selection boundary; row selection/keyboard behavior has
 // its own tests. Parent callbacks and all navigation/store logic remain real.

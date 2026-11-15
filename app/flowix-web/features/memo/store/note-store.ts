@@ -226,7 +226,6 @@ export interface NoteLibraryStore {
   reorderNotebooks: (nextOrderIds: string[]) => Promise<void>;
   setMiddleColumnView: (view: MiddleColumnView) => void;
   setActiveFilter: (filter: ExtendedFilterType) => void;
-  setActiveCustomFilter: (filterId: string | null) => void;
   setActivePluginId: (pluginId: string | null) => void;
   setActiveSort: (sort: SortType) => void;
   setColorFilter: (color: ColorFilterValue) => void;
@@ -295,6 +294,28 @@ function currentNoteQueryKey(state: NoteLibraryStore): string {
     state.activeFilter === 'custom' ? state.activeCustomFilterId : null,
     state.dataConditionsByNotebook?.[state.selectedNotebook?.id ?? ''],
   );
+}
+
+/**
+ * The list query implied by the current filter state. Loading the list and
+ * deciding whether a freshly created note belongs in it must agree, so both
+ * go through this builder instead of re-deriving the fields at each call site.
+ */
+function currentListQuery(
+  state: NoteLibraryStore,
+  notebookId: string,
+): MemoListPageQuery & { notebookId: string } {
+  const filter = state.activeFilter;
+  return {
+    notebookId,
+    filter,
+    sort: state.activeSort,
+    tagId: filter === 'tagged' ? useTagStore.getState().selectedTagId ?? undefined : undefined,
+    color: filter === 'color' ? state.colorFilter : undefined,
+    pluginId: state.activePluginId,
+    customFilterId: filter === 'custom' ? state.activeCustomFilterId : null,
+    dataCondition: state.dataConditionsByNotebook?.[notebookId] ?? null,
+  };
 }
 
 function getCustomFilter(notebookId: string, filterId: string | null): CustomFilter | null {
@@ -565,22 +586,6 @@ export const useNoteStore = create<NoteLibraryStore>()(
           useTagStore.getState().setSelectedTagId(null);
         }
       },
-      setActiveCustomFilter: (filterId) => {
-        if (!filterId) {
-          get().setActiveFilter('all');
-          return;
-        }
-        const filter = useCustomFilterStore.getState().filtersByNotebook[get().selectedNotebook?.id ?? '']
-          ?.find((item) => item.id === filterId);
-        if (!filter) return;
-        useTagStore.getState().setSelectedTagId(null);
-        set({
-          middleColumnView: 'notes',
-          activeFilter: 'custom',
-          activeCustomFilterId: filterId,
-          activePluginId: null,
-        });
-      },
       setActivePluginId: (pluginId) => set({
         activePluginId: pluginId,
       }),
@@ -696,21 +701,12 @@ export const useNoteStore = create<NoteLibraryStore>()(
         const state = get();
         if (state.selectedNotebook?.id !== created.notebookId || state.activePluginId) return;
         const note = toNoteListItem(created.entry, created.notebookId);
-        const filter = state.activeFilter;
-        const dataCondition = state.dataConditionsByNotebook?.[created.notebookId];
-        if (!matchesMemoDataCondition(note, dataCondition)) return;
-        if (filter === 'favorited' && !note.favorited) return;
-        if (filter === 'todos' && note.todos.length === 0) return;
-        if (filter === 'agents' && note.agents.length === 0) return;
-        if (filter === 'tagged') {
-          const tag = useTagStore.getState().selectedTagId;
-          if (!tag || !note.tags.some((value) => value === tag || value.startsWith(`${tag}/`))) return;
-        }
-        if (filter === 'custom') {
-          const customFilter = useCustomFilterStore.getState().filtersByNotebook[created.notebookId]
-            ?.find((item) => item.id === state.activeCustomFilterId);
-          if (!customFilter || !memoMatchesCustomFilter(note, customFilter)) return;
-        }
+        // Same predicate as the list loader. The hand-written copy that used to
+        // live here drifted: it had no color / thisWeek / thisMonth branches, so
+        // those filters admitted notes that the list itself would never show.
+        const query = currentListQuery(state, created.notebookId);
+        const customFilter = getCustomFilter(created.notebookId, query.customFilterId);
+        if (!matchesMemoListQuery(note, query, customFilter)) return;
         invalidatePendingMemoLoads();
         set((current) => {
           const remaining = current.notes.filter((item) => (

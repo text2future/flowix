@@ -1,6 +1,33 @@
 use super::*;
 use std::sync::{Arc, Barrier};
 
+/// 原子写产生的临时文件名必须被展示过滤挡掉。
+///
+/// `atomic_write_bytes` 在目标目录里创建临时文件，`persist` 之后才成为目标
+/// 文件；在这中间它真实存在于磁盘上，会出现在目录列举和原生文件事件里。
+/// 它现在靠 `HIDDEN_FILE_PATTERNS` 的点文件规则隐藏，而不是靠任何专门特判。
+///
+/// 这里断言的是**写盘实现与过滤规则之间的契约**，不是某个写死的名字：如果
+/// `tempfile` 改了默认前缀，或者有人从名单里删掉 `.*`，这条会先炸，而不是等
+/// 用户看见文件树里闪一下 `.tmpAbC123`。
+#[test]
+fn atomic_write_temporary_names_stay_hidden_from_the_tree() {
+    use crate::memo_file::file_rules::matches_hidden_file_pattern;
+
+    let directory = tempfile::tempdir().unwrap();
+    let temporary = tempfile::NamedTempFile::new_in(directory.path()).unwrap();
+    let name = temporary
+        .path()
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    assert!(
+        matches_hidden_file_pattern(&name),
+        "原子写的临时文件 {name:?} 会被画进文件树——它必须命中 HIDDEN_FILE_PATTERNS"
+    );
+}
+
 #[test]
 fn creating_an_existing_file_preserves_its_bytes() {
     let directory = tempfile::tempdir().unwrap();

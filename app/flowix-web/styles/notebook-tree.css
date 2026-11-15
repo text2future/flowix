@@ -1,0 +1,227 @@
+/* Keep section headers in their hover state while the reorder menu is open. */
+.notebook-file-tree__section-header:has(
+	.notebook-file-tree__section-more-trigger[data-state='open']
+) {
+	background: var(--muted);
+}
+
+.notebook-file-tree__section-more-trigger[data-state='open'] {
+	opacity: 1;
+}
+
+/* 资料文件树的子树展开/收起: 用 grid 行高从 0fr 过渡到 1fr。
+ * 收起时由渲染层卸载子节点，避免隐藏分支继续参与 React 更新和布局。 */
+.folder-file-tree__subtree {
+	display: grid;
+	grid-template-rows: 0fr;
+	transition: grid-template-rows 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.folder-file-tree__subtree[data-expanded='true'] {
+	grid-template-rows: 1fr;
+}
+
+/* 空目录也保留所属 folder group，供拖放命中和背景高亮使用；但不让没有
+ * 子项的 subtree 参与展开动画，避免子列表留白导致 2px 的高度闪动。 */
+.folder-file-tree__subtree[data-empty='true'] {
+	grid-template-rows: 0fr;
+	transition: none;
+}
+
+.folder-file-tree__subtree[data-empty='true'] .folder-file-tree__subtree-items {
+	padding-top: 0;
+	animation: none;
+}
+
+/* 拖入提示与树行的 hover / 选中态统一用 --muted 实色: 靠「整段文件夹+
+ * 后代变灰」与单行选中区分。用语义类承载颜色, 测试只断言类名。 */
+.notebook-file-tree__drop-hint {
+	background-color: var(--muted);
+}
+
+/* 拖放到文件夹时, 背景只覆盖与文件夹行相同的左右范围。
+ * 使用绝对定位的伪元素, 不改变子项自身按 depth 计算的布局位置。
+ * 实色底必须画在行之下(z-index 0 < 行的 1), 否则会盖住行的文字。 */
+.folder-file-tree__group[data-drag-over='true']::before {
+	position: absolute;
+	top: 0;
+	right: var(--folder-file-tree-drop-right);
+	bottom: 0;
+	left: var(--folder-file-tree-drop-left);
+	z-index: 0;
+	border-radius: 0.5rem;
+	background: var(--muted);
+	content: '';
+	pointer-events: none;
+}
+
+/* The notebook tree uses a flat virtual row model. Its drop background is a
+ * separate absolute range spanning the target folder and loaded descendants,
+ * so the legacy nested-group pseudo element must not paint the first row a
+ * second time. The generic FolderFileTree keeps the nested behavior above. */
+.notebook-file-tree__virtual-items
+	.folder-file-tree__group[data-drag-over='true']::before {
+	display: none;
+}
+
+.folder-file-tree__group[data-drag-over='true'] > .folder-file-tree__item,
+.folder-file-tree__group[data-drag-over='true'] > .folder-file-tree__subtree {
+	z-index: 1;
+}
+
+.notebook-file-tree--dragging,
+.notebook-file-tree--dragging * {
+	cursor: default !important;
+}
+
+/* 拖拽预览是源行的克隆, 挂在 body 上: 与行等宽等高、共用同一份图标与选中态,
+ * 只额外补一层侧边栏底色、无 Y 偏移的柔和投影、0.6 不透明度和多选数量角标。 */
+.notebook-file-tree__drag-preview {
+	position: fixed;
+	left: 0;
+	top: 0;
+	z-index: 2147483647;
+	box-sizing: border-box;
+	pointer-events: none;
+	border-radius: 8px;
+	background: var(--list-bg);
+	box-shadow: 0 0 9px -3px rgb(0 0 0 / 16%);
+	opacity: 0.6;
+	transform: translate3d(0, 0, 0);
+	will-change: transform;
+}
+
+/* 克隆出来的行不会处于 :hover, 手动补上与树行 hover / 选中态相同的背景。 */
+.notebook-file-tree__drag-preview > .folder-file-tree__item {
+	background-color: var(--muted);
+}
+
+.notebook-file-tree__drag-preview-count {
+	position: absolute;
+	right: -8px;
+	top: -8px;
+	display: inline-flex;
+	min-width: 18px;
+	height: 18px;
+	align-items: center;
+	justify-content: center;
+	padding: 0 5px;
+	border-radius: 9px;
+	background: var(--brand);
+	color: var(--primary-foreground);
+	font-size: 11px;
+	line-height: 1;
+	box-shadow: 0 0 0 2px var(--list-bg);
+}
+
+.notebook-file-tree__default-file-icon {
+	opacity: 0.6;
+}
+
+.notebook-file-tree__item--moving {
+	opacity: 0.62;
+}
+
+.notebook-file-tree__item--move-success {
+	animation: notebook-file-tree-move-success 420ms ease-out both;
+}
+
+.notebook-file-tree__moving-indicator {
+	display: block;
+	width: 0.75rem;
+	height: 0.75rem;
+	border: 1.5px solid color-mix(in srgb, var(--brand) 34%, transparent);
+	border-top-color: var(--brand);
+	border-radius: 999px;
+	--flowix-spin-duration: 700ms;
+}
+
+@keyframes notebook-file-tree-move-success {
+	from {
+		box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand) 28%, transparent);
+	}
+	to {
+		box-shadow: 0 0 0 0 transparent;
+	}
+}
+
+.folder-file-tree__subtree-inner {
+	position: relative;
+	min-height: 0;
+	overflow: hidden;
+}
+
+/* 每个展开目录拥有自己的层级引导线。位置由渲染层按目录 depth 写入，
+ * 因而嵌套目录展开后会保留所有祖先层级的线，而不会依赖固定层数。 */
+.folder-file-tree__subtree[data-expanded='true'] > .folder-file-tree__subtree-inner::before {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	left: var(--folder-file-tree-guide-left);
+	width: 1px;
+	background: color-mix(in srgb, var(--border) 72%, transparent);
+	content: '';
+	pointer-events: none;
+	transition: background-color 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* hover 直接子 item 时, 提亮该 item 所在列表(子树)左侧的层级引导线。
+ * 用 --foreground 而非主题色: 浅色主题为黑、深色主题为白。 */
+.folder-file-tree__subtree-inner:has(
+	> .folder-file-tree__subtree-items > .folder-file-tree__item:hover,
+	> .folder-file-tree__subtree-items > .folder-file-tree__group > .folder-file-tree__item:hover
+)::before {
+	background: color-mix(in srgb, var(--foreground) 18%, transparent);
+}
+
+.folder-file-tree__subtree-items {
+	padding-top: 0.125rem;
+	animation: folder-file-tree-subtree-in 180ms ease-out both;
+}
+
+/* 笔记树的 root 与 folder 子列表统一使用 1px 行间距。 */
+.folder-file-tree__items > .folder-file-tree__item:not(:first-child),
+.folder-file-tree__items > .folder-file-tree__group:not(:first-child),
+.folder-file-tree__subtree-items > .folder-file-tree__item:not(:first-child),
+.folder-file-tree__subtree-items > .folder-file-tree__group:not(:first-child) {
+	margin-top: 1px;
+}
+
+.folder-file-tree__subtree[data-expanded='false'] .folder-file-tree__subtree-items {
+	animation: none;
+}
+
+@keyframes folder-file-tree-subtree-in {
+	from {
+		opacity: 0;
+		transform: translateY(-3px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.folder-file-tree__subtree {
+		transition-duration: 0ms;
+	}
+
+	.folder-file-tree__subtree-items {
+		animation: none;
+	}
+
+	.folder-file-tree__subtree[data-expanded='true'] > .folder-file-tree__subtree-inner::before {
+		transition-duration: 0ms;
+	}
+
+	.notebook-file-tree__moving-indicator {
+		animation: none;
+		opacity: 0.7;
+	}
+
+	.notebook-file-tree__item--move-success {
+		animation: none;
+		box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand) 20%, transparent);
+	}
+}

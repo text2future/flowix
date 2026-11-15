@@ -4,10 +4,6 @@
 
 <!-- Codex write-access test: 2026-09-10 -->
 
-<p align="center">
-  <img src="./docs/images/app-icon.png" width="120" alt="Flowix" />
-</p>
-
 <h1 align="center">Notes for you,<br />Memory for your agents.</h1>
 
 <p align="center"><strong>The Markdown notebook where your words seamlessly become durable context for AI agents.</strong></p>
@@ -22,9 +18,6 @@
   <a href="https://flowix-memo.com/docs/"><b>Docs</b></a>
 </p>
 
----
-
-<img src="./docs/images/readme-introduce.gif" width="100%" alt="Flowix" />
 
 ## Flowix turns notes into working memory
 

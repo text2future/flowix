@@ -79,6 +79,8 @@ export interface MarkdownLocation {
   relativePath: string | null;
   notebookPath: string | null;
   indexable: boolean;
+  /** Actual path type; null means metadata could not be read. Older hosts omit it. */
+  isDirectory?: boolean | null;
 }
 
 export interface NoteTitleFilter {
@@ -130,6 +132,12 @@ export interface PathArchiveSummary {
 
 /** Path-identified Markdown operations. Existing IPC command names remain adapters. */
 export const notes = {
+  createFromHtml: (notebookId: string, pagePath: string, parentRelativePath: string, content: string, clientRequestId: string, images: string[] = []) =>
+    invoke<string>('create_html_note', { notebookId, pagePath, parentRelativePath, content, clientRequestId, images })
+      .then((relativePath) => {
+        publishNotebookPathCreated({ notebookId, relativePath });
+        return relativePath;
+      }),
   resolveLocation: (filePath: string) =>
     invoke<MarkdownLocation>('resolve_markdown_location', { filePath }),
   readDocument: (filePath: string) => invoke<string | null>('read_document', { filePath }),

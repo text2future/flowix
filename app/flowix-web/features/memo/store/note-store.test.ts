@@ -91,6 +91,33 @@ describe('note store list loading', () => {
     ]);
   });
 
+  it('skips a created note that the active color filter excludes', () => {
+    // 回归：这里曾手写一份缩水过滤分支（缺 color / thisWeek / thisMonth），
+    // 于是颜色筛选下新建的无色笔记会被直接插进列表。
+    useNoteStore.setState({
+      selectedNotebook: {
+        id: 'notebook-1', name: 'Book', path: '/book', createdAt: 0, updatedAt: 0, isDefault: false,
+      },
+      activeFilter: 'color',
+      colorFilter: 'any',
+      notes: [],
+    });
+
+    useNoteStore.getState().upsertCreatedNote({
+      notebookId: 'notebook-1',
+      relativePath: 'plain.md',
+      path: '/book/plain.md',
+      initialContent: '',
+      entry: {
+        relativePath: 'plain.md', title: 'plain', preview: '', thumbnail: null,
+        tags: [], todos: [], agents: [], createdAt: 1, updatedAt: 1,
+        favorited: false, icon: null, colors: [], properties: {},
+      },
+    });
+
+    expect(useNoteStore.getState().notes).toHaveLength(0);
+  });
+
   it('keeps a missing index as pending without treating it as an empty result', async () => {
     useNotebookBackgroundStore.setState({ statuses: {} });
     mocks.listByPath.mockRejectedValue(new Error('NOTE_INDEX_PENDING'));

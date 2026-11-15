@@ -98,12 +98,9 @@
 	--bg-titlebar: oklch(0.982 0.004 var(--neutral-hue));
 	/* 文档: 纯白纸面。 */
 	--document-bg: oklch(1 0 0);
-	--document-foreground: oklch(0.30 0.008 var(--neutral-hue));
+	--document-foreground: var(--foreground);
 	/* 链接: 与 v1 同值, 不动 ── 链接需要饱和色, 在近白底上对比 ~5:1 AA。 */
 	--document-link: oklch(0.55 0.180 var(--brand-hue));
-	/* 高亮: hue 78 暖琥珀 + chroma 0.070 (从 v1 0.110 降) ── 在白底上读作
-	 * "日光奶油高亮", 比 v1 更克制不抢 brand 焦点。 */
-	--document-highlight-bg: oklch(0.94 0.070 78);
 	/* 标签: 中性浅灰, 不带 brand 色相。 */
 	--document-tag-bg: oklch(0.90 0 0);
 	/* 标签文字: 直接接 --foreground, 与正文同色 ── 让 tag 读作"被高亮背景
@@ -152,7 +149,7 @@
 	--warning: oklch(0.80 0.105 75);
 	/* 信息提示: 在 ember 暖白底上读作 "冷锚点", 跟珊瑚主色形成色温对位；
 	 * 亮度下调以保证白字达到普通文字 AA 对比度。 */
-	--info: #0085e6;
+	--info: #0078cf;
 	--info-foreground: oklch(1 0 0);
 
 	color-scheme: light;

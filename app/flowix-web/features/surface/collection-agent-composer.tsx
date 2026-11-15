@@ -3,7 +3,8 @@
 import { columnAtIndex } from '@features/workspace/public/session-api';
 
 /**
- * 集合底部的悬浮 AI 输入框 ── **针对任意集合**，不区分文件夹集合还是独立集合文件。
+ * 集合底部的悬浮 AI 输入框 ── **针对任意集合**，也出现在文件夹表面上（那里引用的
+ * 是一个目录，不是集合文件）。
  *
  * 发送即在当前笔记本里新建会话，并附带当前集合引用和定位元数据。
  * 没有笔记本或集合路径上下文时只禁用输入，不隐藏。
@@ -24,8 +25,8 @@ import {
 } from '@features/agent/public/shell-api';
 import { getAgentType } from '@/lib/agent-types';
 import { useI18n } from '@/lib/i18n';
-import type { AgentTypeKey } from '@/types/agent';
-import { buildCollectionAgentPrompt } from '@features/collection/public/agent-reference-api';
+import { buildCollectionAgentPrompt, buildFolderAgentPrompt } from '@features/collection/public/agent-reference-api';
+import { useCollectionAgentType, setCollectionAgentType } from '@features/collection/public/agent-api';
 
 /** 收起态固定宽（产品稿）。 */
 const COLLAPSED_WIDTH = 120;
@@ -40,22 +41,33 @@ export function CollectionAgentComposer({
   collectionName,
   collectionPath,
   indexPath,
+  supportsNotes = false,
   host,
+  kind = 'collection',
 }: {
   notebookId: string | null;
   collectionId: string | null;
   collectionName: string;
   collectionPath: string;
   indexPath: string | null;
+  supportsNotes?: boolean;
   /** 集合自己所在的位置：新会话永远开到「另一侧」，避免把它顶掉。 */
   host: 'column-1' | 'column-2';
+  /**
+   * 表面类型。文件夹不是集合：没有 collectionId / indexPath 可给，引用写成
+   * `flowix://folder/<路径>`，否则 Agent 会去找一个不存在的集合文件。
+   */
+  kind?: 'collection' | 'folder';
 }) {
   const { t } = useI18n();
   // 产品稿默认 Pi；用户设置里禁用 Pi 时回落到第一个可用（运行期就绪）类型。
   // 仅展示「支持的 Agent」：可选项 + 用户启用 + 运行期 ready，与「新建对话」菜单同源。
-  const [agentType, setAgentType] = useState<AgentTypeKey>('pi');
+  const selectedAgentType = useCollectionAgentType();
   const [draft, setDraft] = useState('');
   const supportedAgentTypes = useNewConversationAgentSelection().options;
+  const agentType = supportedAgentTypes.some((type) => type.id === selectedAgentType)
+    ? selectedAgentType
+    : supportedAgentTypes[0]?.id ?? 'pi';
 
   // ── 伸展动画 ──────────────────────────────────────────────────────────────
   // 收起 120px；输入框/按钮获得焦点（或 agent 菜单打开、已有草稿）后伸展到
@@ -97,23 +109,20 @@ export function CollectionAgentComposer({
   );
   const pillWidth = expanded ? Math.max(COLLAPSED_WIDTH, expandedWidth) : COLLAPSED_WIDTH;
 
-  useEffect(() => {
-    if (!supportedAgentTypes.some((type) => type.id === agentType)) {
-      setAgentType(supportedAgentTypes[0]?.id ?? 'pi');
-    }
-  }, [supportedAgentTypes, agentType]);
-
   const agentName = getAgentType(agentType).name;
   const inputRef = useRef<HTMLInputElement | null>(null);
   const sendPrompt = useCallback(() => {
     const prompt = draft.trim();
     if (!prompt || !notebookId || !collectionPath) return;
-    const contextualPrompt = buildCollectionAgentPrompt(prompt, collectionName, {
-      collectionId,
-      notebookId,
-      collectionPath,
-      indexPath,
-    });
+    const contextualPrompt = kind === 'folder'
+      ? buildFolderAgentPrompt(prompt, collectionName, collectionPath)
+      : buildCollectionAgentPrompt(prompt, collectionName, {
+        collectionId,
+        supportsNotes,
+        notebookId,
+        collectionPath,
+        indexPath,
+      });
     // 默认在右栏 browser 里新开会话，并把这段输入直接发出去（不是预填）。
     // 集合本身就在 browser 列时反过来开进 Work，否则会把正在编辑的集合顶掉。
     createAndOpenAgentConversationWithPrompt(agentType, notebookId, contextualPrompt, {
@@ -123,7 +132,7 @@ export function CollectionAgentComposer({
     setDraft('');
     // 内容已经搬到对话里：收起胶囊回到 120px，让位给刚打开的会话。
     inputRef.current?.blur();
-  }, [agentType, collectionId, collectionName, collectionPath, draft, host, indexPath, notebookId]);
+  }, [agentType, collectionId, collectionName, collectionPath, draft, host, indexPath, kind, notebookId, supportsNotes]);
 
   return <div
     ref={wrapperRef}
@@ -151,7 +160,7 @@ export function CollectionAgentComposer({
             <AgentIcon typeKey={agentType} alt={agentName} className="h-[18px] w-[18px]" />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent side="top" align="start" className="w-[200px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+        <DropdownMenuContent scrollerClassName="space-y-0.5" side="top" align="start" className="w-[200px] rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
           <DropdownMenuLabel className="flex items-center gap-1.5 px-[0.375rem] pb-[0.35rem] pt-[0.35rem] text-xs font-normal leading-[1.2] text-[var(--muted-foreground)]">
             {t('collection.agentSwitch')}
           </DropdownMenuLabel>
@@ -159,7 +168,7 @@ export function CollectionAgentComposer({
             <DropdownMenuItem
               key={type.id}
               className={`flex h-7 items-center justify-start gap-2 rounded-lg px-2 py-0 text-left hover:bg-[var(--hover-bg)] ${type.id === agentType ? 'font-medium' : ''}`}
-              onClick={() => setAgentType(type.id)}
+              onClick={() => setCollectionAgentType(type.id)}
             >
               <AgentIcon typeKey={type.id} alt="" className="h-4 w-4 shrink-0 object-contain" />
               <span className="min-w-0 flex-1 truncate">{type.name}</span>

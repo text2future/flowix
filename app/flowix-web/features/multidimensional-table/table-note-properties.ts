@@ -7,7 +7,7 @@ import type { TableField, TableFieldType, TableFieldOption } from './model';
 import { NOTE_CREATED_AT_FIELD_ID, NOTE_UPDATED_AT_FIELD_ID } from './builtin-fields';
 import { migratedOptionValue } from './table-field-migration';
 
-export function valueMatchesFieldType(value: unknown, type: TableFieldType, options: TableField['options'] = [], multiple = false): boolean {
+export function valueMatchesFieldType(value: unknown, type: TableFieldType, options: TableField['options'] = [], _multiple = false): boolean {
   if (value == null || value === '') return true;
   switch (type) {
     case 'primary': case 'Text': case 'Icon': return typeof value === 'string';
@@ -18,9 +18,7 @@ export function valueMatchesFieldType(value: unknown, type: TableFieldType, opti
     case 'Select': return typeof value === 'string' && options.some((option) => option.id === value || option.label === value);
     case 'MultiSelect': return Array.isArray(value) && value.every((item) => typeof item === 'string' && options.some((option) => option.id === item || option.label === item));
     case 'Tag': case 'Color': return Array.isArray(value) && value.every((item) => typeof item === 'string');
-    case 'Image': return multiple
-      ? Array.isArray(value) && value.every((item) => typeof item === 'string')
-      : typeof value === 'string';
+    case 'Image': return typeof value === 'string' || (Array.isArray(value) && value.every((item) => typeof item === 'string'));
   }
   return false;
 }
@@ -87,8 +85,8 @@ export function calendarCreatePropertyValue(field: TableField, value: unknown): 
     const labels = ids.map((id) => field.options?.find((item) => item.id === id)?.label ?? id);
     return { include: labels.length > 0, value: labels };
   }
-  if (field.type === 'Tag' || field.type === 'Color' || (field.type === 'Image' && field.multiple)) {
-    const values = Array.isArray(value) ? value.map(String) : String(value ?? '').split(',');
+  if (field.type === 'Tag' || field.type === 'Color' || field.type === 'Image') {
+    const values = Array.isArray(value) ? value.map(String) : field.type === 'Image' ? [String(value ?? '')] : String(value ?? '').split(',');
     const normalized = values.map((item) => item.trim()).filter(Boolean);
     return { include: normalized.length > 0, value: normalized };
   }

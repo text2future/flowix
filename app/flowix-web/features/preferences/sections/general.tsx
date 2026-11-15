@@ -2,7 +2,8 @@
 
 import { useState, type ReactNode } from 'react';
 import { Check, Copy } from 'lucide-react';
-import { useAppUpdater } from '@features/shell/hooks/use-app-updater';
+import { AppUpdatePromptDialog, useManualAppUpdateCheck } from '@features/shell/public/system-api';
+import { recordProductUpdateCheck } from '@features/preferences/public/product-updates-api';
 import { Select, SelectTrigger, SelectContent, SelectItem } from '@shared/ui/select';
 import { Button } from '@shared/ui/button';
 import { UpdateProgress } from '@shared/ui/update-progress';
@@ -21,30 +22,16 @@ interface GeneralSectionProps {
   afterGeneral?: ReactNode;
   updateSettings: (updates: {
     language?: AppLanguage;
-    productUpdates?: Partial<{ lastCheckedAt: number }>;
   }) => Promise<void>;
 }
 
 export function GeneralSection({ language, productInfo, afterGeneral, updateSettings }: GeneralSectionProps) {
   const { t } = useI18n();
   const [versionCopied, setVersionCopied] = useState(false);
-  const updater = useAppUpdater();
+  const manualUpdateCheck = useManualAppUpdateCheck({ afterCheck: recordProductUpdateCheck });
+  const updater = manualUpdateCheck.updater;
   const currentLanguageLabel =
     LANGUAGE_OPTIONS.find((option) => option.value === language)?.label ?? language;
-
-  const handleCheckProductUpdates = async () => {
-    try {
-      const update = await updater.checkNow();
-      await updateSettings({ productUpdates: { lastCheckedAt: Date.now() } });
-      toast.info(
-        update
-          ? t('preferences.general.productUpdates.found')
-          : t('preferences.general.productUpdates.none'),
-      );
-    } catch {
-      toast.error(t('preferences.general.productUpdates.failed'));
-    }
-  };
 
   const handleInstallUpdate = async () => {
     try {
@@ -56,7 +43,7 @@ export function GeneralSection({ language, productInfo, afterGeneral, updateSett
   };
 
   const currentVersionText = productInfo
-    ? `${productInfo.productName} ${productInfo.version} / ${productInfo.os} ${productInfo.arch}`
+    ? `${productInfo.version}_${productInfo.os}_${productInfo.arch}`
     : t('preferences.general.loading');
 
   const handleCopyVersion = async () => {
@@ -137,7 +124,7 @@ export function GeneralSection({ language, productInfo, afterGeneral, updateSett
         <Button
           variant="outline"
           className="px-3"
-          onClick={handleCheckProductUpdates}
+          onClick={() => void manualUpdateCheck.checkNow()}
           disabled={checkingUpdates || updatingProduct}
         >
           {checkingUpdates
@@ -146,7 +133,7 @@ export function GeneralSection({ language, productInfo, afterGeneral, updateSett
         </Button>
       </FieldRow>
 
-      {updater.update && (
+      {updater.update && (updatingProduct || updater.status === 'ready' || updater.error != null) && (
         <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 py-3">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -187,6 +174,13 @@ export function GeneralSection({ language, productInfo, afterGeneral, updateSett
           </div>
         </div>
       )}
+
+      <AppUpdatePromptDialog
+        open={manualUpdateCheck.promptOpen}
+        update={updater.update}
+        onOpenChange={manualUpdateCheck.setPromptOpen}
+        onDownload={() => void manualUpdateCheck.downloadNow()}
+      />
 
     </div>
   );

@@ -1,0 +1,74 @@
+[
+  {
+    "root": "/book",
+    "source": "sub/source.md",
+    "reference": "[[../目标 文档.md#Heading]]",
+    "absolutePath": "/book/目标 文档.md",
+    "notebookRelativePath": "目标 文档.md",
+    "persisted": "[[../目标 文档.md#Heading]]"
+  },
+  {
+    "root": "/book",
+    "source": "sub/source.md",
+    "reference": "[[./a%23b%3Fc%2520%5Bd%5D%7Ce.md]]",
+    "absolutePath": "/book/sub/a#b?c%20[d]|e.md",
+    "notebookRelativePath": "sub/a#b?c%20[d]|e.md",
+    "persisted": "[[./a%23b%3Fc%2520%5Bd%5D%7Ce.md]]"
+  },
+  {
+    "root": "C:/Book",
+    "source": "sub/source.md",
+    "reference": "[[..\\目标.md]]",
+    "absolutePath": "C:/Book/目标.md",
+    "notebookRelativePath": "目标.md",
+    "persisted": "[[../目标.md]]"
+  },
+  {
+    "root": "C:/Book",
+    "source": "sub/source.md",
+    "reference": "[[c:\\book\\目标.md]]",
+    "absolutePath": "c:/book/目标.md",
+    "notebookRelativePath": "目标.md",
+    "persisted": "[[../目标.md]]"
+  },
+  {
+    "root": "C:/Book",
+    "source": "sub/source.md",
+    "reference": "[[D:/Other/目标.md]]",
+    "absolutePath": "D:/Other/目标.md",
+    "notebookRelativePath": null,
+    "persisted": "[[D:/Other/目标.md]]"
+  },
+  {
+    "root": "//server/share/Book",
+    "source": "sub/source.md",
+    "reference": "[[file://server/share/Book/目标.md]]",
+    "absolutePath": "//server/share/Book/目标.md",
+    "notebookRelativePath": "目标.md",
+    "persisted": "[[../目标.md]]"
+  },
+  {
+    "root": "//server/share/Book",
+    "source": "sub/source.md",
+    "reference": "[[\\\\server\\share\\Book\\目标.md]]",
+    "absolutePath": "//server/share/Book/目标.md",
+    "notebookRelativePath": "目标.md",
+    "persisted": "[[../目标.md]]"
+  },
+  {
+    "root": "C:/Book",
+    "source": "sub/source.md",
+    "reference": "[[file:///C:/Book/目标%20文档.md#Heading]]",
+    "absolutePath": "C:/Book/目标 文档.md",
+    "notebookRelativePath": "目标 文档.md",
+    "persisted": "[[../目标 文档.md#Heading]]"
+  },
+  {
+    "root": "/book",
+    "source": "sub/source.md",
+    "reference": "[[/outside/target.md]]",
+    "absolutePath": "/outside/target.md",
+    "notebookRelativePath": null,
+    "persisted": "[[/outside/target.md]]"
+  }
+]

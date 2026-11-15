@@ -120,7 +120,7 @@ fn apply_v2_note_changes(
             _ => None,
         }) {
             if let Ok(path) = safe_cloud_collection_path(Path::new(&notebook.path), filename) {
-                crate::commands::collection::refresh_path(&memo_file, &path);
+                flowix_core::collection_store::refresh_path(&memo_file, &path);
                 let _ = app.emit("file-management-changed", serde_json::json!({"notebookId": notebook_id, "notebookPath": notebook.path}));
                 let _ = app.emit("collection-changed", serde_json::json!({"notebookId": notebook_id, "notebookPath": notebook.path, "relativePath": filename}));
             }
@@ -322,7 +322,7 @@ fn apply_v2_note_changes_locked(
                 filename,
                 |path| crate::watcher::runtime::mark_self_write_for(app, path),
             )?;
-            crate::commands::path_change::NotebookPathDeleted::new(
+            crate::events::path_change::NotebookPathDeleted::new(
                 notebook_id.to_string(),
                 filename.to_string(),
             )
@@ -362,7 +362,7 @@ fn apply_v2_note_changes_locked(
                 memo_file
                     .refresh_note_path(notebook_id, filename)
                     .map_err(sync_error)?;
-                crate::commands::path_change::NotebookPathInvalidated::new(
+                crate::events::path_change::NotebookPathInvalidated::new(
                     notebook_id.to_string(),
                     filename.to_string(),
                 )
@@ -471,7 +471,7 @@ fn apply_v2_note_changes_locked(
                     std::fs::remove_file(&path).map_err(sync_error)?;
                 }
             }
-            crate::commands::path_change::NotebookPathInvalidated::new(
+            crate::events::path_change::NotebookPathInvalidated::new(
                 notebook_id.to_string(),
                 filename.to_string(),
             )

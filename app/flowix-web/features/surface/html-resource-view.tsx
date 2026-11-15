@@ -76,6 +76,7 @@ function HtmlPreview({ filePath, scopePath, documentProps, reportPresentation, r
   onDocumentResolved: (available: boolean) => void;
 }) {
   const { t, language } = useI18n();
+  const [scrollbarReady, setScrollbarReady] = useState(false);
   const onLink = useCallback((link: LocalHtmlLink) => {
     void openHtmlLink(link, filePath, scopePath, documentProps.notebookId ?? null).catch((error: unknown) => {
       toast.error(error instanceof Error ? error.message : String(error));
@@ -118,13 +119,20 @@ function HtmlPreview({ filePath, scopePath, documentProps, reportPresentation, r
   }, [failed, onDocumentResolved, src]);
   useEffect(() => {
     const iframe = iframeRef.current;
-    if (iframe) return connectWebFrameScrollbar(iframe);
+    if (!iframe) return;
+    const disconnect = connectWebFrameScrollbar(iframe, (status) => {
+      if (status.suppressed === false && typeof status.gutter === 'number' && status.gutter <= 1) setScrollbarReady(true);
+    });
+    // Outside the desktop host the injected runtime may be unavailable.
+    const timeout = window.setTimeout(() => setScrollbarReady(true), 1500);
+    return () => { window.clearTimeout(timeout); disconnect(); };
   }, [iframeRef, src]);
 
   return <div className="absolute inset-0 min-h-0 min-w-0">
     {src && <iframe ref={iframeRef} title={filePath.split(/[\\/]/).pop() ?? filePath}
       src={src} onLoad={onLoad} sandbox="allow-scripts" referrerPolicy="no-referrer"
-      className="absolute inset-0 h-full w-full border-0 bg-white" />}
+      className="absolute inset-0 h-full w-full border-0 bg-white"
+      style={{ visibility: scrollbarReady ? 'visible' : 'hidden' }} />}
     {waiting && <div role="status" className="pointer-events-none absolute left-3 top-3 z-10 rounded-lg bg-[var(--card)] px-3 py-2 text-xs text-[var(--muted-foreground)] shadow-sm">
       {t('htmlResource.loading')}
     </div>}

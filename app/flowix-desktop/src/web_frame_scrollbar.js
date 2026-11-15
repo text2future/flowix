@@ -11,6 +11,7 @@
   if (window === window.top) return;
   if (window.parent !== window.top) return;
   const protocol = location.protocol;
+  const localPreview = protocol === 'asset:' || location.hostname === 'asset.localhost';
   // Remote pages and local HTML previews are both cross-origin to the host, so
   // both can only be restyled from inside the frame.
   if (protocol !== 'http:' && protocol !== 'https:' && protocol !== 'asset:') return;
@@ -24,7 +25,7 @@
   const STATUS_TYPE = 'flowix:web-frame-scrollbar-status';
   const HIDE_DELAY = 700;
   const MIN_THUMB = 24;
-  const EDGE = 2;
+  const EDGE = 0;
   /** Collapsing the viewport bar is confirmed over several passes: a layout
    * read taken right after the sheet lands can still report the bar that is
    * about to disappear, and acting on that first read is what used to restore
@@ -35,9 +36,11 @@
   let mac = true;
   let enabled = true;
   let color = 'rgba(0, 0, 0, 0.3)';
+  let hoverColor = 'rgba(0, 0, 0, 0.5)';
   let layer = null;
   let styleNode = null;
   let styleSheet = null;
+  let rootObserver = null;
   let scheduled = 0;
   let verifyTimer = 0;
   let started = false;
@@ -48,6 +51,8 @@
    * (a native "thin" scroller, for instance). Scrolling then moves to <body>,
    * where the bar is an ordinary element scrollbar and always collapses. */
   let bodyScroller = false;
+  let localBodyOptIn = false;
+  let fallbackOriginalStyles = null;
   let reported = '';
   const entries = new Map();
 
@@ -96,9 +101,10 @@
        * an !important, or a sheet loaded later. WebKit paints scrollbars with
        * native NSScroller; display:none is the only declaration that reliably
        * removes the bar there, so width/height are emitted alongside it.
-       * Body is covered through attribute selectors: a bare pseudo-class typo
-       * like body:body invalidates the whole rule, scrollbar included. */
-      :root:root::-webkit-scrollbar, body[${ATTR}][${ATTR}]::-webkit-scrollbar,
+       * Body is covered before adoption as well: WebKit can paint the viewport
+       * scrollbar from body before the script has assigned its attribute. */
+      :root:root::-webkit-scrollbar, body:not(#${LAYER_ID})::-webkit-scrollbar,
+      body[${ATTR}][${ATTR}]::-webkit-scrollbar,
       [${ATTR}][${ATTR}]::-webkit-scrollbar {
         display: none !important; width: 0 !important; height: 0 !important;
       }
@@ -106,7 +112,10 @@
       #${LAYER_ID} > .${THUMB_CLASS} {
         position: fixed; top: 0; left: 0; margin: 0; padding: 0; border: 0;
         border-radius: 999px; background: currentColor; opacity: 0;
-        transition: opacity 120ms ease-out; pointer-events: auto; touch-action: none;
+        transition: opacity 220ms ease-in-out, background-color 160ms ease; pointer-events: auto; touch-action: none;
+      }
+      #${LAYER_ID} > .${THUMB_CLASS}:hover, #${LAYER_ID} > .${THUMB_CLASS}[data-dragging] {
+        background: var(--flowix-scrollbar-hover, currentColor);
       }
     `;
   }
@@ -149,15 +158,22 @@
     const root = document.documentElement;
     const body = document.body;
     if (!root || !body) return;
+    if (!fallbackOriginalStyles) {
+      fallbackOriginalStyles = [[root, FALLBACK_INLINE.documentElement], [body, FALLBACK_INLINE.body]].map(([element, keys]) =>
+        [element, keys.map(([property]) => [property, element.style.getPropertyValue(property), element.style.getPropertyPriority(property)])]);
+    }
     for (const [property, value] of FALLBACK_INLINE.documentElement) root.style.setProperty(property, value, 'important');
     for (const [property, value] of FALLBACK_INLINE.body) body.style.setProperty(property, value, 'important');
   }
 
   function clearInlineFallbackStyles() {
-    for (const [element, keys] of [[document.documentElement, FALLBACK_INLINE.documentElement], [document.body, FALLBACK_INLINE.body]]) {
-      if (!element) continue;
-      for (const [property] of keys) element.style.removeProperty(property);
+    for (const [element, properties] of fallbackOriginalStyles || []) {
+      for (const [property, value, priority] of properties) {
+        if (value) element.style.setProperty(property, value, priority);
+        else element.style.removeProperty(property);
+      }
     }
+    fallbackOriginalStyles = null;
   }
 
   function applyViewportFallback() {
@@ -215,6 +231,17 @@
       }
     }
     appendStyleNode(css);
+    // At document-start WebKit may not have created <html> yet. Insert the
+    // fallback sheet as soon as it does, rather than waiting for parsing.
+    if (!styleNode && !rootObserver && typeof MutationObserver === 'function') {
+      rootObserver = new MutationObserver(() => {
+        if (!document.documentElement) return;
+        appendStyleNode(overlayCss());
+        rootObserver.disconnect();
+        rootObserver = null;
+      });
+      rootObserver.observe(document, { childList: true });
+    }
   }
 
   function ensureLayer() {
@@ -222,6 +249,7 @@
     layer = document.createElement('div');
     layer.id = LAYER_ID;
     layer.style.color = color;
+    layer.style.setProperty('--flowix-scrollbar-hover', hoverColor);
     (document.body || document.documentElement).appendChild(layer);
     return layer;
   }
@@ -339,7 +367,7 @@
     if (entry.vThumb) entry.vThumb.style.opacity = '1';
     if (entry.hThumb) entry.hThumb.style.opacity = '1';
     entry.hideTimer = setTimeout(() => {
-      if (entry.dragging) return;
+      if (entry.dragging || entry.hovering) return;
       if (entry.vThumb) entry.vThumb.style.opacity = '0';
       if (entry.hThumb) entry.hThumb.style.opacity = '0';
     }, HIDE_DELAY);
@@ -367,6 +395,8 @@
 
     event.preventDefault();
     entry.dragging = true;
+    event.currentTarget.setAttribute('data-dragging', '');
+    const dragThumb = event.currentTarget;
     const start = vertical ? event.clientY : event.clientX;
     const startScroll = vertical ? metrics.scrollTop : metrics.scrollLeft;
 
@@ -385,6 +415,7 @@
     };
     const onEnd = () => {
       entry.dragging = false;
+      dragThumb.removeAttribute('data-dragging');
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onEnd);
       revealThumb(entry);
@@ -398,11 +429,21 @@
     thumb.className = THUMB_CLASS;
     thumb.dataset.axis = axis;
     thumb.addEventListener('pointerdown', (event) => beginDrag(event, entry, axis));
+    thumb.addEventListener('pointerenter', () => { entry.hovering = true; revealThumb(entry); });
+    thumb.addEventListener('pointerleave', () => { entry.hovering = false; if (!entry.dragging) revealThumb(entry); });
     ensureLayer().appendChild(thumb);
     return thumb;
   }
 
   function ensureEntry(element) {
+    if (isRoot(element)) {
+      // html and body represent one viewport, even when layout changes which
+      // one scrolls. Never leave a second viewport thumb behind.
+      element = rootElement();
+      for (const entry of [...entries.values()]) {
+        if (entry.el !== element && isRoot(entry.el)) forget(entry);
+      }
+    }
     const existing = entries.get(element);
     if (existing) return existing;
     if (isRoot(element)) {
@@ -413,7 +454,7 @@
     } else {
       element.setAttribute(ATTR, '');
     }
-    const entry = { el: element, vThumb: null, hThumb: null, metrics: null, hideTimer: 0, dragging: false };
+    const entry = { el: element, vThumb: null, hThumb: null, metrics: null, hideTimer: 0, dragging: false, hovering: false };
     entry.vThumb = createThumb(entry, 'v');
     entry.hThumb = createThumb(entry, 'h');
     entries.set(element, entry);
@@ -445,7 +486,15 @@
       element = target;
     }
     if (!element) return;
-    revealThumb(ensureEntry(element));
+    // Data-driven pages can become scrollable after the initial verification.
+    // Recheck the viewport when its native gutter appears later, and avoid
+    // painting a second bar while the native one is still present.
+    if (isRoot(element) && !bodyScroller && rootGutter() > 1 && !rootSuppressed) {
+      rootSuppressed = true;
+      scheduleVerify(0);
+    }
+    const entry = ensureEntry(element);
+    sync(entry, true);
     scheduleFlush();
   }
 
@@ -488,7 +537,7 @@
 
   function scheduleVerify(pass) {
     clearTimeout(verifyTimer);
-    verifyTimer = setTimeout(() => verify(pass), pass === 0 ? 0 : VERIFY_RETRY_MS);
+    verifyTimer = setTimeout(() => { verifyTimer = 0; verify(pass); }, pass === 0 ? 0 : VERIFY_RETRY_MS);
   }
 
   function verify(pass) {
@@ -509,7 +558,7 @@
       report();
       return;
     }
-    if (pass < VERIFY_PASSES - 1) {
+    if (pass < VERIFY_PASSES - 1 && !(localPreview && pass > 0)) {
       // The constructed sheet is what some engines quietly ignore; the author
       // sheet is re-added as the escalation before giving up on the viewport.
       if (pass === 1) appendStyleNode(overlayCss());
@@ -518,7 +567,7 @@
     }
     // Stylesheets exhausted. Hand the scroll to <body>, whose bar is an element
     // scrollbar and therefore always collapses, then measure again.
-    if (!bodyScroller) {
+    if (!bodyScroller && (!localPreview || localBodyOptIn)) {
       applyViewportFallback();
       scheduleVerify(pass);
       return;
@@ -532,10 +581,14 @@
   }
 
   function start() {
-    if (started || !enabled) return;
+    if (started || !enabled || !document.documentElement || !document.body || document.readyState === 'loading') return;
     started = true;
     ensureStyle();
     ensureLayer();
+    // Only pages that explicitly accept body scrolling may have their root
+    // layout changed: other pages may depend on window.scrollY and scrollTo.
+    localBodyOptIn = localPreview && Boolean(document.querySelector('meta[name="flowix-scroll-container"][content="body"]'));
+    if (localBodyOptIn) applyViewportFallback();
 
     const root = rootElement();
     sync(ensureEntry(root), false);
@@ -547,7 +600,7 @@
     let checked = 0;
     for (const element of document.querySelectorAll('*')) {
       if ((++checked & 127) === 0 && now() > deadline) break;
-      if (element === root || element === layer || element === document.body) continue;
+      if (isRoot(element) || element === layer) continue;
       if (element.classList && element.classList.contains(THUMB_CLASS)) continue;
       if (element.scrollHeight - element.clientHeight > 1 || element.scrollWidth - element.clientWidth > 1) {
         sync(ensureEntry(element), false);
@@ -572,6 +625,8 @@
     entries.clear();
     if (layer) layer.remove();
     if (styleNode) styleNode.remove();
+    if (rootObserver) rootObserver.disconnect();
+    rootObserver = null;
     if (bodyScroller) clearInlineFallbackStyles();
     bodyScroller = false;
     if (styleSheet) {
@@ -610,8 +665,16 @@
       color = config.color;
       if (layer) layer.style.color = color;
     }
-    if (started) scheduleFlush();
-    else start();
+    if (typeof config.hoverColor === 'string' && config.hoverColor
+        && (!window.CSS || typeof CSS.supports !== 'function' || CSS.supports('color', config.hoverColor))) {
+      hoverColor = config.hoverColor;
+      if (layer) layer.style.setProperty('--flowix-scrollbar-hover', hoverColor);
+    }
+    if (started) {
+      scheduleFlush();
+      // The host may connect after the first report was sent.
+      if (!verifyTimer) { reported = ''; report(); }
+    } else start();
   }
 
   document.addEventListener('readystatechange', scheduleFlush);

@@ -150,7 +150,7 @@ function NotebookStorageLocationSelector({
           <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" sideOffset={6} className="min-w-[144px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+      <DropdownMenuContent scrollerClassName="space-y-0.5" align="end" sideOffset={6} className="min-w-[144px] rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
         <DropdownMenuItem
           onClick={() => onChange(false)}
           className="flex h-8 items-center justify-between gap-3 rounded-lg px-2 text-sm hover:bg-[var(--muted)]"

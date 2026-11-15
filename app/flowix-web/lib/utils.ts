@@ -25,7 +25,7 @@ export function displayTitleFromFilename(filename: string | null | undefined): s
   return basename
     .replace(/\.(md|markdown)$/i, '')
     .replace(/\.(table|lib)\.ya?ml$/i, '')
-    .replace(/\.index\.yaml$/i, '')
+    .replace(/\.index\.ya?ml$/i, '')
     .replace(/\.(html?|xhtml)$/i, '');
 }
 

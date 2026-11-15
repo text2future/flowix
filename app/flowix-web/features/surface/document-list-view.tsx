@@ -38,11 +38,11 @@ const EMPTY_MEDIA_LIBRARY_RECORDS: MediaLibraryRecord[] = [];
 const NO_AREA_MENU_ITEMS: ReturnType<typeof assetAreaMenuItems> = [];
 const ROW_HEIGHT = 224;
 
-export function DocumentListView({ listContext, mediaLibrary = false, workDocuments = false, libraryName = '媒体库', libraryFilePath, mediaLibraryFolderPath, workDocumentsFolderPath, mediaLibraryFilter = {}, workDocumentsFilter = {}, mediaLibraryRecords = EMPTY_MEDIA_LIBRARY_RECORDS, mediaLibraryExcludedPaths = [], mediaLibraryDatasetFilter, mediaLibraryViewFilter, assetViewFilter, onMediaLibraryFilterChange, onWorkDocumentsFilterChange, onOpenNoteFilter, onDatasetFilterOpenChange, onLoadingChange, onRenameLibrary, onAddMedia, onDeleteMedia, onImportFiles, onSwitchToTable, libraryActionsDisabled = false, refreshPaused = false, workspaceHost = 'column-1', actionsHost, pageScroll = false }: {
+export function DocumentListView({ listContext, mediaLibrary = false, workDocuments = false, libraryName = '媒体库', libraryFilePath, mediaLibraryFolderPath, workDocumentsFolderPath, workDocumentsPageSize, showLoadMoreButton = false, mediaLibraryFilter = {}, workDocumentsFilter = {}, mediaLibraryRecords = EMPTY_MEDIA_LIBRARY_RECORDS, mediaLibraryExcludedPaths = [], mediaLibraryDatasetFilter, mediaLibraryViewFilter, assetViewFilter, onMediaLibraryFilterChange, onWorkDocumentsFilterChange, onOpenNoteFilter, onDatasetFilterOpenChange, onLoadingChange, onRenameLibrary, onAddMedia, onDeleteMedia, onImportFiles, onSwitchToTable, libraryActionsDisabled = false, refreshPaused = false, workspaceHost = 'column-1', actionsHost, pageScroll = false }: {
   listContext: DocumentListViewContext;
   mediaLibrary?: boolean;
   workDocuments?: boolean;
-  /** 整页滚动（集合外壳）：不建内部滚动区，列表自然撑开，滚动交给外壳的页面滚动容器。 */
+  /** 不建内部滚动区，列表自然撑开并由外层容器负责滚动。 */
   pageScroll?: boolean;
   libraryName?: string;
   libraryFilePath?: string;
@@ -50,6 +50,10 @@ export function DocumentListView({ listContext, mediaLibrary = false, workDocume
   mediaLibraryFolderPath?: string;
   /** 列表面板的固定位置（文件夹类型的集合）；undefined = 位置可改。 */
   workDocumentsFolderPath?: string;
+  /** 编辑器引用块按需缩小工作文档的请求分页大小。 */
+  workDocumentsPageSize?: number;
+  /** 以按钮手动分页，适用于不带内部滚动区的嵌入列表。 */
+  showLoadMoreButton?: boolean;
   mediaLibraryFilter?: AssetFilterCondition;
   workDocumentsFilter?: AssetFilterCondition;
   mediaLibraryRecords?: MediaLibraryRecord[];
@@ -72,16 +76,15 @@ export function DocumentListView({ listContext, mediaLibrary = false, workDocume
   libraryActionsDisabled?: boolean;
   refreshPaused?: boolean;
   workspaceHost?: 'column-1' | 'column-2';
-  /** 集合外壳里的 tab 面板：本组件不再渲染自己的标题/操作行（tab 下只有数据列表），
-   *  只把「一行操作」portal 进外壳 nav 右侧的操作槽（集合名由外壳统一给）。 */
+  /** 嵌入外层标题栏时：本组件不渲染本地标题与操作行，只把操作 portal 到宿主。 */
   actionsHost?: CollectionActionsHost;
 }) {
   const { t } = useI18n();
   const resourceKindsKey = (listContext.filters.resourceKinds ?? []).join('\u0000');
   const {
     items, linkedItems, folders, hasMediaDataset, hasLinkedMedia, loading, loadingLinkedItems,
-    moreError, hasMore, error, loadMore, refresh,
-  } = useDocumentListData({ listContext, mediaLibrary, workDocuments, mediaLibraryRecords, refreshPaused });
+    moreError, hasMore, loadingMore, error, loadMore, refresh,
+  } = useDocumentListData({ listContext, mediaLibrary, workDocuments, workDocumentsPageSize, mediaLibraryRecords, refreshPaused });
   useEffect(() => {
     if (workDocuments) onLoadingChange?.(loading);
   }, [loading, onLoadingChange, workDocuments]);
@@ -247,13 +250,13 @@ export function DocumentListView({ listContext, mediaLibrary = false, workDocume
   }, [mediaLibrary, workDocuments, activeFileCondition.file_name_contains, activeFileTypesKey, activeFileCondition.path_contains, activeFileCondition.path_scope, resourceKindsKey]);
   useEffect(() => {
     const root = viewportRef.current;
-    if (!hasMore || moreError || !endRef.current || !root) return;
+    if (showLoadMoreButton || !hasMore || moreError || !endRef.current || !root) return;
     const observer = new IntersectionObserver((entries) => {
       if (entries[0]?.isIntersecting) loadMore();
     }, { root, rootMargin: '500px' });
     observer.observe(endRef.current);
     return () => observer.disconnect();
-  }, [hasMore, loadMore, moreError, viewportRef]);
+  }, [hasMore, loadMore, moreError, showLoadMoreButton, viewportRef]);
 
   // ── 可见条目 ─────────────────────────────────────────────────────────────
   const excludedMediaPathSet = useMemo(
@@ -323,6 +326,12 @@ export function DocumentListView({ listContext, mediaLibrary = false, workDocume
   const workFirstRow = Math.min(Math.max(0, workRowCount - 1), Math.max(0, Math.floor(viewport.top / workRowStride) - 2));
   const workLastRow = Math.min(workRowCount, Math.ceil((viewport.top + viewport.height) / workRowStride) + 2);
   const visibleWorkRows = visibleItems.slice(workFirstRow * workColumnCount, workLastRow * workColumnCount);
+  const renderedWorkRows = showLoadMoreButton ? visibleItems : visibleWorkRows;
+  const workGridStyle = showLoadMoreButton ? { gap: WORK_DOCUMENT_GRID_GAP } : {
+    gap: WORK_DOCUMENT_GRID_GAP,
+    paddingTop: workFirstRow * workRowStride,
+    paddingBottom: Math.max(0, workRowCount - workLastRow) * workRowStride,
+  };
 
   // ── 打开 / 新建 / 删除 ───────────────────────────────────────────────────
   const [addingMedia, setAddingMedia] = useState(false);
@@ -528,10 +537,14 @@ export function DocumentListView({ listContext, mediaLibrary = false, workDocume
             />
           ))}</div>
           : workDocuments
-            ? <div className="grid w-full grid-cols-[repeat(auto-fill,minmax(min(100%,200px),1fr))] items-stretch" style={{ gap: WORK_DOCUMENT_GRID_GAP, paddingTop: workFirstRow * workRowStride, paddingBottom: Math.max(0, workRowCount - workLastRow) * workRowStride }}>{visibleWorkRows.map((item) => <WorkDocumentListRow key={item.fullPath} item={item} notebookPath={listContext.notebookPath} openItem={openItem} />)}</div>
+            ? <div className="grid w-full grid-cols-[repeat(auto-fill,minmax(min(100%,200px),1fr))] items-stretch" style={workGridStyle}>
+              {renderedWorkRows.map((item) => <WorkDocumentListRow key={item.fullPath} item={item} notebookPath={listContext.notebookPath} openItem={openItem} />)}
+            </div>
             : <div style={{ paddingTop: firstRow * ROW_HEIGHT, paddingBottom: Math.max(0, rowCount - lastRow) * ROW_HEIGHT }}><div className="grid w-full grid-cols-[repeat(auto-fill,minmax(min(100%,200px),1fr))] items-stretch gap-3.5 pt-3">{visibleCards.map((item) => <DocumentCard key={item.fullPath} item={item} notebookPath={listContext.notebookPath} openItem={openItem} />)}</div></div>}
     {moreError && <button type="button" className="mt-4 rounded-lg px-2 py-1 text-sm text-[var(--brand)] hover:bg-[var(--muted)]" onClick={loadMore}>加载失败，点击重试</button>}
-    {hasMore && !moreError && <div ref={endRef} className="h-1" aria-hidden="true" />}
+    {showLoadMoreButton && hasMore && !moreError
+      ? <div className="flex justify-center py-3"><Button type="button" variant="ghost" size="sm" className="rounded-lg" disabled={loadingMore} aria-busy={loadingMore} onClick={loadMore}>{t(loadingMore ? 'memo.documentList.loadingMore' : 'memo.documentList.loadMore')}</Button></div>
+      : !showLoadMoreButton && hasMore && !moreError && <div ref={endRef} className="h-1" aria-hidden="true" />}
   </>;
   return <section className={`flex min-h-0 flex-col bg-transparent text-[var(--foreground)] ${pageScroll ? '' : 'h-full'}`}>
     <CollectionAreaMenu items={areaMenuItems}>

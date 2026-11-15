@@ -6,15 +6,15 @@ import { canonicalPath } from '@/lib/path';
 import type { DocTreeItem } from '@platform/tauri/client';
 
 import {
-  buildNotebookTreeRenderRows,
+  buildNotebookTreeRenderModel,
   type NotebookTreeDraftState,
-  type NotebookTreeRenderRow,
+  type NotebookTreeRenderModel,
 } from './notebook-tree-render-rows';
-import {
-  buildLoadedTreeIndex,
-  type NotebookTreeItemIndex,
-  type VisibleTreeNode,
-} from './use-folder-tree';
+import type { NotebookTreeItemIndex } from './use-folder-tree';
+import { buildLoadedTreeIndex } from './use-folder-tree';
+
+export { buildNotebookTreeRenderModel };
+export type { NotebookTreeDraftState, NotebookTreeRenderModel };
 
 /**
  * 置顶分区的项补进索引。已加载树里的同名路径优先——置顶行多出来的
@@ -27,39 +27,19 @@ export function addPinnedTreeItems(
   base: NotebookTreeItemIndex,
   pinnedItems: readonly DocTreeItem[],
 ): NotebookTreeItemIndex {
-  let next: NotebookTreeItemIndex | null = null;
+  let itemByPath: Map<string, DocTreeItem> | null = null;
+  let folderPaths: Set<string> | null = null;
   for (const item of pinnedItems) {
     const key = canonicalPath(item.fullPath);
-    if (base.itemByPath.has(key)) continue;
-    next ??= {
-      items: base.items,
-      itemByPath: new Map(base.itemByPath),
-      folderPaths: new Set(base.folderPaths),
-    };
-    next.itemByPath.set(key, item);
-    if (item.type === 'folder') next.folderPaths.add(key);
+    if ((itemByPath ?? base.itemByPath).has(key)) continue;
+    itemByPath ??= new Map(base.itemByPath);
+    itemByPath.set(key, item);
+    if (item.type === 'folder') {
+      folderPaths ??= new Set(base.folderPaths);
+      folderPaths.add(key);
+    }
   }
-  return next ?? base;
-}
-
-export interface NotebookTreeRenderModel {
-  rows: NotebookTreeRenderRow[];
-  /** 行号索引，reveal 与键盘导航直接查，不再从 rows 里 flatMap 一遍。 */
-  rowIndexByPath: Map<string, number>;
-}
-
-export function buildNotebookTreeRenderModel(
-  visibleItems: readonly VisibleTreeNode[],
-  notebookPath: string,
-  draft: NotebookTreeDraftState | null,
-): NotebookTreeRenderModel {
-  const rows = buildNotebookTreeRenderRows(visibleItems, notebookPath, draft);
-  const rowIndexByPath = new Map<string, number>();
-  for (let index = 0; index < rows.length; index += 1) {
-    const row = rows[index];
-    if (row.kind === 'node') rowIndexByPath.set(canonicalPath(row.item.fullPath), index);
-  }
-  return { rows, rowIndexByPath };
+  return itemByPath ? { itemByPath, folderPaths: folderPaths ?? base.folderPaths } : base;
 }
 
 export function useLoadedTreeIndex(
@@ -77,7 +57,7 @@ export function useTreeItemIndex(
 }
 
 export function useNotebookTreeRenderModel(
-  visibleTreeItems: readonly VisibleTreeNode[],
+  visibleTreeItems: readonly { item: DocTreeItem; depth: number }[],
   notebookPath: string,
   draft: NotebookTreeDraftState | null,
 ): NotebookTreeRenderModel {

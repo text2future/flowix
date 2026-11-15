@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 use crate::watcher::directory_coalesce::DirectoryCoalescer;
 use crate::watcher::filter::{FileRevision, SelfWriteMap, SelfWriteMark, SELF_WRITE_TTL};
@@ -404,11 +404,7 @@ impl MemoWatcher {
                                 // Serialize the final validity check and processing with notebook
                                 // selection changes. If a switch already won, this old event is
                                 // discarded; if processing won, the switch waits for it to finish.
-                                let state = worker_app.state::<crate::app::state::AppState>();
-                                let _transition = state
-                                    .notebook_transition
-                                    .lock()
-                                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                                let _transition = crate::notebook_transition::lock();
                                 if generation_counter.load(Ordering::Acquire) != worker_generation {
                                     break 'worker;
                                 }
@@ -445,11 +441,7 @@ impl MemoWatcher {
                         }
                         // Same lock, same worker thread as a normal event: the
                         // reconcile keeps its position in the serial stream.
-                        let state = worker_app.state::<crate::app::state::AppState>();
-                        let _transition = state
-                            .notebook_transition
-                            .lock()
-                            .unwrap_or_else(|poisoned| poisoned.into_inner());
+                        let _transition = crate::notebook_transition::lock();
                         if generation_counter.load(Ordering::Acquire) != worker_generation {
                             break 'worker;
                         }
@@ -698,8 +690,8 @@ fn handle_notify_event(
                     );
                     raw.rename_from = Some(old.clone());
                     if new.is_dir() || !new_allowed
-                        || crate::commands::document_list::is_table_document_path(old)
-                        || crate::commands::document_list::is_table_document_path(new)
+                        || flowix_core::collection_store::is_table_document_path(old)
+                        || flowix_core::collection_store::is_table_document_path(new)
                         || matches!(
                             crate::watcher::filter::run_pipeline(&raw, &path_filter),
                             crate::watcher::event::FilterDecision::Pass
@@ -769,7 +761,7 @@ fn handle_notify_event(
         }
         match if matches!(fs_kind, FsEventKind::DirectoryChange)
             || resource_kind_for_path(&path).is_some()
-            || crate::commands::document_list::is_table_document_path(&path) {
+            || flowix_core::collection_store::is_table_document_path(&path) {
             crate::watcher::event::FilterDecision::Pass
         } else {
             crate::watcher::filter::run_pipeline(&raw, &path_filter)

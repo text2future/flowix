@@ -12,6 +12,7 @@ import {
 } from '@features/agent/runtime/new-conversation-agent-selection';
 import type { AgentTypeKey } from '@/types/agent';
 import { createLogger } from '@/lib/logger';
+import type { AgentConversationReference, PendingAgentConversationInitialContent } from '@features/agent/model/conversation-reference';
 
 const logger = createLogger('agent/use-cases/new-conversation');
 
@@ -76,9 +77,13 @@ export function discardUnopenedBrowserColumnAgentConversation(instanceId: string
 }
 
 /** Create and open a blank conversation scoped to a notebook. */
-export function createAndOpenAgentConversation(typeKey: AgentTypeKey, notebookId: string | null): void {
+export function createAndOpenAgentConversation(
+  typeKey: AgentTypeKey,
+  notebookId: string | null,
+  destination: AgentConversationDestination = 0,
+): void {
   const instance = createAgentConversationInstance(typeKey, notebookId);
-  openAgentConversation(instance.instanceId);
+  openAgentConversation(instance.instanceId, destination);
 }
 
 /** 随「新建会话」带过去的首条提示词；会话挂载时一次性消费。 */
@@ -95,7 +100,7 @@ export interface AgentConversationPromptOptions {
 
 // 入口（集合底部输入框、文件夹首页）把输入框草稿随「新建会话」带过来：一次性
 // 消费即删，避免常驻全局状态。
-const pendingInitialPrompts = new Map<string, PendingAgentConversationPrompt>();
+const pendingInitialContent = new Map<string, PendingAgentConversationInitialContent>();
 
 /** Create and open a conversation carrying a prompt (pre-filled, or auto-submitted). */
 export function createAndOpenAgentConversationWithPrompt(
@@ -107,7 +112,8 @@ export function createAndOpenAgentConversationWithPrompt(
   const trimmed = prompt.trim();
   const instance = createAgentConversationInstance(typeKey, notebookId);
   if (trimmed) {
-    pendingInitialPrompts.set(instance.instanceId, {
+    pendingInitialContent.set(instance.instanceId, {
+      kind: 'prompt',
       prompt: trimmed,
       autoSend: options.autoSend === true,
     });
@@ -119,8 +125,30 @@ export function createAndOpenAgentConversationWithPrompt(
 export function consumeAgentConversationInitialPrompt(
   instanceId: string,
 ): PendingAgentConversationPrompt | null {
-  const pending = pendingInitialPrompts.get(instanceId) ?? null;
-  pendingInitialPrompts.delete(instanceId);
+  const pending = pendingInitialContent.get(instanceId);
+  if (pending?.kind !== 'prompt') return null;
+  pendingInitialContent.delete(instanceId);
+  return { prompt: pending.prompt, autoSend: pending.autoSend };
+}
+
+/** Create a new conversation with a one-shot reference card in its composer. */
+export function createAndOpenAgentConversationWithReference(
+  typeKey: AgentTypeKey,
+  notebookId: string | null,
+  reference: AgentConversationReference,
+  destination: AgentConversationDestination = 0,
+): void {
+  const instance = createAgentConversationInstance(typeKey, notebookId);
+  pendingInitialContent.set(instance.instanceId, { kind: 'reference', reference });
+  openAgentConversation(instance.instanceId, destination);
+}
+
+/** Consume the initial composer content for a newly created conversation. */
+export function consumeAgentConversationInitialContent(
+  instanceId: string,
+): PendingAgentConversationInitialContent | null {
+  const pending = pendingInitialContent.get(instanceId) ?? null;
+  pendingInitialContent.delete(instanceId);
   return pending;
 }
 

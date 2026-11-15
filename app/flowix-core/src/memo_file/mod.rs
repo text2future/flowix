@@ -24,6 +24,7 @@ mod derivation;
 mod file_io;
 mod file_management;
 mod file_rules;
+mod folder_index;
 pub(crate) mod frontmatter;
 mod index_store;
 mod internal_migration;
@@ -67,6 +68,9 @@ pub use file_io::{
 };
 pub use file_management::{
     default_create_folder_for_notebook, rebase_default_create_folder_path, FileManagementPolicy,
+};
+pub use folder_index::{
+    delete_folder_index_for_path, rebase_folder_index_for_move, FolderIndexEntry,
 };
 pub use file_rules::EXCLUDED_DIRECTORY_NAMES;
 pub use frontmatter::{

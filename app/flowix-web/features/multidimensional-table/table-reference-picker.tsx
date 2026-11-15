@@ -1,8 +1,11 @@
+import { PopupScrollArea } from '@shared/ui/popup-scroll-area';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Editor } from '@tiptap/core';
-import { Plus, Table2 } from 'lucide-react';
+import { Plus } from 'lucide-react';
+import { errorMessage } from '@/lib/error-message';
 import { files, externalDocuments } from '@platform/tauri/client';
-import { useNoteStore } from '@features/memo/store/note-store';
+import { useNotebookById } from '@features/memo/public/notebook-api';
+import { CollectionResourceIcon } from '@features/collection/public/appearance-api';
 import { joinNotebookMemoPath } from '@/lib/path';
 import { toast } from '@/lib/toast';
 import { createTableDocumentFile } from './create-table-file';
@@ -18,7 +21,7 @@ import {
   type CollectionReferenceCandidate,
   type CollectionReferenceInsertRange,
   type CollectionReferencePickerAnchor,
-} from '@features/collection/reference-picker';
+} from '@features/collection/public/reference-picker-api';
 import { collectionSourceDomain, collectionWriteContent } from '@features/collection/public/hybrid-api';
 import { publishCollectionContent } from '@features/collection/public/content-events-api';
 
@@ -29,7 +32,7 @@ function TableReferencePicker({ editor, replaceRange, generation, preferredViewT
   preferredViewType?: TableViewType;
   ownerNotebookId: string | null;
 }) {
-  const ownerNotebook = useNoteStore((state) => state.notebooks.find((notebook) => notebook.id === ownerNotebookId && !notebook.missing));
+  const ownerNotebook = useNotebookById(ownerNotebookId);
   const notebooks = useMemo(() => ownerNotebook ? [ownerNotebook] : [], [ownerNotebook]);
   const [candidates, setCandidates] = useState<CollectionReferenceCandidate[]>([]);
   const [loading, setLoading] = useState(true);
@@ -92,8 +95,9 @@ function TableReferencePicker({ editor, replaceRange, generation, preferredViewT
   useLayoutEffect(() => {
     const textarea = searchRef.current;
     if (!textarea) return;
-    textarea.style.height = '0px';
-    textarea.style.height = `${Math.min(textarea.scrollHeight + 2, window.innerHeight * 0.5)}px`;
+    textarea.style.height = 'auto';
+    const contentHeight = textarea.scrollHeight + 2;
+    textarea.style.height = `${Math.min(contentHeight, window.innerHeight * 0.5)}px`;
   }, [query]);
 
   const attachReference = (candidate: CollectionReferenceCandidate, collectionId: string, viewId: string | null) => {
@@ -214,15 +218,16 @@ function TableReferencePicker({ editor, replaceRange, generation, preferredViewT
       }, created.table.collection.id, created.table.views.items[0]?.id ?? null);
     } catch (error) {
       if (!isCollectionReferencePickerCurrent(generation)) return;
-      toast.error(error instanceof Error ? error.message : '创建多维表格失败');
+      toast.error(errorMessage(error) || '创建多维表格失败');
       setCreatingTable(false);
     }
   };
 
   const viewTypeLabel = preferredViewType === 'kanban' ? '看板' : preferredViewType === 'calendar' ? '日历' : preferredViewType === 'gallery' ? '画廊' : '表格';
 
-  return <div className={`slash-menu-dropdown table-reference-picker${navigation.keyboardNavigation ? ' is-keyboard-navigation' : ''}`} role="dialog" aria-label="选择或新建多维表格">
-    <div className="table-reference-picker__search flex shrink-0 items-start gap-1">
+  return <div className={`slash-menu-dropdown table-reference-picker${navigation.keyboardNavigation ? ' is-keyboard-navigation' : ''}`} role="dialog" aria-label="插入笔记数据库">
+    <div className="table-reference-picker__title" role="heading" aria-level={2}>插入笔记数据库</div>
+    <div className="table-reference-picker__search flex shrink-0 items-start gap-1 px-2">
       <textarea
         ref={searchRef}
         rows={1}
@@ -240,8 +245,8 @@ function TableReferencePicker({ editor, replaceRange, generation, preferredViewT
             } else void createTable();
           }
         }}
-        placeholder="输入名称搜索 或 新建"
-        className="min-h-8 max-h-[50vh] min-w-0 flex-1 shrink-0 resize-none overflow-y-auto border-0 bg-transparent px-2 py-2 text-sm leading-5 shadow-none focus-visible:border-0 focus-visible:ring-0"
+        placeholder="输入名称创建"
+        className="multidimensional-table__primary-title-input min-w-0 flex-1 !py-2"
       />
       {query.trim() && <button
         type="button"
@@ -250,13 +255,11 @@ function TableReferencePicker({ editor, replaceRange, generation, preferredViewT
         disabled={creatingTable}
         onMouseDown={(event) => event.preventDefault()}
         onClick={() => void createTable()}
-        className="flex h-8 w-10 shrink-0 items-center justify-center rounded-md text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-50"
+        className="mt-0.5 flex h-8 w-8 shrink-0 self-start items-center justify-center rounded-md text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-50"
       ><Plus className="h-4 w-4" aria-hidden="true" /></button>}
     </div>
-    {preferredViewType === 'kanban' && query.trim() && <div className="px-2 pb-1 text-xs text-[var(--muted-foreground)]">点击 + 创建表格时，会同时新增共享的“状态”单选属性。</div>}
-    <div className="slash-menu-items-frame">
-      <div className="slash-menu-items" role="listbox" aria-label="多维表格列表">
-        <div className="slash-menu-header" role="presentation"><span>选择已创建集合插入</span></div>
+    <PopupScrollArea className="slash-menu-items-frame" scrollerClassName="slash-menu-items" scrollerProps={{ role: 'listbox', 'aria-label': '多维表格列表' }}>
+        <div className="slash-menu-header" role="presentation"><span>关联</span></div>
         {loading ? <div className="slash-menu-empty">正在读取多维表格…</div>
           : loadError ? <div className="slash-menu-empty text-[var(--destructive)]">{loadError}</div>
             : filteredCandidates.length === 0 ? <div className="slash-menu-empty">{candidates.length ? '没有匹配的多维表格' : '当前没有多维表格'}</div>
@@ -272,13 +275,20 @@ function TableReferencePicker({ editor, replaceRange, generation, preferredViewT
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => void openCandidate(candidate)}
               >
-                <Table2 className="h-4 w-4 shrink-0" aria-hidden="true" />
-                <span className="slash-menu-item-label min-w-0 flex-1">{candidate.name}</span>
-                <span className="slash-menu-item-description max-w-[42%]">{collectionCandidateFolderLabel(candidate)}</span>
+                <CollectionResourceIcon
+                  filePath={joinNotebookMemoPath(candidate.notebookPath, candidate.relativePath) ?? candidate.relativePath}
+                  notebookPath={candidate.notebookPath}
+                  fallbackType="table"
+                  className="h-4 w-4 shrink-0"
+                  loadWhenVisible
+                />
+                <span className="table-reference-picker__candidate-label min-w-0 flex-1">
+                  <span className="slash-menu-item-label">{candidate.name}</span>
+                  <span className="table-reference-picker__candidate-folder">{collectionCandidateFolderLabel(candidate)}</span>
+                </span>
                 {openingPath === candidate.relativePath && <span className="text-xs text-[var(--muted-foreground)]">读取中</span>}
               </button>)}
-      </div>
-    </div>
+    </PopupScrollArea>
   </div>;
 }
 

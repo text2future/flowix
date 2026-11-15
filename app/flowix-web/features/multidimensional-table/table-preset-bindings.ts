@@ -3,9 +3,23 @@ import type { PropertyFieldConfig } from '@/lib/constants';
 import { isPresetPropertyKind } from '@/lib/property-types';
 import { legacyPropertyId } from '@/lib/property-identity';
 import type { MultidimensionalTableDocument, TableField } from './model';
+import { BUILTIN_TABLE_FIELDS, builtinPresetTableField } from './builtin-fields';
 import { canonicalizePropertyKey } from '@features/properties/property-key';
 
 export const comparablePropertyKey = (key: string) => canonicalizePropertyKey(key).toLowerCase();
+
+/**
+ * 这张表的字段里是否已经有这个属性键：先按规范化 key 比对已有字段，
+ * 再看对应的内置预设是否已在此表的 preset_fields 里登记。
+ * 供「从预设选择」菜单置灰判断用，所以只吃 key，不认识 UI 侧的 PropertyPreset。
+ */
+export function tableFieldUsesPropertyKey(document: MultidimensionalTableDocument, presetKey: string): boolean {
+  const propertyKey = canonicalizePropertyKey(presetKey).toLocaleLowerCase();
+  if (document.dataset.schema.fields.some((field) => field.property_key
+    && canonicalizePropertyKey(field.property_key).toLocaleLowerCase() === propertyKey)) return true;
+  const builtin = BUILTIN_TABLE_FIELDS.find((field) => builtinPresetTableField(field.id)?.property_key === propertyKey);
+  return Boolean(builtin && document.dataset.schema.preset_fields.includes(builtin.id));
+}
 
 export function presetFromTableField(field: TableField): PropertyFieldConfig {
   if (!field.property_key || !isPresetPropertyKind(field.type)) throw new Error('此字段不能转为用户预设');

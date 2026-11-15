@@ -112,10 +112,12 @@
   color: var(--destructive);
 }
 
-/* 复用 __copy-icon 口径 ── 14×14, color 继承按钮文字色, 不缩小。
- * 之所以独立类不复用, 是因为以后可能给删除按钮单独调 hover 色或加危险态, 独立类
- * 给未来留扩展空间。 */
-.agent-conversation-surface .agent-icon__trash {
+/* Header action icons share geometry while retaining their semantic classes. */
+.agent-conversation-surface .agent-icon__trash,
+.agent-thread-card__fullscreen-icon,
+.agent-thread-card__view-note-icon,
+.agent-thread-card__more-icon,
+.agent-thread-card__copy-icon {
   display: block;
   width: 14px;
   height: 14px;
@@ -128,14 +130,6 @@
   /* 视觉由 __icon-btn 提供 ── 这里仅放独有扩展点 (当前无) */
 }
 
-.agent-thread-card__fullscreen-icon {
-  display: block;
-  width: 14px;
-  height: 14px;
-  flex: 0 0 auto;
-  color: currentColor;
-}
-
 /* 查看笔记按钮 ── 在右侧列对话 (AgentConversationDetail) header 的
  * actions 区出现, 视觉同 __icon-btn 基类。 仅在 source.relativePath /
  * source.documentPath 存在时启用; dedicated 对话没有来源笔记, 整段
@@ -145,14 +139,6 @@
  * 折叠 / 删除等图标保持口径一致。 */
 .agent-thread-card__view-note {
   /* 视觉由 __icon-btn 提供 ── 这里仅放独有扩展点 (当前无) */
-}
-
-.agent-thread-card__view-note-icon {
-  display: block;
-  width: 14px;
-  height: 14px;
-  flex: 0 0 auto;
-  color: currentColor;
 }
 
 /* 无来源文档占位 ── dedicated 对话 (kind === 'dedicated') 没有关联笔记,
@@ -187,16 +173,6 @@
   /* 视觉由 __icon-btn 提供 ── 这里仅放独有扩展点 (当前无) */
 }
 
-/* "…" 图标 ── 14×14, color 继承按钮文字色, 与全屏 / 折叠 / 删除
- * 等图标的尺寸口径一致 (14×14)。lucide 的 MoreHorizontal 默认 stroke
- * 略细, 在 28px 方格里视觉重量跟其他基类图标持平, 不需要再调粗细。 */
-.agent-thread-card__more-icon {
-  display: block;
-  width: 14px;
-  height: 14px;
-  flex: 0 0 auto;
-  color: currentColor;
-}
 
 /* Dedicated conversation navigation owns the fullscreen state. The selected
  * card remains the right-hand conversation surface until the user changes
@@ -236,14 +212,6 @@
 
 .agent-thread-card__actions-divider[hidden] {
   display: none;
-}
-
-.agent-thread-card__copy-icon {
-  display: block;
-  width: 14px;
-  height: 14px;
-  flex: 0 0 auto;
-  color: currentColor;
 }
 
 /* 消息区 ── grid 1fr 中间行, min-height: 0 允许被 max-height 收缩。

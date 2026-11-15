@@ -123,7 +123,7 @@ export function TableFieldEditorForm({
           </span>
         </button>
       </PopoverTrigger>
-      <PopoverContent side="left" align="start" sideOffset={0} ignoreSelectOutside={false} fitViewport style={{ zIndex: 170 }} className="max-h-[min(70vh,420px)] w-[180px] max-w-[calc(100vw-16px)] overflow-y-auto rounded-xl p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+      <PopoverContent scrollable side="left" align="start" sideOffset={0} ignoreSelectOutside={false} fitViewport style={{ zIndex: 170 }} className="max-h-[min(70vh,420px)] w-[180px] max-w-[calc(100vw-16px)] rounded-xl p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
         <div className="space-y-1">
           {typeChoices.map((choice) => <button
             key={choice}
@@ -420,7 +420,7 @@ export function TableFieldHeader({
         <span className={compact ? `block min-w-0 ${trailingLabel ? '' : 'flex-1'} overflow-hidden text-ellipsis whitespace-nowrap` : 'min-w-0 overflow-hidden text-ellipsis whitespace-nowrap'}>{label}</span>
       </button>
     </PopoverTrigger>
-    <PopoverContent anchorSelector={compact ? '[data-table-field-item]' : undefined} align="start" side={compact ? 'right' : 'bottom'} sideOffset={0} fitViewport style={{ zIndex: 160 }} ignorePopoverOutside={typeMenuOpen || presetMenuOpen || datasetMenuOpen} ignoreSelectOutside={field.type === 'primary'} className="max-h-[min(70vh,420px)] w-[213px] p-1.5 max-w-[calc(100vw-16px)] overflow-y-auto rounded-xl shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+    <PopoverContent scrollable anchorSelector={compact ? '[data-table-field-item]' : undefined} align="start" side={compact ? 'right' : 'bottom'} sideOffset={0} fitViewport style={{ zIndex: 160 }} ignorePopoverOutside={typeMenuOpen || presetMenuOpen || datasetMenuOpen} ignoreSelectOutside={field.type === 'primary'} className="max-h-[min(70vh,420px)] w-[213px] p-1.5 max-w-[calc(100vw-16px)] rounded-xl shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
       <TableFieldEditorForm
         name={propertyKeyDraft}
         onNameChange={setPropertyKeyDraft}

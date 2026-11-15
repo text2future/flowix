@@ -19,6 +19,9 @@ import type { AgentTypeKey } from '@/types/agent';
 import { cn } from '@/lib/utils';
 import { toast } from '@/lib/toast';
 import { useAgentDataStore } from '@features/agent/store/agent-data-store';
+import { AgentIcon, useNewConversationAgentSelection } from '@features/agent/public/shell-api';
+import { setCollectionAgentType, useCollectionAgentType } from '@features/collection/public/agent-api';
+import { Select, SelectContent, SelectItem, SelectTrigger } from '@shared/ui/select';
 
 type CollapsibleAgentKey =
   | 'codex'
@@ -37,6 +40,10 @@ const HIDDEN_PREFERENCE_AGENT_KEYS: ReadonlySet<AgentTypeKey> = new Set([
 
 export function AgentsSection() {
   const { t } = useI18n();
+  const agentSelection = useNewConversationAgentSelection();
+  const selectedAgentType = useCollectionAgentType();
+  const selectedAvailableAgent = agentSelection.options.find((type) => type.id === selectedAgentType)
+    ?? agentSelection.options[0];
   const persistenceError = useAgentDataStore((state) => state.persistenceError);
   const statusByType = useAgentRuntimeStore((s) => s.statusByType);
   const isChecking = useAgentRuntimeStore((s) => s.isChecking);
@@ -135,6 +142,47 @@ export function AgentsSection() {
           {t('preferences.agents.cacheWriteFailed')}
         </div>
       )}
+      <div className="flex flex-col gap-3 rounded-lg border border-[var(--border)] px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h3 className="text-sm font-medium text-[var(--foreground)]">
+            {t('preferences.agents.defaultAgent.title')}
+          </h3>
+        </div>
+        <Select
+          value={selectedAvailableAgent?.id ?? ''}
+          disabled={agentSelection.options.length === 0}
+          onValueChange={(value) => {
+            const nextAgent = agentSelection.options.find((type) => type.id === value);
+            if (nextAgent) setCollectionAgentType(nextAgent.id);
+          }}
+        >
+          <SelectTrigger
+            aria-label={t('preferences.agents.defaultAgent.title')}
+            className="w-full sm:w-[220px]"
+          >
+            {selectedAvailableAgent ? (
+              <span className="flex min-w-0 flex-1 items-center gap-2 text-left">
+                <AgentIcon typeKey={selectedAvailableAgent.id} alt="" className="h-4 w-4 shrink-0" />
+                <span className="truncate">{selectedAvailableAgent.name}</span>
+              </span>
+            ) : (
+              <span className="text-[var(--muted-foreground)]">
+                {t('preferences.agents.defaultAgent.noneAvailable')}
+              </span>
+            )}
+          </SelectTrigger>
+          <SelectContent className="w-[220px]" fitViewport maxHeight="50vh">
+            {agentSelection.options.map((type) => (
+              <SelectItem key={type.id} value={type.id}>
+                <span className="flex items-center gap-2">
+                  <AgentIcon typeKey={type.id} alt="" className="h-4 w-4 shrink-0" />
+                  <span>{type.name}</span>
+                </span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
       <AgentRuntimeStatusList
         statusByType={statusByType}
         isChecking={isChecking}

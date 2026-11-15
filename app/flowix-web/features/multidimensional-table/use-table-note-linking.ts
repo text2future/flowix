@@ -18,7 +18,8 @@ import { createUuidV7, type MultidimensionalTableDocument, type TableField, type
 import { builtinPresetTableField } from './builtin-fields';
 import { noteMatchesCollectionFilter } from './record-filter';
 import { upsertTableRecord } from './table-view-helpers';
-import { selectPropertyImage } from '@features/document/properties/image-value-input';
+import { selectPropertyImage, propertyImagePaths } from '@features/document/properties/image-value-input';
+import { notePropertyEditorValue } from './table-note-properties';
 import type { useTableSession } from './use-table-session';
 
 type TableSession = ReturnType<typeof useTableSession>;
@@ -371,7 +372,10 @@ export function useTableNoteLinking(input: UseTableNoteLinkingInput) {
       return;
     }
     const relativePath = await selectPropertyImage({ id: notebookId, path: notebookPath }, t);
-    if (relativePath) updateCell(record, note, field, relativePath);
+    if (relativePath) {
+      const previous = propertyImagePaths(notePropertyEditorValue(note, field));
+      updateCell(record, note, field, [...new Set([...previous, relativePath])]);
+    }
   }, [editable, notebookId, notebookPath, saving, t, updateCell]);
 
   const createBlankGalleryNote = useCallback(async (nextNoteNumber: number) => {

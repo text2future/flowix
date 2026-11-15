@@ -5,11 +5,12 @@ use std::path::{Path, PathBuf};
 use tauri::{Manager, State};
 
 use crate::app::state::AppState;
-use crate::commands::external_document_watch::ExternalDocumentWatchState;
+use crate::external_watch::ExternalDocumentWatchState;
 use crate::commands::helpers::{
-    can_access_document_path, can_access_scoped_file, notebook_note_address,
+    can_access_document_path, can_access_scoped_file, is_attached_notebook_directory,
+    is_registered_notebook_path, notebook_note_address,
 };
-use crate::commands::path_change::NotebookPathUpdated;
+use crate::events::path_change::NotebookPathUpdated;
 use crate::lock_utils::read_lock;
 use flowix_core::memo_file::{FileWriteOutcome, MemoFile, MergedFileWriteOutcome};
 
@@ -275,7 +276,7 @@ pub async fn read_external_document(
         let state = app.state::<AppState>();
         let path =
             exact_existing_external_path(&file_path, scopePath.as_deref(), window.label(), &state)?;
-        if let Some(max_bytes) = maxBytes {
+        let content = if let Some(max_bytes) = maxBytes {
             let file = fs::File::open(&path)
                 .map_err(|error| document_read_error(&path, error))?;
             let size = file.metadata()
@@ -295,7 +296,21 @@ pub async fn read_external_document(
         } else {
             fs::read_to_string(&path)
                 .map_err(|error| document_read_error(&path, error))
+        }?;
+        // A restored tab must retain the same exact-file access as its original
+        // authorized open. Persist only successfully read external Markdown;
+        // notebook and repository access already belongs to their registered roots.
+        if is_markdown_document_path(&path)
+            && !is_registered_notebook_path(&path, &state)
+            && !is_attached_notebook_directory(&path, &state)
+            && !state.document_access.has_retained_file_reference(&path)
+        {
+            state.security_bookmarks.record_file(&path)
+                .map_err(|error| format!("failed to retain external document bookmark: {error}"))?;
+            state.document_access.retain_file_reference(&path)
+                .map_err(|error| format!("failed to retain external document access: {error}"))?;
         }
+        Ok(content)
     })
     .await?
 }
@@ -382,7 +397,7 @@ pub async fn write_external_document(
                             Ok(None) => {},
                             Err(error) => tracing::warn!(path = %path.display(), "saved note metadata notification failed: {error}"),
                         }
-                        crate::commands::document_list::refresh_view_document_path(&memo_file, &path);
+                        flowix_core::collection_store::refresh_path(&memo_file, &path);
                         if is_markdown_document_path(&path) {
                             if let Ok(notebooks) = memo_file.read_notebook_configs() {
                                 for notebook in notebooks {

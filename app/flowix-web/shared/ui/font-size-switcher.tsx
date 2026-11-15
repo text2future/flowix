@@ -1,6 +1,6 @@
 'use client';
 
-import { TextTIcon } from '@phosphor-icons/react';
+import { Type } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
 
 export const FONT_SIZE_MODES = ['small', 'medium', 'large'] as const;
@@ -16,7 +16,7 @@ export function FontSizeSwitcher({
   const { t } = useI18n();
   return (
     <div className="group flex h-7 w-full items-center gap-2 rounded-lg px-2 text-sm text-[var(--foreground)]">
-      <TextTIcon aria-hidden="true" className="h-4 w-4 shrink-0" />
+      <Type aria-hidden="true" className="h-4 w-4 shrink-0" />
       <div className="min-w-0 flex-1">{t('agent.chat.messageFontSize')}</div>
       <div className="flex shrink-0 gap-0.5" role="group" aria-label={t('agent.chat.messageFontSize')}>
         {FONT_SIZE_MODES.map((mode) => (

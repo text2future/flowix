@@ -2,6 +2,7 @@ import { Node, type Editor, type JSONContent, type MarkdownToken } from "@tiptap
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Database } from "lucide-react";
+import { ContentIcon } from '@features/content/public/content-api';
 import folderOutlineSvg from "@/assets/folder-outline.svg?raw";
 import { COLLECTION_AGENT_REFERENCE_LINK_TITLE } from "@features/collection/public/agent-reference-api";
 import {
@@ -14,14 +15,16 @@ import {
 export interface ComposerFolderTokenValue {
   path: string;
   displayName?: string;
-  kind?: "folder" | "collection";
+  kind?: "folder" | "collection" | "file";
   collectionMetadata?: string;
 }
 
 const FOLDER_HREF_PREFIX = "flowix://folder/";
 const COLLECTION_HREF_PREFIX = "flowix://collection/";
-const FOLDER_TOKEN_RE = /^\[([^\]\n]*)\]\(flowix:\/\/(folder|collection)\/([^\s)]+)\)/i;
-const FOLDER_TOKEN_GLOBAL_RE = /\[([^\]\n]*)\]\(flowix:\/\/(folder|collection)\/([^\s)]+)\)/gi;
+const FILE_HREF_PREFIX = "flowix://file/";
+const FOLDER_TOKEN_RE = /^\[([^\]\n]*)\]\(flowix:\/\/(folder|collection|file)\/([^\s)]+)\)/i;
+const FOLDER_TOKEN_GLOBAL_RE = /\[([^\]\n]*)\]\(flowix:\/\/(folder|collection|file)\/([^\s)]+)\)/gi;
+let resourceIconSequence = 0;
 
 function safeDecode(value: string): string {
   try {
@@ -103,7 +106,7 @@ export const ComposerFolderToken = Node.create({
       path,
       typeof node.attrs?.displayName === "string" ? node.attrs.displayName : undefined,
     );
-    const kind = node.attrs?.kind === "collection" ? "collection" : "folder";
+    const kind = node.attrs?.kind === "collection" || node.attrs?.kind === "file" ? node.attrs.kind : "folder";
     return ["span", {
       "data-composer-folder": path,
       "data-composer-folder-display-name": displayName,
@@ -119,7 +122,7 @@ export const ComposerFolderToken = Node.create({
     name: "composerFolderToken",
     level: "inline" as const,
     start(src: string) {
-      const indexes = [FOLDER_HREF_PREFIX, COLLECTION_HREF_PREFIX]
+      const indexes = [FOLDER_HREF_PREFIX, COLLECTION_HREF_PREFIX, FILE_HREF_PREFIX]
         .map((prefix) => src.indexOf(`(${prefix}`))
         .filter((index) => index >= 0);
       return indexes.length > 0 ? Math.max(0, src.lastIndexOf("[", Math.min(...indexes))) : -1;
@@ -138,8 +141,10 @@ export const ComposerFolderToken = Node.create({
 
   parseMarkdown(token: MarkdownToken) {
     const href = String(token.href ?? "");
-    const kind = href.startsWith(COLLECTION_HREF_PREFIX) ? "collection" : "folder";
-    const prefix = kind === "collection" ? COLLECTION_HREF_PREFIX : FOLDER_HREF_PREFIX;
+    const kind = href.startsWith(COLLECTION_HREF_PREFIX) ? "collection"
+      : href.startsWith(FILE_HREF_PREFIX) ? "file" : "folder";
+    const prefix = kind === "collection" ? COLLECTION_HREF_PREFIX
+      : kind === "file" ? FILE_HREF_PREFIX : FOLDER_HREF_PREFIX;
     const [encodedPath, query = ""] = href.slice(prefix.length).split("?", 2);
     const collectionMetadata = kind === "collection"
       ? new URLSearchParams(query).get("metadata")
@@ -162,8 +167,9 @@ export const ComposerFolderToken = Node.create({
       path,
       typeof node.attrs?.displayName === "string" ? node.attrs.displayName : undefined,
     );
-    const kind = node.attrs?.kind === "collection" ? "collection" : "folder";
-    const prefix = kind === "collection" ? COLLECTION_HREF_PREFIX : FOLDER_HREF_PREFIX;
+    const kind = node.attrs?.kind === "collection" || node.attrs?.kind === "file" ? node.attrs.kind : "folder";
+    const prefix = kind === "collection" ? COLLECTION_HREF_PREFIX
+      : kind === "file" ? FILE_HREF_PREFIX : FOLDER_HREF_PREFIX;
     const metadata = kind === "collection" && typeof node.attrs?.collectionMetadata === "string"
       ? `?metadata=${encodeTokenValue(node.attrs.collectionMetadata)}`
       : "";
@@ -177,11 +183,16 @@ export const ComposerFolderToken = Node.create({
         path,
         typeof node.attrs.displayName === "string" ? node.attrs.displayName : undefined,
       );
-      const kind = node.attrs.kind === "collection" ? "collection" : "folder";
+      const kind = node.attrs.kind === "collection" || node.attrs.kind === "file" ? node.attrs.kind : "folder";
       const iconTemplate = document.createElement("template");
       iconTemplate.innerHTML = kind === "collection"
         ? renderToStaticMarkup(createElement(Database, { "aria-hidden": true }))
-        : folderOutlineSvg;
+        : kind === "file"
+          ? renderToStaticMarkup(createElement(ContentIcon, {
+            content: { kind: 'file', path },
+            className: 'agent-composer__folder-token-icon',
+          }), { identifierPrefix: `flowix-composer-file-${resourceIconSequence++}-` })
+          : folderOutlineSvg;
       const folderIcon = iconTemplate.content.firstElementChild;
       folderIcon?.classList.add("agent-composer__folder-token-icon");
       const nodeView = createInlineAtomNodeView({
@@ -195,7 +206,7 @@ export const ComposerFolderToken = Node.create({
         hoverActions: [{
           ariaLabel: kind === "collection"
             ? `移除集合引用 ${displayName}`
-            : `移除资料库 ${displayName}`,
+            : kind === "file" ? `移除文件引用 ${displayName}` : `移除资料库 ${displayName}`,
           icon: createInlineAtomCloseIcon(),
           onClick: () => deleteInlineAtomNode(
             view,
@@ -228,13 +239,19 @@ export function insertComposerFolderToken(
   path: string,
   displayName?: string,
   range?: { from: number; to: number },
+  options: Pick<ComposerFolderTokenValue, 'kind' | 'collectionMetadata'> = {},
 ): void {
   const { selection } = editor.state;
   const target = range ?? { from: selection.from, to: selection.to };
   editor.chain()
     .focus()
     .insertContentAt({ from: target.from, to: target.to }, [
-      { type: "composerFolderToken", attrs: { path, displayName: displayName || null } },
+      { type: "composerFolderToken", attrs: {
+        path,
+        displayName: displayName || null,
+        kind: options.kind ?? 'folder',
+        collectionMetadata: options.collectionMetadata ?? null,
+      } },
       { type: "text", text: " " },
     ])
     .run();

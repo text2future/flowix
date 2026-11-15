@@ -9,3 +9,5 @@ export {
   prewarmNotebookCache,
   invalidateNotebookCache,
 } from '@features/editor/extensions/note-link/memo-resolver';
+
+export { normalizeNoteReferenceDocument } from './note-reference-path';

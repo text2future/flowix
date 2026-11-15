@@ -37,6 +37,56 @@ fn explicit_destination_does_not_switch_current_notebook() {
 }
 
 #[test]
+fn repository_assets_use_the_repository_attachments_directory() {
+    let (directory, store) = fixture();
+    let repository = directory.path().join("repository");
+    fs::create_dir(&repository).unwrap();
+    let repository_path = repository.to_str().unwrap();
+    store
+        .update_notebook_add_dir("second", repository_path, true)
+        .unwrap();
+
+    let save_asset = || {
+        save_for_repository(
+            &store,
+            "second",
+            repository_path,
+            "report.pdf",
+            &mut &b"report"[..],
+            true,
+        )
+        .unwrap()
+    };
+    let saved = save_asset();
+    assert_eq!(
+        Path::new(&saved.path),
+        dunce::canonicalize(&repository)
+            .unwrap()
+            .join("attachments/report.pdf")
+    );
+    assert_eq!(fs::read(&saved.path).unwrap(), b"report");
+    assert!(!directory.path().join("second/attachments").exists());
+    let reused = save_asset();
+    assert_eq!(reused.path, saved.path);
+    assert!(!reused.created);
+    assert_eq!(store.current_notebook_id_value().as_deref(), Some("first"));
+
+    store
+        .update_notebook_add_dir("second", repository_path, false)
+        .unwrap();
+    assert!(save_for_repository(
+        &store,
+        "second",
+        repository_path,
+        "other.pdf",
+        &mut &b"data"[..],
+        true,
+    )
+    .is_err());
+    assert!(!repository.join("attachments/other.pdf").exists());
+}
+
+#[test]
 fn note_owner_resolves_notebook_from_absolute_path() {
     let (directory, store) = fixture();
     let created = flowix_core::NoteService::new(&store)

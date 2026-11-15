@@ -23,7 +23,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { SquaresFourIcon } from '@phosphor-icons/react';
+import { PanelsTopLeft } from 'lucide-react';
 
 import {
   canonicalDirectoryPath,
@@ -67,7 +67,7 @@ import {
   type NotebookTreeDraftState,
   type NotebookTreeRenderRow,
 } from './notebook-tree-render-rows';
-export { buildNotebookTreeRenderRows } from './notebook-tree-render-rows';
+export { buildNotebookTreeRenderModel } from './notebook-tree-render-rows';
 import {
   useLoadedTreeIndex,
   useNotebookTreeRenderModel,
@@ -127,6 +127,7 @@ interface NotebookFileTreeProps {
   onDeleteFile?: (item: DocTreeItem, options?: { silent?: boolean }) => Promise<boolean | void>;
   defaultCreateFolder?: string | null;
   onSetDefaultCreateFolder?: (folderPath: string) => void;
+  onRepositoriesPageOpenChange?: (open: boolean) => void;
 }
 
 
@@ -154,6 +155,7 @@ export function NotebookFileTree({
   onDeleteFile,
   defaultCreateFolder,
   onSetDefaultCreateFolder,
+  onRepositoriesPageOpenChange,
 }: NotebookFileTreeProps) {
   const { t } = useI18n();
   const {
@@ -206,6 +208,12 @@ export function NotebookFileTree({
   );
   const [showScrollTopHint, setShowScrollTopHint] = useState(false);
   const [repositoriesPageOpen, setRepositoriesPageOpen] = useState(false);
+  const [expandRepositoryPath, setExpandRepositoryPath] = useState<string | null>(null);
+  const [expandRepositoryRequestId, setExpandRepositoryRequestId] = useState(0);
+  useEffect(() => {
+    onRepositoriesPageOpenChange?.(repositoriesPageOpen && isActive);
+    return () => onRepositoriesPageOpenChange?.(false);
+  }, [repositoriesPageOpen, isActive, onRepositoriesPageOpenChange]);
 
   const {
     pinnedItems,
@@ -325,13 +333,13 @@ export function NotebookFileTree({
   });
   const pinnedFolderPathSet = useMemo(() => new Set(pinnedFolderFullPaths), [pinnedFolderFullPaths]);
   // Loading/error flags and controller callbacks do not change tree topology.
-  // 条目、路径索引、文件夹集合一次遍历产出，见 use-notebook-tree-derived。
+  // 路径索引（itemByPath + folderPaths）一趟产出，见 use-folder-tree。
   const loadedTreeIndex = useLoadedTreeIndex(rootChildren, nodes);
-  const loadedTreeItems = loadedTreeIndex.items;
   // Pinned folders lead the pinned group with their subtree; entries follow.
   // The pinned group keeps its own expand set, independent from the files tree.
   const pinnedSectionItems = usePinnedSectionItems({
-    entries: pinnedItems, folderPaths: pinnedFolderFullPaths, loadedItems: loadedTreeItems,
+    entries: pinnedItems, folderPaths: pinnedFolderFullPaths,
+    itemByPath: loadedTreeIndex.itemByPath,
     nodes, expanded: pinnedExpandedPaths, sort: fileTreeSort,
   });
   const pinnedItemPaths = useMemo(() => pinnedSectionItems.map((item) => item.fullPath), [pinnedSectionItems]);
@@ -339,8 +347,8 @@ export function NotebookFileTree({
     item, depth: item.pinnedDepth ?? 0,
   })), [pinnedSectionItems]);
   const {
+    renderableSectionOrder,
     visibleSectionOrder,
-    moreCompactTopSpacing,
     treeContentOffset,
     setMoreSectionHeight,
     handleAgentSectionHeightChange,
@@ -703,6 +711,7 @@ export function NotebookFileTree({
         <NotebookTreeRow
           item={item}
           notebookPath={notebookPath}
+          notebookId={notebookId ?? undefined}
           parentPath={logicalParentPath}
           posInSet={posInSet}
           setSize={setSize}
@@ -785,6 +794,7 @@ export function NotebookFileTree({
       onImportFiles: handleImportFilesAtPath,
       onImportFolder: handleImportFolderAtPath,
       onRename: handleRename,
+      onDeleteFolder: onDeleteFolder ? handleDeleteFolderPath : undefined,
       onDeleteFile,
       onDeleteSelected: handleDeleteSelected,
       onPointerDown: handlePointerDownItem,
@@ -818,6 +828,8 @@ export function NotebookFileTree({
     handleImportFilesAtPath,
     handleImportFolderAtPath,
     handleRename,
+    handleDeleteFolderPath,
+    onDeleteFolder,
     onDeleteFile,
     handleDeleteSelected,
     handlePointerDownItem,
@@ -886,7 +898,7 @@ export function NotebookFileTree({
                 <NotebookTreeSectionsView
                   layout={{
                     order: sectionOrder,
-                    hidden: hiddenSections,
+                    renderable: renderableSectionOrder,
                     visible: visibleSectionOrder,
                     onMove: moveTreeSection,
                     onHide: hideTreeSection,
@@ -955,16 +967,19 @@ export function NotebookFileTree({
                     canAdd: Boolean(notebookId),
                     onOpenFile: openRepositoryFile,
                     onOpenFileInBrowserColumn: openRepositoryFileInBrowser,
-                    onOpenList: () => setRepositoriesPageOpen(true),
+                    onOpenList: (repositoryPath) => {
+                      setExpandRepositoryPath(repositoryPath ?? null);
+                      setExpandRepositoryRequestId((current) => current + 1);
+                      setRepositoriesPageOpen(true);
+                    },
                   }}
                   more={{
                     onHeightChange: setMoreSectionHeight,
-                    compactTopSpacing: moreCompactTopSpacing,
                   }}
                 />
               </div>
             </ContextMenuTrigger>
-            <ContextMenuContent className="w-[180px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+            <ContextMenuContent scrollerClassName="space-y-0.5" className="w-[180px] rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
               <NotebookCreateContextMenuItems
                 onCreateNote={() => handleCreateNoteAtPath(notebookPath)}
                 onCreateFolder={() => handleCreateFolderAtPath(notebookPath)}
@@ -976,9 +991,9 @@ export function NotebookFileTree({
               />
               <ContextMenuItem keepOpenOnClick
                 onClick={(event) => openCustomizeDisplay(getPopupOriginRect(event.currentTarget))}
-                className="h-7 items-center justify-start rounded-lg px-2 py-0 text-left transition-colors hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"
+                className="h-7 items-center justify-start rounded-lg px-2 py-0 text-left transition-colors hover:bg-[var(--hover-bg)]"
               >
-                <SquaresFourIcon className="mr-2 h-4 w-4" aria-hidden="true" />
+                <PanelsTopLeft className="mr-2 h-4 w-4" aria-hidden="true" />
                 {t('memo.fileTree.customizeDisplay')}
               </ContextMenuItem>
             </ContextMenuContent>
@@ -1003,6 +1018,8 @@ export function NotebookFileTree({
       <NotebookRepositoriesPage
         open={repositoriesPageOpen}
         repositories={agentRepositories}
+        expandRepositoryPath={expandRepositoryPath}
+        expandRepositoryRequestId={expandRepositoryRequestId}
         introEnabled={agentWorkspaceReady}
         canAddRepository={Boolean(notebookId)}
         onBack={() => setRepositoriesPageOpen(false)}

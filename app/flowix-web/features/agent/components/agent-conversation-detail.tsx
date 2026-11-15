@@ -17,9 +17,10 @@ import { clearMissingBrowserConversation } from '@features/workspace/public/brow
 import { WorkspaceColumnContextMenu } from '@features/shell/public/work-column-api';
 import { isInitialConversationHistoryLoading } from './agent-conversation-history-loading';
 import { useAgentSessionStore } from '@features/agent/store/agent-session-store';
-import { consumeAgentConversationInitialPrompt, createAndOpenAgentConversation } from '@features/agent/use-cases/new-conversation';
+import { consumeAgentConversationInitialContent, createAndOpenAgentConversation } from '@features/agent/use-cases/new-conversation';
 import { canActOnQueuedMessage } from '@features/agent/store/follow-up-queue-slice';
 import type { AgentConversationInstance } from '@features/agent/store/agent-conversation-types';
+import { getConversationNotebookId } from '@features/agent/runtime/conversation-notebook';
 import { useNoteStore } from '@features/memo/store/note-store';
 import { acquireThreadInterest } from '@features/agent/store/thread-interest';
 import { isAgentThreadWorking, type ThreadState } from '@features/agent/store/thread-runtime-state';
@@ -644,6 +645,7 @@ function AgentConversationDetailContent({
         getRuntimeState: composerRuntimeState,
         getHasAttachments: () => composerAttachmentsController.hasAttachments,
         getHasPendingAttachments: () => composerAttachmentsController.hasPending,
+        getNoteNotebookId: () => getConversationNotebookId(instanceRef.current),
         agentType: typeKeyRef.current,
         getSkillsScopeId: () => {
           const current = instanceRef.current;
@@ -686,9 +688,11 @@ function AgentConversationDetailContent({
             ?? runtimeConfig.cwd;
           return listPiSkills(cwd ?? '');
         },
-        listFolders: () => getCurrentNotebookComposerFolders(),
+        listFolders: () => getCurrentNotebookComposerFolders(getConversationNotebookId(instanceRef.current)),
         folderGroupLabel: tRef.current("agent.files.referenceLocal"),
         noteGroupLabel: tRef.current("agent.files.projectNotes"),
+        noteEmptyLabel: tRef.current("editor.noteMention.empty"),
+        noteErrorLabel: tRef.current("editor.noteMention.error"),
         onModelSelect: () => {
           clearComposerAfterSettingsCommand();
           externalSettings.openComposerModelPicker();
@@ -756,14 +760,16 @@ function AgentConversationDetailContent({
     // 入口（集合底部输入框等）会把输入框草稿随「新建会话」带过来：一次性消费。
     // autoSend 为假时只预填，用户保留编辑与撤回的机会；为真时下一帧提交，
     // 等 composer 完成首帧布局与发送按钮状态计算。
-    const initialPrompt = consumeAgentConversationInitialPrompt(instanceId);
-    if (initialPrompt) {
-      composerController.setHistoryValue(initialPrompt.prompt, { persistDraft: true });
-      if (initialPrompt.autoSend) {
+    const initialContent = consumeAgentConversationInitialContent(instanceId);
+    if (initialContent?.kind === 'prompt') {
+      composerController.setHistoryValue(initialContent.prompt, { persistDraft: true });
+      if (initialContent.autoSend) {
         requestAnimationFrame(() => {
           if (!destroyedRef.current) submitRef.current();
         });
       }
+    } else if (initialContent?.kind === 'reference') {
+      composerController.insertConversationReference(initialContent.reference);
     }
     // Paint the selected thread's initial state in the same layout pass. The
     // history request starts in a passive effect, so waiting for the normal

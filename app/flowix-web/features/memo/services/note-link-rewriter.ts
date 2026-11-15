@@ -2,6 +2,7 @@ import {
   canonicalDirectoryPath, canonicalPath, isPathInDirectory, joinNotebookMemoPath,
   notebookForPath, pathComparisonKey,
 } from '@/lib/path';
+import { documentResourceRoots } from '@/lib/document-resource-context';
 import { createNoteLinkRewriteProgress, mergeDocumentRewriteStages, pathBeforeMoves, type NoteLinkMoveJob } from './note-link-rewrite-progress';
 import { externalDocuments, notes } from '@platform/tauri/client';
 import { files } from '@platform/tauri/client/desktop';
@@ -193,6 +194,7 @@ function notebookAddress(path: string, notebooks: readonly Notebook[]): { notebo
 }
 
 function createBatchRewrite(jobs: MoveJob[], notebooks: readonly Notebook[]) {
+  const roots = documentResourceRoots(notebooks);
   // Notebooks that any endpoint of a move lives in. A destination outside every
   // notebook still needs its source notebook scanned for relative references.
   const scope = new Set<string>();
@@ -226,7 +228,7 @@ function createBatchRewrite(jobs: MoveJob[], notebooks: readonly Notebook[]) {
     sourceNotebook: Notebook | null = null,
   ) => {
     const { rewriteDocumentPathLinks } = await import('@/lib/markdown-path-references');
-    let value = await rewriteDocumentPathLinks(content, sourceBefore, sourceAfter, jobs.slice(applied));
+    let value = await rewriteDocumentPathLinks(content, sourceBefore, sourceAfter, jobs.slice(applied), roots);
     for (const move of moves) {
       if (move.index < applied) continue;
       value = await rewriteMovedNoteLinks(value, move.before, move.after, move.folder, sourceNotebook);

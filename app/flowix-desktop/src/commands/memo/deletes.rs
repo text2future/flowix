@@ -25,7 +25,7 @@ pub enum PruneMissingMemoOutcome {
 }
 
 fn emit_deleted_path(app: &AppHandle, notebook_id: &str, relative_path: &str) {
-    crate::commands::path_change::NotebookPathDeleted::new(
+    crate::events::path_change::NotebookPathDeleted::new(
         notebook_id.to_string(),
         relative_path.to_string(),
     )

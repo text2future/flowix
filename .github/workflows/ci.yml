@@ -77,6 +77,12 @@ jobs:
       - name: Desktop web bundle budgets
         run: npm run check:web-bundle
 
+      # `flowix embed` prints a catalog generated from lib/html-embed-api.ts.
+      # Without this gate the CLI happily ships a catalog that no longer matches
+      # the kinds the page SDK actually answers.
+      - name: Embed capability catalog is generated
+        run: npm run check:embed-catalog
+
       - name: Layer boundaries
         run: npm run check:layers
 
@@ -124,6 +130,11 @@ jobs:
       - name: Clippy
         working-directory: app
         run: cargo clippy --workspace --all-targets
+
+      # 与前端 `check:arch` 对等的一道闸门：模块回边、文件行数上限、壳/域重心比。
+      # 只读源码，不需要 cargo，跑完 1 秒。
+      - name: Rust architecture (policy + baseline)
+        run: npm run check:rust-arch
 
       - name: Tests
         working-directory: app

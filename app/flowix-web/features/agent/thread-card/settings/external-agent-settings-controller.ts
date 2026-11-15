@@ -48,10 +48,7 @@ import {
 } from "@features/agent/runtime/conversation-workspace";
 import { ensureConversationWorkspaceSnapshot } from "@features/agent/runtime/workspace-snapshot";
 import { agent, windows } from "@platform/tauri/client";
-import {
-  createOverlayScrollbarDom,
-  type OverlayScrollbarDomController,
-} from "@shared/ui/overlay-scrollbar-dom";
+import { PopoverScrollers } from "@features/agent/thread-card/settings/popover-scrollers";
 import { subscribe, type UnlistenFn } from "@platform/tauri/event-bus";
 import {
   applyPopoverPosition,
@@ -209,7 +206,7 @@ export interface ExternalAgentSettingsControllerOptions {
 
 export class ExternalAgentSettingsController {
   private readonly popover: HTMLDivElement;
-  private modelPickerScrollbar: OverlayScrollbarDomController | null = null;
+  private readonly scrollers: PopoverScrollers;
   private readonly getTypeKey: () => AgentTypeKey;
   private readonly getInstanceId: () => string | undefined;
   private readonly getLanguage: () => AppLanguage;
@@ -268,6 +265,7 @@ export class ExternalAgentSettingsController {
 
   constructor(options: ExternalAgentSettingsControllerOptions) {
     this.popover = options.popover;
+    this.scrollers = new PopoverScrollers(this.popover);
     this.getTypeKey = options.getTypeKey;
     this.getInstanceId = options.getInstanceId;
     this.getLanguage = options.getLanguage;
@@ -1179,7 +1177,8 @@ export class ExternalAgentSettingsController {
       this.startPositionTracking();
       document.addEventListener("pointerdown", this.handleOutsidePointer, true);
     } else {
-      this.clearModelPickerScrollbar();
+      this.scrollers.clearBody();
+      this.scrollers.clearModelPicker();
       this.stopPositionTracking();
       document.removeEventListener(
         "pointerdown",
@@ -1211,8 +1210,14 @@ export class ExternalAgentSettingsController {
       this.renderWorkspacePopover();
       return;
     }
+    this.scrollers.clearBody();
+    this.renderPopoverContent();
+    this.scrollers.mountBody();
+  }
+
+  private renderPopoverContent(): void {
     const kind = this.kind;
-    this.clearModelPickerScrollbar();
+    this.scrollers.clearModelPicker();
     this.popover.replaceChildren();
     this.popover.classList.toggle(
       "agent-thread-card__codex-settings-popover--model-picker",
@@ -1260,7 +1265,13 @@ export class ExternalAgentSettingsController {
   }
 
   private renderWorkspacePopover(): void {
-    this.clearModelPickerScrollbar();
+    this.scrollers.clearBody();
+    this.renderWorkspacePopoverContent();
+    this.scrollers.mountBody();
+  }
+
+  private renderWorkspacePopoverContent(): void {
+    this.scrollers.clearModelPicker();
     this.popover.classList.remove(
       "agent-thread-card__codex-settings-popover--model-picker",
     );
@@ -1576,7 +1587,8 @@ export class ExternalAgentSettingsController {
 
   dispose(): void {
     this.emptyState.dispose();
-    this.clearModelPickerScrollbar();
+    this.scrollers.clearBody();
+    this.scrollers.clearModelPicker();
     this.unlistenCodexSettings();
     this.unlistenPiCatalog();
     this.setSettingsPopoverOpen(false);
@@ -2077,25 +2089,7 @@ export class ExternalAgentSettingsController {
   }
 
   private createModelPickerScroller(): HTMLDivElement {
-    this.clearModelPickerScrollbar();
-    const typeKey = this.getTypeKey();
-    this.modelPickerScrollbar = createOverlayScrollbarDom(this.popover.ownerDocument, {
-      frameClassName: "agent-thread-card__codex-settings-model-scroll-frame overlay-scrollbar-frame--custom-mac",
-      scrollerClassName: [
-        "agent-thread-card__codex-settings-model-scroll",
-        typeKey !== "pi" && typeKey !== "codex"
-          ? "agent-thread-card__codex-settings-model-scroll--inset"
-          : undefined,
-      ].filter(Boolean).join(" "),
-      observeContent: true,
-    });
-    this.popover.append(this.modelPickerScrollbar.frame);
-    return this.modelPickerScrollbar.scroller;
-  }
-
-  private clearModelPickerScrollbar(): void {
-    this.modelPickerScrollbar?.destroy();
-    this.modelPickerScrollbar = null;
+    return this.scrollers.createModelPicker(this.getTypeKey());
   }
 
   private createCodexReasoningSlider(): HTMLElement {

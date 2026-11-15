@@ -211,12 +211,27 @@ export function openWorkspaceSurface(request: OpenWorkspaceSurfaceRequest): Prom
 export async function openWorkspaceSurface(
   request: OpenWorkspaceSurfaceRequest,
 ): Promise<BrowserWorkspaceOpenResult | WorkWorkspaceOpenResult> {
+  return openPreparedWorkspaceSurface(request);
+}
+
+/** Resolve a local target under the same navigation intent as its eventual open. */
+export async function openPreparedWorkspaceSurface(
+  request: OpenWorkspaceSurfaceRequest,
+  prepare?: (isCurrent: () => boolean) => Promise<Pick<OpenWorkspaceSurfaceRequest, 'target' | 'options'>>,
+): Promise<WorkspaceSurfaceOpenResult> {
   const navigationId = ++navigationSequence;
-  const intent = request.host === 'column-1'
+  const intent = request.host === 'column-1' || prepare
     ? reserveSessionNavigationIntent(getColumnSessionId(request.host), request.options?.navigationEntryId) : undefined;
   const context = { navigationId, source: request.source ?? 'unspecified', requestedHost: request.host, targetKind: request.target.kind };
   navigationLogger.debug('Navigation requested', context);
   try {
+    if (prepare) {
+      const resolved = await prepare(() => !intent || isSessionNavigationIntentCurrent(intent));
+      if (intent && !isSessionNavigationIntentCurrent(intent)) {
+        return { status: 'cancelled', host: request.host, reason: 'navigation-cancelled' };
+      }
+      request = { ...request, ...resolved };
+    }
     const result = await performWorkspaceSurfaceOpen(request, navigationId, intent);
     navigationLogger.debug('Navigation finished', {
       ...context, actualHost: result.host, status: result.status,

@@ -1,5 +1,7 @@
 'use client';
 
+import { TREE_ICON_COLOR_CLASS } from '@shared/ui/tree-icon-color';
+
 import {
   lazy,
   Suspense,
@@ -112,7 +114,7 @@ export function TreeIconPicker({
         onClick={toggleOpen}
         onDoubleClick={(event: ReactMouseEvent<HTMLButtonElement>) => event.stopPropagation()}
         onPointerDown={(event: ReactPointerEvent<HTMLButtonElement>) => event.stopPropagation()}
-        className={'relative flex h-[18px] w-[18px] shrink-0 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-[color-mix(in_oklch,var(--foreground)_70%,black_30%)] [[data-theme="dark"]_&]:text-[var(--foreground)] [[data-theme="mist"]_&]:text-[var(--foreground)]'}
+        className={`relative flex h-[18px] w-[18px] shrink-0 cursor-pointer items-center justify-center border-0 bg-transparent p-0 ${TREE_ICON_COLOR_CLASS}`}
       >
         {children}
       </button>

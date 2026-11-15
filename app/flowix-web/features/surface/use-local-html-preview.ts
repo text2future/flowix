@@ -1,13 +1,38 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { agent, externalDocuments, files } from '@platform/tauri/client';
+import { agent, dialogs, externalDocuments, files, notebookAssets, notes, type FileBrowserDirectoriesChangedEvent } from '@platform/tauri/client';
 import type { AppLanguage } from '@/lib/i18n';
 import type { LocalHtmlLink } from '@/lib/local-html-link';
+import { subscribe } from '@platform/tauri/event-bus';
+import { subscribeNotebookChanges } from '@platform/tauri/notebook-change-events';
+import { canonicalPath } from '@/lib/path';
+import { getWorkspaceMemoState } from '@features/memo/public/workspace-api';
+import { uploadInChunks } from '@features/editor/public/attachment-upload-api';
 import { openSkillMarketUi } from './public/open-skill-market-ui';
 import { marketInstallFailure } from './market-install-handler';
-import { HTML_DATA_KINDS, resolveHtmlDataRequest, type HtmlDataKind, type HtmlProductTheme } from './html-data-bridge';
+import {
+  HTML_EMBED_MAX_INFLIGHT,
+  HTML_EMBED_KINDS,
+  HTML_EMBED_PROTOCOL,
+  HTML_EMBED_PROTOCOL_VERSION,
+  checkEmbedProtocol,
+  embedErrorPayload,
+  type HtmlEmbedErrorCode,
+} from '@/lib/html-embed-api';
+import { HTML_DATA_KINDS, invalidateHtmlDataCache, resolveHtmlDataRequest, type HtmlDataKind, type HtmlProductTheme } from './html-data-bridge';
 
 export const HTML_PREVIEW_TIMEOUT_MS = 10_000;
-const HTML_DATA_MAX_INFLIGHT = 8;
+/**
+ * Must match the page SDK's own queue limit (`local_html_preview.js`): the SDK
+ * already refuses the 17th pending request, so a smaller cap here only turns
+ * a page's parallel reads into `E_BUSY` for no reason. The number itself comes
+ * from the contract so the catalog quotes the cap the host really enforces.
+ */
+const HTML_DATA_MAX_INFLIGHT = HTML_EMBED_MAX_INFLIGHT;
+/**
+ * Auto-save writes at ~0.5 Hz; coalescing keeps one dashboard repaint per burst
+ * instead of one per keystroke-driven save.
+ */
+const HTML_DATA_CHANGED_DEBOUNCE_MS = 250;
 export type HtmlPreviewPhase = 'reading' | 'loading' | 'ready' | 'timeout' | 'error';
 
 /** One hook instance belongs to one keyed file/open attempt. Native asset URLs
@@ -82,25 +107,140 @@ export function useLocalHtmlPreview(
 
   const dataInflight = useRef(0);
   const handleDataRequest = useCallback((data: Record<string, unknown>) => {
-    const respond = (requestId: string, ok: boolean, payload?: unknown, error?: string) => {
+    const respond = (
+      requestId: string,
+      result: { payload: unknown } | { code: HtmlEmbedErrorCode; message: string },
+    ) => {
       iframeRef.current?.contentWindow?.postMessage({
-        type: 'flowix:local-html-data-response', requestId, ok,
-        ...(ok ? { payload } : { error }),
+        type: 'flowix:local-html-data-response',
+        protocol: HTML_EMBED_PROTOCOL,
+        version: HTML_EMBED_PROTOCOL_VERSION,
+        requestId,
+        // `error` stays for pages written before error codes existed.
+        ...('payload' in result
+          ? { ok: true, payload: result.payload }
+          : { ok: false, code: result.code, error: result.message }),
       }, '*');
     };
     const requestId = typeof data.requestId === 'string' && data.requestId.length <= 64
       ? data.requestId
       : null;
     if (!requestId) return;
-    if (dataInflight.current >= HTML_DATA_MAX_INFLIGHT) return respond(requestId, false, undefined, 'busy');
+    if (dataInflight.current >= HTML_DATA_MAX_INFLIGHT) {
+      return respond(requestId, { code: 'E_BUSY', message: 'too many inflight data requests' });
+    }
+    // Pages written before the protocol field existed omit both keys and keep
+    // working; a page that declares a version must match this host exactly.
+    const protocol = checkEmbedProtocol(data);
+    if (!protocol.ok) return respond(requestId, { code: protocol.code, message: protocol.message });
     const kind = data.kind;
     if (typeof kind !== 'string' || !HTML_DATA_KINDS.includes(kind as HtmlDataKind)) {
-      return respond(requestId, false, undefined, 'unsupported-kind');
+      return respond(requestId, { code: 'E_UNSUPPORTED', message: 'unsupported kind' });
     }
-    if (!notebookId) return respond(requestId, false, undefined, 'notebook-unavailable');
+    // Each resolver decides whether it needs a notebook: the palette answers
+    // for a page opened outside one, notebook reads refuse with E_SCOPE there.
     const params = data.params !== null && typeof data.params === 'object' && !Array.isArray(data.params)
       ? data.params as Record<string, unknown>
       : null;
+    if (kind === 'capabilities') {
+      return respond(requestId, { payload: { protocol: HTML_EMBED_PROTOCOL, version: HTML_EMBED_PROTOCOL_VERSION, kinds: HTML_EMBED_KINDS, scope: notebookId && scopePath ? 'notebook' : 'external', authorization: 'open-page' } });
+    }
+    if (kind === 'dismiss-html-notice') {
+      if (!notebookId || !scopePath) return respond(requestId, { code: 'E_SCOPE', message: 'notebook unavailable' });
+      const notebook = getWorkspaceMemoState().notebooks.find((item) => item.id === notebookId);
+      const root = notebook && canonicalPath(notebook.path).replace(/\/+$/, '');
+      if (!root || canonicalPath(scopePath).replace(/\/+$/, '') !== root
+        || !canonicalPath(filePath).startsWith(`${root}/`) || !/\.html?$/i.test(filePath)) {
+        return respond(requestId, { code: 'E_SCOPE', message: 'page is outside the notebook' });
+      }
+      const id = params?.id;
+      if (typeof id !== 'string' || !/^[a-z0-9-]{1,64}$/.test(id)) {
+        return respond(requestId, { code: 'E_INVALID', message: 'invalid notice id' });
+      }
+      dataInflight.current += 1;
+      void (async () => {
+        const marker = `<meta name="flowix-dismissed-notice" content="${id}">`;
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          const original = await externalDocuments.read(filePath, scopePath);
+          if (original.includes(marker)) return { dismissed: true };
+          if (!/<\/head\s*>/i.test(original)) throw new Error('HTML head unavailable');
+          const updated = original.replace(/<\/head\s*>/i, `${marker}\n</head>`);
+          const result = await externalDocuments.write({ filePath, scopePath, content: updated, expectedContent: original });
+          if (result.status === 'saved') return { dismissed: true };
+          if (result.status !== 'conflict') throw new Error(result.status === 'error' ? result.message : 'HTML file unavailable');
+        }
+        throw new Error('HTML changed while saving notice');
+      })().then((payload) => respond(requestId, { payload }))
+        .catch((error: unknown) => respond(requestId, embedErrorPayload(error)))
+        .finally(() => { dataInflight.current -= 1; });
+      return;
+    }
+    if (kind === 'select-note-images' || kind === 'upload-note-image') {
+      if (!notebookId || !scopePath) return respond(requestId, { code: 'E_SCOPE', message: 'notebook unavailable' });
+      const notebook = getWorkspaceMemoState().notebooks.find((item) => item.id === notebookId);
+      const notebookRoot = notebook && canonicalPath(notebook.path).replace(/\/+$/, '');
+      if (!notebookRoot || canonicalPath(scopePath).replace(/\/+$/, '') !== notebookRoot
+        || !canonicalPath(filePath).startsWith(`${notebookRoot}/`)) {
+        return respond(requestId, { code: 'E_SCOPE', message: 'page is outside the notebook' });
+      }
+      if (kind === 'upload-note-image') {
+        const file = params?.file;
+        const extensions: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
+        if (!(file instanceof File) || !extensions[file.type] || file.size === 0 || file.size > 20 * 1024 * 1024) {
+          return respond(requestId, { code: 'E_INVALID', message: 'INVALID_IMAGE_FILE' });
+        }
+        dataInflight.current += 1;
+        const filename = `pasted-${crypto.randomUUID()}.${extensions[file.type]}`;
+        void uploadInChunks(file, filename, { notebookId }).then((saved) => {
+          const prefix = `${notebookRoot}/attachments/`;
+          const path = canonicalPath(saved.path);
+          if (!path.startsWith(prefix)) throw new Error('图片保存位置无效');
+          respond(requestId, { payload: { relativePath: path.slice(notebookRoot.length + 1) } });
+        }).catch((error: unknown) => respond(requestId, embedErrorPayload(error)))
+          .finally(() => { dataInflight.current -= 1; });
+        return;
+      }
+      dataInflight.current += 1;
+      void (async () => {
+        const selected = await dialogs.selectFiles({ accept: 'image/*', multiple: true }) ?? [];
+        if (selected.length > 20) throw new Error('最多选择 20 张图片');
+        const images: string[] = [];
+        const prefix = `${canonicalPath(scopePath).replace(/\/$/, '')}/`;
+        for (const path of selected) {
+          if (!/\.(png|jpe?g|gif|webp|svg|bmp|ico|avif|tiff?|heic|heif)$/i.test(path)) throw new Error('请选择图片文件');
+          const saved = await notebookAssets.saveFromPath(path, { notebookId });
+          const absolute = saved?.path && canonicalPath(saved.path);
+          if (!absolute || !absolute.startsWith(prefix + 'attachments/')) throw new Error('图片保存位置无效');
+          images.push(absolute.slice(prefix.length));
+        }
+        return { images };
+      })().then((payload) => respond(requestId, { payload }))
+        .catch((error: unknown) => respond(requestId, embedErrorPayload(error)))
+        .finally(() => { dataInflight.current -= 1; });
+      return;
+    }
+    if (kind === 'create-note') {
+      if (!notebookId || !scopePath) return respond(requestId, { code: 'E_SCOPE', message: 'notebook unavailable' });
+      const folder = params?.parentRelativePath;
+      const body = params?.content;
+      const id = params?.clientRequestId;
+      const images = params?.images ?? [];
+      if (typeof folder !== 'string' || typeof body !== 'string' || !body.trim()
+        || new TextEncoder().encode(body).length > 65536 || typeof id !== 'string'
+        || !/^[A-Za-z0-9_-]{16,128}$/.test(id) || !Array.isArray(images)
+        || images.length > 20 || images.some((path) => typeof path !== 'string' || path.length > 4096)) {
+        return respond(requestId, { code: 'E_INVALID', message: 'invalid create-note parameters' });
+      }
+      dataInflight.current += 1;
+      void notes.createFromHtml(notebookId, filePath, folder, body, id, images as string[])
+        .then((relativePath) => respond(requestId, { payload: {
+          relativePath,
+          href: `flowix://open?notebookId=${encodeURIComponent(notebookId)}&f=${encodeURIComponent(relativePath)}`,
+        } }))
+        .catch((error: unknown) => respond(requestId, embedErrorPayload(error)))
+        .finally(() => { dataInflight.current -= 1; });
+      return;
+    }
     const root = document.documentElement;
     const styles = window.getComputedStyle(root);
     const productTheme: HtmlProductTheme = {
@@ -116,11 +256,11 @@ export function useLocalHtmlPreview(
       },
     };
     dataInflight.current += 1;
-    void resolveHtmlDataRequest(kind as HtmlDataKind, { notebookId, scopePath, productTheme }, params)
-      .then((payload) => respond(requestId, true, payload))
-      .catch((error: unknown) => respond(requestId, false, undefined, error instanceof Error ? error.message : String(error)))
+    void resolveHtmlDataRequest(kind as HtmlDataKind, { notebookId: notebookId ?? null, scopePath, productTheme }, params)
+      .then((payload) => respond(requestId, { payload }))
+      .catch((error: unknown) => respond(requestId, embedErrorPayload(error)))
       .finally(() => { dataInflight.current -= 1; });
-  }, [notebookId, scopePath]);
+  }, [filePath, notebookId, scopePath]);
 
   useLayoutEffect(() => {
     if (!src) return;
@@ -219,6 +359,50 @@ export function useLocalHtmlPreview(
       themeObserver.disconnect();
     };
   }, [fail, filePath, handleDataRequest, language, notifyProductThemeChanged, probe, ready, scopePath, src]);
+
+  /**
+   * A workbench that is left open is only useful if it stops being a snapshot.
+   * Every change inside the notebook that opened this page drops the resolver
+   * cache and tells the page to re-read; the page decides what that means
+   * (auto-pulled kinds re-fetch by themselves, imperative pages use
+   * `flowix.onInvalidate`).
+   *
+   * Note-level changes come through the notebook-change boundary, which already
+   * dedupes command receipts and external-tool writes. Directory changes cover
+   * what that boundary does not model (collection files, attachments).
+   */
+  useEffect(() => {
+    if (!notebookId) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const notify = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = undefined;
+        invalidateHtmlDataCache();
+        // No `kinds`: the host cannot know which of the page's cards depend on
+        // the path that changed, and a stale card is worse than a redundant read.
+        iframeRef.current?.contentWindow?.postMessage({ type: 'flowix:local-html-data-changed' }, '*');
+      }, HTML_DATA_CHANGED_DEBOUNCE_MS);
+    };
+    const stopNotebook = subscribeNotebookChanges((change) => {
+      if (change.notebookId === notebookId) notify();
+    });
+    const stopDirectories = subscribe<FileBrowserDirectoriesChangedEvent>('file-browser-directories-changed', (event) => {
+      if (!scopePath || canonicalPath(event.rootPath) !== canonicalPath(scopePath)) return;
+      notify();
+    });
+    const stopPreferences = subscribe<{ notebookPath: string; defaultCreateFolderChanged: boolean }>(
+      'notebook-view-preferences-changed', (event) => {
+        if (scopePath && event.defaultCreateFolderChanged && canonicalPath(event.notebookPath) === canonicalPath(scopePath)) notify();
+      },
+    );
+    return () => {
+      stopNotebook();
+      stopDirectories();
+      stopPreferences();
+      if (timer) clearTimeout(timer);
+    };
+  }, [notebookId, scopePath]);
 
   return { iframeRef, src, content, phase, backgroundColor, onLoad: probe };
 }

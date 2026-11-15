@@ -207,7 +207,7 @@ fn parse_skill_frontmatter(markdown: &str) -> Result<serde_yaml::Mapping, String
     if markdown.len() > MAX_SKILL_MARKDOWN_BYTES {
         return Err("Skill package entry file is invalid or too large".to_string());
     }
-    super::skill_frontmatter::parse(markdown).map(|(header, _)| header)
+    flowix_core::skill_frontmatter::parse(markdown).map(|(header, _)| header)
 }
 
 pub(super) fn validate_source_skill_markdown(name: &str, markdown: &str) -> Result<(), String> {

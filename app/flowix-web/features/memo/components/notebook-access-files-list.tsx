@@ -33,9 +33,9 @@ interface ResolvedItem {
 }
 
 const ACCESS_MENU_CLASS =
-  'w-[160px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]';
+  'w-[160px] rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]';
 const ACCESS_MENU_ITEM_CLASS =
-  'h-7 items-center justify-start gap-2 rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]';
+  'h-7 items-center justify-start gap-2 rounded-lg px-2 py-0 text-left hover:bg-[var(--hover-bg)]';
 const ACCESS_NATIVE_ICON_NAMES = ['split', 'delete'] as const;
 
 export function NotebookAccessFilesList({
@@ -181,7 +181,7 @@ export function NotebookAccessFilesList({
                 </div>
               </div>
             </ContextMenuTrigger>
-            <ContextMenuContent className={ACCESS_MENU_CLASS}>
+            <ContextMenuContent scrollerClassName="space-y-0.5" className={ACCESS_MENU_CLASS}>
               {canBrowse && (
                 <ContextMenuItem
                   onClick={browseFolderInBrowserColumn}
@@ -192,7 +192,7 @@ export function NotebookAccessFilesList({
               )}
               <ContextMenuItem
                 onClick={() => handleRemoveFolder(item.path)}
-                className={cn(ACCESS_MENU_ITEM_CLASS, 'hover:bg-transparent hover:text-[var(--destructive)]')}
+                className={cn(ACCESS_MENU_ITEM_CLASS, 'hover:bg-[var(--hover-bg)] hover:text-[var(--destructive)]')}
               >
                 {t('agent.access.contextDelete')}
               </ContextMenuItem>

@@ -1,3 +1,4 @@
+import { createPopupScrollAreaDom } from '@shared/ui/popup-scroll-area-dom';
 import type { I18nKey, I18nParams } from '@/lib/i18n';
 import { replayEnterAnimation } from '@/lib/replay-enter-animation';
 import { notes as notesClient } from '@platform/tauri/client';
@@ -34,6 +35,7 @@ export interface NotePickerControllerOptions {
 export class NotePickerController {
   private open = false;
   private disposed = false;
+  private resultsScrollbar: ReturnType<typeof createPopupScrollAreaDom> | null = null;
   private query = '';
   private hits: NoteHit[] = [];
   private loading = false;
@@ -89,6 +91,8 @@ export class NotePickerController {
     if (this.disposed) return;
     this.disposed = true;
     this.setOpen(false);
+    this.resultsScrollbar?.destroy();
+    this.resultsScrollbar = null;
     this.positionController.dispose();
     this.options.popover.remove();
   }
@@ -141,8 +145,9 @@ export class NotePickerController {
   }
 
   private render(): void {
-    const list = document.createElement('div');
-    list.className = 'agent-composer__note-search-list';
+    this.resultsScrollbar?.destroy();
+    this.resultsScrollbar = createPopupScrollAreaDom(this.options.popover.ownerDocument, { frameClassName: 'agent-composer__note-search-frame', scrollerClassName: 'agent-composer__note-search-list' });
+    const list = this.resultsScrollbar.scroller;
     list.dataset.noteResults = '';
     const search = document.createElement('input');
     search.type = 'text';
@@ -178,7 +183,7 @@ export class NotePickerController {
     divider.setAttribute('role', 'separator');
     divider.setAttribute('aria-hidden', 'true');
     divider.className = POPUP_SEPARATOR_CLASS;
-    this.options.popover.replaceChildren(list, divider, search);
+    this.options.popover.replaceChildren(this.resultsScrollbar.frame, divider, search);
     this.renderResults();
     requestAnimationFrame(() => { if (this.open && !this.disposed) search.focus(); });
   }

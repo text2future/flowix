@@ -41,7 +41,7 @@ function publishDocumentContentState(
       break;
     case 'error':
       reportPresentation({ state: {
-        status: 'error', message: { key: 'error.unexpected', fallbackText: contentState.message },
+        status: 'error', message: { key: 'document.load.errorMessage', params: { message: contentState.message } },
         actions: [{ id: 'retry', label: { key: 'error.retry' }, enabled: true, run: contentState.retry }],
       } });
       break;
@@ -301,8 +301,8 @@ export function CollectionRenderer({ surface, context }: RendererProps<'collecti
     </div>;
   }
 
-  // 文件夹入口与集合文件入口是同一套外壳：这里只多给一个 folderPath，
-  // 它既表示「集合缺失时就地建齐」，也表示这是文件夹类型的集合（多一个文件树 tab）。
+  // 文件夹表面：目录就是表面本身，没有集合体、只有一个「文件」tab。
+  // 外观（图标 / 头图 / 副标题）由索引库的 `folder_index` 表提供。
   return <CollectionShell
     folderPath={surface.folderPath}
     editable={!context.readOnly}

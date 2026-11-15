@@ -49,8 +49,10 @@ export function parentDirectoryPath(filePath: string, notebookPath: string): str
   const canonicalFilePath = canonicalPath(filePath).replace(/\/+$/, '');
   const separatorIndex = canonicalFilePath.lastIndexOf('/');
   const parent = separatorIndex >= 0
-    ? canonicalFilePath.slice(0, separatorIndex)
+    ? canonicalFilePath.slice(0, separatorIndex + 1)
     : notebookPath;
+  // A physical parent must keep the slash: C: is drive-relative on Windows.
+  if (/^[a-z]:\/$/i.test(parent)) return parent;
   return canonicalDirectoryPath(parent || notebookPath);
 }
 
@@ -58,13 +60,17 @@ export function parentDirectoryPath(filePath: string, notebookPath: string): str
 export function notebookRelativeDirectoryPath(notebookPath: string, directoryPath: string): string | null {
   const root = canonicalDirectoryPath(notebookPath);
   const directory = canonicalDirectoryPath(directoryPath);
-  if (directory === root) return '';
-  const rootPrefix = root === '/' ? '/' : `${root}/`;
-  return directory.startsWith(rootPrefix) ? directory.slice(rootPrefix.length) : null;
+  const rootKey = pathComparisonKey(root);
+  const directoryKey = pathComparisonKey(directory);
+  if (directoryKey === rootKey) return '';
+  const rootPrefix = rootKey.endsWith('/') ? rootKey : `${rootKey}/`;
+  // Case folding can change Unicode string length; slice the original path.
+  const relativeStart = root.length + (root.endsWith('/') ? 0 : 1);
+  return directoryKey.startsWith(rootPrefix) ? directory.slice(relativeStart) : null;
 }
 
 export function samePath(left: string, right: string): boolean {
-  return canonicalPath(left) === canonicalPath(right);
+  return pathComparisonKey(left) === pathComparisonKey(right);
 }
 
 /**
@@ -78,7 +84,7 @@ export function findOwningRoot(filePath: string | null | undefined, roots: reado
   let owner: string | null = null;
   for (const root of roots) {
     if (notebookRelativeDirectoryPath(root, filePath) === null) continue;
-    if (!owner || root.length > owner.length) owner = root;
+    if (!owner || canonicalDirectoryPath(root).length > canonicalDirectoryPath(owner).length) owner = root;
   }
   return owner;
 }
@@ -93,7 +99,7 @@ export function isPathInDirectory(path: string, directoryPath: string): boolean 
 export function uniquePaths(paths: string[]): string[] {
   const seen = new Set<string>();
   return paths.filter((path) => {
-    const key = canonicalPath(path);
+    const key = pathComparisonKey(path);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;

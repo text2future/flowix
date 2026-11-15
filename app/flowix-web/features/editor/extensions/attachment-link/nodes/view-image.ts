@@ -8,7 +8,8 @@ import {
     type JSONContent,
 } from '@tiptap/core';
 import { invoke } from '@platform/tauri/core';
-import { assetMarkdownUrl, assetUrl, decodeStorageKey } from '@features/editor/extensions/attachment-link/utils';
+import { assetUrl, decodeStorageKey } from '@features/editor/extensions/attachment-link/utils';
+import { markdownAssetHref } from '@/lib/asset-markdown';
 import { renderFlowixMediaStyleComment } from '@features/editor/extensions/attachment-link/markdown/media-style';
 import {
     DEFAULT_IMAGE_WIDTH_PERCENT, MAX_IMAGE_WIDTH_PERCENT, imageMarkdownSpec, escapeImageAlt,
@@ -126,12 +127,16 @@ class ImageView implements ProseMirrorNodeView {
 
     private getSource(attrs: ImageAttributes): EditorImageSource {
         const storageKey = stringAttribute(attrs.storageKey);
+        const authoredSrc = stringAttribute(attrs.src);
+        if (authoredSrc && this.getImageContext?.()) {
+            const authoredSource = resolveEditorImageSource(authoredSrc, this.getImageContext?.());
+            if (authoredSource.kind === 'local') return authoredSource;
+        }
         if (attrs.storageMode === 'attachment' && storageKey) {
             const url = assetUrl(storageKey);
             return { kind: 'url', key: url, url };
         }
-        const src = stringAttribute(attrs.src);
-        return src ? resolveEditorImageSource(src, this.getImageContext?.()) : { kind: 'url', key: '', url: '' };
+        return authoredSrc ? resolveEditorImageSource(authoredSrc, this.getImageContext?.()) : { kind: 'url', key: '', url: '' };
     }
 
     refreshSourceContext(): void {
@@ -600,9 +605,7 @@ export const ImageAttachment = Node.create<ImageAttachmentOptions, ImageAttachme
 
     renderMarkdown(node: JSONContent) {
         const { alt, title, fileName, storageMode, storageKey, src, widthPercent, align } = node.attrs || {};
-        const imageSrc = storageMode === 'attachment' && storageKey
-            ? assetMarkdownUrl(storageKey)
-            : src || '';
+        const imageSrc = markdownAssetHref(src, storageMode, storageKey);
         const altText = escapeImageAlt(String(alt || title || fileName || ''));
         const normalizedWidthPercent = normalizeWidthPercent(widthPercent);
         const normalizedAlign = normalizeImageAlignment(align);

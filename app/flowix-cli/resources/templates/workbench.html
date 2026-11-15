@@ -1,0 +1,127 @@
+<!doctype html>
+<!--
+  模板 workbench：笔记本工作台，零 JS。
+
+  这一页只用声明式绑定（data-fx-*），不写一行 <script>。适合做「概览 / 导航」，
+  数据在页面加载后由宿主自动拉取，笔记本一变就自动重渲染。
+
+  三条规则（都是踩过的坑）：
+  1. 想让页面自动拿到数据，必须写 <meta name="flowix-data">，值是下面四个键之一：
+     stats / views / custom-views / theme。缺了它，一个字段都拿不到。
+  2. data-fx-style 一次只设一个 CSS 属性（值里的第一个冒号就切开了），
+     所以这里给四个不同元素各挂一个自定义属性，而不是一元素写多个。
+  3. 嵌套循环必须用 data-fx-as 换个名字，否则内层 item 会遮住外层。
+
+  集合标题是可点的：href 取自 collections[].href（宿主给的 flowix://open 深链），
+  不要换成 file:// 或自己拼相对路径 —— 那会被当成外部文件，打不开集合。
+
+  要行数据（表格 / 看板 / 列表）就换库表模板：flowix html --template table。
+-->
+<html lang="zh-CN" data-fx-style="--bg:theme.tokens.background">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="flowix-data" content="views stats theme">
+<meta name="flowix-scroll-container" content="body">
+<title>笔记本工作台</title>
+<style>
+  /* 有值就用产品主题，没值（外部打开 / 还没到）就用这套暖纸色兜底 */
+  :root {
+    --bg: #fbfaf7; --fg: #24211c; --muted: #8a8177;
+    --card: #ffffff; --brand: #c2603a; --border: #e7e1d8;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body {
+    margin: 0; padding: 28px;
+    background: var(--bg); color: var(--fg);
+    font: 14px/1.6 -apple-system, "Segoe UI", "PingFang SC", sans-serif;
+  }
+  h1 { margin: 0 0 4px; font-size: 20px; font-weight: 650; }
+  h2 { margin: 28px 0 12px; font-size: 13px; font-weight: 600; color: var(--muted);
+       letter-spacing: .08em; text-transform: uppercase; }
+  .hint { margin: 0; color: var(--muted); font-size: 12px; }
+
+  .cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+  .card {
+    padding: 14px 16px; border: 1px solid var(--border); border-radius: 12px;
+    background: var(--card);
+  }
+  .card b { display: block; font-size: 26px; font-weight: 650; line-height: 1.2; }
+  .card span { color: var(--muted); font-size: 12px; }
+
+  .tagrow { display: grid; grid-template-columns: 9em 1fr 3.5em; gap: 10px; align-items: center;
+            padding: 3px 0; }
+  .tagrow .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tagrow .count { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .track { height: 8px; border-radius: 99px; background: var(--border); overflow: hidden; }
+  .fill { display: block; height: 100%; border-radius: inherit; background: var(--brand); }
+
+  .coll {
+    padding: 14px 16px; border: 1px solid var(--border); border-radius: 12px;
+    background: var(--card);
+  }
+  .coll + .coll { margin-top: 10px; }
+  .coll h3 { margin: 0; font-size: 15px; font-weight: 600; }
+  .coll h3 a { color: inherit; text-decoration: none; }
+  .coll h3 a:hover { color: var(--brand); text-decoration: underline; }
+  /* href 为空 = 宿主没给可打开地址，别让它看起来能点 */
+  .coll h3 a[href=""] { pointer-events: none; }
+  .coll .meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+                margin-top: 6px; font-size: 12px; color: var(--muted); }
+  .coll .path { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .coll .rows { font-variant-numeric: tabular-nums; }
+  .coll .rows:empty { display: none; }
+  .coll .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .chip { padding: 2px 9px; border-radius: 99px; background: var(--bg);
+          border: 1px solid var(--border); font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body data-fx-style="--fg:theme.tokens.foreground">
+<main data-fx-style="--card:theme.tokens.card">
+
+  <header data-fx-style="--brand:theme.tokens.brand">
+    <h1>笔记本工作台</h1>
+    <p class="hint">数据来自笔记本索引，改动后自动刷新。</p>
+  </header>
+
+  <section class="cards">
+    <div class="card"><b data-fx-text="stats.totalMemos">—</b><span>笔记</span></div>
+    <div class="card"><b data-fx-text="stats.todoMemos">—</b><span>待办</span></div>
+    <div class="card"><b data-fx-text="stats.databaseCount">—</b><span>数据库</span></div>
+  </section>
+
+  <h2>标签分布</h2>
+  <template data-fx-each="stats.topTags">
+    <div class="tagrow">
+      <span class="name" data-fx-text="item.name"></span>
+      <span class="track"><i class="fill" data-fx-style="width:item.barWidth"></i></span>
+      <span class="count" data-fx-text="item.count"></span>
+    </div>
+  </template>
+  <!-- 初值先 hidden，交给绑定在「确实为空」时放开，避免加载中闪一下空态 -->
+  <p class="hint" hidden data-fx-if="stats.topTags.length == 0">这个笔记本还没有标签。</p>
+
+  <h2>集合</h2>
+  <template data-fx-each="views.collections">
+    <article class="coll">
+      <!-- 标题挂 href：宿主给的是 flowix://open 深链，点一下就在产品里打开这个集合 -->
+      <h3><a data-fx-attr="href:item.href" data-fx-text="item.name"></a></h3>
+      <div class="meta">
+        <span data-fx-text="item.type"></span>
+        <!-- rowCount 可能为空：那表示产品要跑一次查询才知道，不是 0 行，别拿它判断集合是否为空 -->
+        <span class="rows" data-fx-text="item.rowCount"></span>
+        <span class="path" data-fx-text="item.relativePath"></span>
+      </div>
+      <div class="chips">
+        <template data-fx-each="item.views" data-fx-as="view">
+          <span class="chip" data-fx-text="view.name"></span>
+        </template>
+      </div>
+    </article>
+  </template>
+  <p class="hint" hidden data-fx-if="views.collections.length == 0">这个笔记本还没有集合。</p>
+
+</main>
+</body>
+</html>

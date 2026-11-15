@@ -106,16 +106,6 @@ pub fn app_turn_interrupt_request(id: u64, thread_id: &str) -> Value {
     })
 }
 
-
-pub fn app_runtime_dispose_request(id: u64, thread_id: &str) -> Value {
-    json!({
-        "jsonrpc": "2.0",
-        "id": id,
-        "method": "thread/close",
-        "params": { "threadId": thread_id }
-    })
-}
-
 pub fn app_thread_archive_request(id: u64, session_id: &str) -> Value {
     json!({
         "jsonrpc": "2.0",
@@ -124,7 +114,6 @@ pub fn app_thread_archive_request(id: u64, session_id: &str) -> Value {
         "params": { "threadId": session_id }
     })
 }
-
 
 pub fn app_thread_command_request_with_attachments(
     id: u64,
@@ -239,45 +228,6 @@ pub fn model_discover_request(
         params["apiKey"] = json!(api_key);
     }
     json!({ "jsonrpc": "2.0", "id": id, "method": "model/discover", "params": params })
-}
-
-pub fn response_result(message: &Value) -> Option<Result<Value, String>> {
-    message.get("id")?;
-    if let Some(error) = message.get("error") {
-        return Some(Err(error
-            .get("message")
-            .and_then(Value::as_str)
-            .unwrap_or("dsh-host request failed")
-            .to_string()));
-    }
-    Some(Ok(message.get("result").cloned().unwrap_or(Value::Null)))
-}
-
-
-/// Return the Thread associated with a direct App Server notification. Unlike
-/// the legacy `run.event` envelope, App Server notifications carry the thread
-/// id directly in `params` and may omit a run id (for example status changes).
-pub fn app_server_event_route(message: &Value) -> Option<String> {
-    let method = message.get("method").and_then(Value::as_str)?;
-    if !matches!(
-        method,
-        "thread/status/changed"
-            | "thread/started"
-            | "thread/resumed"
-            | "turn/started"
-            | "turn/completed"
-            | "item/started"
-            | "item/completed"
-            | "item/agentMessage/delta"
-            | "goal/changed"
-            | "warning"
-    ) {
-        return None;
-    }
-    message
-        .pointer("/params/threadId")
-        .and_then(Value::as_str)
-        .map(str::to_string)
 }
 
 pub enum AdaptedEvent {
@@ -697,20 +647,6 @@ fn app_server_content_text(value: Option<&Value>) -> String {
     }
 }
 
-fn text_chunk_value(text: &str, thread_id: String, reasoning: bool) -> AdaptedEvent {
-    if reasoning {
-        AdaptedEvent::Chunk(AgentChunk::Reasoning {
-            thread_id,
-            text: text.to_string(),
-        })
-    } else {
-        AdaptedEvent::Chunk(AgentChunk::Text {
-            thread_id,
-            text: text.to_string(),
-        })
-    }
-}
-
 fn visible_error_message(event: &Value) -> String {
     let message = event
         .get("message")
@@ -1083,10 +1019,6 @@ mod tests {
             Some("flowix/session/usage")
         );
         assert_eq!(
-            app_runtime_dispose_request(3, "thread-1")["method"],
-            "thread/close"
-        );
-        assert_eq!(
             app_thread_archive_request(4, "session-1")["method"],
             "thread/archive"
         );
@@ -1136,26 +1068,4 @@ mod tests {
         assert_eq!(interrupt["method"], "turn/interrupt");
     }
 
-    #[test]
-    fn routes_direct_app_server_notifications_by_thread() {
-        let event = json!({
-            "jsonrpc": "2.0",
-            "method": "item/agentMessage/delta",
-            "params": { "threadId": "thread-9", "delta": "hi" }
-        });
-        assert_eq!(app_server_event_route(&event).as_deref(), Some("thread-9"));
-
-        let goal_change = json!({
-            "jsonrpc": "2.0",
-            "method": "goal/changed",
-            "params": { "threadId": "thread-9", "sourceSeq": 12, "change": { "operation": "complete" } }
-        });
-        assert_eq!(
-            app_server_event_route(&goal_change).as_deref(),
-            Some("thread-9")
-        );
-
-        let unrelated = json!({ "jsonrpc": "2.0", "method": "server/ping", "params": {} });
-        assert!(app_server_event_route(&unrelated).is_none());
-    }
 }

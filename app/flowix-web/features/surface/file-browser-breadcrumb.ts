@@ -1,10 +1,24 @@
-import { canonicalPath, findOwningRoot } from '@/lib/path';
+import { canonicalPath, findOwningRoot, samePath } from '@/lib/path';
 import { displayTitleFromFilename } from '@/lib/utils';
 
 export interface FileBrowserBreadcrumbItem {
   label: string;
   path: string;
   type: 'folder' | 'file';
+  /** Marks configured repository roots so folder popovers can show their icon. */
+  isRepository?: boolean;
+}
+
+/** Add repository identity only to matching folder segments, never descendants. */
+export function markRepositoryBreadcrumbItems(
+  items: FileBrowserBreadcrumbItem[] | null,
+  repositoryPaths: readonly string[],
+): FileBrowserBreadcrumbItem[] | null {
+  if (!items || repositoryPaths.length === 0) return items;
+  return items.map((item) => item.type === 'folder'
+    && repositoryPaths.some((repositoryPath) => samePath(item.path, repositoryPath))
+    ? { ...item, isRepository: true }
+    : item);
 }
 
 function trimTrailingSeparators(path: string): string {

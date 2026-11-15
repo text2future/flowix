@@ -29,7 +29,7 @@ const mocks = vi.hoisted(() => ({
     selectedNotebook: null as { id: string; path: string } | null,
     selectedNotebookId: null as string | null,
     selectedNote: null,
-    notebooks: [],
+    notebooks: [] as { id: string; path: string }[],
     upsertMemo: vi.fn(),
     setSelectedNotebook: vi.fn(),
     setSelectedNote: vi.fn(),
@@ -132,6 +132,39 @@ describe('workspace navigation', () => {
       kind: 'external', path: '/restored.md', transitionId: 1,
     }), 'skip');
     useWorkspaceSessionStore.getState().reset();
+  });
+
+  it('resolves html ownership during restore even when the notebook registry is still empty', async () => {
+    const { useWorkspaceSessionStore } = await import('../store/workspace-session-store');
+    const { getSessionId } = await import('../store/workspace-session-store');
+    const { restoreExternalDocumentWorkspace } = await import('./workspace-navigation');
+    const target = { kind: 'external' as const, path: '/notes/开发任务管理/数据工作台.html', scopePath: '/notes/开发任务管理', transitionId: null };
+    useWorkspaceSessionStore.getState().commitTarget(getSessionId(0), target);
+    mocks.navigationTarget = target;
+    mocks.documentState.activeExternalSession = null;
+    mocks.memoState.notebooks = [];
+    mocks.memoState.loadNotebooks.mockImplementationOnce(async () => {
+      mocks.memoState.notebooks = [{ id: 'nb-1', path: '/notes/开发任务管理' }];
+    });
+    mocks.openExternalDocument.mockImplementationOnce(async () => {
+      mocks.documentState.activeExternalSession = {
+        fileIdentity: { displayId: 'restored-html', path: target.path }, scopePath: target.scopePath, transitionId: 1,
+      };
+    });
+    try {
+      await restoreExternalDocumentWorkspace(target, 1);
+      // Startup restoration must not silently answer "no owner" just because
+      // the registry IPC had not landed yet — the HTML bridge reads by owner.
+      expect(mocks.memoState.loadNotebooks).toHaveBeenCalled();
+      expect(mocks.openExternalDocument).toHaveBeenCalledWith(target.path, expect.objectContaining({
+        notebookId: 'nb-1',
+        notebookPath: '/notes/开发任务管理',
+      }));
+    } finally {
+      mocks.memoState.notebooks = [];
+      mocks.memoState.loadNotebooks.mockReset();
+      useWorkspaceSessionStore.getState().reset();
+    }
   });
 
   it('does not replace user navigation after a delayed Markdown restore lookup', async () => {
@@ -266,5 +299,35 @@ describe('workspace navigation', () => {
 
     await expect(closePluginWorkbench()).rejects.toBe(failure);
     expect(mocks.failNavigation).toHaveBeenCalledWith(1, failure);
+  });
+
+  // Embedded HTML previews authorize data reads by notebook id, so a page that
+  // lives inside a notebook must carry it even though no note index resolves it.
+  it('gives a local HTML page the notebook that owns its path', async () => {
+    const { openExternalTarget } = await import('./workspace-navigation');
+    mocks.memoState.notebooks = [{ id: 'book-html', path: '/Notes/开发任务管理' }] as typeof mocks.memoState.notebooks;
+
+    // The commit barrier is unrelated here; only the session payload matters.
+    await openExternalTarget('/Notes/开发任务管理/数据工作台.html', {
+      destination: 'column-1', scopePath: '/Notes/开发任务管理',
+    }).catch(() => undefined);
+
+    expect(mocks.openExternalDocument).toHaveBeenCalledWith(
+      '/Notes/开发任务管理/数据工作台.html',
+      expect.objectContaining({ notebookId: 'book-html', notebookPath: '/Notes/开发任务管理' }),
+    );
+  });
+
+  it('leaves a local HTML page outside every notebook unowned', async () => {
+    const { openExternalTarget } = await import('./workspace-navigation');
+    mocks.memoState.notebooks = [{ id: 'book-html', path: '/Notes/开发任务管理' }] as typeof mocks.memoState.notebooks;
+    mocks.memoState.selectedNotebookId = 'book-html';
+
+    await openExternalTarget('/tmp/standalone.html', { destination: 'column-1' }).catch(() => undefined);
+
+    expect(mocks.openExternalDocument).toHaveBeenCalledWith(
+      '/tmp/standalone.html',
+      expect.objectContaining({ notebookId: null, notebookPath: null }),
+    );
   });
 });

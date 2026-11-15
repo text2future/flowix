@@ -1,11 +1,19 @@
-use std::path::{Path, PathBuf};
+//! Agent 附件缓存的 IPC 三件套。
+//!
+//! 路径校验、大小上限、编码规则都在 `crate::agent_image_cache`；这里只把结果
+//! 转成前端要的形状。`cache_agent_image` 是唯一会写盘的入口，它必须在解码前
+//! 先按 base64 长度粗筛一遍，避免为一个超大载荷白分配内存。
+
+use std::path::PathBuf;
 
 use base64::Engine;
 use serde::Serialize;
 use uuid::Uuid;
 
-pub(crate) const MAX_AGENT_IMAGE_BYTES: usize = 5 * 1024 * 1024;
-pub(crate) const MAX_AGENT_IMAGE_COUNT: usize = 5;
+use crate::agent_image_cache::{
+    agent_image_cache_root, agent_image_extension, resolve_cached_agent_image,
+    MAX_AGENT_IMAGE_BYTES,
+};
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -13,112 +21,6 @@ pub struct CachedAgentImage {
     path: String,
     mime_type: String,
     name: String,
-}
-
-pub(crate) fn agent_image_extension(mime_type: &str) -> Option<&'static str> {
-    match mime_type.trim().to_ascii_lowercase().as_str() {
-        "image/png" => Some("png"),
-        "image/jpeg" => Some("jpg"),
-        "image/webp" => Some("webp"),
-        "image/gif" => Some("gif"),
-        "application/msword" => Some("doc"),
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => Some("docx"),
-        "application/pdf" => Some("pdf"),
-        "application/vnd.ms-excel" => Some("xls"),
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" => Some("xlsx"),
-        "application/vnd.ms-powerpoint" => Some("ppt"),
-        "application/vnd.openxmlformats-officedocument.presentationml.presentation" => Some("pptx"),
-        _ => None,
-    }
-}
-
-fn agent_image_cache_root() -> Result<PathBuf, String> {
-    dirs::home_dir()
-        .map(|home| home.join(".flowix").join("cache").join("images"))
-        .ok_or_else(|| "Home directory is unavailable".to_string())
-}
-
-fn ensure_path_within_image_cache(root: &Path, candidate: &Path) -> Result<(), String> {
-    if !candidate.starts_with(root) || !candidate.is_file() {
-        return Err("Cached image path is outside the image cache".to_string());
-    }
-    Ok(())
-}
-
-pub(crate) async fn resolve_cached_agent_image(path: &str) -> Result<Option<PathBuf>, String> {
-    let root = agent_image_cache_root()?;
-    let root = match tokio::fs::canonicalize(&root).await {
-        Ok(root) => root,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(format!("Failed to resolve image cache: {error}")),
-    };
-    let candidate = match tokio::fs::canonicalize(path).await {
-        Ok(candidate) => candidate,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(format!("Failed to resolve cached image: {error}")),
-    };
-    ensure_path_within_image_cache(&root, &candidate)?;
-    Ok(Some(candidate))
-}
-
-/// Convert Flowix's short-lived cache paths into DSH's wire upload shape.
-/// The path is re-authorized here instead of trusting the frontend payload;
-/// DSH receives bytes and MIME metadata, never a host path.
-pub(crate) async fn encode_cached_agent_images(
-    paths: &[String],
-) -> Result<Vec<(String, String, String)>, String> {
-    if paths.len() > MAX_AGENT_IMAGE_COUNT {
-        return Err(format!(
-            "A message can attach at most {MAX_AGENT_IMAGE_COUNT} images"
-        ));
-    }
-    let mut encoded = Vec::with_capacity(paths.len());
-    for raw in paths {
-        let Some(path) = resolve_cached_agent_image(raw).await? else {
-            return Err("Attached image is no longer available".to_string());
-        };
-        let metadata = tokio::fs::metadata(&path)
-            .await
-            .map_err(|error| format!("Failed to inspect cached image: {error}"))?;
-        if metadata.len() > MAX_AGENT_IMAGE_BYTES as u64 {
-            return Err(format!(
-                "Image exceeds {} MB limit",
-                MAX_AGENT_IMAGE_BYTES / 1024 / 1024
-            ));
-        }
-        let extension = path
-            .extension()
-            .and_then(|value| value.to_str())
-            .map(str::to_ascii_lowercase)
-            .ok_or_else(|| "Attached image has no supported type".to_string())?;
-        let media_type = match extension.as_str() {
-            "png" => "image/png",
-            "jpg" | "jpeg" => "image/jpeg",
-            "webp" => "image/webp",
-            "gif" => "image/gif",
-            _ => return Err("Attached image has an unsupported type".to_string()),
-        };
-        let bytes = tokio::fs::read(&path)
-            .await
-            .map_err(|error| format!("Failed to read cached image: {error}"))?;
-        if bytes.len() > MAX_AGENT_IMAGE_BYTES {
-            return Err(format!(
-                "Image exceeds {} MB limit",
-                MAX_AGENT_IMAGE_BYTES / 1024 / 1024
-            ));
-        }
-        let name = path
-            .file_name()
-            .and_then(|value| value.to_str())
-            .unwrap_or("image")
-            .to_string();
-        encoded.push((
-            media_type.to_string(),
-            base64::engine::general_purpose::STANDARD.encode(bytes),
-            name,
-        ));
-    }
-    Ok(encoded)
 }
 
 #[tauri::command]
@@ -160,7 +62,7 @@ pub async fn cache_agent_image(
         .await
         .map_err(|error| format!("Failed to create image cache: {error}"))?;
     let name = format!("{}.{}", Uuid::new_v4(), extension);
-    let path = directory.join(&name);
+    let path: PathBuf = directory.join(&name);
     tokio::fs::write(&path, bytes)
         .await
         .map_err(|error| format!("Failed to cache image: {error}"))?;
@@ -210,37 +112,4 @@ pub async fn read_cached_agent_image(path: String) -> Result<Option<String>, Str
         "data:{mime_type};base64,{}",
         base64::engine::general_purpose::STANDARD.encode(bytes)
     )))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn agent_image_cache_accepts_safe_raster_formats_only() {
-        assert_eq!(agent_image_extension("image/png"), Some("png"));
-        assert_eq!(agent_image_extension("IMAGE/JPEG"), Some("jpg"));
-        assert_eq!(agent_image_extension("image/webp"), Some("webp"));
-        assert_eq!(agent_image_extension("image/gif"), Some("gif"));
-        assert_eq!(agent_image_extension("image/svg+xml"), None);
-        assert_eq!(agent_image_extension("text/html"), None);
-    }
-
-    #[test]
-    fn agent_image_cache_rejects_files_outside_its_root() {
-        let root =
-            std::env::temp_dir().join(format!("flowix-agent-image-root-{}", std::process::id()));
-        let outside = std::env::temp_dir().join(format!(
-            "flowix-agent-image-outside-{}.png",
-            std::process::id()
-        ));
-        std::fs::create_dir_all(&root).expect("create cache root");
-        let inside = root.join("inside.png");
-        std::fs::write(&inside, b"png").expect("create inside image");
-        std::fs::write(&outside, b"png").expect("create outside image");
-        assert!(ensure_path_within_image_cache(&root, &inside).is_ok());
-        assert!(ensure_path_within_image_cache(&root, &outside).is_err());
-        let _ = std::fs::remove_file(outside);
-        let _ = std::fs::remove_dir_all(root);
-    }
 }

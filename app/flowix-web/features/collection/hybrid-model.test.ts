@@ -3,7 +3,7 @@ import { createFolderHybridCollectionContent } from './folder-collection';
 import YAML from 'yaml';
 import { createTableDocument, parseTableDocument, serializeTableDocument, addTableView } from '@features/multidimensional-table/model';
 import { createMediaLibrary, parseMediaLibrary } from '@features/media-library/model';
-import { createWorkDocumentsCollection } from '@features/work-documents/model';
+import { createWorkDocumentsCollection } from './work-documents-model';
 import {
   collectionSourceDomain,
   createCollectionMetadata,

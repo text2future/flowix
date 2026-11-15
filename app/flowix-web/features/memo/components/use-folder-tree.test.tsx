@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { files, type DocTreeItem } from '@platform/tauri/client';
 import { noteMetadata } from '../services/note-metadata-service';
 import {
-  flattenLoadedTree,
+  buildLoadedTreeIndex,
   flattenVisibleTree,
   useFolderTree,
   type FolderTreeState,
@@ -70,6 +70,22 @@ describe('useFolderTree', () => {
       root?.render(createElement(TreeProbe, { folderPath }));
     });
   }
+
+  it('loads the newly selected notebook tree and ignores an older notebook response', async () => {
+    let finishOld!: (items: DocTreeItem[]) => void;
+    getTreeMock.mockImplementation(path => path === '/a'
+      ? new Promise(resolve => { finishOld = resolve; })
+      : Promise.resolve([file('/b/new.md', 'new.md')]));
+    mount('/a');
+    await vi.waitFor(() => expect(finishOld).toBeTypeOf('function'));
+    mount('/b');
+    await vi.waitFor(() => expect(lastState?.loading).toBe(false));
+    expect(lastState?.nodes.has('/b/new.md')).toBe(true);
+    await act(async () => { finishOld([file('/a/old.md', 'old.md')]); });
+    expect(lastState?.nodes.has('/a/old.md')).toBe(false);
+    expect(lastState?.nodes.has('/b/new.md')).toBe(true);
+    expect(getTreeMock.mock.calls.map(call => call[0])).toEqual(['/a', '/b']);
+  });
 
   describe('watcher refresh feedback', () => {
     async function loadExpandedDirectory() {
@@ -161,8 +177,8 @@ describe('useFolderTree', () => {
     }
     const latest = { icon: 'flashlight', colors: ['blue' as const], favorited: true };
     act(() => {
-      lastState?.updateNoteMetadata('/root/a.md', { ...latest, icon: 'dog-face' });
-      lastState?.updateNoteMetadata('/root/a.md', latest);
+      noteMetadata.update('/root/a.md', { ...latest, icon: 'dog-face' });
+      noteMetadata.update('/root/a.md', latest);
     });
     await act(async () => release([oldNote]));
     expect(lastState?.rootChildren[0].memoMeta).toEqual(latest);
@@ -174,7 +190,7 @@ describe('useFolderTree', () => {
     expect(lastState?.rootChildren[0].memoMeta?.icon).toBeNull();
   });
 
-  it('preserves saved metadata over a delayed child read and supports clearing it', async () => {
+  it('preserves metadata observed during a delayed child read, including an explicit clear', async () => {
     getTreeMock.mockResolvedValue([dir('/root/sub', 'sub')]);
     mount('/root');
     await vi.waitFor(() => expect(lastState?.loading).toBe(false));
@@ -182,13 +198,21 @@ describe('useFolderTree', () => {
     getDirChildrenMock.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
     act(() => lastState?.toggle('/root/sub'));
     const latest = { icon: 'flashlight', colors: [], favorited: false };
-    act(() => lastState?.updateNoteMetadata('/root/sub/a.md', latest));
+    act(() => noteMetadata.update('/root/sub/a.md', latest));
     await act(async () => release([file('/root/sub/a.md', 'a.md')]));
     expect(lastState?.nodes.get('/root/sub/a.md')?.memoMeta).toEqual(latest);
     expect(lastState?.nodes.get('/root/sub')?.children?.[0].memoMeta).toEqual(latest);
-    act(() => lastState?.updateNoteMetadata('/root/sub/a.md', { ...latest, icon: null }));
-    expect(lastState?.nodes.get('/root/sub/a.md')?.memoMeta?.icon).toBeNull();
-    expect(lastState?.nodes.get('/root/sub')?.children?.[0].memoMeta?.icon).toBeNull();
+
+    // An observation that lands mid-read wins for that read; the stale listing
+    // it was racing must not put the old icon back.
+    let releaseClear!: (items: DocTreeItem[]) => void;
+    getDirChildrenMock.mockImplementationOnce(() => new Promise((resolve) => { releaseClear = resolve; }));
+    act(() => { void lastState?.refresh('/root/sub'); });
+    const cleared = { icon: null, colors: [], favorited: false };
+    act(() => noteMetadata.update('/root/sub/a.md', cleared));
+    await act(async () => releaseClear([{ ...file('/root/sub/a.md', 'a.md'), memoMeta: latest }]));
+    expect(lastState?.nodes.get('/root/sub/a.md')?.memoMeta).toEqual(cleared);
+    expect(lastState?.nodes.get('/root/sub')?.children?.[0].memoMeta).toEqual(cleared);
   });
 
   it('inserts the folder node when children load before any tree expansion reached it', async () => {
@@ -223,7 +247,7 @@ describe('useFolderTree', () => {
     mount('/root');
     await vi.waitFor(() => expect(lastState?.loading).toBe(false));
     const latest = { icon: 'flashlight', colors: ['blue' as const], favorited: true };
-    act(() => lastState?.updateNoteMetadata(path, latest));
+    act(() => noteMetadata.update(path, latest));
     getTreeMock.mockResolvedValueOnce([{ ...file(path, 'a.md'), memoMeta: null }]);
     await act(async () => { await (mode === 'reload' ? lastState?.reload() : lastState?.refresh()); });
     expect(lastState?.rootChildren[0].memoMeta).toEqual(latest);
@@ -245,7 +269,7 @@ describe('useFolderTree', () => {
     await act(async () => { lastState?.toggle('/root/a'); });
     await act(async () => { lastState?.toggle('/root/a/b'); });
     const latest = { icon: 'flashlight', colors: ['blue' as const], favorited: true };
-    act(() => lastState?.updateNoteMetadata(path, latest));
+    act(() => noteMetadata.update(path, latest));
     await act(async () => { await lastState?.refresh('/root/a/b'); });
     expect(flattenVisibleTree(lastState!).find(({ item }) => item.fullPath === path)?.item.memoMeta).toEqual(latest);
   });
@@ -255,29 +279,12 @@ describe('useFolderTree', () => {
     getTreeMock.mockResolvedValueOnce([file(path, 'a.md')]);
     mount('/root');
     await vi.waitFor(() => expect(lastState?.loading).toBe(false));
-    act(() => lastState?.updateNoteMetadata(path, { icon: 'flashlight', colors: ['blue'], favorited: true }));
+    act(() => noteMetadata.update(path, { icon: 'flashlight', colors: ['blue'], favorited: true }));
     getTreeMock.mockResolvedValueOnce([]);
     await act(async () => { await lastState?.refresh(); });
     getTreeMock.mockResolvedValueOnce([file(path, 'a.md')]);
     await act(async () => { await lastState?.refresh(); });
     expect(lastState?.rootChildren[0].memoMeta).toBeNull();
-  });
-
-  it('updates and clears note metadata several folders deep in the visible tree', async () => {
-    getTreeMock.mockResolvedValue([dir('/root/a', 'a')]);
-    getDirChildrenMock.mockImplementation(async (path) => path === '/root/a'
-      ? [dir('/root/a/b', 'b')]
-      : [file('/root/a/b/note.md', 'note.md')]);
-    mount('/root');
-    await vi.waitFor(() => expect(lastState?.loading).toBe(false));
-    await act(async () => { lastState?.toggle('/root/a'); });
-    await act(async () => { lastState?.toggle('/root/a/b'); });
-    const latest = { icon: 'flashlight', colors: ['blue' as const], favorited: true };
-    act(() => lastState?.updateNoteMetadata('/root/a/b/note.md', latest));
-    const visibleNote = () => flattenVisibleTree(lastState!).find(({ item }) => item.fullPath === '/root/a/b/note.md')?.item;
-    expect(visibleNote()?.memoMeta).toEqual(latest);
-    act(() => lastState?.updateNoteMetadata('/root/a/b/note.md', { icon: null, colors: [], favorited: false }));
-    expect(visibleNote()?.memoMeta).toEqual({ icon: null, colors: [], favorited: false });
   });
 
   it('加载根目录单层列表, folder 占位空 children', async () => {
@@ -662,19 +669,17 @@ describe('flattenVisibleTree', () => {
   });
 });
 
-describe('flattenLoadedTree', () => {
-  it('uses loaded children when root folders are still placeholders', () => {
+describe('buildLoadedTreeIndex', () => {
+  it('resolves a root placeholder to the loaded folder node', () => {
     const rootFolder = dir('/root/sub', 'sub');
     const loadedFolder = dir('/root/sub', 'sub', [file('/root/sub/note.md', 'note.md')]);
 
-    const flattened = flattenLoadedTree({
+    const { itemByPath, folderPaths } = buildLoadedTreeIndex({
       rootChildren: [rootFolder],
       nodes: new Map([[rootFolder.fullPath, loadedFolder]]),
     });
 
-    expect(flattened.map((item) => item.fullPath)).toEqual([
-      '/root/sub',
-      '/root/sub/note.md',
-    ]);
+    expect(itemByPath.get('/root/sub')).toBe(loadedFolder);
+    expect(folderPaths.has('/root/sub')).toBe(true);
   });
 });

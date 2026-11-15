@@ -3,9 +3,9 @@
 #   Refer for explanation to following link:
 #   https://lefthook.dev/configuration/
 #
-# 只保留当前真正启用的钩子：ESLint 与架构边界检查。
-# 两者都只作用于暂存文件，保证提交时延时可接受；
-# 全量检查（单测 / 打包预算 / Rust）仍在 CI 里跑。
+# 只保留当前真正启用的钩子：ESLint 与两侧的架构边界检查（TS + Rust）。
+# 都只作用于暂存文件，保证提交时延时可接受；
+# 全量检查（单测 / 打包预算 / clippy）仍在 CI 里跑。
 pre-commit:
   parallel: true
   jobs:
@@ -16,3 +16,9 @@ pre-commit:
     - name: architecture
       glob: "*.{ts,tsx}"
       run: node scripts/check-architecture.mjs
+
+    # Rust 侧与前端同样有政策 + 基线两道闸门：前端不许新增跨层依赖，Rust 不许新增
+    # 回边、不许把文件继续养大。约 1.3 秒，只读文本，不改暂存区。
+    - name: rust-architecture
+      glob: "*.rs"
+      run: node scripts/check-rust-architecture.mjs

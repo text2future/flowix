@@ -1,2 +1,2 @@
-/** Header menus do not depend on collection title editors or content hosts. */
+/** Collection controls mounted in the shared workspace header. */
 export { CollectionDisplayMenu, CollectionDisplayMenuItems } from '../collection-display-menu';

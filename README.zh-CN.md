@@ -1,9 +1,5 @@
 [English](./README.en.md) | **简体中文**
 
-<p align="center">
-  <img src="./docs/images/app-icon.png" width="120" alt="Flowix" />
-</p>
-
 # 你的笔记，AI 的记忆
 
 Flowix 是一个以文档库为核心的 AI 工作空间。它把项目笔记、资料、规则和 Agent 放在一起，让你看见 Agent 依据什么工作，也能随时修正这些内容。
@@ -11,10 +7,6 @@ Flowix 是一个以文档库为核心的 AI 工作空间。它把项目笔记、
 本地 Markdown · 多 Agent · MCP 与 CLI
 
 [立即下载](https://flowix-memo.com/) · [官网](https://flowix-memo.com/) · [文档](https://flowix-memo.com/docs/)
-
----
-
-<img src="./docs/images/readme-introduce.gif" width="100%" alt="Flowix" />
 
 ## 让 Agent 的工作依据清晰可见
 
@@ -29,6 +21,8 @@ Agent 的回答和产出取决于它读取的资料与遵循的规则。Flowix �
 每个笔记本都可以作为一个项目空间，集中整理目标、资料、计划和进展。需要时，Agent 可以基于这些内容协助分析问题、整理思路和推进下一步。
 
 适用于产品与软件开发、学习研究、内容创作和个人知识管理。资料与过程持续积累，Agent 可以接着已有上下文工作。
+
+&nbsp;
 
 <p align="center"><img src="./docs/images/home-nav.png" width="60%" alt="Flowix 中的笔记、对话、任务与标签导航" /></p>
 
@@ -54,11 +48,12 @@ Agent 的回答和产出取决于它读取的资料与遵循的规则。Flowix �
 
 ## 产品预览
 
-|                            |                         |
-| -------------------------- | ----------------------- |
-| <img src="./docs/images/gh-detail-1.png" width="100%" alt="笔记列表与标签组织" /><br/>*笔记列表与标签组织* | <img src="./docs/images/gh-detail-2.png" width="100%" alt="笔记详情与 Agent 预设" /><br/>*笔记详情与 Agent 预设* |
-| <img src="./docs/images/gh-detail-3.png" width="100%" alt="Agent 模型选择" /><br/>*Agent 模型选择* | <img src="./docs/images/gh-detail-4.png" width="100%" alt="全文与文件搜索" /><br/>*全文与文件搜索* |
-| <img src="./docs/images/gh-detail-5.png" width="100%" alt="Provider 与 MCP 配置" /><br/>*Provider 与 MCP 配置* | <img src="./docs/images/gh-detail-6.png" width="100%" alt="代码文件浏览与编辑" /><br/>*代码文件浏览与编辑* |
+<!-- flowix:table {"version":1,"columns":[{"width":162},{"width":162}]} -->
+|                                                                                                      |                                                                                                |
+| ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| <img src="./docs/images/gh-detail-1.png" width="100%" alt="笔记列表与标签组织" /> *笔记列表与标签组织*                 | <img src="./docs/images/gh-detail-2.png" width="100%" alt="笔记详情与 Agent 预设" /> *笔记详情与 Agent 预设* |
+| <img src="./docs/images/gh-detail-3.png" width="100%" alt="Agent 模型选择" /> *Agent 模型选择*               | <img src="./docs/images/gh-detail-4.png" width="100%" alt="全文与文件搜索" /> *全文与文件搜索*               |
+| <img src="./docs/images/gh-detail-5.png" width="100%" alt="Provider 与 MCP 配置" /> *Provider 与 MCP 配置* | <img src="./docs/images/gh-detail-6.png" width="100%" alt="代码文件浏览与编辑" /> *代码文件浏览与编辑*           |
 
 
 ---

@@ -21,6 +21,7 @@ export interface SuggestionMenuRenderProps<TItem> {
   scrollSelectedItem: boolean;
   hasMore: boolean;
   loading: boolean;
+  error: boolean;
   onSelect: (item: TItem) => void;
   onHover: (index: number) => void;
   onLoadMore: () => void;
@@ -50,7 +51,7 @@ export interface SuggestionMenuConfig<TItem> {
   /** 解析当前查询; 返回 null 表示关闭弹窗 */
   parseQuery: (view: EditorView, triggerFrom: number, trigger: string) => string | null;
   /** 异步获取候选项 */
-  fetchItems: (query: string) => Promise<TItem[]>;
+  fetchItems: (query: string, editor: Editor) => Promise<TItem[]>;
   /** 渲染下拉 UI */
   render: (props: SuggestionMenuRenderProps<TItem>) => ReactNode;
   /** 选中回调 */
@@ -72,6 +73,7 @@ interface MenuInstance<TItem> {
   allItems: TItem[];
   visibleCount: number;
   loading: boolean;
+  error: boolean;
 }
 
 // ─── 模块级单例: 同一时刻只允许一个 suggestion 弹窗 ──────────────────────
@@ -211,6 +213,7 @@ function updatePosition(view: EditorView, width: number) {
     '--mention-note-max-height',
     `${Math.min(MENU_MAX_HEIGHT, availableHeight)}px`,
   );
+  menuContainer.style.transformOrigin = menuPlacement === 'above' ? 'bottom left' : 'top left';
   if (menuPlacement === 'above') {
     menuContainer.style.top = '';
     menuContainer.style.bottom = `${Math.max(
@@ -251,6 +254,7 @@ function renderMenu(view: EditorView) {
     scrollSelectedItem: instance.scrollSelectedItem,
     hasMore: instance.visibleCount < instance.allItems.length,
     loading: instance.loading,
+    error: instance.error,
     onSelect: (item) => {
       if (!isCurrentMenuView(view, openId) || !activeEditor || !menuState || !activeConfig) return;
       activeConfig.onSelect({
@@ -289,6 +293,7 @@ function applyQueryItems(view: EditorView, items: unknown[], resetPage: boolean)
   if (!instance) return;
   instance.allItems = items;
   instance.loading = false;
+  instance.error = false;
   if (resetPage) {
     instance.visibleCount = PAGE_SIZE;
     instance.selectedIndex = 0;
@@ -309,9 +314,10 @@ function requestQuery(view: EditorView, query: string, resetPage: boolean) {
   const instance = menuInstance;
   const config = activeConfig;
   const openId = menuOpenId;
-  if (!state || !instance || !config) return;
+  if (!state || !instance || !config || !activeEditor) return;
   const requestId = ++state.requestId;
   instance.loading = true;
+  instance.error = false;
   if (resetPage) {
     instance.allItems = [];
     instance.visibleCount = PAGE_SIZE;
@@ -320,13 +326,22 @@ function requestQuery(view: EditorView, query: string, resetPage: boolean) {
   }
   renderMenu(view);
 
-  config.fetchItems(query).then((items) => {
+  config.fetchItems(query, activeEditor).then((items) => {
     if (!isCurrentMenuView(view, openId) || menuState?.requestId !== requestId) return;
     applyQueryItems(view, items, resetPage);
   }).catch((err) => {
     config.onError?.(err);
     if (!isCurrentMenuView(view, openId) || menuState?.requestId !== requestId) return;
-    applyQueryItems(view, [], resetPage);
+    const currentInstance = menuInstance;
+    if (!currentInstance) return;
+    currentInstance.allItems = [];
+    currentInstance.loading = false;
+    currentInstance.error = true;
+    if (resetPage) {
+      currentInstance.visibleCount = PAGE_SIZE;
+      currentInstance.selectedIndex = 0;
+    }
+    renderMenu(view);
   });
 }
 
@@ -350,9 +365,11 @@ function openMenu(
     allItems: [],
     visibleCount: PAGE_SIZE,
     loading: true,
+    error: false,
   };
 
   menuContainer = document.createElement('div');
+  menuContainer.className = 'flowix-popover-enter';
   menuContainer.style.position = 'fixed';
   menuContainer.style.zIndex = '2147483647';
   menuContainer.style.width = config.adaptiveWidth ? 'max-content' : `${config.width}px`;

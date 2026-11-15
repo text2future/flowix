@@ -1,3 +1,4 @@
+import { createPopupScrollAreaDom } from "@shared/ui/popup-scroll-area-dom";
 import type { I18nKey } from "@/lib/i18n";
 import { replayEnterAnimation } from "@/lib/replay-enter-animation";
 import type { NotePickerController } from "@features/agent/thread-card/note/note-picker-controller";
@@ -25,6 +26,7 @@ export interface ComposerAddMenuControllerOptions {
 }
 
 export class ComposerAddMenuController {
+  private scrollbar: ReturnType<typeof createPopupScrollAreaDom> | null = null;
   private open = false;
   private disposed = false;
   private noteItem: HTMLButtonElement | null = null;
@@ -60,6 +62,8 @@ export class ComposerAddMenuController {
     this.options.settingsPopover?.removeEventListener("pointerenter", this.cancelSettingsClose);
     this.options.settingsPopover?.removeEventListener("pointerleave", this.handleSettingsBoundaryLeave);
     this.options.settingsPopover?.removeEventListener("keydown", this.handleSettingsKeydown);
+    this.scrollbar?.destroy();
+    this.scrollbar = null;
     this.options.popover.remove();
   }
 
@@ -141,7 +145,11 @@ export class ComposerAddMenuController {
     });
     if (settings.length > 0) items.push(this.createSeparator());
     items.push(projectAiSettings);
-    this.options.popover.replaceChildren(...items);
+    this.scrollbar?.destroy();
+    this.scrollbar = createPopupScrollAreaDom(this.options.popover.ownerDocument);
+    this.scrollbar.scroller.append(...items);
+    this.options.popover.replaceChildren(this.scrollbar.frame);
+    this.options.popover.classList.add("popup-scroll-shell");
     this.noteItem = note;
     // The parent item and level-2 popover form one continuous hover region.
     note.addEventListener("pointerleave", this.handleSubmenuBoundaryLeave);

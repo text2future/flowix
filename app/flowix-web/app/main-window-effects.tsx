@@ -150,7 +150,7 @@ export function MainWindowEffects() {
     void import("@/lib/memo-dispatcher").then(({ registerMemoEventHandler, registerMemoDerivedRefreshHandler }) => {
       if (disposed) return;
       unsubscribeDerived = registerMemoDerivedRefreshHandler((event) => {
-        invalidateMentionNotes();
+        invalidateMentionNotes(event.notebookId);
         invalidateMentionTags();
         if (getAppSelectedNotebookId() === event.notebookId) {
           refreshAppDerivedMetadata(event);
@@ -161,8 +161,8 @@ export function MainWindowEffects() {
       unsubscribe = registerMemoEventHandler((event) => {
         handleMainWindowMemoEvent(event, {
           getSelectedNotebookId: getAppSelectedNotebookId,
-          invalidateMentionCaches: () => {
-            invalidateMentionNotes();
+          invalidateMentionCaches: (notebookId) => {
+            invalidateMentionNotes(notebookId);
             invalidateMentionTags();
           },
           notifyCreatedNote: async (notebookId, relativePath) => {

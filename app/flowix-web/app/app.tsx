@@ -1,6 +1,7 @@
 'use client';
 
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { CrossNotebookLinkConfirmHost } from "@features/editor/public/link-navigation-api";
 import { StartupEntryScreen, StartupGate } from "./startup-screen";
 import { useWorkspaceStartupStore, applyNativeStartupStatus, isWorkspaceInteractive } from "@/lib/store/workspace-startup-store";
 import { ErrorBoundary } from "@shared/error-boundary";
@@ -135,6 +136,7 @@ function AppToaster({ language }: { language: AppLanguage }) {
     )}
     <Suspense fallback={null}><DocumentSaveNotifications /></Suspense>
     <ActionableNoticeHost />
+    <CrossNotebookLinkConfirmHost />
     </>
   );
 }

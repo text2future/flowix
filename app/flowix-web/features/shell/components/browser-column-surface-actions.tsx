@@ -9,6 +9,8 @@ import type { WorkspaceColumnId } from '@features/workspace/public/surface-api';
 import { requireFileDisplayIdentity } from '@/lib/file-display-registry';
 import { notebookRelativeDirectoryPath } from '@/lib/path';
 import { useShellSelectedNotebook } from '@features/memo/public/note-creation-api';
+import { useShellNotebooks } from '@features/memo/public/shell-api';
+import { getWorkspaceAgentRepositories } from '@features/agent/public/workspace-api';
 import { useMediaActions } from '../hooks/use-media-actions';
 import { WorkspaceHeaderContentActions } from './workspace-header-content-actions';
 
@@ -27,11 +29,21 @@ export function WorkspaceDocumentHeaderActions({ path, scopePath, notebookId, he
   const fileIdentity = useMemo(() => requireFileDisplayIdentity(path), [path]);
   const identity = useMemo(() => documentIdentityFromFile(fileIdentity), [fileIdentity]);
   const selectedNotebook = useShellSelectedNotebook();
-  const relativePath = scopePath ? notebookRelativeDirectoryPath(scopePath, path) : null;
+  const notebooks = useShellNotebooks();
+  const repositoryPaths = useMemo(
+    () => getWorkspaceAgentRepositories(notebookId ?? selectedNotebook?.id ?? null)
+      .map((repository) => repository.path),
+    [notebookId, selectedNotebook?.id],
+  );
+  const notebookPath = notebooks.find((notebook) => notebook.id === notebookId)?.path
+    ?? (selectedNotebook?.id === notebookId ? selectedNotebook.path : null);
+  const relativePath = notebookPath ? notebookRelativeDirectoryPath(notebookPath, path) : null;
   const target = useMemo<DocumentTitlebarTarget>(() => resolveDocumentTitlebarTarget(fileIdentity, {
-    fileIdentity, scopePath, notebookId, relativePath,
+    fileIdentity, scopePath, notebookId, notebookPath, relativePath,
     indexable: header.sourceKind === 'file-markdown' && Boolean(notebookId) && relativePath !== null,
-  }, selectedNotebook?.path ?? null), [fileIdentity, header.sourceKind, notebookId, relativePath, scopePath, selectedNotebook?.path]);
+  }, selectedNotebook?.path ?? null, repositoryPaths), [
+    fileIdentity, header.sourceKind, notebookId, notebookPath, relativePath, repositoryPaths, scopePath, selectedNotebook?.path,
+  ]);
   const editorMode = useDocumentEditorMode(columnId, identity);
   const commands = useDocumentCommands({
     currentDocumentPath: path,
@@ -40,7 +52,6 @@ export function WorkspaceDocumentHeaderActions({ path, scopePath, notebookId, he
     pdfHost: columnId,
   });
   const actions: DocumentTitlebarProps['actions'] = {
-    onCopyLink: () => { void commands.handleCopyLink(); },
     onCopyFullText: () => { void commands.handleCopyFullText(); },
     onExportMarkdown: () => { void commands.handleExportMarkdown(); },
     onSaveAsTemplate: () => { void commands.handleSaveAsTemplate(); },
@@ -52,6 +63,7 @@ export function WorkspaceDocumentHeaderActions({ path, scopePath, notebookId, he
   };
   return <WorkspaceHeaderContentActions iconButtonClass={iconButtonClass}
     collection={collectionPath ? { indexPath: collectionPath, notebookPath: scopePath, notebookId } : null}
+    collectionHost={columnId}
     document={{ target, capabilities: header.documentControls, actions,
       showEditorFontSwitcher: header.showEditorFontSwitcher, showEditorModeToggle: header.showEditorModeToggle,
       editorMode, onSetEditorMode: (mode) => {
@@ -74,6 +86,9 @@ export function BrowserColumnMediaActions({ filePath, notebookPath, notebookId, 
   const actions = useMediaActions(target);
   return <WorkspaceHeaderContentActions iconButtonClass={iconButtonClass}
     collection={collectionPath ? { indexPath: collectionPath, notebookPath, notebookId } : null}
+    collectionHost="column-2"
+    notebookId={notebookId}
+    mediaReference={{ path: filePath, notebookId }}
     media={{ onCopyLink: actions.handleCopyMediaLink, onRevealInFileManager: actions.handleRevealMedia,
       onRequestDelete: notebookPath ? actions.handleRequestDeleteMedia : undefined }} />;
 }

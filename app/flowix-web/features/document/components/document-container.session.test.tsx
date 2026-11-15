@@ -269,7 +269,7 @@ describe('real document container session lifecycle', () => {
     });
     expect(invoke).toHaveBeenCalledWith('finish_attachment_upload', { uploadId: 'screenshot-upload' });
     expect(doc.editors.left!.getMarkdown()).toContain('Screenshot.png');
-    expect(doc.editors.left!.getMarkdown()).toContain(encodeURIComponent(saved));
+    expect(doc.editors.left!.getMarkdown()).toContain('![Screenshot.png](./attachments/Screenshot.png)');
   });
   it.each(['paste', 'insertFiles', 'drop'] as const)('uses the renamed note path for %s without remounting the editor', async method => {
     const doc = setup(false);
@@ -326,12 +326,12 @@ describe('real document container session lifecycle', () => {
     await act(async () => { doc.render(); });
     await act(async () => { doc.editors.left!.commands.openFileDialog({ accept: 'image/*' }); });
     expect(invoke).toHaveBeenCalledWith('save_notebook_asset', {
-      sourcePath: '/selected/fig.png', notebookId: 'owner', deduplicate: true, reuseNotebookFile: false, reuseExistingAttachment: true,
+      sourcePath: '/selected/fig.png', notePath: doc.identity.path, deduplicate: true, reuseNotebookFile: true, reuseExistingAttachment: true,
     });
     const images: string[] = [];
     doc.editors.left!.state.doc.descendants(node => { if (node.type.name === 'image') images.push(node.attrs.src); });
     expect(images).toHaveLength(1);
-    expect(decodeURIComponent(images[0])).toContain(saved);
+    expect(images[0]).toBe('./attachments/fig.png');
     expect(doc.editors.left!.getMarkdown()).toContain('fig.png');
   });
   it('resolves the nearest notebook at upload time, excluding similar path prefixes', async () => {
@@ -348,7 +348,7 @@ describe('real document container session lifecycle', () => {
     vi.mocked(invoke).mockImplementation(async (command) => command === 'select_files' ? ['/selected/fig.png'] : { path: `${path}/attachments/fig.png`, created: true });
     await act(async () => { doc.editors.left!.commands.openFileDialog(); });
     expect(invoke).toHaveBeenCalledWith('save_notebook_asset', {
-      sourcePath: '/selected/fig.png', notebookId: 'owner', deduplicate: true, reuseNotebookFile: false, reuseExistingAttachment: true,
+      sourcePath: '/selected/fig.png', notePath: doc.identity.path, deduplicate: true, reuseNotebookFile: true, reuseExistingAttachment: true,
     });
   });
   it('does not save an image to the selected notebook when the document is outside it', async () => {
@@ -356,13 +356,13 @@ describe('real document container session lifecycle', () => {
     const other = { id: 'other', name: 'Other', path: '/another-notebook', createdAt: 1, updatedAt: 1, isDefault: false };
     useNoteStore.setState({ notebooks: [other], selectedNotebook: other });
     vi.stubGlobal('__TAURI__', {});
-    vi.mocked(invoke).mockResolvedValue(['/selected/fig.png']);
+    vi.mocked(invoke).mockImplementation(async (command) => command === 'retain_external_file_reference' ? '/selected/fig.png' : ['/selected/fig.png']);
     await act(async () => { doc.render(); });
     vi.mocked(invoke).mockClear();
     await act(async () => { doc.editors.left!.commands.openFileDialog(); });
     // The watch lease is unrelated lifecycle noise; assert no asset was saved.
     expect(invoke).not.toHaveBeenCalledWith('save_notebook_asset', expect.anything());
-    expect(doc.editors.left!.getMarkdown()).toBe('Body');
+    expect(doc.editors.left!.getMarkdown()).toContain('![fig.png](/selected/fig.png)');
   });
   it('opening a second view preserves scheduled autosave', async () => {
     mocks.recoveryRead.mockResolvedValue(null);

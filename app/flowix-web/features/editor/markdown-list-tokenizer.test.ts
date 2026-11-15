@@ -38,8 +38,6 @@ function alternatingListDocument(): string {
 
 const manager = new MarkdownManager({
   extensions: createMarkdownEditorExtensions({
-    getOwnerPath: () => undefined,
-    getAttachmentNotebookId: () => undefined,
     workspaceHost: 'column-1',
     getPlaceholder: () => '',
   }),

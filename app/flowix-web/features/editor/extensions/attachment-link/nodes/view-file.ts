@@ -4,6 +4,8 @@ import type { ViewMutationRecord } from '@tiptap/pm/view';
 import { Node, mergeAttributes } from '@tiptap/core';
 import { NodeSelection } from '@tiptap/pm/state';
 import { assetUrl } from '@features/editor/extensions/attachment-link/utils';
+import type { EditorImageContext } from '@features/editor/editor-image-source';
+import { resolveDocumentRelativeHref } from '@/lib/document-relative-path';
 import { setInlineAtomTextSelectionFromMouse } from '@features/editor/extensions/shared/inline-atom-selection';
 import { createInlineAtomMaintenancePlugin, removeHardBreaksAroundInlineAtoms } from '@features/editor/extensions/shared/inline-atom-maintenance';
 import { dialogs } from '@platform/tauri/client';
@@ -30,7 +32,13 @@ class FileView implements ProseMirrorNodeView {
     selected = false;
     private suppressNextClickSelection = false;
 
-    constructor(node: ProseMirrorNode, view: EditorView, getPos: () => number, decorations: readonly Decoration[]) {
+    constructor(
+        node: ProseMirrorNode,
+        view: EditorView,
+        getPos: () => number,
+        decorations: readonly Decoration[],
+        private readonly getImageContext?: () => EditorImageContext | undefined,
+    ) {
         this.node = node;
         this.view = view;
         this.getPos = getPos;
@@ -40,7 +48,8 @@ class FileView implements ProseMirrorNodeView {
     }
 
     private createCard(): HTMLElement {
-        const { name, storageMode, storageKey } = this.node.attrs;
+        const { name, storageMode } = this.node.attrs;
+        const storageKey = this.resolvePath();
 
         const wrapper = document.createElement('span');
         wrapper.className = 'editor-file-attachment';
@@ -135,17 +144,28 @@ class FileView implements ProseMirrorNodeView {
     }
 
     private async saveAttachmentAs(): Promise<void> {
-        const { name, fileName, storageMode, storageKey } = this.node.attrs;
+        const { name, fileName, storageMode } = this.node.attrs;
+        const storageKey = this.resolvePath();
         if (storageMode !== 'attachment' || !storageKey) return;
 
         const suggestedName = String(name || fileName || 'attachment');
         try {
             const targetPath = await dialogs.saveFile(suggestedName);
             if (!targetPath) return;
-            await dialogs.copyAttachmentFile(String(storageKey), targetPath);
+            await dialogs.copyAttachmentFile(storageKey, targetPath);
         } catch (error) {
             console.error('[file-attachment] failed to save attachment:', error);
         }
+    }
+
+    private resolvePath(): string | null {
+        const { storageKey, url } = this.node.attrs;
+        if (typeof storageKey === 'string' && storageKey) return storageKey;
+        if (typeof url !== 'string' || !url) return null;
+        const target = resolveDocumentRelativeHref(url, this.getImageContext?.()?.documentPath);
+        return target && (target.path.startsWith('/') || /^[a-z]:\//i.test(target.path) || target.path.startsWith('//'))
+            ? target.path
+            : null;
     }
 
     private refreshCard(): void {
@@ -199,8 +219,12 @@ class FileView implements ProseMirrorNodeView {
 
 // 鈹€鈹€鈹€ FileAttachment Node 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
-export const FileAttachment = Node.create({
+export const FileAttachment = Node.create<{ getImageContext?: () => EditorImageContext | undefined }>({
     name: 'fileAttachment',
+
+    addOptions() {
+        return { getImageContext: undefined };
+    },
     group: 'inline',
     inline: true,
     atom: true,
@@ -299,7 +323,8 @@ export const FileAttachment = Node.create({
             props.node,
             props.view,
             () => props.getPos?.() ?? 0,
-            props.decorations
+            props.decorations,
+            this.options.getImageContext,
         );
     },
 

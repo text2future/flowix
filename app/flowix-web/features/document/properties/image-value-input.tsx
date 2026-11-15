@@ -79,48 +79,41 @@ export function NotePropertyImageValue({ value, notebook, disabled, onChange }: 
   value: unknown;
   notebook?: { id: string; path: string };
   disabled: boolean;
-  onChange: (path: string) => void;
+  onChange: (paths: string[]) => void;
 }) {
   const { t } = useI18n();
-  const path = propertyImagePaths(value)[0];
+  const paths = propertyImagePaths(value);
   const notebookPath = notebook?.path;
-  const [image, setImage] = useState<{ path: string; src: string | null } | null>(null);
+  const [sources, setSources] = useState<Record<string, string | null>>({});
   const [uploading, setUploading] = useState(false);
+  const pathsKey = JSON.stringify(paths);
   useEffect(() => {
-    if (!path) return;
     let cancelled = false;
-    if (/^(https?:|data:|blob:)/i.test(path)) {
-      setImage({ path, src: path });
-      return;
-    }
-    const absolutePath = notebookPath && !/^(\/|[a-z]:[\\/])/i.test(path)
-      ? joinNotebookMemoPath(notebookPath, path) ?? path
-      : path;
-    void files.readImage(absolutePath, notebookPath).catch(() => null).then((src) => {
-      if (!cancelled) setImage({ path, src });
-    });
+    const currentPaths = JSON.parse(pathsKey) as string[];
+    void Promise.all(currentPaths.map(async (path) => {
+      if (/^(https?:|data:|blob:)/i.test(path)) return [path, path] as const;
+      const absolute = notebookPath && !/^(\/|[a-z]:[\\/])/i.test(path)
+        ? joinNotebookMemoPath(notebookPath, path) ?? path : path;
+      return [path, await files.readImage(absolute, notebookPath).catch(() => null)] as const;
+    })).then((entries) => { if (!cancelled) setSources(Object.fromEntries(entries)); });
     return () => { cancelled = true; };
-  }, [path, notebookPath]);
-
+  }, [pathsKey, notebookPath]);
   const chooseImage = async () => {
     if (disabled || uploading) return;
-    if (!notebook) {
-      toast.error(t('document.properties.imageUploadFailed'));
-      return;
-    }
+    if (!notebook) { toast.error(t('document.properties.imageUploadFailed')); return; }
     setUploading(true);
     try {
       const selected = await selectPropertyImage(notebook, t);
-      if (selected) onChange(selected);
-    } finally {
-      setUploading(false);
-    }
+      if (selected && !paths.includes(selected)) onChange([...paths, selected]);
+    } finally { setUploading(false); }
   };
-  return <ImageValueInput
-    path={path}
-    src={image?.path === path ? image?.src : null}
-    disabled={disabled}
-    uploading={uploading}
-    onSelect={() => void chooseImage()}
-  />;
+  return <div className="flex min-w-0 items-center gap-1 overflow-x-auto py-1">
+    {paths.map((path, index) => <span key={`${path}-${index}`} className="group relative h-8 w-8 shrink-0">
+      {sources[path] ? <img src={sources[path] ?? undefined} alt={path} title={path} className="h-8 w-8 rounded-md object-cover" /> : <ImagePlus className="m-2 h-4 w-4" />}
+      {!disabled && <button type="button" aria-label={`移除图片 ${index + 1}`} title="移除图片" onClick={() => onChange(paths.filter((_, i) => i !== index))} className="absolute right-0 top-0 rounded bg-black/70 px-1 text-xs text-white opacity-0 group-hover:opacity-100 focus:opacity-100">×</button>}
+    </span>)}
+    <button type="button" disabled={disabled || uploading} onClick={() => void chooseImage()} title={t('document.properties.selectImage')} aria-label={t('document.properties.selectImage')} className="flex h-8 min-w-8 shrink-0 items-center justify-center rounded-md text-[var(--muted-foreground)] hover:bg-[var(--muted)] disabled:opacity-50">
+      {paths.length ? <ImagePlus className="h-4 w-4" /> : (uploading ? t('document.properties.selectingImage') : t('document.properties.selectImage'))}
+    </button>
+  </div>;
 }

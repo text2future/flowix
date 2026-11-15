@@ -34,7 +34,7 @@ pub(crate) fn resolve_v2_move_conflict(
         }
         state.cloud_sync.discard_v2_move_after_conflict(movement).map_err(sync_error)?;
         drop(_guard);
-        crate::commands::collection::refresh_path(&memo_file, &target);
+        flowix_core::collection_store::refresh_path(&memo_file, &target);
         let _ = app.emit("file-management-changed", serde_json::json!({"notebookId": movement.notebook_id, "notebookPath": notebook.path}));
         let _ = app.emit("collection-changed", serde_json::json!({"notebookId": movement.notebook_id, "notebookPath": notebook.path, "relativePath": movement.to_path}));
         return Ok(());

@@ -11,25 +11,30 @@
  * 该文件夹自己的集合视图（同一套外壳、同一套 tab），层级导航交给视图本身完成，
  * 所以这里永远只渲染一层。
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type UIEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type UIEvent } from 'react';
 import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
-import { dialogs, files } from '@platform/tauri/client';
-import type { DocTreeItem } from '@platform/tauri/client';
+import { collections, dialogs, files } from '@platform/tauri/client';
+import type { CollectionChangedEvent, DocTreeItem, FileBrowserDirectoriesChangedEvent } from '@platform/tauri/client';
 import { CollectionResourceIcon } from '@features/collection/public/appearance-api';
-import { collectionIndexPathForFolder } from '@features/collection/public/folder-api';
-import { ContentIcon, getFileIconKind, HtmlFileIcon } from '@features/content/public/content-api';
+import { ContentIcon, HtmlFileIcon } from '@features/content/public/content-api';
+import { treeEntryPresentation } from '@features/content/public/tree-entry-api';
 import { createPropertySvgIcon } from '@features/document/public/property-type-icon-api';
+import { mergeNoteMetadata, noteMetadata, NOTE_COLOR_HEX, useNoteMetadata } from '@features/memo/public/tree-metadata-api';
 import { openFolderCollectionFromFolder } from '@features/workspace/public/main-window-api';
+import { TREE_ICON_COLOR_CLASS } from '@shared/ui/tree-icon-color';
 import { createLogger } from '@/lib/logger';
 import { useI18n } from '@/lib/i18n';
 import { formatUpdatedAt } from '@/lib/collection-updated-time';
 import { toast } from '@/lib/toast';
-import { displayTitleFromFilename } from '@/lib/utils';
-import { canonicalDirectoryPath, canonicalPath } from '@/lib/path';
+import { cn } from '@/lib/utils';
+import { canonicalDirectoryPath, canonicalPath, isPathInDirectory, joinNotebookMemoPath, parentDirectoryPath, samePath } from '@/lib/path';
+import { subscribeNotebookChanges } from '@platform/tauri/notebook-change-events';
+import { subscribe } from '@platform/tauri/event-bus';
 import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
 import { CollectionAreaMenu } from '@shared/ui/collection-area-menu';
 import { filesAreaMenuItems } from '@shared/ui/collection-area-menu-items';
 import folderIcon from '@/assets/folder-outline.svg?raw';
+import folderIconDefault from '@/assets/folder-outline-default.svg?raw';
 import type { SurfacePresentationUpdate } from '@features/workspace/public/surface-api';
 import type { WorkspaceSurfaceRenderContext } from './workspace-surface-renderer-contract';
 
@@ -37,11 +42,34 @@ type SortField = 'name' | 'modifiedMs' | 'sizeBytes';
 type FileSort = { field: SortField; direction: 'asc' | 'desc' } | null;
 
 const logger = createLogger('collection-files-tab');
+const CHANGE_BATCH_MS = 150;
 
-function isNoteItem(item: DocTreeItem): boolean {
-  // 旧后端可能不下发 resourceKind，按扩展名兜底。
-  if (item.resourceKind) return item.resourceKind === 'note';
-  return /\.(md|markdown)$/i.test(item.name);
+interface CollectionIdentityPaths {
+  tables: ReadonlySet<string>;
+  mediaLibraries: ReadonlySet<string>;
+  workDocuments: ReadonlySet<string>;
+}
+
+const EMPTY_COLLECTION_IDENTITY_PATHS: CollectionIdentityPaths = {
+  tables: new Set(),
+  mediaLibraries: new Set(),
+  workDocuments: new Set(),
+};
+
+function collectionPathSet(notebookPath: string, items: readonly { relativePath: string }[]): Set<string> {
+  return new Set(items.flatMap(({ relativePath }) => {
+    const path = joinNotebookMemoPath(notebookPath, relativePath);
+    return path ? [canonicalPath(path)] : [];
+  }));
+}
+
+function presentationForItem(item: DocTreeItem, paths: CollectionIdentityPaths) {
+  const itemPath = canonicalPath(item.fullPath);
+  return treeEntryPresentation(item, {
+    hasTableIdentity: paths.tables.has(itemPath),
+    hasMediaLibraryIdentity: paths.mediaLibraries.has(itemPath),
+    workDocumentsCollection: paths.workDocuments.has(itemPath),
+  });
 }
 
 function fileSizeLabel(item: DocTreeItem): string {
@@ -53,32 +81,71 @@ function fileSizeLabel(item: DocTreeItem): string {
   return `${Number((bytes / 1024 ** (unitIndex + 1)).toFixed(1))} ${units[unitIndex]}`;
 }
 
-/** 文件树行图标 ── 与「访问空间」视图同一套规范：图标统一 18×18。 */
-function TreeRowIcon({ item, notebookPath }: { item: DocTreeItem; notebookPath: string | null }) {
-  if (item.type === 'folder') {
-    return <CollectionResourceIcon filePath={collectionIndexPathForFolder(item.fullPath)} notebookPath={notebookPath}
-      className="h-[18px] w-[18px] shrink-0 object-contain"
-      fallback={<span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center"
-        dangerouslySetInnerHTML={{ __html: folderIcon }} />} />;
-  }
-  if (/\.(?:index|table|lib|workdocs)\.ya?ml$/i.test(item.name)) {
-    return <CollectionResourceIcon filePath={item.fullPath} notebookPath={notebookPath}
-      fallbackType={/\.(lib|workdocs)\.ya?ml$/i.test(item.name) ? 'media_library' : 'table'}
-      className="h-[18px] w-[18px] shrink-0 object-contain" />;
-  }
-  if (isNoteItem(item)) {
-    return <ContentIcon content={{ kind: 'note' }} className="notebook-file-tree__default-file-icon h-[18px] w-[18px] shrink-0" />;
-  }
-  if (getFileIconKind(item.fullPath) === 'html') {
-    return <HtmlFileIcon className="h-[18px] w-[18px] shrink-0" />;
-  }
-  return <ContentIcon content={{ kind: 'file', path: item.name }} className="h-[18px] w-[18px] shrink-0" />;
-}
+/** 文件树行图标与侧边栏共用图标分类、笔记元数据和 18×18 尺寸。 */
+function TreeRowIcon({ item, notebookPath, notebookId, presentation, isDefaultFolder }: {
+  item: DocTreeItem;
+  notebookPath: string | null;
+  notebookId: string | null;
+  presentation: ReturnType<typeof treeEntryPresentation>;
+  isDefaultFolder: boolean;
+}) {
+  const isFolder = item.type === 'folder';
+  const { isNote, isHiddenFolder, collectionType, iconKind } = presentation;
+  const noteMetadata = useNoteMetadata(item.fullPath, item.memoMeta, isNote);
+  const noteIcon = isNote ? noteMetadata?.icon?.trim() || null : null;
+  const noteColors = isNote ? noteMetadata?.colors ?? [] : [];
+  const [noteIconSrc, setNoteIconSrc] = useState<string | null>(null);
 
-/** 文件树行名称 ── 笔记去扩展名展示标题，文件夹与其它文件保留原名。 */
-function itemDisplayName(item: DocTreeItem): string {
-  if (item.type !== 'folder' && isNoteItem(item)) return displayTitleFromFilename(item.name);
-  return item.name;
+  useEffect(() => {
+    let active = true;
+    setNoteIconSrc(null);
+    if (!noteIcon) return () => { active = false; };
+    void import('@features/document/public/property-display-api')
+      .then(({ getPropertyIconOption }) => {
+        if (active) setNoteIconSrc(getPropertyIconOption(noteIcon)?.src ?? null);
+      })
+      .catch(() => { if (active) setNoteIconSrc(null); });
+    return () => { active = false; };
+  }, [noteIcon]);
+
+  const folderDefault = <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center"
+    dangerouslySetInnerHTML={{ __html: isDefaultFolder ? folderIconDefault : folderIcon }} />;
+  const indexFileFolderDefault = !isFolder && /^\.index\.ya?ml$/i.test(item.name)
+    ? <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center"
+        dangerouslySetInnerHTML={{ __html: folderIcon }} />
+    : undefined;
+  let icon: ReactNode;
+  if (isFolder) {
+    icon = <CollectionResourceIcon folderPath={item.fullPath} notebookPath={notebookPath} notebookId={notebookId}
+      className="h-[18px] w-[18px] shrink-0 object-contain" fallback={folderDefault} folderDefault={folderDefault} />;
+  } else if (iconKind === 'collection') {
+    icon = <CollectionResourceIcon filePath={item.fullPath} notebookPath={notebookPath} fallbackType={collectionType}
+      folderDefault={indexFileFolderDefault}
+      className="h-[18px] w-[18px] shrink-0 object-contain" />;
+  } else if (isNote && noteIconSrc) {
+    icon = <img src={noteIconSrc} alt="" aria-hidden="true" className="h-[18px] w-[18px] object-contain" />;
+  } else if (isNote) {
+    icon = <ContentIcon content={{ kind: 'note' }} className="notebook-file-tree__default-file-icon h-[18px] w-[18px] shrink-0" />;
+  } else if (iconKind === 'html') {
+    icon = <HtmlFileIcon className="h-[18px] w-[18px] shrink-0" />;
+  } else {
+    icon = <ContentIcon content={{ kind: 'file', path: item.name }} className="h-[18px] w-[18px] shrink-0" />;
+  }
+
+  return <>
+    <span aria-hidden="true" className={cn(
+      'relative flex h-[18px] w-[18px] shrink-0 items-center justify-center',
+      TREE_ICON_COLOR_CLASS,
+      isHiddenFolder && 'opacity-50',
+    )}>{icon}</span>
+    {noteColors.length > 0 && (
+      <span aria-label="Note colors" className="inline-flex h-6 shrink-0 items-center justify-center gap-0.5">
+        {noteColors.map((color) => (
+          <span key={color} aria-hidden="true" className="h-2 w-2 rounded-full" style={{ backgroundColor: NOTE_COLOR_HEX[color] }} />
+        ))}
+      </span>
+    )}
+  </>;
 }
 
 /**
@@ -99,7 +166,7 @@ function HeaderTypeIcon({ kind }: { kind: 'note' | 'date' | 'number' }) {
 /**
  * 文件树 tab ── 单层列表，点文件夹进它自己的集合视图，不含任何集合配置。
  */
-export function CollectionFilesTab({ rootPath, notebookId, notebookPath, collectionId, host, reportPresentation, editable = true }: {
+export function CollectionFilesTab({ rootPath, notebookId, notebookPath, collectionId, host, reportPresentation, editable = true, active = true }: {
   rootPath: string;
   notebookId: string | null;
   notebookPath: string | null;
@@ -107,6 +174,7 @@ export function CollectionFilesTab({ rootPath, notebookId, notebookPath, collect
   host: WorkspaceSurfaceRenderContext['host'];
   reportPresentation?: (update: SurfacePresentationUpdate) => void;
   editable?: boolean;
+  active?: boolean;
 }) {
   const { t, language } = useI18n();
   const identity = JSON.stringify([notebookId, notebookPath, collectionId ?? rootPath]);
@@ -114,6 +182,172 @@ export function CollectionFilesTab({ rootPath, notebookId, notebookPath, collect
   /** 导入 / 新建完成后就地重读本层目录（文件树只有一层，不需要展开状态）。 */
   const [refreshToken, setRefreshToken] = useState(0);
   const reload = useCallback(() => setRefreshToken((token) => token + 1), []);
+  const [collectionRefreshToken, setCollectionRefreshToken] = useState(0);
+  const refreshCollectionIdentities = useCallback(() => {
+    setCollectionRefreshToken((token) => token + 1);
+  }, []);
+  const wasActive = useRef(active);
+  useEffect(() => {
+    if (active && !wasActive.current) {
+      reload();
+      refreshCollectionIdentities();
+    }
+    wasActive.current = active;
+  }, [active, refreshCollectionIdentities, reload]);
+  const [collectionIdentityPaths, setCollectionIdentityPaths] = useState(EMPTY_COLLECTION_IDENTITY_PATHS);
+  const [defaultCreateFolder, setDefaultCreateFolder] = useState<string | null>(null);
+  const defaultCreateFolderPath = useMemo(() => defaultCreateFolder && notebookPath
+    ? joinNotebookMemoPath(notebookPath, defaultCreateFolder)
+    : null, [defaultCreateFolder, notebookPath]);
+
+  useEffect(() => {
+    setCollectionIdentityPaths(EMPTY_COLLECTION_IDENTITY_PATHS);
+  }, [notebookId, notebookPath]);
+
+  useEffect(() => {
+    if (!notebookId || !notebookPath) {
+      setCollectionIdentityPaths(EMPTY_COLLECTION_IDENTITY_PATHS);
+      return;
+    }
+    let active = true;
+    void Promise.all([
+      files.listTableDocuments(notebookId),
+      files.listMediaLibraries(notebookId),
+      collections.list(notebookId, 'work_documents'),
+    ]).then(([tables, mediaLibraries, workDocuments]) => {
+      if (!active) return;
+      setCollectionIdentityPaths({
+        tables: collectionPathSet(notebookPath, tables),
+        mediaLibraries: collectionPathSet(notebookPath, mediaLibraries),
+        workDocuments: collectionPathSet(notebookPath, workDocuments),
+      });
+    }).catch((error) => {
+      logger.warn('loading collection identities for file rows failed', { error, notebookId });
+      if (active) setCollectionIdentityPaths(EMPTY_COLLECTION_IDENTITY_PATHS);
+    });
+    return () => { active = false; };
+  }, [notebookId, notebookPath, collectionRefreshToken]);
+
+  useEffect(() => {
+    if (!notebookId || !notebookPath) {
+      setDefaultCreateFolder(null);
+      return;
+    }
+    let active = true;
+    setDefaultCreateFolder(null);
+    const refreshDefaultFolder = () => {
+      void files.getNotebookViewPreferences(notebookPath)
+        .then((preferences) => {
+          if (active) setDefaultCreateFolder(preferences.defaultCreateFolder ?? null);
+        })
+        .catch((error) => {
+          logger.warn('loading default note folder for collection files failed', { error, notebookId });
+          if (active) setDefaultCreateFolder(null);
+        });
+    };
+    refreshDefaultFolder();
+    const unsubscribe = subscribe<{ notebookPath: string; defaultCreateFolderChanged: boolean }>(
+      'notebook-view-preferences-changed',
+      (event) => {
+        if (!event.defaultCreateFolderChanged
+          || canonicalDirectoryPath(event.notebookPath) !== canonicalDirectoryPath(notebookPath)) return;
+        refreshDefaultFolder();
+      },
+    );
+    return () => { active = false; unsubscribe(); };
+  }, [notebookId, notebookPath]);
+
+  useEffect(() => {
+    if (!active || !notebookId || !notebookPath) return;
+    const root = canonicalDirectoryPath(rootPath);
+    let reloadTimer: ReturnType<typeof setTimeout> | undefined;
+    let collectionTimer: ReturnType<typeof setTimeout> | undefined;
+    const scheduleReload = () => {
+      if (reloadTimer !== undefined) return;
+      reloadTimer = setTimeout(() => { reloadTimer = undefined; reload(); }, CHANGE_BATCH_MS);
+    };
+    const scheduleCollections = () => {
+      if (collectionTimer !== undefined) return;
+      collectionTimer = setTimeout(() => { collectionTimer = undefined; refreshCollectionIdentities(); }, CHANGE_BATCH_MS);
+    };
+    const stopCollections = subscribe<CollectionChangedEvent>('collection-changed', (event) => {
+      if (event.notebookId !== notebookId) return;
+      const paths = [event.relativePath, event.previousRelativePath].map((path) => joinNotebookMemoPath(notebookPath, path));
+      const moved = event.directoryMove;
+      const movedPaths = moved ? [moved.relativePath, moved.previousRelativePath].map((path) => joinNotebookMemoPath(notebookPath, path)) : [];
+      const affectsRoot = paths.some((path) => path && samePath(parentDirectoryPath(path, notebookPath), root))
+        || movedPaths.some((path) => path && (samePath(parentDirectoryPath(path, notebookPath), root) || isPathInDirectory(root, path)));
+      if (affectsRoot) {
+        scheduleReload();
+        scheduleCollections();
+      }
+    });
+    // Use the notebook root so this lease shares the native recursive watcher
+    // with the sidebar. Only changes to this directory or an immediate child
+    // can affect the visible rows or their folder modification times.
+    let disposed = false;
+    let leaseId: string | null = null;
+    const stopDirectories = subscribe<FileBrowserDirectoriesChangedEvent>('file-browser-directories-changed', (event) => {
+      if (disposed || !leaseId || event.leaseId !== leaseId || !samePath(event.rootPath, notebookPath)) return;
+      const affected = event.directories.some((directory) => samePath(directory, root)
+        || (!samePath(directory, notebookPath) && samePath(parentDirectoryPath(directory, notebookPath), root)));
+      if (!affected) return;
+      scheduleReload();
+      if (event.paths?.some((path) => samePath(parentDirectoryPath(path, notebookPath), root)
+        && /\.(?:index|table|lib|workdocs)\.ya?ml$/i.test(path))) scheduleCollections();
+    }, { onListenerReady: scheduleReload });
+    void files.watchRoot(notebookPath).then((nextLeaseId) => {
+      if (disposed) {
+        void files.unwatchRoot(nextLeaseId).catch((error) => logger.warn('releasing late file watcher failed', { error }));
+        return;
+      }
+      leaseId = nextLeaseId;
+      // Reconcile anything that changed between the initial read and the lease.
+      scheduleReload();
+    }).catch((error) => {
+      if (!disposed) logger.warn('registering collection files watcher failed', { error, notebookPath });
+    });
+    const stop = subscribeNotebookChanges((event) => {
+      if (event.notebookId !== notebookId) return;
+      if (event.kind === 'query-invalidated' && !event.relativePath) {
+        scheduleReload();
+        scheduleCollections();
+        return;
+      }
+      const paths = event.kind === 'path-moved'
+        ? [event.previousRelativePath, event.relativePath]
+        : [event.relativePath];
+      const pathsInRoot = paths.filter((relativePath): relativePath is string => {
+        if (relativePath === null) return false;
+        const path = joinNotebookMemoPath(notebookPath, relativePath);
+        return path !== null && (samePath(path, root) || samePath(parentDirectoryPath(path, notebookPath), root));
+      });
+      // Creating, deleting or moving a direct child's contents changes that
+      // folder's mtime, which is visible in the current table.
+      const changesChildFolder = (event.kind === 'resource-created' || event.kind === 'resource-deleted' || event.kind === 'path-moved')
+        && paths.some((relativePath) => {
+          const path = joinNotebookMemoPath(notebookPath, relativePath);
+          if (!path) return false;
+          const parent = parentDirectoryPath(path, notebookPath);
+          return !samePath(parent, root) && samePath(parentDirectoryPath(parent, notebookPath), root);
+        });
+      if (pathsInRoot.length > 0 || changesChildFolder) {
+        scheduleReload();
+        if (pathsInRoot.some((relativePath) => /\.(?:index|table|lib|workdocs)\.ya?ml$/i.test(relativePath))) {
+          scheduleCollections();
+        }
+      }
+    });
+    return () => {
+      disposed = true;
+      stop();
+      stopCollections();
+      stopDirectories();
+      if (leaseId) void files.unwatchRoot(leaseId).catch((error) => logger.warn('releasing file watcher failed', { error }));
+      if (reloadTimer !== undefined) clearTimeout(reloadTimer);
+      if (collectionTimer !== undefined) clearTimeout(collectionTimer);
+    };
+  }, [active, notebookId, notebookPath, refreshCollectionIdentities, reload, rootPath]);
   // A renamed folder has the same children. Rebase their addresses immediately
   // so retained rows remain safe to open while the new directory is read.
   const items = useMemo(() => {
@@ -138,22 +372,29 @@ export function CollectionFilesTab({ rootPath, notebookId, notebookPath, collect
 
   const [sort, setSort] = useState<FileSort>(null);
   useEffect(() => { setSort(null); }, [identity]);
+  const rows = useMemo(() => items?.map((item) => ({
+    item,
+    presentation: presentationForItem(item, collectionIdentityPaths),
+  })) ?? null, [collectionIdentityPaths, items]);
   const sortedItems = useMemo(() => {
+    if (!rows) return null;
     const collator = new Intl.Collator(language, { numeric: true, sensitivity: 'base' });
-    return items?.slice().sort((a, b) => {
-      const folders = Number(b.type === 'folder') - Number(a.type === 'folder');
+    return rows.slice().sort((a, b) => {
+      const folders = Number(b.item.type === 'folder') - Number(a.item.type === 'folder');
       if (folders) return folders;
       if (!sort) return 0;
       const direction = sort.direction === 'asc' ? 1 : -1;
-      if (sort.field === 'name') return direction * collator.compare(itemDisplayName(a), itemDisplayName(b));
-      if (sort.field === 'sizeBytes' && a.type === 'folder') return 0;
-      const left = a[sort.field];
-      const right = b[sort.field];
+      if (sort.field === 'name') return direction * collator.compare(
+        a.presentation.displayName, b.presentation.displayName,
+      );
+      if (sort.field === 'sizeBytes' && a.item.type === 'folder') return 0;
+      const left = a.item[sort.field];
+      const right = b.item[sort.field];
       // Missing metadata stays last within its group in either direction.
       if (left == null || right == null) return left == null ? (right == null ? 0 : 1) : -1;
       return direction * (left - right);
-    }) ?? null;
-  }, [items, sort, language]);
+    });
+  }, [rows, sort, language]);
 
   const renderHeader = (field: SortField, kind: 'note' | 'date' | 'number', label: string) => {
     const direction = sort?.field === field ? sort.direction : null;
@@ -174,8 +415,15 @@ export function CollectionFilesTab({ rootPath, notebookId, notebookPath, collect
 
   useEffect(() => {
     let cancelled = false;
+    const checkpoint = noteMetadata.checkpoint();
     files.getDirChildren(rootPath)
-      .then((next) => { if (!cancelled) setListing({ identity, rootPath, items: next }); })
+      .then((next) => {
+        if (cancelled) return;
+        const items = next.map((item) => item.type === 'document' && item.memoMeta
+          ? { ...item, memoMeta: mergeNoteMetadata(item.fullPath, item.memoMeta, checkpoint) }
+          : item);
+        setListing({ identity, rootPath, items });
+      })
       .catch(() => { if (!cancelled) setListing({ identity, rootPath, items: [] }); });
     return () => { cancelled = true; };
   }, [identity, refreshToken, rootPath]);
@@ -270,8 +518,9 @@ export function CollectionFilesTab({ rootPath, notebookId, notebookPath, collect
       }
     }
     reload();
+    refreshCollectionIdentities();
     if (failed) toast.error(t('collection.areaMenu.importFilesFailed', { count: failed }));
-  }, [notebookPath, reload, rootPath, t]);
+  }, [notebookPath, refreshCollectionIdentities, reload, rootPath, t]);
 
   /** 导入文件夹… → 整个目录复制进来，导入期间给一条常驻进度提示。 */
   const importFolder = useCallback(async () => {
@@ -282,6 +531,7 @@ export function CollectionFilesTab({ rootPath, notebookId, notebookPath, collect
     try {
       await files.importFolder(sourceDirectoryPath, rootPath, notebookPath);
       reload();
+      refreshCollectionIdentities();
       toast.success(t('memo.fileTree.importFolderSuccess'));
     } catch (error) {
       logger.warn('importing folder into collection folder failed', { error, sourceDirectoryPath, rootPath });
@@ -289,7 +539,7 @@ export function CollectionFilesTab({ rootPath, notebookId, notebookPath, collect
     } finally {
       toast.dismiss(progressToastId);
     }
-  }, [notebookPath, reload, rootPath, t]);
+  }, [notebookPath, refreshCollectionIdentities, reload, rootPath, t]);
 
   const areaMenuItems = useMemo(() => filesAreaMenuItems({
     t,
@@ -316,7 +566,10 @@ export function CollectionFilesTab({ rootPath, notebookId, notebookPath, collect
   return <div className="min-w-0 pb-2 px-12">
     {/* 右键菜单包住整块列表区域（表头 + 行）：条目按「文件树 tab」给。 */}
     <CollectionAreaMenu items={areaMenuItems}>
-    <div ref={headerScrollerRef} className="sticky top-[calc(var(--work-titlebar-h,0px)+var(--collection-tab-bar-h))] z-[1] min-w-0 overflow-hidden bg-[var(--document-bg)]">
+    {/* The list keeps its 48px content inset, while both the sticky header and the
+        horizontal viewport extend to the edges of the collection column. */}
+    <div className="-mx-12 min-w-0">
+    <div ref={headerScrollerRef} className="sticky top-[calc(var(--work-titlebar-h,0px)+var(--collection-tab-bar-h))] z-[1] min-w-0 overflow-hidden px-12">
       <table role="presentation" className="multidimensional-table collection-files-table w-full min-w-[38rem] table-fixed border-collapse text-sm">
         {renderColumns()}
         <thead className="bg-[var(--document-bg)] text-left text-sm text-[var(--muted-foreground)]">
@@ -328,7 +581,7 @@ export function CollectionFilesTab({ rootPath, notebookId, notebookPath, collect
         </thead>
       </table>
     </div>
-    <OverlayScrollbar horizontalScrollbar className="collection-files-tab__scrollbar min-w-0" scrollerClassName="collection-files-tab__scroller min-w-0" onScroll={syncHeaderScroll}>
+    <OverlayScrollbar horizontalScrollbar className="collection-files-tab__scrollbar min-w-0" scrollerClassName="collection-files-tab__scroller min-w-0 px-12" onScroll={syncHeaderScroll}>
       <table className="multidimensional-table collection-files-table w-full min-w-[38rem] table-fixed border-collapse text-sm">
         {renderColumns()}
         <thead className="sr-only">
@@ -343,17 +596,29 @@ export function CollectionFilesTab({ rootPath, notebookId, notebookPath, collect
             ? <tr><td colSpan={3} className="py-6 text-center text-sm text-[var(--muted-foreground)]">
               {items === null ? '…' : t('collection.emptyFiles')}
             </td></tr>
-            : sortedItems?.map((item, index) => {
+            : sortedItems?.map(({ item, presentation }, index) => {
               const updated = updatedLabel(item);
+              const isDefaultFolder = item.type === 'folder'
+                && defaultCreateFolderPath !== null
+                && samePath(defaultCreateFolderPath, item.fullPath);
               const cellClass = `${index < items.length - 1 ? 'border-b ' : ''}border-[var(--border)] p-0 align-middle`;
-              return <tr key={item.id} onClick={() => void openItem(item)} className="cursor-pointer hover:bg-[var(--muted)]/25">
+              return <tr key={item.id} onClick={() => void openItem(item)} className="group cursor-pointer hover:bg-[var(--muted)]/25">
                 <td className={cellClass}>
                   <div className="multidimensional-table__cell-content">
                     <button data-file-row type="button" onClick={(event) => { event.stopPropagation(); void openItem(item); }}
                       className="flex min-w-0 items-center gap-x-1.5 text-left text-sm text-[var(--foreground)] focus-visible:outline focus-visible:outline-[var(--brand)]"
                       title={item.type === 'folder' ? t('collection.openFolder', { name: item.name }) : item.name}>
-                      <TreeRowIcon item={item} notebookPath={notebookPath} />
-                      <span data-file-name className="min-w-0 flex-1 truncate">{itemDisplayName(item)}</span>
+                      <TreeRowIcon item={item} notebookPath={notebookPath} notebookId={notebookId}
+                        presentation={presentation} isDefaultFolder={isDefaultFolder} />
+                      <span data-file-name className="min-w-0 flex-1 truncate"
+                        style={{ opacity: presentation.isHiddenFolder ? 0.82 * 0.8 : 0.82 }}>
+                        {presentation.displayName}
+                      </span>
+                      {isDefaultFolder && (
+                        <span className="ml-0.5 shrink-0 text-xs text-[var(--muted-foreground)] opacity-50 transition-opacity duration-150 group-hover:opacity-0">
+                          {t('memo.fileTree.defaultNoteFolderLabel')}
+                        </span>
+                      )}
                     </button>
                   </div>
                 </td>
@@ -397,6 +662,7 @@ export function CollectionFilesTab({ rootPath, notebookId, notebookPath, collect
         </tbody>
       </table>
     </OverlayScrollbar>
+    </div>
     </CollectionAreaMenu>
   </div>;
 }

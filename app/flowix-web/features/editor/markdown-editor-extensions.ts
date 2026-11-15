@@ -1,5 +1,11 @@
+import type { EditorLinkContext } from './editor-link-resolution';
 import { PreservedHtmlBlock, PreservedHtmlInline } from './extensions/preserved-html';
-import { getWorkspaceMemoState } from '@features/memo/public/workspace-api';
+import { getDocumentResourceContext, getDocumentResourceSnapshot } from '@features/document/public/resource-context';
+import type { DocumentResourceContext } from '@/lib/document-resource-context';
+import { notebookForPath } from '@/lib/path';
+import { documentRelativeHref, resolveDocumentRelativeHref, resolvePhysicalDocumentPath } from '@/lib/document-relative-path';
+import { decodeStorageKey } from '@features/editor/extensions/attachment-link/utils';
+import { isRuntimeAssetHref } from '@/lib/asset-markdown';
 import type { EditorImageContext } from './editor-image-source';
 import { FlowixOrderedList } from './markdown-ordered-list';
 import { VideoEmbed } from './extensions/video-embed/node';
@@ -16,8 +22,10 @@ import { Tag } from '@features/editor/extensions/tag';
 import MarkdownPaste from '@features/editor/extensions/markdown-paste';
 import ManagedPasteRules from '@features/editor/extensions/paste-rules';
 import { LinkSelectionHighlight, MarkdownLink } from '@features/editor/extensions/markdown-link';
+import { normalizeNoteReferenceDocument } from './extensions/note-link/note-reference-path';
 import { createNoteReferenceExtension } from '@features/editor/extensions/note-link';
-import { NoteMention, WikiNoteMention } from '@features/editor/extensions/note-mention';
+import { NoteMention, WikiNoteMention, ChineseWikiNoteMention } from '@features/editor/extensions/note-mention';
+import { NoteMentionContext } from '@features/editor/extensions/note-mention/note-mention-context';
 import { TagMention } from '@features/editor/extensions/tag-mention';
 import { CodeBlockShikiBase } from '@features/editor/extensions/codeblock-shiki/codeblock-shiki-base';
 import { MarkdownEscape, LegacyAdjacentStrongMarkdown } from './markdown-parser-core-extensions';
@@ -27,6 +35,7 @@ import { MathBlock } from '@features/editor/extensions/math-block';
 import { WebCard } from '@features/editor/extensions/web-card';
 import { TableReference } from '@features/multidimensional-table/table-reference-node';
 import { MediaLibraryReference } from '@features/media-library/media-library-reference-node';
+import { WorkDocumentsReference } from '@features/work-documents/public/reference-api';
 import { SearchAndReplace } from '@features/editor/extensions/search-replace';
 import Frontmatter from '@features/editor/extensions/frontmatter';
 import { MenuPinExtension } from '@features/editor/extensions/menu-pin';
@@ -210,9 +219,74 @@ function markAmbiguousBoldRunsAsHtml(node: JSONContent): JSONContent {
   return changed ? { ...node, content: nextContent } : node;
 }
 
-export function serializeEditorMarkdown(editor: Editor): string {
-  const json = markAmbiguousBoldRunsAsHtml(editor.getJSON());
+export function serializeEditorMarkdown(editor: Editor, documentPath?: string): string {
+  const snapshot = getDocumentResourceSnapshot();
+  let document = normalizeNoteReferenceDocument(editor.getJSON(), {
+    ...snapshot, documentPath: documentPath ?? '',
+    notebookId: documentPath ? notebookForPath(documentPath, snapshot.roots)?.id : undefined,
+  });
+  if (documentPath) {
+    const { roots } = snapshot;
+    const owner = notebookForPath(documentPath, roots);
+    if (owner) {
+      document = normalizeAttachmentDestinations(document, documentPath, owner.id, roots);
+    }
+  }
+  const json = markAmbiguousBoldRunsAsHtml(document);
   return editor.markdown?.serialize(json) ?? editor.getMarkdown();
+}
+
+function normalizeAttachmentDestinations(
+  node: JSONContent,
+  documentPath: string,
+  notebookId: string,
+  roots: readonly { id: string; path: string }[],
+): JSONContent {
+  let attrs = node.attrs;
+  if (attrs && ['image', 'videoAttachment', 'fileAttachment'].includes(node.type ?? '')) {
+    const sourceKey = node.type === 'fileAttachment' ? 'url' : 'src';
+    const authored = typeof attrs[sourceKey] === 'string' ? attrs[sourceKey] as string : '';
+    const storageKey = typeof attrs.storageKey === 'string' ? attrs.storageKey : '';
+    const href = relativeHrefForOwnedPath(authored, storageKey, documentPath, notebookId, roots);
+    if (href && href !== authored) attrs = { ...attrs, [sourceKey]: href };
+  }
+  const marks = node.marks?.map(mark => {
+    if (mark.type !== 'link' || typeof mark.attrs?.href !== 'string') return mark;
+    const href = relativeHrefForOwnedPath(mark.attrs.href, '', documentPath, notebookId, roots);
+    return href && href !== mark.attrs.href ? { ...mark, attrs: { ...mark.attrs, href } } : mark;
+  });
+  const content = node.content?.map(child => normalizeAttachmentDestinations(child, documentPath, notebookId, roots));
+  return {
+    ...node,
+    ...(attrs ? { attrs } : {}),
+    ...(marks ? { marks } : {}),
+    ...(content ? { content } : {}),
+  };
+}
+
+function relativeHrefForOwnedPath(
+  authoredHref: string,
+  storageKey: string,
+  documentPath: string,
+  notebookId: string,
+  roots: readonly { id: string; path: string }[],
+): string | null {
+  if (!authoredHref) return null;
+  const runtimeAsset = isRuntimeAssetHref(authoredHref);
+  let target = runtimeAsset
+    ? resolvePhysicalDocumentPath(decodeStorageKey(authoredHref) ?? storageKey)
+    : resolveDocumentRelativeHref(authoredHref, documentPath);
+
+  if (!target && runtimeAsset) {
+    const root = notebookForPath(documentPath, roots);
+    const storagePath = decodeStorageKey(authoredHref) ?? storageKey;
+    if (root && storagePath && !storagePath.startsWith('/') && !/^[a-z]:[\\/]/i.test(storagePath)) {
+      target = resolvePhysicalDocumentPath(`${root.path.replace(/[\\/]+$/, '')}/${storagePath}`);
+    }
+  }
+
+  if (!target || notebookForPath(target.path, roots)?.id !== notebookId) return null;
+  return documentRelativeHref(target, documentPath);
 }
 
 function isEmptyParagraphNode(node: unknown): boolean {
@@ -284,10 +358,10 @@ const PreservedTaskItem = MarkdownTaskItem.extend({
 });
 
 export interface MarkdownEditorExtensionContext {
+  getLinkContext?: () => EditorLinkContext | undefined;
   getImageContext?: () => EditorImageContext | undefined;
   ownerPath?: string;
-  getOwnerPath: () => string | undefined;
-  getAttachmentNotebookId: () => string | undefined;
+  getAttachmentContext?: () => DocumentResourceContext;
   propertyTargetId?: string;
   onPropertyAreaHoverChange?: (hovered: boolean) => void;
   onViewSourceMode?: () => void;
@@ -313,8 +387,8 @@ function tableControlLabels(): NonNullable<TablePluginOptions['labels']> {
 export function createMarkdownEditorExtensions({
   ownerPath,
   getImageContext,
-  getOwnerPath,
-  getAttachmentNotebookId,
+  getLinkContext,
+  getAttachmentContext,
   propertyTargetId,
   onPropertyAreaHoverChange,
   onViewSourceMode,
@@ -322,6 +396,8 @@ export function createMarkdownEditorExtensions({
   workspaceHost,
   getPlaceholder,
 }: MarkdownEditorExtensionContext, codeBlockExtension = CodeBlockShikiBase) {
+  const getContext = getAttachmentContext ?? (() => getDocumentResourceContext(ownerPath));
+  const getAttachmentNotebookId = () => getContext().notebookId;
   // Event order follows extension priority, not this array's visual order:
   // gap input normalization (1200) > slash menu (1150) > managed paste and the
   // divider Backspace crossing (1100) > editing handlers such as TabCharacter
@@ -358,9 +434,9 @@ export function createMarkdownEditorExtensions({
   ];
 
   const blockAndMediaExtensions = [
-    PreservedHtmlBlock.configure({ getImageContext, onViewSourceMode }),
-    PreservedHtmlInline.configure({ getImageContext, onViewSourceMode }),
-    AttachmentLink.configure({ ownerPath, getOwnerPath, getNotebookId: getAttachmentNotebookId, getImageContext }),
+    PreservedHtmlBlock.configure({ getImageContext }),
+    PreservedHtmlInline.configure({ getImageContext }),
+    AttachmentLink.configure({ getContext, getImageContext }),
     MarkdownLink,
     LinkSelectionHighlight,
     codeBlockExtension.configure({ traceId: transitionId }),
@@ -369,6 +445,7 @@ export function createMarkdownEditorExtensions({
     VideoEmbed,
     TableReference,
     MediaLibraryReference,
+    WorkDocumentsReference,
     FlowixHighlight.configure({ multicolor: true }),
     createTablePlugin({ labels: tableControlLabels() }),
   ];
@@ -393,10 +470,10 @@ export function createMarkdownEditorExtensions({
       },
     }),
     Tag,
-    ManagedPasteRules.configure({ ownerPath, getOwnerPath,
+    ManagedPasteRules.configure({
+      getContext,
       getLinkContext: (documentPath) => documentPath ? {
-        documentPath, notebookId: getAttachmentNotebookId(),
-        notebooks: getWorkspaceMemoState().notebooks,
+        ...getDocumentResourceSnapshot(), documentPath, notebookId: getAttachmentNotebookId(),
       } : undefined,
     }),
     MarkdownPaste,
@@ -411,9 +488,15 @@ export function createMarkdownEditorExtensions({
     }),
     // Note references serialize same-notebook links without a notebook key, so
     // the node needs the notebook that owns this document.
-    createNoteReferenceExtension('document', { getOwnerNotebookId: getAttachmentNotebookId }),
+    createNoteReferenceExtension('document', {
+      getLinkContext,
+      getOwnerNotebookId: getAttachmentNotebookId,
+      getDocumentPath: () => getContext().documentPath ?? getContext().ownerPath,
+    }),
+    NoteMentionContext.configure({ getNotebookId: getAttachmentNotebookId }),
     NoteMention,
     WikiNoteMention,
+    ChineseWikiNoteMention,
     TagMention,
     BlockGapCursor,
     EditorFirstBlockMark,

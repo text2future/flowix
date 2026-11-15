@@ -1,4 +1,5 @@
 'use client';
+import { PopupScrollArea } from '@shared/ui/popup-scroll-area';
 
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { queryMentionTags, type MentionTagItem } from '@features/editor/public/mention-data-api';
@@ -267,11 +268,10 @@ export function TagValueInput({
           onKeyDown={handleKeyDown}
         />
       </div>
-      {isNoteTags && suggestions.length > 0 && <div
-        id={suggestionListId}
-        role="listbox"
-        aria-label={t('document.properties.tagInputPlaceholder')}
-        className="scrollbar-hide mt-1 max-h-40 overflow-y-auto pt-1"
+      {isNoteTags && suggestions.length > 0 && <PopupScrollArea
+        scrollerProps={{ id: suggestionListId, role: 'listbox', 'aria-label': t('document.properties.tagInputPlaceholder') }}
+        className="mt-1 max-h-40"
+        scrollerClassName="pt-1"
       >
         {suggestions.map((item, index) => <button
           key={item.id}
@@ -287,7 +287,7 @@ export function TagValueInput({
         >
           <TagSvgIcon className="mr-1 h-4 w-4 shrink-0" /><span className="tag-node-content">{item.name}</span>
         </button>)}
-      </div>}
+      </PopupScrollArea>}
     </PopoverContent>
   </Popover>;
 }

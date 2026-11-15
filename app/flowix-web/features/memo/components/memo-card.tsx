@@ -7,7 +7,6 @@ import { PushPin } from '@phosphor-icons/react';
 import { NOTE_COLOR_HEX } from '@features/memo/store/note-store';
 import {
   noteListItemRelativePath,
-  type NoteColor,
   type NoteListItem,
 } from '@/types/note-item';
 import { cn, displayTitleFromFilename } from '@/lib/utils';
@@ -45,7 +44,6 @@ interface MemoCardProps {
   onOpenInWindow?: (memo: NoteListItem) => void;
   onFavoriteToggle: (memo: NoteListItem) => void;
   onDelete: (memo: NoteListItem) => void;
-  onColorsChange?: (memo: NoteListItem, colors: NoteColor[]) => void;
   onKeepAliveChange?: (memo: NoteListItem, active: boolean) => void;
   runningAgentType?: AgentTypeKey;
 }
@@ -74,7 +72,6 @@ interface MemoCardShellProps {
   onOpenInWindow?: (memo: NoteListItem) => void;
   onFavoriteToggle: (memo: NoteListItem) => void;
   onDelete: (memo: NoteListItem) => void;
-  onColorsChange?: (memo: NoteListItem, colors: NoteColor[]) => void;
   onKeepAliveChange?: (memo: NoteListItem, active: boolean) => void;
 }
 
@@ -144,7 +141,6 @@ function MemoCardShell({
   onOpenInWindow,
   onFavoriteToggle,
   onDelete,
-  onColorsChange,
   onKeepAliveChange,
 }: MemoCardShellProps) {
   const { t } = useI18n();
@@ -220,17 +216,16 @@ function MemoCardShell({
         <ContextMenuTrigger asChild>
           {card}
         </ContextMenuTrigger>
-        <ContextMenuContent className="w-[180px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+        <ContextMenuContent scrollerClassName="space-y-0.5" className="w-[180px] rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
           <MemoCardActions
             memo={memo}
             filePath={filePath}
             onFavoriteToggle={onFavoriteToggle}
             onRename={openRename}
             onDelete={onDelete}
-            onColorsChange={onColorsChange}
             onOpenInSplit={onOpenInWindow}
             hideCopyActions
-            copyMenuBeforeReveal={<NotebookCopyContextMenu path={filePath} isNote />}
+            copyMenuBeforeReveal={<NotebookCopyContextMenu path={filePath} />}
             Item={ContextMenuItem}
           />
         </ContextMenuContent>
@@ -365,7 +360,6 @@ export function MemoCardImpl({
   onOpenInWindow,
   onFavoriteToggle,
   onDelete,
-  onColorsChange,
   runningAgentType,
   onKeepAliveChange,
 }: MemoCardProps) {
@@ -409,7 +403,6 @@ export function MemoCardImpl({
       onOpenInWindow={onOpenInWindow}
       onFavoriteToggle={onFavoriteToggle}
       onDelete={onDelete}
-      onColorsChange={onColorsChange}
       onKeepAliveChange={onKeepAliveChange}
     >
       <DetailedMemoCardBody {...bodyProps} />

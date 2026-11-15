@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { FileText, Plus } from 'lucide-react';
 import type { NoteEntry } from '@platform/tauri/client';
 import { useComposingValue } from '@shared/hooks/use-composing-value';
-import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
+import { PopupScrollArea } from '@shared/ui/popup-scroll-area';
 
 /** Shared interaction for creating a note or linking an existing one. Persistence stays in the caller. */
 export function NoteCreatePicker({ value, onChange, notes = [], allowSelect = true, disabled = false, error, onCreate, onSelect, onCancel, actions, actionsLayout = 'row', scrollTitleWithActions = false, footer, showCreateButton = true, mode = 'create' }: {
@@ -38,7 +38,7 @@ export function NoteCreatePicker({ value, onChange, notes = [], allowSelect = tr
     textarea.style.height = '0px';
     const contentHeight = textarea.scrollHeight + 2;
     textarea.style.height = `${scrollTitleWithActions ? contentHeight : Math.min(contentHeight, window.innerHeight * 0.5)}px`;
-  }, [input.value]);
+  }, [input.value, scrollTitleWithActions]);
   const navigate = (direction: number, fromIndex = activeIndex, moveFocus = false) => {
     if (!filtered.length) return;
     const next = fromIndex < 0 ? (direction > 0 ? 0 : filtered.length - 1) : (fromIndex + direction + filtered.length) % filtered.length;
@@ -72,8 +72,9 @@ export function NoteCreatePicker({ value, onChange, notes = [], allowSelect = tr
     </button>}
   </div>;
   const actionContent = actions && <div className={actionsLayout === 'column' ? 'flex w-full min-w-0 flex-col items-stretch' : 'multidimensional-table__primary-editor-actions'}>{actions}</div>;
+  const NoteListArea = scrollTitleWithActions ? 'div' : PopupScrollArea;
   const noteList = mode === 'create' && allowSelect && onSelect && <div className="min-w-0">
-    <div className="-mx-1 max-h-48 overflow-y-auto">
+    <NoteListArea className={scrollTitleWithActions ? '-mx-1' : '-mx-1 max-h-48'}>
       <div className="slash-menu-header !px-1.5" role="presentation"><span>搜索并添加笔记</span></div>
       <div role="listbox" aria-label="已创建笔记">
         {filtered.map((note, index) => <button key={note.relativePath} ref={(element) => { optionRefs.current[index] = element; }}
@@ -101,16 +102,16 @@ export function NoteCreatePicker({ value, onChange, notes = [], allowSelect = tr
         </button>)}
       </div>
       {(error || filtered.length === 0) && <p className="px-1 py-2 text-center text-sm text-[var(--muted-foreground)]">{error || (notes.length ? '没有匹配的笔记' : '没有可选择的笔记')}</p>}
-    </div>
+    </NoteListArea>
   </div>;
 
   return <div className={`multidimensional-table__primary-editor${keyboardNavigation ? ' is-keyboard-navigation' : ''}${scrollTitleWithActions ? ' flex min-h-0 flex-1 flex-col' : ''}`}>
     {scrollTitleWithActions
       ? <>
-        <OverlayScrollbar
+        <PopupScrollArea
           className="-mr-1 -mt-2 h-auto min-h-[120px] max-h-[min(360px,calc(100vh-112px))] flex-none"
-          scrollerClassName="h-auto min-h-[120px] max-h-[min(360px,calc(100vh-112px))] overflow-y-auto overscroll-contain pl-1 pr-1 pt-2"
-        >{titleInput}{actionContent}{noteList}</OverlayScrollbar>
+          scrollerClassName="h-auto min-h-[120px] max-h-[min(360px,calc(100vh-112px))] pl-1 pr-1 pt-2"
+        >{titleInput}{actionContent}{noteList}</PopupScrollArea>
         {footer}
       </>
       : <>{titleInput}{actionContent}{noteList}{footer}</>}

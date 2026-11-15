@@ -308,7 +308,7 @@ function MediaLibraryDatasetPopover({ document, notebook, filePath, editable, bu
               </button>
             </PopoverTrigger>
           </div>
-          <PopoverContent side="left" align="start" sideOffset={0} fitViewport style={{ zIndex: 160 }} ignorePopoverOutside={folderPickerOpen} className="max-h-[min(70vh,420px)] w-[320px] max-w-[calc(100vw-16px)] overflow-y-auto rounded-xl p-1.5 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+          <PopoverContent scrollable side="left" align="start" sideOffset={0} fitViewport style={{ zIndex: 160 }} ignorePopoverOutside={folderPickerOpen} className="max-h-[min(70vh,420px)] w-[320px] max-w-[calc(100vw-16px)] rounded-xl p-1.5 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
             <div className="space-y-1">
               <MediaLibraryFilterPanel
                 fileName={fileName}

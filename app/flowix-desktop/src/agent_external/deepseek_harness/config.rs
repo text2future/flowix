@@ -1,39 +1,5 @@
 use crate::config::{dsh_credential_ref_for_route, AiConfigFile, AiModelConfig};
 
-#[derive(Clone, Debug, Default, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct PersistedRuntimeConfig {
-    pub(crate) model: Option<PersistedModelConfig>,
-    pub(crate) access: Option<PersistedAccessConfig>,
-    pub(crate) deepseek_harness: Option<PersistedDeepSeekHarnessConfig>,
-    pub(crate) cwd: Option<String>,
-    pub(crate) workspace_snapshot: Option<PersistedWorkspaceSnapshot>,
-}
-
-#[derive(Clone, Debug, Default, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct PersistedModelConfig {
-    pub(crate) key: Option<String>,
-    pub(crate) provider_id: Option<String>,
-}
-#[derive(Clone, Debug, Default, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct PersistedAccessConfig {
-    pub(crate) sandbox: Option<String>,
-}
-#[derive(Clone, Debug, Default, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct PersistedDeepSeekHarnessConfig {
-    pub(crate) mode: Option<String>,
-}
-#[derive(Clone, Debug, Default, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct PersistedWorkspaceSnapshot {
-    pub(crate) cwd: Option<String>,
-    #[serde(default)]
-    pub(crate) workspace_paths: Vec<String>,
-}
-
 #[derive(Clone, PartialEq, Eq)]
 pub struct HarnessRuntimeConfig {
     pub(crate) provider: String,

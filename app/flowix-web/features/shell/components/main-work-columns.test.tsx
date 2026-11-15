@@ -71,7 +71,6 @@ function props(): MainWorkColumnsProps {
     handleNavigateBack: vi.fn(),
     handleNavigateForward: vi.fn(),
     handleToggleMemoList: vi.fn(),
-    handleCopyLink: vi.fn(),
     handleCopyFullText: vi.fn(),
     handleExportMarkdown: vi.fn(),
     handleSaveAsTemplate: vi.fn(),

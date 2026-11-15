@@ -5,7 +5,7 @@
 //! only guards notebook scope and paging bounds.
 
 use flowix_core::memo_file::PinnedEntryPage;
-use tauri::{Manager, State};
+use tauri::State;
 
 use crate::app::state::AppState;
 use crate::lock_utils::read_lock;

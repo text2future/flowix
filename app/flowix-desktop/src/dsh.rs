@@ -10,7 +10,7 @@ use futures::{
     future::{AbortHandle, Abortable},
     StreamExt,
 };
-use reqwest::{blocking::Client as BlockingClient, Client};
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -45,12 +45,11 @@ mod verify;
 
 use activation::activate_current;
 use archive::extract_archive;
-use cleanup::remove_runtime_root;
 use download::{normalized_sha256, partial_download_path, response_resumes};
 use environment::dsh_plugin_environment;
 pub use environment::managed_child_environment;
 use manifest::{
-    dsh_version_is_at_least, fetch_manifest, flowix_version_is_at_least, manifest_url,
+    dsh_version_is_at_least, fetch_manifest, flowix_version_is_at_least,
     validate_manifest_version, DshArtifact, DshManifest,
 };
 use publish::safe_bundle_path;
@@ -1901,11 +1900,11 @@ mod tests {
         )
         .unwrap();
 
-        super::remove_runtime_root(&root).unwrap();
+        super::cleanup::remove_runtime_root(&root).unwrap();
         assert!(!root.exists());
 
         // A second uninstall of an already-clean system is a no-op, not an error.
-        super::remove_runtime_root(&root).unwrap();
+        super::cleanup::remove_runtime_root(&root).unwrap();
     }
 
     #[test]
@@ -1914,7 +1913,7 @@ mod tests {
         std::fs::create_dir_all(root.join("versions")).unwrap();
         std::fs::write(root.join("current.json"), "not-json").unwrap();
 
-        super::remove_runtime_root(&root).unwrap();
+        super::cleanup::remove_runtime_root(&root).unwrap();
         assert!(!root.exists());
     }
 
@@ -1924,7 +1923,7 @@ mod tests {
         std::fs::create_dir_all(root.join("versions/1.0.0")).unwrap();
         std::fs::write(root.join("versions/1.0.0/dsh-host"), b"binary").unwrap();
 
-        super::remove_runtime_root(&root).unwrap();
+        super::cleanup::remove_runtime_root(&root).unwrap();
         assert!(!root.exists());
     }
 

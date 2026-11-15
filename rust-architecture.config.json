@@ -1,0 +1,71 @@
+{
+  "$comment": "Rust 侧架构策略。规则在这里，不在 scripts/check-rust-architecture.mjs 里。存量违规见 rust-architecture-baseline.json，只减不增。",
+  "crateDependencies": {
+    "flowix-core": {
+      "forbidden": [
+        "tauri",
+        "tauri-build",
+        "flowix-desktop",
+        "flowix-cli"
+      ],
+      "why": "core 是领域层，CLI 与 desktop 共用。一旦它认识 tauri，CLI 就再也无法只依赖 core，领域逻辑必然被复制一份到壳里。"
+    },
+    "flowix-plugin-runtime": {
+      "forbidden": [
+        "tauri",
+        "flowix-desktop",
+        "flowix-cli"
+      ],
+      "why": "插件运行时同样被 CLI 复用，必须与宿主窗口技术无关。"
+    },
+    "flowix-sync": {
+      "forbidden": [
+        "tauri",
+        "flowix-desktop",
+        "flowix-cli"
+      ],
+      "why": "同步协议是纯领域，将来云端/服务端也要跑同一份，不能绑窗口。"
+    },
+    "flowix-cli": {
+      "forbidden": [
+        "tauri",
+        "flowix-desktop"
+      ],
+      "why": "CLI 若反向依赖壳，说明它需要的逻辑长在了壳里 —— 那是要下沉的信号，不是要放行的信号。"
+    }
+  },
+  "forbiddenModuleEdges": [
+    {
+      "crate": "flowix-desktop",
+      "from": "watcher",
+      "to": "commands",
+      "why": "watcher 是「磁盘变更 → 领域对账」，方向应指向领域。2026-11-14 已清零：集合存储（catalog / 变更日志 / 引用重定位）下沉到 flowix_core::collection_store，外部文档监听从 commands 拆成独立 external_watch 子系统，路径事件载荷移入 events::path_change，云同步调度改为 watcher::sync_port 端口由 bootstrap 装配。存量基线为 0，本条已完全禁止，不允许再新增。"
+    },
+    {
+      "crate": "flowix-desktop",
+      "from": "agent_external",
+      "to": "commands",
+      "why": "agent_external 是进程管理与协议适配，不应认识 IPC 命令层。"
+    },
+    {
+      "crate": "flowix-desktop",
+      "from": "watcher",
+      "to": "app",
+      "why": "watcher 通过 AppHandle 伸手取全局状态。目标形态是注入 EventSink/领域句柄，而不是持有组合根。"
+    },
+    {
+      "crate": "flowix-desktop",
+      "from": "agent_external",
+      "to": "app",
+      "why": "同上：108 处 tauri::AppHandle 里只有 4 处真正 emit，其余是把它当 DI 容器。换成 trait 后 agent_external 即可独立成 crate。"
+    }
+  ],
+  "maxFileLines": 3000,
+  "gravity": {
+    "shell": "flowix-desktop",
+    "domain": "flowix-core",
+    "maxRatio": 3.4,
+    "why": "壳/域行数比是「重心倒置」的唯一可量化指标，按生产口径统计（剔测试文件）。maxRatio 是目标上限，脚本会再与 baseline.gravity（最近实测）取更严的一个，所以日常真正生效的是「比上次更差就失败」。持续下降等同于领域代码在向 core 迁移。",
+    "tolerance": 0.02
+  }
+}

@@ -166,8 +166,9 @@ describe('unified collection frame', () => {
     '%s uses the same header underlap and display controls', (kind) => {
       const value = surface(kind);
       expect(workspaceSurfaceUsesCollectionFrame(workspaceSurfaceRendererDataFromWorkSurface(value).kind)).toBe(true);
+      // 文件夹表面没有集合体：键就是目录本身（不再拼 `.index.yaml`）。
       expect(collectionIndexPath(value)).toBe(kind === 'folder-collection'
-        ? '/notebook/folder/.index.yaml'
+        ? '/notebook/folder'
         : 'fileIdentity' in value ? value.fileIdentity?.path ?? null : null);
     },
   );

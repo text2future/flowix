@@ -13,6 +13,7 @@ import {
 } from '@features/workspace/public/browser-column-api';
 import { WorkColumnTitlebar } from './work-column-titlebar';
 import { isWindowsPlatform } from '@/lib/path';
+import type { FileBrowserContext } from '@features/workspace/public/surface-api';
 import { BrowserColumnHeader } from './browser-column-header';
 import { EmptyWorkspaceActions } from './empty-workspace-actions';
 import { useWorkspaceHeaderCreation } from '../hooks/use-workspace-header-creation';
@@ -91,6 +92,8 @@ export const BrowserColumn = memo(function BrowserColumn({
         webRuntime,
       })
     : null, [current, webRuntime]);
+  const resolvedFileBrowserContext: FileBrowserContext | null = activeSurface?.kind === 'file-browser'
+    ? activeSurface : null;
   const activeSurfaceRuntime = useWorkspaceSurfacePresentation(activeSurface?.surfaceId ?? '');
   const activeSurfaceDefinition = activeSurface ? getBrowserColumnSurfaceDefinition(activeSurface) : null;
   const collectionPath = browserCollectionIndexPath(current);
@@ -136,6 +139,7 @@ export const BrowserColumn = memo(function BrowserColumn({
         runtimeTitle={activeSurfaceRuntime.title}
         runtimeIcon={activeSurfaceRuntime.icon}
         surfaceContentKind={activeSurfaceRuntime.contentKind ?? activeSurfaceDefinition?.contentKind}
+        resolvedFileBrowserContext={resolvedFileBrowserContext}
         headerBackgroundColor={activeSurfaceRuntime.headerBackgroundColor}
         surfaceCapabilities={activeSurfaceCapabilities}
         onToggleMemoEditorMode={handleToggleMemoEditorMode}

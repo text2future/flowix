@@ -47,6 +47,7 @@ export const NotebookFolderView = memo(function NotebookFolderView({
   onCreateNote,
   defaultCreateFolder,
   onSetDefaultCreateFolder,
+  onRepositoriesPageOpenChange,
   isActive = true,
   skipInitialLoading = false,
 }: {
@@ -56,6 +57,7 @@ export const NotebookFolderView = memo(function NotebookFolderView({
   onCreateNote: (parentPath?: string, title?: string) => Promise<void> | void;
   defaultCreateFolder?: string | null;
   onSetDefaultCreateFolder?: (folderPath: string) => void;
+  onRepositoriesPageOpenChange?: (open: boolean) => void;
   isActive?: boolean;
   skipInitialLoading?: boolean;
 }) {
@@ -300,6 +302,7 @@ export const NotebookFolderView = memo(function NotebookFolderView({
       contentClassName="flowix-list-content-enter"
       defaultCreateFolder={defaultCreateFolder}
       onSetDefaultCreateFolder={onSetDefaultCreateFolder}
+      onRepositoriesPageOpenChange={onRepositoriesPageOpenChange}
       createFolderRequest={createFolderRequest}
       onCreateFolder={onCreateFolder}
       onNoteSelect={(filePath) => { void openFile(filePath); }}

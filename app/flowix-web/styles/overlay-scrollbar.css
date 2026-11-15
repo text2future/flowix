@@ -1,3 +1,13 @@
+/* Scrollbar appearance is theme-derived and shared across popup implementations. */
+:root {
+  --scrollbar-thumb: color-mix(in oklch, var(--muted-foreground) 50%, transparent);
+  --scrollbar-thumb-hover: color-mix(in oklch, var(--muted-foreground) 80%, transparent);
+  --scrollbar-thumb-active: color-mix(in oklch, var(--muted-foreground) 80%, transparent);
+  --scrollbar-size: 6px;
+  --scrollbar-radius: 999px;
+  --scrollbar-fade-duration: 160ms;
+}
+
 /* 自定义滚动条 ── 同时服务两类元素:
  *   1. 全局 webkit 滚动条 (任何 overflow:auto 的元素, 比如 editor 主区)
  *   2. .overlay-scrollbar-* 系列: frame/scroller/track/thumb 组合, 由
@@ -6,10 +16,10 @@
  * macOS 主文档统一设置原生滚动条外观；OverlayScrollbar 默认使用
  * 自绘滑块及滚动显隐行为，可通过 customOnMac={false} 退出。 */
 
-/* 全局滚动条样式 — 颜色用 --muted-foreground 派生, 3 套主题下都保持可见 */
+/* Native fallback uses the same theme-derived tokens. */
 ::-webkit-scrollbar {
-	width: 6px;
-	height: 6px;
+	width: var(--scrollbar-size);
+	height: var(--scrollbar-size);
 }
 
 ::-webkit-scrollbar-track {
@@ -25,17 +35,17 @@
 }
 
 ::-webkit-scrollbar-thumb {
-	background: color-mix(in oklch, var(--muted-foreground) 25%, transparent);
-	border-radius: 3px;
+	background: var(--scrollbar-thumb);
+	border-radius: var(--scrollbar-radius);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-	background: color-mix(in oklch, var(--muted-foreground) 40%, transparent);
+	background: var(--scrollbar-thumb-hover);
 }
 
 * {
 	scrollbar-width: thin;
-	scrollbar-color: color-mix(in oklch, var(--muted-foreground) 30%, transparent) transparent;
+	scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
 /* macOS 主文档：让 WebKit 伪元素控制精确宽度和颜色。
@@ -47,52 +57,25 @@
 
 html[data-platform="mac"]::-webkit-scrollbar,
 html[data-platform="mac"] *::-webkit-scrollbar {
-	width: 6px;
-	height: 6px;
+	width: var(--scrollbar-size);
+	height: var(--scrollbar-size);
 }
 
 html[data-platform="mac"]::-webkit-scrollbar-thumb,
 html[data-platform="mac"] *::-webkit-scrollbar-thumb {
-	background: color-mix(in oklch, var(--muted-foreground) 78%, transparent);
-	border-radius: 999px;
+	background: var(--scrollbar-thumb);
+	border-radius: var(--scrollbar-radius);
 }
 
 html[data-platform="mac"]::-webkit-scrollbar-thumb:hover,
-html[data-platform="mac"] *::-webkit-scrollbar-thumb:hover,
+html[data-platform="mac"] *::-webkit-scrollbar-thumb:hover {
+	background: var(--scrollbar-thumb-hover);
+}
+
+::-webkit-scrollbar-thumb:active,
 html[data-platform="mac"]::-webkit-scrollbar-thumb:active,
 html[data-platform="mac"] *::-webkit-scrollbar-thumb:active {
-	background: var(--muted-foreground);
-}
-
-/* Select and composer popups keep their scrollbar track space, but only paint
- * the thumb while the list is actively scrolling. */
-[data-flowix-surface="select"]:not([data-scrolling="true"]),
-.agent-composer-slash-menu:not([data-scrolling="true"]) {
-	scrollbar-color: transparent transparent;
-}
-
-[data-flowix-surface="select"][data-scrolling="true"],
-.agent-composer-slash-menu[data-scrolling="true"] {
-	scrollbar-color: color-mix(in oklch, var(--muted-foreground) 30%, transparent) transparent;
-}
-
-[data-flowix-surface="select"]:not([data-scrolling="true"])::-webkit-scrollbar-thumb,
-.agent-composer-slash-menu:not([data-scrolling="true"])::-webkit-scrollbar-thumb {
-	background: transparent;
-}
-
-[data-flowix-surface="select"][data-scrolling="true"]::-webkit-scrollbar-thumb,
-.agent-composer-slash-menu[data-scrolling="true"]::-webkit-scrollbar-thumb {
-	background: color-mix(in oklch, var(--muted-foreground) 25%, transparent);
-}
-
-html[data-platform="mac"] [data-flowix-surface="select"][data-scrolling="true"]::-webkit-scrollbar-thumb,
-html[data-platform="mac"] .agent-composer-slash-menu[data-scrolling="true"]::-webkit-scrollbar-thumb {
-	background: color-mix(in oklch, var(--muted-foreground) 78%, transparent);
-}
-
-html[data-platform="mac"] .agent-composer-slash-menu:not([data-scrolling="true"])::-webkit-scrollbar-thumb {
-	background: transparent;
+  background: var(--scrollbar-thumb-active);
 }
 
 html[data-platform="non-mac"] .overlay-scrollbar,
@@ -134,9 +117,9 @@ html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac .overlay-scrollba
 	width: 9px;
 	height: var(--overlay-scrollbar-thumb-height, 24px);
 	border: 2px solid transparent;
-	border-radius: 999px;
+	border-radius: var(--scrollbar-radius);
 	background:
-		color-mix(in oklch, var(--muted-foreground) 34%, transparent)
+		var(--scrollbar-thumb)
 		content-box;
 	cursor: default;
 	opacity: 0;
@@ -150,10 +133,10 @@ html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac .overlay-scrollba
 /* macOS 自绘滚动条的滑块和拖动命中区域均为 6px，贴住右边缘。 */
 html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac .overlay-scrollbar-thumb--vertical {
 	box-sizing: border-box;
-	width: 6px;
+	width: var(--scrollbar-size);
 	border: 0;
 	background:
-		color-mix(in oklch, var(--muted-foreground) 78%, transparent)
+		var(--scrollbar-thumb)
 		content-box;
 	transition: opacity 220ms ease-in-out, background-color 160ms ease;
 }
@@ -172,17 +155,7 @@ html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac .overlay-scrollba
 }
 
 html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac .overlay-scrollbar-track--vertical {
-	width: 6px;
-}
-
-/* Keep the notebook selector's overlay thumb clear of the popup's rounded corners. */
-.flowix-notebook-selector-scrollbar > .overlay-scrollbar-track--vertical {
-	top: 8px !important;
-	bottom: 8px !important;
-}
-
-.flowix-notebook-selector-scrollbar > .overlay-scrollbar-thumb--vertical {
-	top: 8px !important;
+	width: var(--scrollbar-size);
 }
 
 /* Horizontal counterpart of the product scrollbar: matching capsule thumb,
@@ -199,7 +172,7 @@ html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac .overlay-scrollba
 }
 
 html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac .overlay-scrollbar-track--horizontal {
-	height: 6px;
+	height: var(--scrollbar-size);
 }
 
 html[data-platform="non-mac"] .overlay-scrollbar-frame[data-horizontal-scrollbar="true"] > .overlay-scrollbar-track--horizontal,
@@ -216,9 +189,9 @@ html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac .overlay-scrollba
 	width: var(--overlay-scrollbar-thumb-width, 24px);
 	height: 9px;
 	border: 2px solid transparent;
-	border-radius: 999px;
+	border-radius: var(--scrollbar-radius);
 	background:
-		color-mix(in oklch, var(--muted-foreground) 34%, transparent)
+		var(--scrollbar-thumb)
 		content-box;
 	cursor: default;
 	opacity: 0;
@@ -231,10 +204,10 @@ html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac .overlay-scrollba
 
 html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac .overlay-scrollbar-thumb--horizontal {
 	box-sizing: border-box;
-	height: 6px;
+	height: var(--scrollbar-size);
 	border: 0;
 	background:
-		color-mix(in oklch, var(--muted-foreground) 78%, transparent)
+		var(--scrollbar-thumb)
 		content-box;
 	transition: opacity 220ms ease-in-out, background-color 160ms ease;
 }
@@ -244,53 +217,39 @@ html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac .overlay-scrollba
 	display: none;
 }
 
-/* 滚动中或悬停滚动条区域时显示滑块。 */
-html[data-platform="non-mac"] .overlay-scrollbar-track--vertical:hover ~ .overlay-scrollbar-thumb--vertical,
-html[data-platform="non-mac"] .overlay-scrollbar-thumb--vertical:hover,
+/* Input state is shared across platforms; platform rules above only size the chrome. */
 html[data-platform="non-mac"] .overlay-scrollbar-frame[data-scrolling="true"] > .overlay-scrollbar-thumb--vertical,
-html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac[data-track-hover="true"] > .overlay-scrollbar-thumb--vertical,
 html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac[data-scrolling="true"] > .overlay-scrollbar-thumb--vertical {
-	opacity: 1;
+  opacity: 1;
 }
 
-html[data-platform="non-mac"] .overlay-scrollbar-frame[data-dragging="true"] > .overlay-scrollbar-thumb--vertical {
-	background:
-		color-mix(in oklch, var(--muted-foreground) 68%, transparent)
-		content-box;
-	cursor: default;
-	opacity: 1;
+html[data-platform="non-mac"] .overlay-scrollbar-frame[data-track-hover="true"] > .overlay-scrollbar-thumb--vertical,
+html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac[data-track-hover="true"] > .overlay-scrollbar-thumb--vertical {
+  opacity: 1;
+  background: var(--scrollbar-thumb-hover) content-box;
 }
 
-html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac[data-track-hover="true"] > .overlay-scrollbar-thumb--vertical,
+html[data-platform="non-mac"] .overlay-scrollbar-frame[data-dragging="true"] > .overlay-scrollbar-thumb--vertical,
 html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac[data-dragging="true"] > .overlay-scrollbar-thumb--vertical {
-	background:
-		var(--muted-foreground)
-		content-box;
-	opacity: 1;
+  opacity: 1;
+  background: var(--scrollbar-thumb-active) content-box;
 }
 
-html[data-platform="non-mac"] .overlay-scrollbar-track--horizontal:hover ~ .overlay-scrollbar-thumb--horizontal,
-html[data-platform="non-mac"] .overlay-scrollbar-thumb--horizontal:hover,
 html[data-platform="non-mac"] .overlay-scrollbar-frame[data-scrolling="true"] > .overlay-scrollbar-thumb--horizontal,
-html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac[data-horizontal-track-hover="true"] > .overlay-scrollbar-thumb--horizontal,
 html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac[data-scrolling="true"] > .overlay-scrollbar-thumb--horizontal {
-	opacity: 1;
+  opacity: 1;
 }
 
-html[data-platform="non-mac"] .overlay-scrollbar-frame[data-horizontal-dragging="true"] > .overlay-scrollbar-thumb--horizontal {
-	background:
-		color-mix(in oklch, var(--muted-foreground) 68%, transparent)
-		content-box;
-	cursor: default;
-	opacity: 1;
+html[data-platform="non-mac"] .overlay-scrollbar-frame[data-horizontal-track-hover="true"] > .overlay-scrollbar-thumb--horizontal,
+html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac[data-horizontal-track-hover="true"] > .overlay-scrollbar-thumb--horizontal {
+  opacity: 1;
+  background: var(--scrollbar-thumb-hover) content-box;
 }
 
-html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac[data-horizontal-track-hover="true"] > .overlay-scrollbar-thumb--horizontal,
+html[data-platform="non-mac"] .overlay-scrollbar-frame[data-horizontal-dragging="true"] > .overlay-scrollbar-thumb--horizontal,
 html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac[data-horizontal-dragging="true"] > .overlay-scrollbar-thumb--horizontal {
-	background:
-		var(--muted-foreground)
-		content-box;
-	opacity: 1;
+  opacity: 1;
+  background: var(--scrollbar-thumb-active) content-box;
 }
 
 /* 捕获指针拖动滑块时，鼠标经过可点击内容仍保持箭头光标。 */
@@ -298,8 +257,8 @@ html[data-platform="mac"]:has(.overlay-scrollbar-frame--custom-mac:is([data-drag
 	cursor: default !important;
 }
 
-html[data-platform="non-mac"] .overlay-scrollbar-frame[data-scrollable="false"] > .overlay-scrollbar-thumb--vertical,
-html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac[data-scrollable="false"] > .overlay-scrollbar-thumb--vertical {
+html[data-platform="non-mac"] .overlay-scrollbar-frame[data-scrollable="false"] > :is(.overlay-scrollbar-thumb--vertical, .overlay-scrollbar-track--vertical),
+html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac[data-scrollable="false"] > :is(.overlay-scrollbar-thumb--vertical, .overlay-scrollbar-track--vertical) {
 	opacity: 0;
 	pointer-events: none;
 }
@@ -327,4 +286,61 @@ html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac.collection-page-s
 html[data-platform="non-mac"] .collection-page-scroll-frame > .overlay-scrollbar-track--vertical,
 html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac.collection-page-scroll-frame > .overlay-scrollbar-track--vertical {
 	z-index: 39;
+}
+
+/* Popup viewports share the same geometry on every platform. The shell keeps
+ * its padding; only this viewport scrolls, without reserving native gutter space. */
+html[data-platform] .popup-scroll-area {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  --popup-scrollbar-inset: 8px;
+}
+
+html[data-platform] .popup-scroll-area--surface {
+  position: fixed;
+}
+
+/* Low specificity lets each menu retain its own smaller height limit. */
+:where(.popup-scroll-area--surface) {
+  max-height: calc(100dvh - 16px);
+}
+
+html[data-platform] .popup-scroll-area > .popup-scroll-area__viewport {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: auto;
+}
+
+html[data-platform] .popup-scroll-area > .overlay-scrollbar-track--vertical {
+  top: var(--popup-scrollbar-inset);
+  bottom: var(--popup-scrollbar-inset);
+  width: 10px;
+}
+
+html[data-platform] .popup-scroll-area > .overlay-scrollbar-thumb--vertical {
+  top: var(--popup-scrollbar-inset);
+  box-sizing: border-box;
+  width: var(--scrollbar-size);
+  border: 0;
+  background: var(--scrollbar-thumb);
+  transition: opacity var(--scrollbar-fade-duration) ease, background-color var(--scrollbar-fade-duration) ease;
+}
+
+/* DOM-owned popup shells keep fixed headers/footers outside the viewport. */
+.popup-scroll-shell {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.popup-scroll-shell > .popup-scroll-area {
+  flex: 1 1 auto;
+}
+html[data-platform] :is(.popup-scroll-area, .popup-scroll-shell)[hidden] {
+  display: none;
 }

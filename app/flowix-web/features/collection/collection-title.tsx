@@ -16,6 +16,7 @@ export function CollectionTitle({
   renameLabel,
   renameHint,
   edit,
+  showIcon = true,
 }: {
   kind: CollectionTitleKind;
   title: string;
@@ -23,11 +24,13 @@ export function CollectionTitle({
   renameLabel: string;
   renameHint: string;
   edit: CollectionNameEditControls;
+  /** Editor embedded collections omit the leading type icon to keep the title compact. */
+  showIcon?: boolean;
 }) {
   const content = kind === 'table' ? { kind: 'multidimensional-table' as const } : { kind: 'work-documents' as const };
 
   return <div className="multidimensional-table__view-title flex min-w-0 max-w-[40%] shrink-0 -translate-x-[2px] items-center gap-1.5" title={title}>
-    <ContentIcon content={content} className="h-5 w-5 shrink-0" />
+    {showIcon ? <ContentIcon content={content} className="h-5 w-5 shrink-0" /> : null}
     <EditableCollectionName
       title={title}
       size="tab"

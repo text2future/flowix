@@ -1,6 +1,6 @@
 'use client';
 
-import type { ReactNode, UIEventHandler } from 'react';
+import { useLayoutEffect, useRef, useState, type ReactNode, type UIEventHandler } from 'react';
 import { Loader2 } from 'lucide-react';
 
 import { useI18n } from '@/lib/i18n';
@@ -10,9 +10,11 @@ import { Button } from '@shared/ui/button';
 import { ListSurfaceLoadingState } from '@shared/ui/list-surface';
 import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
 import { MemoListRows, type MemoRowKeepAliveChange } from './memo-list-rows';
+import { MemoListIntroCard } from './memo-list-intro-card';
 
 interface MemoListViewportProps {
   active: boolean;
+  showIntro: boolean;
   items: readonly NoteListItem[];
   notebooksExist: boolean;
   scrollElement: HTMLDivElement | null;
@@ -60,6 +62,7 @@ function EmptyState({ hasNotebooks }: { hasNotebooks: boolean }) {
 /** Owns the memo tab's scroll surface and its loading, error, and empty states. */
 export function MemoListViewport({
   active,
+  showIntro,
   items,
   notebooksExist,
   scrollElement,
@@ -80,6 +83,18 @@ export function MemoListViewport({
   onRetryMore,
 }: MemoListViewportProps) {
   const { t } = useI18n();
+  const introRef = useRef<HTMLDivElement>(null);
+  const [rowsScrollMargin, setRowsScrollMargin] = useState(8);
+
+  useLayoutEffect(() => {
+    const intro = introRef.current;
+    const updateScrollMargin = () => setRowsScrollMargin(8 + (intro?.offsetHeight ?? 0));
+    updateScrollMargin();
+    if (!intro || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(updateScrollMargin);
+    observer.observe(intro);
+    return () => observer.disconnect();
+  }, [showIntro]);
 
   return (
     <>
@@ -90,6 +105,11 @@ export function MemoListViewport({
           scrollerRef={scrollerRef}
           onScroll={onScroll}
         >
+          {showIntro && (
+            <div ref={introRef}>
+              <MemoListIntroCard />
+            </div>
+          )}
           {error?.kind === 'initial' || (!hasData && indexFailed) ? (
             <div className="flex h-full min-h-0 w-full flex-col items-center justify-center gap-3 px-4 text-center" role="alert">
               <span className="text-sm text-[var(--muted-foreground)]">{t('memo.list.loadFailed')}</span>
@@ -104,6 +124,7 @@ export function MemoListViewport({
                 items={items}
                 scrollElement={scrollElement}
                 queryKey={queryKey}
+                scrollMargin={rowsScrollMargin}
                 revealKey={revealKey}
                 onRevealed={onRevealed}
                 renderRow={renderRow}

@@ -1,9 +1,8 @@
 use std::collections::HashMap;
-use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -11,23 +10,18 @@ use tokio::sync::oneshot;
 
 use super::config::{
     normalize_agent_preset, normalize_permission, resolve_runtime_config, select_harness_config,
-    HarnessRuntimeConfig,
 };
-use super::discovery::{cleanup_probe_host, create_probe_settings_file, timed_host_request};
-use super::error::{harness_probe_failure, resolved_session_id};
-use super::event_adapter::append_thinking_segments;
+use super::discovery::timed_host_request;
 use super::host_registry::{HostLaunchSpec, HostLease, HostRegistry, ProcessDshClientFactory};
-use super::protocol::{self, AdaptedEvent};
+use super::protocol;
 use super::run_coordinator::RunCoordinator;
 use super::run_projector::{Projection, RunEventProjector};
 use super::session_registry::SessionRegistry;
-use super::transport::DshClient;
 use super::AGENT_TYPE;
 use crate::agent_external::lifecycle::ExternalLifecycleEmitter;
 use crate::agent_external::{
     emit_chunk_with_run_id, emit_chunk_with_run_id_and_metadata,
-    persist_external_chunk_for_thread_with_metadata, AgentChunkMetadata, StreamingEmitBuffer,
-    STREAM_FLUSH_INTERVAL,
+    persist_external_chunk_for_thread_with_metadata, AgentChunkMetadata, STREAM_FLUSH_INTERVAL,
 };
 use crate::agent_session::{ChatMessage, ThreadManager, ThreadMessagesPage};
 use crate::agent_wire::{AgentChunk, AgentUserMessage, RunInfo};
@@ -35,7 +29,6 @@ use crate::config::{
     dsh_credential_ref_for_route, merge_harness_provider, AiConfigFile, AiModelConfig,
     DeepSeekHarnessProviderSettings, DeepSeekHarnessSettingsFile, UserConfigStore,
 };
-use crate::connection_probe::{TestConnectionErrorKind, TestConnectionResult};
 
 #[derive(Clone, Debug, Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -65,7 +58,6 @@ pub struct DeepSeekHarnessManager {
     command_session_locks: tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
 }
 
-pub(crate) const HARNESS_PROBE_TIMEOUT: Duration = Duration::from_secs(30);
 const SHARED_HOST_IDLE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
 fn command_display_parts(command: &str) -> (String, String) {
@@ -730,7 +722,7 @@ impl DeepSeekHarnessManager {
 
     async fn command_attachments(&self, message: &AgentUserMessage) -> Result<Vec<Value>, String> {
         let encoded =
-            crate::commands::agent::image_cache::encode_cached_agent_images(&message.image_paths)
+            crate::agent_image_cache::encode_cached_agent_images(&message.image_paths)
                 .await?;
         Ok(encoded
             .into_iter()
@@ -967,18 +959,6 @@ impl DeepSeekHarnessManager {
         emit_chunk_with_run_id_and_metadata(app, chunk, AGENT_TYPE, run_id, metadata);
     }
 
-    pub(crate) async fn ensure_host(
-        &self,
-        runtime_config: &HarnessRuntimeConfig,
-    ) -> Result<HostLease, String> {
-        let credential = runtime_config
-            .api_key
-            .as_deref()
-            .map(|secret| (runtime_config.api_key_env.as_str(), secret));
-        self.hosts
-            .ensure(&self.host_launch_spec(), credential)
-            .await
-    }
 
     pub(crate) async fn model_host(&self) -> Result<HostLease, String> {
         self.hosts.shared(&self.host_launch_spec()).await
@@ -1427,9 +1407,11 @@ struct DshSessionHistoryPage {
 
 #[cfg(test)]
 mod tests {
+    use super::super::event_adapter::append_thinking_segments;
     use super::super::protocol::ThinkingSegment;
     use super::*;
-    use crate::config::{AiConfigFile, AiModelEntry};
+    use crate::agent_external::StreamingEmitBuffer;
+    use crate::config::AiConfigFile;
 
     #[tokio::test]
     async fn cold_command_session_lock_is_single_flight_per_thread() {
@@ -1519,37 +1501,6 @@ mod tests {
         assert_eq!(normalize_agent_preset(Some("minimal")), "minimal");
         assert_eq!(normalize_agent_preset(Some("cordis")), "cordis");
         assert_eq!(normalize_agent_preset(Some("unknown")), "standard");
-    }
-
-    #[test]
-    fn probe_settings_include_a_new_active_model_without_persisting_a_key() {
-        let config = AiModelConfig {
-            provider: "acme-gateway".to_string(),
-            provider_id: "acme-gateway".to_string(),
-            display_name: "Acme Gateway".to_string(),
-            api_protocol: "openai-completions".to_string(),
-            model: "model-b".to_string(),
-            models: vec![AiModelEntry {
-                id: "model-a".to_string(),
-                name: "Model A".to_string(),
-            }],
-            api_url: "https://gateway.example/v1".to_string(),
-            api_keys: std::collections::HashMap::from([(
-                "acme-gateway".to_string(),
-                "secret".to_string(),
-            )]),
-            ..AiModelConfig::default()
-        };
-
-        let path = create_probe_settings_file(&config).unwrap();
-        let settings = std::fs::read_to_string(&path).unwrap();
-        let _ = std::fs::remove_file(path);
-        assert!(settings.contains("id: model-a"), "got: {settings}");
-        assert!(settings.contains("id: model-b"), "got: {settings}");
-        assert!(
-            !settings.contains("secret"),
-            "probe settings leaked the API key"
-        );
     }
 
     #[test]

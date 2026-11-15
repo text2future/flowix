@@ -3,7 +3,7 @@ import type { MemoItem } from '@/types/memo-item';
 
 export interface MainWindowMemoEventActions {
   getSelectedNotebookId: () => string | null;
-  invalidateMentionCaches: () => void;
+  invalidateMentionCaches: (notebookId: string) => void;
   notifyCreatedNote: (notebookId: string, relativePath: string) => Promise<void>;
   reportNotificationFailure: (error: unknown) => void;
   handleMemoCreated: (memo: MemoItem) => void;
@@ -42,17 +42,17 @@ export function handleMainWindowMemoEvent(
   // / loadData。 notebookId 失配也照样 patch (背景 notebook 的 memos 也
   // 得跟着重写, 否则用户切回时看到 stale tag token)。
   if (event.kind === 'tags_renamed') {
-    actions.invalidateMentionCaches();
+    actions.invalidateMentionCaches(event.notebookId);
     actions.handleTagsRenamed(event);
     return;
   }
   if (event.kind === 'tags_deleted') {
-    actions.invalidateMentionCaches();
+    actions.invalidateMentionCaches(event.notebookId);
     actions.handleTagsDeleted(event);
     return;
   }
 
-  actions.invalidateMentionCaches();
+  actions.invalidateMentionCaches(event.notebookId);
 
   // BrowserColumn tabs are independent of the currently selected notebook.
   // Keep their identity/path projection in sync even for background notebook

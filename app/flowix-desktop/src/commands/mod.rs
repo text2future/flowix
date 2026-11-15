@@ -18,6 +18,7 @@ pub mod external_document;
 pub mod external_document_watch;
 pub mod file;
 pub mod file_browser_watch;
+pub mod folder;
 pub mod font;
 pub mod helpers;
 pub mod kv;
@@ -26,7 +27,6 @@ pub mod market_package;
 pub mod memo;
 pub mod notebook;
 pub mod notebook_template;
-pub mod path_change;
 pub mod pinned;
 pub mod plugin;
 pub mod product;
@@ -39,4 +39,6 @@ pub mod web;
 pub mod window;
 pub mod window_health;
 pub mod window_input;
-pub mod window_shutdown;
+// 窗口生命周期不是 IPC 命令层：整体位于 `crate::window_shutdown`，
+// 这里重新导出以保持命令注册路径不变。
+pub(crate) use crate::window_shutdown;

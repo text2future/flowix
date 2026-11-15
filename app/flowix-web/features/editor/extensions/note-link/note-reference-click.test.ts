@@ -1,15 +1,31 @@
 import { Editor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const navigationMocks = vi.hoisted(() => ({
   openNoteByNotebookPath: vi.fn(async () => undefined),
   openNoteByPhysicalPath: vi.fn(async () => undefined),
 }));
 
+vi.mock('@platform/tauri/client', async importOriginal => {
+  const actual = await importOriginal<typeof import('@platform/tauri/client')>();
+  return { ...actual, files: { ...actual.files, resolveLocation: vi.fn(async (path: string) => ({
+    path, isDirectory: false, notebookId: null, notebookPath: null,
+  })) } };
+});
 vi.mock('@features/memo/public/note-navigation-api', () => navigationMocks);
 
-import { NoteReference, createNoteReferenceExtension } from './view-note';
+import { toast } from '@/lib/toast';
+import { createNoteReferenceExtension } from './view-note';
+
+const notebooks = [
+  { id: 'work', name: 'Work', path: '/work' },
+  { id: 'owner-book', name: 'Owner', path: '/owner' },
+];
+const NoteReference = createNoteReferenceExtension('document', {
+  getReferenceContext: () => ({ documentPath: '/work/source.md', notebooks }),
+});
+beforeEach(() => vi.clearAllMocks());
 
 function createEditorWithReference(): Editor {
   const editor = new Editor({
@@ -38,6 +54,7 @@ function createEditorWithRelativeReference(ownerNotebookId: string | null): Edit
   const editor = new Editor({
     extensions: [StarterKit, createNoteReferenceExtension('document', {
       getOwnerNotebookId: () => ownerNotebookId,
+      getReferenceContext: () => ({ documentPath: '/owner/source.md', notebookId: ownerNotebookId ?? undefined, notebooks }),
     })],
     content: '<p></p>',
   });
@@ -72,11 +89,7 @@ describe('note reference interaction in the document body', () => {
     cardOf(editor).dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(navigationMocks.openNoteByNotebookPath).toHaveBeenCalledWith(
-      'work',
-      'Projects/Plan.md',
-      null,
-    );
+    expect(navigationMocks.openNoteByPhysicalPath).toHaveBeenCalledWith('/work/Projects/Plan.md', null);
     editor.destroy();
   });
 
@@ -92,7 +105,7 @@ describe('note reference interaction in the document body', () => {
     card.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(navigationMocks.openNoteByNotebookPath).toHaveBeenCalledTimes(1);
+    expect(navigationMocks.openNoteByPhysicalPath).toHaveBeenCalledTimes(1);
     editor.destroy();
   });
 
@@ -117,15 +130,11 @@ describe('note reference interaction in the document body', () => {
     cardOf(editor).dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(navigationMocks.openNoteByNotebookPath).toHaveBeenCalledWith(
-      'owner-book',
-      'Projects/Plan.md',
-      null,
-    );
+    expect(navigationMocks.openNoteByPhysicalPath).toHaveBeenCalledWith('/owner/Projects/Plan.md', null);
     editor.destroy();
   });
 
-  it('falls back to the deep-link opener when no notebook owns the document', async () => {
+  it('marks a legacy reference without an owning notebook as stale', async () => {
     navigationMocks.openNoteByNotebookPath.mockClear();
     navigationMocks.openNoteByPhysicalPath.mockClear();
     const editor = createEditorWithRelativeReference(null);
@@ -133,10 +142,34 @@ describe('note reference interaction in the document body', () => {
     cardOf(editor).dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    // No owner to resolve `f` against: the opener rejects with a clear error,
-    // which the card surfaces as a stale reference.
+    // An unresolved notebook-relative target stays stale and never opens another note.
     expect(navigationMocks.openNoteByNotebookPath).not.toHaveBeenCalled();
-    expect(navigationMocks.openNoteByPhysicalPath).toHaveBeenCalledWith('flowix://open?f=Projects%2FPlan.md');
+    expect(navigationMocks.openNoteByPhysicalPath).not.toHaveBeenCalled();
+    expect(cardOf(editor).getAttribute('data-stale')).toBe('true');
     editor.destroy();
   });
+});
+
+it('notifies on a Wiki self-reference without reopening the document', async () => {
+  const notice = vi.spyOn(toast, 'info').mockReturnValue(1);
+  const editor = createEditorWithReference();
+  try {
+    editor.commands.setContent('<p><note path="/work/source.md">source</note></p>');
+    cardOf(editor).click();
+    await vi.waitFor(() => expect(notice).toHaveBeenCalledOnce());
+    expect(navigationMocks.openNoteByPhysicalPath).not.toHaveBeenCalled();
+  } finally { editor.destroy(); notice.mockRestore(); }
+});
+
+it('routes Wiki clicks through the same document host callback as Markdown links', async () => {
+  const openLocalPath = vi.fn(async () => {});
+  const editor = new Editor({ extensions: [StarterKit, createNoteReferenceExtension('document', {
+    getReferenceContext: () => ({ documentPath: '/work/source.md', notebooks }),
+    getLinkContext: () => ({ documentPath: '/work/source.md', openLocalPath }),
+  })], content: '<p><note path="/work/target.md">target</note></p>' });
+  try {
+    cardOf(editor).click();
+    await vi.waitFor(() => expect(openLocalPath).toHaveBeenCalledWith({ path: '/work/target.md', anchor: null }));
+    expect(navigationMocks.openNoteByPhysicalPath).not.toHaveBeenCalled();
+  } finally { editor.destroy(); }
 });

@@ -9,6 +9,7 @@ interface MemoListRowsProps {
   items: readonly NoteListItem[];
   scrollElement: HTMLDivElement | null;
   queryKey: string;
+  scrollMargin?: number;
   revealKey?: string | null;
   onRevealed?: () => void;
   renderRow: (item: NoteListItem, onKeepAliveChange: MemoRowKeepAliveChange) => ReactNode;
@@ -19,7 +20,16 @@ const estimateRowSize = () => ESTIMATED_ROW_HEIGHT;
 const INITIAL_ROW_COUNT = 16;
 
 /** Paging owns data; this component owns only row geometry and mounted rows. */
-export function MemoListRows({ enabled, items, scrollElement, queryKey, revealKey, onRevealed, renderRow }: MemoListRowsProps) {
+export function MemoListRows({
+  enabled,
+  items,
+  scrollElement,
+  queryKey,
+  scrollMargin = 8,
+  revealKey,
+  onRevealed,
+  renderRow,
+}: MemoListRowsProps) {
   const scrollerRef = useMemo(() => ({ current: scrollElement }), [scrollElement]);
   const [keptAliveKeys, setKeptAliveKeys] = useState<readonly string[]>([]);
   const lastContentHeightRef = useRef(0);
@@ -40,7 +50,7 @@ export function MemoListRows({ enabled, items, scrollElement, queryKey, revealKe
     enabled: rowsEnabled,
     keepAliveKeys: keptAliveKeys,
     preserveScrollAnchor: true,
-    scrollMargin: 8, // The scroller's py-2 precedes this list.
+    scrollMargin,
   });
   useLayoutEffect(() => {
     if (!revealKey || !isVirtualizationReady || !scrollElement?.clientHeight) return;

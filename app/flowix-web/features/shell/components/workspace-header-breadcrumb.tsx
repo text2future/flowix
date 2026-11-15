@@ -10,6 +10,7 @@ import { useI18n } from '@/lib/i18n';
 export interface WorkspaceHeaderBreadcrumbItem {
   label: string;
   type?: 'folder' | 'file';
+  isRepository?: boolean;
   /** 段对应的文件系统路径；文件夹段靠它打开文件树弹层。 */
   path?: string;
 }
@@ -100,7 +101,7 @@ function CollapsedMarker({
 export function WorkspaceHeaderBreadcrumb({ items, onOpenFile }: {
   items: WorkspaceHeaderBreadcrumbItem[];
   /** Caller owns the opening (column-local); omitted = display-only breadcrumb. */
-  onOpenFile?: (filePath: string, scopePath: string) => void;
+  onOpenFile?: (filePath: string, rootPath: string) => void;
 }) {
   const { t } = useI18n();
   const { containerRef, itemRefs, hiddenStart } = useBreadcrumbCollapse<HTMLSpanElement>({
@@ -116,16 +117,16 @@ export function WorkspaceHeaderBreadcrumb({ items, onOpenFile }: {
       ...items.slice(hiddenStart).map((item, offset) => ({ item, index: hiddenStart + offset })),
     ];
   const collapsedItems = hiddenStart === null ? [] : items.slice(1, hiddenStart);
-  /** Opening a file from a folder popover scopes it to the breadcrumb root. */
-  const scopePath = items[0]?.path ?? null;
+  /** The breadcrumb root positions the file tree; the caller preserves access scope separately. */
+  const rootPath = items[0]?.path ?? null;
   const activeFilePath = items.reduce<string | null>(
     (current, item) => (item.type === 'file' && item.path ? item.path : current), null);
   /** Column-local opener, or `null` when nothing owns the destination. */
-  const openFromPopover = onOpenFile && scopePath
-    ? (filePath: string) => onOpenFile(filePath, scopePath)
+  const openFromPopover = onOpenFile && rootPath
+    ? (filePath: string) => onOpenFile(filePath, rootPath)
     : null;
   const collapsedFolders: DocumentBreadcrumbCollapsedItem[] = collapsedItems.flatMap((item) => (item.path
-    ? [{ label: item.label, path: item.path }]
+    ? [{ label: item.label, path: item.path, isRepository: item.isRepository }]
     : []));
   const collapsedTitle = collapsedItems.map((collapsed) => collapsed.label).join(' / ');
 
@@ -142,6 +143,7 @@ export function WorkspaceHeaderBreadcrumb({ items, onOpenFile }: {
                 <DocumentBreadcrumbFolderPopover
                   folderPath={item.path}
                   folderName={item.label}
+                  isRepository={item.isRepository}
                   activeFilePath={activeFilePath}
                   onFileSelect={openFromPopover}
                 >

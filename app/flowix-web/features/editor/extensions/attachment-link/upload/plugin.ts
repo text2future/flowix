@@ -1,3 +1,4 @@
+import type { AttachmentUploadOptions, AttachmentUploadRequest } from './file-source';
 import { Plugin } from '@tiptap/pm/state';
 import type { EditorView } from '@tiptap/pm/view';
 import { createAttachmentUpload } from '@features/editor/extensions/attachment-link/upload/storage';
@@ -9,29 +10,23 @@ export { fileUploadPluginKey } from './pending';
 export async function handleFileUpload(
     view: EditorView,
     files: File[],
-    position?: number,
-    replaceRange?: { from: number; to: number },
-    ownerPath?: string,
+    options: AttachmentUploadRequest & { position?: number; replaceRange?: { from: number; to: number } } = {},
 ) {
     try {
         const filteredFiles = filterIncomingFiles(files);
         if (filteredFiles.length === 0) return;
 
         await runTrackedUpload(view, async (signal) =>
-            (await createAttachmentUpload(filteredFiles, undefined, undefined, ownerPath, signal, true)).assets,
-        position, replaceRange);
+            (await createAttachmentUpload(filteredFiles, { ...options, signal })).assets,
+            options.position, options.replaceRange);
     } catch (err) {
         console.error('[FileUpload] Upload failed:', err);
     }
 }
 
-export function createFileUploadPlugin(options: {
-    ownerPath?: string;
-    getOwnerPath?: () => string | undefined;
-    ingest: { drop: boolean; paste: boolean; allowedMimeTypes?: string[] };
-}) {
+export function createFileUploadPlugin(options: Pick<AttachmentUploadOptions, 'ownerPath' | 'getContext'> & { ingest: Pick<AttachmentUploadOptions['ingest'], 'drop' | 'paste' | 'allowedMimeTypes'> }) {
     const { ingest } = options;
-    const getOwnerPath = () => options.getOwnerPath ? options.getOwnerPath() : options.ownerPath;
+    const getContext = () => options.getContext?.() ?? { ownerPath: options.ownerPath, documentPath: options.ownerPath };
 
     return new Plugin({
         key: fileUploadPluginKey,
@@ -50,7 +45,7 @@ export function createFileUploadPlugin(options: {
                 event.stopPropagation();
                 const coords = { left: event.clientX, top: event.clientY };
                 const pos = view.posAtCoords(coords)?.pos;
-                handleFileUpload(view, filteredFiles, pos, undefined, getOwnerPath());
+                void handleFileUpload(view, filteredFiles, { ...getContext(), position: pos });
                 return true;
             },
             handlePaste(view, event) {
@@ -66,7 +61,7 @@ export function createFileUploadPlugin(options: {
                 event.preventDefault();
                 event.stopPropagation();
                 const pos = view.state.selection.from;
-                handleFileUpload(view, files, pos, undefined, getOwnerPath());
+                void handleFileUpload(view, files, { ...getContext(), position: pos });
                 return true;
             },
         },

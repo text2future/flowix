@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use flowix_core::memo_file::{
     resource_kind_for_path, FileManagementPolicy, notebook_relative_path, MemoFile,
 };
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
 
 use crate::watcher::event::{FsEventKind, RawFsEvent};
 
@@ -123,30 +123,30 @@ fn record_cloud_path_change_with_content(
     deleted: bool,
     content: Option<&str>,
 ) {
-    if !relative_path.is_empty() {
-        if let Some(state) = app.try_state::<crate::app::state::AppState>() {
-            let cloud_id = flowix_sync::v2_path_note_id(&ctx.notebook_id, relative_path);
-            let fingerprint = if deleted {
-                "deleted".to_string()
-            } else if let Some(content) = content {
-                flowix_sync::v2_content_hash(content.as_bytes())
-            } else {
-                std::fs::read(ctx.root.join(relative_path))
-                    .map(|bytes| flowix_sync::v2_content_hash(&bytes))
-                    .unwrap_or_else(|_| "unobserved".to_string())
-            };
-            match state.cloud_sync.record_v2_local_change(
-                &ctx.notebook_id,
-                &cloud_id,
-                if deleted { flowix_sync::LocalChangeKind::Delete } else { flowix_sync::LocalChangeKind::Put },
-                &fingerprint,
-            ) {
-                Ok(changed) => crate::commands::cloud::schedule_notebook_sync_observation(
-                    app.clone(), ctx.notebook_id.clone(), changed,
-                ),
-                Err(error) => tracing::warn!("failed to record cloud path change: {error}"),
-            }
-        }
+    if relative_path.is_empty() {
+        return;
+    }
+    let cloud_id = flowix_sync::v2_path_note_id(&ctx.notebook_id, relative_path);
+    // 指纹留在 watcher 里算：它需要读盘，而读盘是这一层的本职。端口只收结果，
+    // 不再回头问 watcher「这个文件现在什么内容」。
+    let fingerprint = if deleted {
+        "deleted".to_string()
+    } else if let Some(content) = content {
+        flowix_sync::v2_content_hash(content.as_bytes())
+    } else {
+        std::fs::read(ctx.root.join(relative_path))
+            .map(|bytes| flowix_sync::v2_content_hash(&bytes))
+            .unwrap_or_else(|_| "unobserved".to_string())
+    };
+    let kind = if deleted {
+        flowix_sync::LocalChangeKind::Delete
+    } else {
+        flowix_sync::LocalChangeKind::Put
+    };
+    match super::host_port::record_local_change(app, &ctx.notebook_id, &cloud_id, kind, &fingerprint)
+    {
+        Ok(changed) => super::host_port::schedule_cloud_sync(app, &ctx.notebook_id, changed),
+        Err(error) => tracing::warn!("failed to record cloud path change: {error}"),
     }
 }
 
@@ -156,10 +156,9 @@ fn record_confirmed_cloud_move(
     from_path: &str,
     to_path: &str,
 ) -> bool {
-    let Some(state) = app.try_state::<crate::app::state::AppState>() else { return false };
-    match state.cloud_sync.record_v2_local_move(notebook_id, from_path, to_path) {
+    match super::host_port::record_local_move(app, notebook_id, from_path, to_path) {
         Ok(true) => {
-            crate::commands::cloud::schedule_notebook_sync(app.clone(), notebook_id.to_string());
+            super::host_port::schedule_cloud_sync(app, notebook_id, true);
             true
         }
         Ok(false) => false,
@@ -281,7 +280,7 @@ impl PathNoteEventProcessor {
         stable_content: Option<&str>,
     ) {
         if let Some(previous) = &event.rename_from {
-            crate::commands::external_document_watch::rebase_path(app, previous, &event.path);
+            crate::external_watch::rebase_path(app, previous, &event.path);
         }
 
         let old_bundle = event.rename_from.as_ref().and_then(|path| {
@@ -362,15 +361,43 @@ impl PathNoteEventProcessor {
             }
             }
             if let Ok(memo) = memo_file.read() {
-                if let Some(old) = event.rename_from.as_ref() { crate::commands::collection::refresh_path(&memo, old); }
-                crate::commands::collection::refresh_path(&memo, &event.path);
+                if let Some(old) = event.rename_from.as_ref() { flowix_core::collection_store::refresh_path(&memo, old); }
+                flowix_core::collection_store::refresh_path(&memo, &event.path);
+                // The collection watcher branch intentionally skips ordinary note
+                // indexing. Still broadcast the updated collection identity so
+                // open table/list surfaces can adopt an external CLI/MCP write.
+                if event.path.is_file() {
+                    if let Ok(source) = std::fs::read_to_string(&event.path) {
+                        if let Ok(document) = flowix_core::collection::CollectionDocument::parse(&source) {
+                            if let Ok(item) = flowix_core::collection_store::with_catalog(
+                                &memo,
+                                &ctx.notebook_id,
+                                |catalog| catalog.resolve(&document.collection.id),
+                            ) {
+                                let relative = item.relative_path.clone();
+                                let _ = app.emit("collection-changed", serde_json::json!({
+                                    "notebookId": ctx.notebook_id,
+                                    "collectionId": document.collection.id,
+                                    "operationId": format!("watcher-{}", item.index_sequence),
+                                    "indexSequence": item.index_sequence,
+                                    "relativePath": relative,
+                                    "previousRelativePath": relative,
+                                    "notebookPath": ctx.root,
+                                    "name": item.name,
+                                    "revision": document.collection.revision,
+                                    "directoryMove": null,
+                                }));
+                            }
+                        }
+                    }
+                }
             }
             return;
         }
         if process_indexed_resource_event(event, memo_file, ctx) {
             if let Some(old_path) = event.rename_from.as_ref() {
                 if let Ok(memo_file) = memo_file.read() {
-                    crate::commands::document_list::rebase_collection_paths_for_move(
+                    flowix_core::collection_store::rebase_collection_paths_for_move(
                         &memo_file,
                         old_path,
                         &event.path,
@@ -417,16 +444,16 @@ impl PathNoteEventProcessor {
             event.rename_from_root.as_ref(),
         ) {
             if let Ok(memo_file) = memo_file.read() {
-                crate::commands::document_list::refresh_view_document_path(&memo_file, old_path);
-                crate::commands::document_list::refresh_view_document_path(&memo_file, &event.path);
+                flowix_core::collection_store::refresh_path(&memo_file, old_path);
+                flowix_core::collection_store::refresh_path(&memo_file, &event.path);
             }
             let old_ctx = NotebookWatchContext { notebook_id: old_notebook_id.clone(), root: old_root.clone() };
             if let (Ok(old_relative), Ok(new_relative)) = (
                 notebook_relative_path(&old_ctx.root, old_path),
                 notebook_relative_path(&ctx.root, &event.path),
             ) {
-                let state = app.state::<crate::app::state::AppState>();
-                if let Err(error) = state.thread_manager.rebase_agent_note_paths(
+                if let Err(error) = super::host_port::rebase_agent_paths(
+                    app,
                     old_notebook_id,
                     &ctx.notebook_id,
                     &old_relative,
@@ -443,24 +470,21 @@ impl PathNoteEventProcessor {
         let Ok(_write_guard) = memo_file.operation_locks().notebook_read(&ctx.notebook_id, "watcher_note_refresh") else { return; };
 
         if let Some(old_path) = &event.rename_from {
-            crate::commands::document_list::refresh_view_document_path(&memo_file, old_path);
-            crate::commands::document_list::refresh_view_document_path(&memo_file, &event.path);
+            flowix_core::collection_store::refresh_path(&memo_file, old_path);
+            flowix_core::collection_store::refresh_path(&memo_file, &event.path);
             let rebase = notebook_relative_path(&ctx.root, old_path).ok()
                 .zip(notebook_relative_path(&ctx.root, &event.path).ok());
             let cloud_move = rebase.as_ref().is_some_and(|(old, new)|
                 record_confirmed_cloud_move(app, &ctx.notebook_id, old, new));
             if event.path.is_dir() && rebase.as_ref().is_some_and(|(old, new)|
-                crate::commands::collection::consume_local_folder_move(&ctx.notebook_id, old, new)) {
+                flowix_core::collection_store::consume_local_folder_move(&ctx.notebook_id, old, new)) {
                 // The collection operation already updated all derived indexes and
                 // references before publishing its completion event.
                 return;
             }
-            app.state::<crate::app::state::AppState>().notebook_background
-                .request(&ctx.notebook_id, true, true);
+            super::host_port::request_background(app, &ctx.notebook_id, true, true);
             if event.path.is_dir() {
-                let _ = app.state::<crate::app::state::AppState>()
-                    .notebook_background
-                    .request_media(&ctx.notebook_id);
+                super::host_port::request_media(app, &ctx.notebook_id);
             }
             drop(_write_guard);
             let old_path_is_markdown = is_markdown_path(old_path);
@@ -470,12 +494,29 @@ impl PathNoteEventProcessor {
                     notebook_relative_path(&ctx.root, old_path),
                     notebook_relative_path(&ctx.root, &event.path),
                 ) {
-                    crate::commands::document_list::rebase_collection_paths(
+                    flowix_core::collection_store::rebase_collection_paths(
                         &memo_file,
                         &ctx.notebook_id,
                         &old_relative,
                         &new_relative,
                     );
+                    // 文件夹外观没有 id 可兜底，路径就是身份：外部（访达 / 终端）
+                    // 改名或移动目录时，这里必须和集合引用一起搬，否则图标与头图
+                    // 会永久留在旧路径上。
+                    if event.path.is_dir() {
+                        if let Err(error) = memo_file.rebase_folder_index(
+                            &ctx.notebook_id,
+                            &old_relative,
+                            &new_relative,
+                        ) {
+                            tracing::warn!(
+                                notebook_id = %ctx.notebook_id,
+                                %old_relative,
+                                %new_relative,
+                                "folder appearance rebase after external move failed: {error}"
+                            );
+                        }
+                    }
                 }
             }
             if let Some((old_relative, new_relative)) = rebase.as_ref() {
@@ -503,8 +544,8 @@ impl PathNoteEventProcessor {
             }
             drop(memo_file);
             if let Some((old_relative, new_relative)) = rebase {
-                let state = app.state::<crate::app::state::AppState>();
-                if let Err(error) = state.thread_manager.rebase_agent_note_paths(
+                if let Err(error) = super::host_port::rebase_agent_paths(
+                    app,
                     &ctx.notebook_id,
                     &ctx.notebook_id,
                     &old_relative,
@@ -520,7 +561,7 @@ impl PathNoteEventProcessor {
 
         match event.kind {
             FsEventKind::Create | FsEventKind::Modify | FsEventKind::Remove => {
-                crate::commands::document_list::refresh_view_document_path(&memo_file, &event.path);
+                flowix_core::collection_store::refresh_path(&memo_file, &event.path);
 match refresh_path_with_content(
                     &memo_file,
                     ctx,
@@ -531,7 +572,7 @@ match refresh_path_with_content(
                     Ok(DispatchOutcome::PathIndexed { relative_path, change }) => {
                         tracing::debug!(path = %event.path.display(), native_kind = ?event.kind, ?change, "reconciled notebook path");
                         if change == PathChangeKind::Created {
-                            crate::commands::path_change::NotebookPathCreated::from_external_tool(
+                            crate::events::path_change::NotebookPathCreated::from_external_tool(
                                 ctx.notebook_id.clone(), relative_path.clone(),
                             ).emit(app);
                             record_cloud_path_change_with_content(app, ctx, &relative_path, false, stable_content);
@@ -573,14 +614,11 @@ match refresh_path_with_content(
         absorbed: u32,
     ) {
         let started = Instant::now();
-        crate::commands::document_list::refresh_view_document_catalog(memo_file, &ctx.notebook_id, &ctx.root);
+        flowix_core::collection_store::refresh_catalog_best_effort(memo_file, &ctx.notebook_id);
         let catalog = started.elapsed();
-        app.state::<crate::app::state::AppState>().notebook_background
-            .request(&ctx.notebook_id, false, true);
+        super::host_port::request_background(app, &ctx.notebook_id, false, true);
         let index_request = started.elapsed().saturating_sub(catalog);
-        let _ = app.state::<crate::app::state::AppState>()
-            .notebook_background
-            .request_media(&ctx.notebook_id);
+        super::host_port::request_media(app, &ctx.notebook_id);
         let media_request = started.elapsed().saturating_sub(catalog + index_request);
         emit_path_changed(app, ctx, "", false);
         let total = started.elapsed();
@@ -618,7 +656,7 @@ match refresh_path_with_content(
         }
         let Ok(memo_file) = memo_file.read() else { return; };
         let Ok(_write_guard) = memo_file.operation_locks().notebook_read(&ctx.notebook_id, "watcher_path_refresh") else { return; };
-        crate::commands::document_list::refresh_view_document_path(&memo_file, path);
+        flowix_core::collection_store::refresh_path(&memo_file, path);
         if let Ok(DispatchOutcome::PathIndexed { relative_path, change }) = refresh_path(&memo_file, ctx, path, None) {
             emit_path_changed(app, ctx, &relative_path, change == PathChangeKind::Deleted);
         }

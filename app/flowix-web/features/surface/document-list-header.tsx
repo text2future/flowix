@@ -4,8 +4,8 @@
  * 集合列表的标题行 / 操作区。三种形态分开写，但「统计 + 筛选 + 添加」这一组结构一致，
  * 只有文案与是否可写不同。
  *
- * 嵌入集合外壳时（传入 `actionsHost`）只把右侧操作区 portal 进外壳 nav 的操作槽——
- * tab 之下不允许再有第二行标题，集合名由外壳统一给。
+ * 嵌入带操作槽的外层标题栏时（传入 `actionsHost`）只把右侧操作区 portal 到宿主，
+ * 本组件不再渲染标题行与操作行；标题由外层负责。
  */
 import { CollectionActionsPortal, type CollectionActionsHost } from '@shared/ui/collection-actions';
 import { Folder, LoaderCircle } from 'lucide-react';
@@ -51,7 +51,7 @@ export interface DocumentListHeaderProps {
     onCreateNote?: () => void;
     canCreateNote: boolean;
   };
-  /** 嵌入集合外壳：只把右侧操作区 portal 进 nav 的操作槽，不再渲染第二行。 */
+  /** 嵌入外层标题栏：只把右侧操作区 portal 到宿主，不再渲染本地标题行。 */
   actionsHost?: CollectionActionsHost;
   headerRef: RefObject<HTMLDivElement | null>;
 }
@@ -197,7 +197,7 @@ export function DocumentListHeader({
     <Button type="button" className="px-3" onClick={actions.onCreateNote} disabled={!actions.canCreateNote}>{t('memo.documentList.new')}</Button>
   </div>;
 
-  // 嵌入：右侧操作区 portal 进外壳 nav 的操作槽，本组件不再渲染第二行。
+  // 嵌入时只输出外层操作区；标题与数据列表由各自宿主负责布局。
   if (actionsHost) return <CollectionActionsPortal host={actionsHost}><div className="flex shrink-0 items-center gap-2">{headerRight}</div></CollectionActionsPortal>;
   if (mode !== 'documents') return <div ref={headerRef} className="multidimensional-table__view-nav -mx-5 flex min-w-0 shrink-0 items-center justify-between gap-1 px-4">{headerLeft}{headerRight}</div>;
   return <div ref={headerRef} className="-mx-5 flex flex-wrap items-center justify-between gap-2 px-5 pt-3">{headerLeft}{headerRight}</div>;

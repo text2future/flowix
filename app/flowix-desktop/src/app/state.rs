@@ -76,7 +76,7 @@ pub struct AppState {
     pub notebook_imports: Arc<Mutex<HashMap<String, NotebookImportStatus>>>,
     /// Serializes the complete current-notebook transition, including its
     /// migration, index invalidation, and persisted selection update.
-    pub notebook_transition: Arc<Mutex<()>>,
+    pub notebook_transition: crate::notebook_transition::NotebookTransition,
     /// Native startup migrations are independent from WebView startup but
     /// remain a gate for commands that depend on a consistent memo library.
     pub startup: Arc<StartupCoordinator>,

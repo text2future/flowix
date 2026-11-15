@@ -237,7 +237,7 @@ const codeEditorTheme = EditorView.theme({
   },
   '.cm-content': {
     minHeight: '100%',
-    padding: 'var(--code-editor-content-padding-top, 14px) 0 var(--code-editor-content-padding-bottom, 28px)',
+    padding: 'var(--code-editor-content-padding-top, 0px) 0 var(--code-editor-content-padding-bottom, 28px)',
     // Keep the document text color on the actual content layer. Relying on
     // inheritance from `.cm-editor` makes text disappear in WebKit when a
     // theme variable is unavailable during the production-app startup.

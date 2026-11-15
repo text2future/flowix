@@ -37,6 +37,7 @@ export interface MemoListHeaderProps {
     sortSubmenuOpen: boolean;
     createTypeMenuOpen: boolean;
     isCreatingMemo: boolean;
+    hideCreateButton?: boolean;
     createTemplates: readonly NoteTemplate[];
     conversationOptions: MemoCreateMenuProps['conversationOptions'];
     createViewsExpanded: boolean;
@@ -174,8 +175,8 @@ export function MemoListHeader({ state, actions }: MemoListHeaderProps) {
           </MemoNavigationDropdown>
         )}
       </div>
-      <div className="flex shrink-0 items-center gap-2">
-        <DropdownMenu open={state.createTypeMenuOpen} onOpenChange={actions.onCreateTypeMenuOpenChange}>
+      <div className="flex h-[30px] w-[30px] shrink-0 items-center gap-2">
+        {!state.hideCreateButton && <DropdownMenu open={state.createTypeMenuOpen} onOpenChange={actions.onCreateTypeMenuOpenChange}>
           <Tooltip content={t('memo.create.chooseType')} shortcut="memo.create">
             <DropdownMenuTrigger asChild>
               <Button
@@ -193,7 +194,7 @@ export function MemoListHeader({ state, actions }: MemoListHeaderProps) {
             </DropdownMenuTrigger>
           </Tooltip>
           {createMenu}
-        </DropdownMenu>
+        </DropdownMenu>}
       </div>
     </div>
   );

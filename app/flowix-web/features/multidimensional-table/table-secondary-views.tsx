@@ -1,3 +1,4 @@
+import { TREE_ICON_COLOR_CLASS } from '@shared/ui/tree-icon-color';
 
 import { DialogFooter } from '@shared/ui/dialog-footer';
 import { Input } from '@shared/ui/input';
@@ -221,7 +222,7 @@ export function TableGalleryView({ records, titleField, fields, renderValue, ima
               <span className="flex min-w-0 items-center gap-1">
                 {icon
                   ? <img src={icon.src} alt="" aria-hidden="true" draggable={false} className="h-4 w-4 shrink-0 object-contain" />
-                  : <NotebookTreeFileIcon className='h-4 w-4 shrink-0 text-[color-mix(in_oklch,var(--foreground)_70%,black_30%)] [[data-theme="dark"]_&]:text-[var(--foreground)] [[data-theme="mist"]_&]:text-[var(--foreground)]' />}
+                  : <NotebookTreeFileIcon className={`h-4 w-4 shrink-0 ${TREE_ICON_COLOR_CLASS}`} />}
                 <span className={`block min-w-0 truncate text-sm font-medium leading-5 ${missing ? 'text-[var(--muted-foreground)]' : 'text-[var(--foreground)]'}`}>{renderValue(record, titleField)}</span>
               </span>
               <span className="mt-0.5 block truncate text-xs leading-4 text-[var(--muted-foreground)]">
@@ -844,7 +845,7 @@ export function TableCalendarView({ cursor, onCursorChange, days, groups, dateFi
                 <ChevronDown className="h-3.5 w-3.5 text-[var(--muted-foreground)]" aria-hidden="true" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" side="bottom" sideOffset={4} className="w-[168px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+            <DropdownMenuContent scrollerClassName="space-y-0.5" align="start" side="bottom" sideOffset={4} className="w-[168px] rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
               <div className="relative">
                 <button type="button" aria-expanded={weekStartMenuOpen} disabled={!onWeekStartChange} onClick={() => setWeekStartMenuOpen((open) => !open)} className="flex h-8 w-full items-center justify-between rounded-lg px-2 text-left text-sm text-[var(--foreground)] hover:bg-[var(--hover-bg)] disabled:opacity-50">
                   周开始<ChevronRight className="h-3.5 w-3.5 text-[var(--muted-foreground)]" aria-hidden="true" />
@@ -868,7 +869,7 @@ export function TableCalendarView({ cursor, onCursorChange, days, groups, dateFi
                 <ChevronDown className="h-3 w-3 shrink-0" aria-hidden="true" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" side="bottom" sideOffset={4} className="max-h-72 w-48 overflow-y-auto rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+            <DropdownMenuContent align="start" side="bottom" sideOffset={4} className="max-h-72 w-48 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
               {dateFieldOptions.map((field) => <DropdownMenuItem key={field.id} onClick={() => { if (field.id !== dateFieldId) void onDateFieldChange?.(field.id); }} className="!h-8 justify-start gap-1 rounded-lg px-2 py-0 text-left hover:bg-[var(--hover-bg)]">
                 <span className="min-w-0 truncate">{field.label}</span>
                 {field.readOnly && <span title="创建时间和更新时间由系统维护，不能通过拖动修改" className="shrink-0 rounded-md border border-[var(--border)] bg-[var(--muted)] px-1 py-0 text-xs leading-4 font-normal text-[var(--muted-foreground)]">只读</span>}
@@ -922,7 +923,7 @@ export function TableCalendarView({ cursor, onCursorChange, days, groups, dateFi
               </PopoverTrigger>}
                 </div>
             </div>
-            <PopoverContent align="start" side="bottom" sideOffset={0} matchAnchorWidth={1.6} matchAnchorHeight className={`max-h-[min(60vh,360px)] max-w-[calc(100vw-16px)] overflow-y-auto p-1.5 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)] ${draggingRecord ? 'pointer-events-none' : ''}`}>
+            <PopoverContent scrollable align="start" side="bottom" sideOffset={0} matchAnchorWidth={1.6} matchAnchorHeight className={`max-h-[min(60vh,360px)] max-w-[calc(100vw-16px)] p-1.5 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)] ${draggingRecord ? 'pointer-events-none' : ''}`}>
               <div className="space-y-1">
                 {records.length ? records.map((record) => {
                   return <div key={record.id} data-calendar-record={record.id} onPointerDown={(event) => onCardPointerDown(event, record, iso)} onPointerMove={onCardPointerMove} onPointerUp={onCardPointerUp} onPointerCancel={resetDrag} onClick={(event) => { if (canMoveRecords) return; event.stopPropagation(); if (onEditRecord) onEditRecord(record.id, event.currentTarget.getBoundingClientRect()); else onOpenRecord?.(record.id); }} style={calendarCardColorStyle(noteColorForRecord?.(record))} className={`multidimensional-table__calendar-card flex h-6 min-w-0 cursor-pointer items-center justify-between gap-1 overflow-hidden rounded-md border-0 px-1 py-0 text-[var(--brand)] ${canMoveRecords ? 'touch-none active:cursor-grabbing' : ''} ${draggingRecord?.id === record.id ? 'opacity-50' : ''}`} title={canMoveRecords ? renderValue(record, titleField) : '创建时间和更新时间不能通过拖动修改'}>

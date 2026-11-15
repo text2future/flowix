@@ -1,7 +1,7 @@
 import { datasetLocation, shareDatasetLocation, withDatasetLocation } from './shared-dataset-location';
 import { createTableDocument, serializeTableDocument } from '@features/multidimensional-table/public/create-api';
 import { createMediaLibrary, parseMediaLibrary, serializeMediaLibrary } from '@features/media-library/model';
-import { createWorkDocumentsCollection, parseWorkDocumentsCollection } from '@features/work-documents/public/model-api';
+import { createWorkDocumentsCollection, parseWorkDocumentsCollection } from './work-documents-model';
 import {
   COLLECTION_DOMAINS,
   collectionTypeDomain,
@@ -22,7 +22,7 @@ import {
 } from './model';
 import { externalDocuments, files } from '@platform/tauri/client';
 import { canonicalPath, notebookRelativeDirectoryPath } from '@/lib/path';
-import { createCollectionDocument, mutateCollectionDocument, type CollectionDocumentMutation } from './document-gateway';
+import { mutateCollectionDocument, type CollectionDocumentMutation } from './document-gateway';
 import { assetFilterFromCondition, type AssetFilterCondition, type AssetFilterSaveOptions } from './asset-filter';
 import type { CollectionType } from './model';
 
@@ -128,22 +128,17 @@ export interface FolderCollectionSummary {
 }
 
 /**
- * 文件夹集合的集合体地址：`<folder>/.index.yaml`（去掉目录尾部斜杠）。
+ * 文件夹里的 `.index.yaml` 地址：`<folder>/.index.yaml`（去掉目录尾部斜杠）。
  *
- * 全仓唯一拼法：外壳、Work header 的「···」、集合改名与建域都按它定位同一个
- * 集合文件。别在调用点再写一遍模板字符串 —— 尾斜杠 / 分隔符迟早会对不上。
+ * **只服务历史遗留**：文件夹本身已经不是集合，点击文件夹不会再读、也不会再建这个
+ * 文件；残留的文件只会作为普通集合文件被显式打开。剩下的调用点都是用户对既有
+ * 文件的显式操作（旧文件转类型），不要再往这里加新用途。
  */
 export function collectionIndexPathForFolder(folderPath: string): string {
   return `${folderPath.replace(/[\\/]+$/, '')}/.index.yaml`;
 }
 
-/** 读取并归纳文件夹的 .index.yaml。文件不存在返回 null；
- *  v1/v2 单类型集合按其唯一域归纳（file_tree 视为 true，保持旧行为）。 */
-export async function readFolderCollectionSummary(folderPath: string, notebookPath: string): Promise<FolderCollectionSummary | null> {
-  return readCollectionSummary(collectionIndexPathForFolder(folderPath), notebookPath);
-}
-
-/** 读取任意集合文件的归纳（独立打开的 .index.yaml 与文件夹集合走同一套口径）。 */
+/** 读取任意集合文件的归纳（独立打开的 `.index.yaml` 与历史文件夹集合走同一套口径）。 */
 export async function readCollectionSummary(indexPath: string, notebookPath: string): Promise<FolderCollectionSummary | null> {
   const source = await files.read(indexPath, notebookPath);
   if (source === null) return null;
@@ -202,29 +197,9 @@ function isHybridSource(source: string): boolean {
   return isHybridCollectionSource(source);
 }
 
-/** 确保文件夹有 .index.yaml：缺失则创建 hybrid 模板（并发冲突兜底重读）。 */
-export async function ensureFolderCollection(folderPath: string, notebookPath: string, folderName: string, initialDomain: CollectionDomain = 'notes'): Promise<FolderCollectionSummary> {
-  const existing = await readFolderCollectionSummary(folderPath, notebookPath);
-  const indexPath = collectionIndexPathForFolder(folderPath);
-  if (existing) return existing.domains.includes(initialDomain)
-    ? existing : addCollectionDomain(indexPath, notebookPath, initialDomain);
-  const relativeFolder = notebookRelativeDirectoryPath(notebookPath, folderPath);
-  const content = createFolderHybridCollectionContent(folderName, relativeFolder, [initialDomain]);
-  try {
-    // 建文件也走网关：它同时广播内容，已挂载的外壳 / 面板不会停在「文件还不存在」的状态。
-    await createCollectionDocument({ indexPath, notebookPath, content });
-    return summarizeFolderCollectionSource(content);
-  } catch {
-    // 并发兜底：另一个入口可能刚好建好了同名索引。
-    const raced = await readFolderCollectionSummary(folderPath, notebookPath);
-    if (raced) return raced.domains.includes(initialDomain)
-      ? raced : addCollectionDomain(indexPath, notebookPath, initialDomain);
-    throw new Error('集合文件创建失败');
-  }
-}
-
-/** 为文件夹集合追加缺失的数据域（v2 单类型集合借此一次性迁移为 v3 hybrid，
- *  保留原有集合 id、属性与视图，不再翻转类型）。 */
+/** 为「历史文件夹集合」追加缺失的数据域（v2 单类型集合借此一次性迁移为 v3 hybrid，
+ *  保留原有集合 id、属性与视图，不再翻转类型）。只服务用户对遗留 `.index.yaml`
+ *  的显式操作，点文件夹不会走到这里。 */
 export async function addFolderCollectionDomain(
   folderPath: string,
   notebookPath: string,
@@ -319,16 +294,6 @@ function appendDomain(source: string, indexPath: string, notebookPath: string, d
       datasetLocation(owner), owner.source);
   }
   return serializeHybridCollectionDocument(next);
-}
-
-/** 移除 hybrid 集合里的一个数据域（连同该域的视图）。
- *  「管理视图」里移除 图墙 / 列表 tab 走这里：tab 与数据域一一对应。 */
-export async function removeFolderCollectionDomain(
-  folderPath: string,
-  notebookPath: string,
-  domain: CollectionDomain,
-): Promise<FolderCollectionSummary> {
-  return removeCollectionDomain(collectionIndexPathForFolder(folderPath), notebookPath, domain);
 }
 
 export async function removeCollectionDomain(

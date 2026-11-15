@@ -14,7 +14,7 @@
   border: 1px solid var(--border-popup);
   border-radius: 7px;
   color: var(--foreground);
-  box-shadow: 0 4px 24px -3px rgb(0 0 0 / 12%);
+  box-shadow: var(--floating-shadow-bubble, 0 4px 24px -3px rgb(0 0 0 / 12%));
   padding: 3px;
 }
 
@@ -62,11 +62,8 @@
   border-radius: 10px;
   background: color-mix(in oklch, var(--popover) 94%, transparent);
   color: var(--popover-foreground);
-  /* 选区/表格/链接气泡共用: 投影不透明度为标准弹层 (24%) 的一半, 保留浮起感又不压住正文。
-   * inset 顶边是一道极淡的高光, 让毛玻璃底在深色主题里也有上边缘轮廓。 */
-  box-shadow:
-    0 4px 24px -3px rgb(0 0 0 / 12%),
-    inset 0 1px 0 color-mix(in oklch, var(--foreground) 6%, transparent);
+  /* 选区/表格/链接气泡共用: 投影不透明度为标准弹层 (24%) 的一半, 保留浮起感又不压住正文。 */
+  box-shadow: var(--floating-shadow-bubble, 0 4px 24px -3px rgb(0 0 0 / 12%));
   backdrop-filter: blur(18px);
   pointer-events: none;
   user-select: none;
@@ -304,12 +301,7 @@
   min-height: 10rem;
   max-height: 20rem;
   overflow: hidden;
-  border: 1px solid var(--border-popup);
-  border-radius: 0.75rem;
-  background: var(--card);
   color: var(--foreground);
-  box-shadow: 0 4px 24px -3px rgb(0 0 0 / 24%);
-  padding: 0.25rem;
 }
 
 .slash-menu-header {
@@ -326,41 +318,13 @@
   flex: none;
 }
 
-.slash-menu-items-frame {
-  position: relative;
-  display: flex;
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: hidden;
-  /* 弹窗保留 p-1, 但把滚动条所在 frame 向右延伸到外框内沿。
-   * 右侧的内容由 scroller 的 padding-right 补回, 因此 item 仍不会贴边。 */
-  margin-right: -0.25rem;
-}
-
-.slash-menu-items {
-  display: flex;
-  flex: 1 1 auto;
-  min-height: 0;
-  flex-direction: column;
-  gap: 0.125rem;
-  overflow-y: auto;
-  padding-right: 0.25rem;
-}
-
 .slash-menu-item {
   display: flex;
-  align-items: center;
   height: 1.75rem;
   min-height: 1.75rem;
-  width: 100%;
   gap: 0.75rem;
   padding: 0 0.5rem;
-  border: 0;
-  border-radius: 0.5rem;
-  background: transparent;
   color: inherit;
-  cursor: pointer;
-  text-align: left;
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
@@ -380,7 +344,8 @@
   opacity: 1;
 }
 
-.slash-menu-item-label {
+.slash-menu-item-label,
+.slash-menu-empty--cta-label {
   overflow: hidden;
   color: currentColor;
   font-size: 0.875rem;
@@ -435,15 +400,6 @@
   outline: none;
 }
 
-.slash-menu-empty--cta-label {
-  overflow: hidden;
-  font-size: 0.875rem;
-  line-height: 1.25rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: currentColor;
-}
-
 .mention-note-dropdown {
   display: flex;
   flex-direction: column;
@@ -451,12 +407,7 @@
   max-height: var(--mention-note-max-height, 288px);
   box-sizing: border-box;
   overflow: hidden;
-  border: 1px solid var(--border-popup);
-  border-radius: 0.75rem;
-  background: var(--card);
   color: var(--foreground);
-  box-shadow: 0 4px 24px -3px rgb(0 0 0 / 24%);
-  padding: 0.25rem;
 }
 
 .tag-mention-dropdown {
@@ -485,25 +436,11 @@
 }
 
 .mention-note-items-frame {
-  position: relative;
-  display: flex;
-  flex: 1 1 auto;
-  min-height: 0;
   max-height: calc(var(--mention-note-max-height, 288px) - 24px);
-  overflow: hidden;
-  /* 与 slash 菜单相同: scrollbar 贴外框右内沿, item 保留右侧呼吸位。 */
-  margin-right: -0.25rem;
 }
 
 .mention-note-items {
-  display: flex;
-  flex: 1 1 auto;
-  min-height: 0;
   max-height: inherit;
-  flex-direction: column;
-  gap: 0.125rem;
-  overflow-y: auto;
-  padding-right: 0.25rem;
 }
 
 .memo-navigation-tag-tree-submenu {
@@ -524,18 +461,11 @@
 .mention-note-item {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  width: 100%;
   height: 1.75rem;
   min-height: 1.75rem;
   gap: 0.75rem;
   padding: 0 0.5rem;
-  border: 0;
-  border-radius: 0.5rem;
-  background: transparent;
   color: inherit;
-  cursor: pointer;
-  text-align: left;
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 

@@ -48,10 +48,9 @@
 	--bg-titlebar: oklch(0.173 0.009 var(--neutral-hue));
 	/* 文档: 在 background 上提一档亮度, 与 .tiptap 纸面形成"暗桌+纸边"层级 */
 	--document-bg: oklch(0.160 0.013 265);
-	--document-foreground: oklch(0.68 0.013 265);
+	--document-foreground: var(--foreground);
 	/* 链接直接跟随品牌色; hover 由 color-mix 派生提亮。 */
 	--document-link: var(--brand);
-	--document-highlight-bg: oklch(0.800 0.182 152);
 	/* 标签: 沿用 light 的"近底色 + 高对比字 + 微妙染色"套路, 适配暗底 ──
 	 * 但 dark 的 chip 走"暗色"路线 (与 main bg 0.173 拉开), 文本必须反向
 	 * 翻成"浅色"才能撑对比度:
@@ -102,7 +101,7 @@
 	--destructive: oklch(0.5953 0.18775 34.867);
 	--warning: oklch(0.80 0.15 80);
 	/* 信息提示: 与浅色主题同色 ── 下调亮度以保证白字达到普通文字 AA 对比度。 */
-	--info: #0085e6;
+	--info: #0078cf;
 	--info-foreground: oklch(1 0 0);
 
 	color-scheme: dark;

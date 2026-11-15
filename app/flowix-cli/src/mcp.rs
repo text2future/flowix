@@ -17,7 +17,7 @@ const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &[
     LATEST_PROTOCOL_VERSION,
 ];
 
-pub const TOOL_DESCRIPTION: &str = "Search and manage Flowix Markdown notes. Discover collections with collection.list, inspect their fields and views with collection.describe, query records with collection.query, then read a note body with show and its returned address. collection.read returns the raw collection definition. Delete is destructive.";
+pub const TOOL_DESCRIPTION: &str = "Search and manage Flowix Markdown notes. Discover collections with collection.list, inspect their fields and views with collection.describe, query records with collection.query, and use collection.add-note to create and link a note in a table collection. collection.read returns the raw collection definition. Delete is destructive.";
 
 /// Run the MCP line-delimited JSON-RPC loop until stdin reaches EOF.
 pub fn run_mcp<R: BufRead, W: Write>(reader: R, mut writer: W) -> Result<(), CliError> {
@@ -76,7 +76,7 @@ fn initialize_result(params: &Value) -> Value {
             "title": "Flowix Memo",
             "version": env!("CARGO_PKG_VERSION")
         },
-        "instructions": "Use memo action collection.list to discover collections, collection.describe to inspect domains and fields, and collection.query to read actual records. Query results include an address for notes; pass it to action show to read the Markdown body. Use collection.read only when you need the raw collection YAML payload. Hybrid collections require a domain."
+        "instructions": "Use memo action collection.list to discover collections, collection.describe to inspect domains and fields, and collection.query to read actual records. Query results include an address for notes; pass it to action show to read the Markdown body. When the user explicitly asks to add a note to a table or notes collection, call collection.add-note with its collectionId (or path), title, and complete Markdown content; this creates the note in the collection's note directory and links it as a row. Do not use generic create for a requested collection add. Use collection.read only when you need the raw collection YAML payload. Hybrid collections must contain the notes domain to accept notes."
     })
 }
 
@@ -161,6 +161,7 @@ fn validate_argument_keys(arguments: &Map<String, Value>) -> Result<(), CliError
         "address",
         "query",
         "content",
+        "title",
         "old",
         "limit",
         "offset",
@@ -209,6 +210,13 @@ fn parse_structured_operation(
                 path: optional_string(arguments, "path")?,
             })
         }
+        "collection.add-note" => Ok(FlowixOperation::CollectionAddNote {
+            notebook: required_string(arguments, "notebook")?,
+            collection_id: optional_string(arguments, "collectionId")?,
+            path: optional_string(arguments, "path")?,
+            title: required_string(arguments, "title")?,
+            content: content()?,
+        }),
         "collection.list" => Ok(FlowixOperation::CollectionList {
             notebook,
             collection_type: optional_string(arguments, "collectionType")?,
@@ -463,6 +471,29 @@ fn execute_command(command: &str, stdin: Option<&str>) -> Result<Value, CliError
                 path,
             })
         }
+        cli::Cli::CollectionAddNote {
+            notebook,
+            collection_id,
+            path,
+            title,
+            file,
+            stdin: _,
+            ..
+        } => {
+            if file.is_some() {
+                return Err(CliError::Usage(
+                    "MCP cannot read client-local --file paths; use structured `content`".into(),
+                ));
+            }
+            let content = require_stdin(stdin, "collection add-note")?;
+            operation::execute(operation::FlowixOperation::CollectionAddNote {
+                notebook,
+                collection_id,
+                path,
+                title,
+                content: content.to_owned(),
+            })
+        }
         cli::Cli::CollectionList {
             notebook,
             collection_type,
@@ -596,9 +627,14 @@ fn execute_command(command: &str, stdin: Option<&str>) -> Result<Value, CliError
                 content,
             )?)
         }
-        cli::Cli::Version | cli::Cli::Completion { .. } | cli::Cli::Mcp => Err(CliError::Usage(
-            "command is not available through memo".into(),
-        )),
+        // `embed` describes how to write page code, which the restricted memo
+        // grammar exists to keep out of reach; the agent prompt points at the
+        // CLI for it instead.
+        cli::Cli::Version | cli::Cli::Completion { .. } | cli::Cli::Html { .. } | cli::Cli::Mcp => {
+            Err(CliError::Usage(
+                "command is not available through memo".into(),
+            ))
+        }
     }
 }
 

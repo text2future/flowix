@@ -1,8 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Editor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from '@tiptap/markdown';
 import Frontmatter from './frontmatter';
+import { useSettingsStore } from '@/lib/store/settings-store';
+
+let previousPropertiesVisible: boolean;
+beforeEach(() => {
+  previousPropertiesVisible = useSettingsStore.getState().propertiesVisible;
+  useSettingsStore.setState({ propertiesVisible: true });
+});
+afterEach(() => useSettingsStore.setState({ propertiesVisible: previousPropertiesVisible }));
 
 function fixture() {
   const host = document.createElement('div');

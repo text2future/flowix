@@ -1,3 +1,4 @@
+import { createNotebookNavigationScope } from './notebook-navigation-scope';
 import { selectNotebookInSecondColumn } from './select-column-notebook';
 import { getSessionId, useWorkspaceSessionStore } from '../store/workspace-session-store';
 import { sessionFor } from '../model/workspace-session';
@@ -8,10 +9,10 @@ import type { FileBrowserTarget } from '../model/surface-target';
 import { flushBrowserViewBeforeOpeningWork } from './prepare-browser-document-for-work';
 import { NavigationCancelledError } from '@/lib/navigation-cancelled-error';
 import { ensureCollectionDisplay, bindCollectionDisplayPath, findCollectionDisplayPath } from '@/lib/collection-display-registry';
-import { collections, externalDocuments, files, notebooks } from '@platform/tauri/client';
+import { collections, externalDocuments, notebooks } from '@platform/tauri/client';
 import { parseCollectionDocumentV2 } from '@features/collection/model';
 import { repairCollectionFile, inspectCollectionRecoveryType } from '@features/collection/recovery';
-import { captureFileBrowserContext } from './file-browser-context';
+import { captureFileBrowserContext, notebookOwnerOfPathResolved } from './file-browser-context';
 import { notes as notesClient, type PluginDescriptor, type MarkdownLocation } from '@platform/tauri/client';
 import { canonicalDirectoryPath, canonicalPath, isPathInDirectory, joinNotebookMemoPath, notebookRelativeDirectoryPath, samePath } from '@/lib/path';
 import { resourceKindFromPath } from '@features/editor/public/code-file';
@@ -441,13 +442,12 @@ async function openCollectionFile(filePath: string, notebookPath: string | null,
   await openCollectionTarget({ notebookId: notebook.id, collectionId: envelope.collection.id, filePath }, options);
 }
 /**
- * 打开文件夹集合 ── **旧入口，只服务历史回放里的 `document-list` 条目**。
+ * 打开文件夹 ── `document-list` 历史回放的入口，与点侧边栏走同一条落点。
  *
- * 它以前自己写 `.index.yaml`（v2 单类型模板），而「点文件夹 → 文件夹首页」
- * （`openFolderCollectionFromFolder`）在缺集合时是点域 tab 才 ensure 成 v3 hybrid：
- * 同一个动作有两条建集合路径，产出两种文件，首次打开的头图与文件树操作区也因此
- * 各走一套渲染。现在统一走后者 —— 这里不再写盘，建集合只剩
- * `ensureFolderCollection` 一条路径（模板唯一：v3 hybrid）。
+ * 文件夹表面就是目录本身：它**不再读也不写 `.index.yaml`**（集合已经和文件夹
+ * 解耦，外观存在索引库的 `folder_index` 表里），所以这里只做归属校验，然后把
+ * 同一个 target 交给统一的打开流程。目录里残留的旧集合文件只会作为普通文件
+ * 出现在文件树里，由用户显式打开。
  */
 export async function openFolderCollection(
   notebookId: string,
@@ -461,20 +461,6 @@ export async function openFolderCollection(
     ?? workspace.notebooks.find((item) => notebookRelativeDirectoryPath(item.path, folderPath) !== null);
   if (!notebook) throw new Error('无法确定文件夹所属笔记本');
   if (notebookRelativeDirectoryPath(notebook.path, folderPath) === null) throw new Error('文件夹不属于当前笔记本');
-  const indexPath = `${folderPath}/.index.yaml`;
-  // 已有但损坏的集合保留「格式无效 + 修复入口」这一条诊断（不再顺带建文件）。
-  const source = await files.read(indexPath, notebook.path);
-  if (!isRestoreRequestCurrent(options?.restoreRequestId)) return;
-  if (source !== null) {
-    try { parseCollectionDocumentV2(source); }
-    catch {
-      await openCollectionFileDirectly(
-        indexPath, notebook.path, notebook.id, inspectCollectionRecoveryType(source, indexPath),
-        '集合文件格式无效', options?.history ?? 'push',
-      );
-      return;
-    }
-  }
   const folderName = folderPath.split(/[\\/]/).filter(Boolean).pop() ?? notebook.name;
   await openFolderCollectionChooserTarget(
     { kind: 'folder-collection', folderPath, notebookId: notebook.id, notebookPath: notebook.path, folderName },
@@ -493,14 +479,16 @@ export async function openFolderCollectionChooserTarget(
   if (!notebook || notebookRelativeDirectoryPath(notebook.path, target.folderPath) === null) {
     throw new Error('文件夹不属于当前笔记本');
   }
-  const requestId = beginNavigation(target, null, false, false);
-  try {
+  const notebookScope = createNotebookNavigationScope(isCurrentNavigation);
+  await runNavigation(target, async requestId => {
     await prepareActiveWorkColumnDocumentLeave();
-  } catch (error) {
-    if (isCurrentNavigation(requestId)) useWorkColumnStore.getState().failNavigation(requestId, error);
-    throw error;
-  }
-  if (isCurrentNavigation(requestId)) commitNavigation(requestId, target, history);
+    if (!isCurrentNavigation(requestId)) return;
+    await notebookScope.switchTo(notebook.id, requestId, notebook);
+    if (!isCurrentNavigation(requestId)) return;
+    if (getSessionId(0) === 'column-1') getWorkspaceMemoState().setSelectedNote(null);
+    commitNavigation(requestId, target, history);
+  }, () => openFolderCollectionChooserTarget(target, undefined, history),
+  notebookScope.rollback, false, false);
 }
 
 export async function openFolderCollectionFromFolder(
@@ -725,9 +713,8 @@ export async function selectNotebook(
     await selectNotebookInSecondColumn(notebook);
     return;
   }
-  const previousNotebook = getWorkspaceMemoState().selectedNotebook;
+  const notebookScope = createNotebookNavigationScope(isCurrentNavigation);
   const previousDocument = captureDocumentSnapshot();
-  let switchedNotebook = false;
   let clearedDocument = false;
   useWorkColumnStore.getState().beginNotebookSwitch?.();
 
@@ -740,19 +727,14 @@ export async function selectNotebook(
         clearedDocument = true;
         if (!isCurrentNavigation(requestId)) return;
 
-        await setCurrentWorkspaceNotebook(notebook);
-        switchedNotebook = true;
+        await notebookScope.switchTo(notebook.id, requestId, notebook);
         if (!isCurrentNavigation(requestId)) return;
-
-        getWorkspaceMemoState().setSelectedNotebook(notebook);
         commitNavigation(requestId, EMPTY_WORK_COLUMN_TARGET);
       },
       () => selectNotebook(notebook),
       async (requestId) => {
         if (!useWorkColumnStore.getState().isCurrentNavigation(requestId)) return;
-        if (switchedNotebook) {
-          await setCurrentWorkspaceNotebook(previousNotebook?.id ?? null);
-        }
+        await notebookScope.rollback(requestId);
         if (!useWorkColumnStore.getState().isCurrentNavigation(requestId)) return;
         // Selection has not been published on a failed switch. Avoid calling
         // its setter: doing so would reset list and filter state on rollback.
@@ -857,9 +839,7 @@ export async function openExternalTarget(
     return existing;
   }
 
-  const previousNotebook = getWorkspaceMemoState().selectedNotebook;
-  const previousPathNote = getWorkspaceMemoState().selectedNote;
-  let switchedNotebook = false;
+  const notebookScope = createNotebookNavigationScope(isCurrentNavigation);
   const previousDocument = captureDocumentSnapshot();
   const retryOptions = { ...stripRestoreRequestId(options), browserDocumentPrepared: false };
   await runNavigation(
@@ -883,26 +863,19 @@ export async function openExternalTarget(
         markdownLocation,
         scopePath: options?.scopePath ?? markdownLocation?.notebookPath ?? fileBrowser.scopePath,
       };
+      // Ownership is not markdown-only: an .html preview (or any other local
+      // file) that lives inside a notebook still belongs to it. Without this the
+      // embedded HTML data bridge answers E_SCOPE, because it authorizes reads
+      // by notebook id and the session carried none. The resolved variant also
+      // covers startup restoration, where the registry may still be loading.
+      const owner = markdownLocation ? null : await notebookOwnerOfPathResolved(path);
+      if (!isCurrentNavigation(requestId)) return;
+      const documentNotebookId = markdownLocation?.notebookId ?? owner?.id ?? null;
+      const documentNotebookPath = markdownLocation?.notebookPath ?? owner?.path ?? null;
 
-      if (markdownLocation?.notebookId && markdownLocation.notebookId !== (
-        getWorkspaceMemoState().selectedNotebookId ?? getWorkspaceMemoState().selectedNotebook?.id
-      )) {
-        await setCurrentWorkspaceNotebook(markdownLocation.notebookId);
-        switchedNotebook = true;
-        if (!isCurrentNavigation(requestId)) return;
-        let notebook = getWorkspaceMemoState().notebooks.find((item) => item.id === markdownLocation.notebookId);
-        if (!notebook) {
-          await getWorkspaceMemoState().loadNotebooks();
-          if (!isCurrentNavigation(requestId)) return;
-          notebook = getWorkspaceMemoState().notebooks.find((item) => item.id === markdownLocation.notebookId);
-        }
-        if (notebook) {
-          getWorkspaceMemoState().setSelectedNotebook(notebook);
-          await getWorkspaceMemoState().loadNotes({ notebookId: notebook.id });
-          if (!isCurrentNavigation(requestId)) return;
-        }
-      }
-      getWorkspaceMemoState().setSelectedNote(markdownLocation?.indexable && markdownLocation.relativePath && markdownLocation.notebookId
+      if (markdownLocation?.notebookId) await notebookScope.switchTo(markdownLocation.notebookId, requestId);
+      if (!isCurrentNavigation(requestId)) return;
+      if (getSessionId(0) === 'column-1') getWorkspaceMemoState().setSelectedNote(markdownLocation?.indexable && markdownLocation.relativePath && markdownLocation.notebookId
         ? { notebookId: markdownLocation.notebookId, relativePath: markdownLocation.relativePath }
         : null);
       if (!isCurrentNavigation(requestId)) return;
@@ -910,8 +883,8 @@ export async function openExternalTarget(
         path,
         {
           scopePath: options?.scopePath,
-          notebookId: markdownLocation?.notebookId,
-          notebookPath: markdownLocation?.notebookPath,
+          notebookId: documentNotebookId,
+          notebookPath: documentNotebookPath,
           relativePath: markdownLocation?.relativePath,
           indexable: markdownLocation?.indexable,
           initialFocus: options?.initialFocus,
@@ -939,11 +912,7 @@ export async function openExternalTarget(
       if (!isCurrentNavigation(requestId)) return;
       await restoreDocumentSnapshot(previousDocument);
       if (!isCurrentNavigation(requestId)) return;
-      getWorkspaceMemoState().setSelectedNote(previousPathNote);
-      if (switchedNotebook) {
-        await setCurrentWorkspaceNotebook(previousNotebook?.id ?? null);
-        getWorkspaceMemoState().setSelectedNotebook(previousNotebook);
-      }
+      await notebookScope.rollback(requestId);
     },
   );
   return null;

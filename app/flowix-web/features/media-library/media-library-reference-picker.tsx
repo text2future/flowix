@@ -1,12 +1,13 @@
+import { PopupScrollArea } from '@shared/ui/popup-scroll-area';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Editor } from '@tiptap/core';
 import { files, externalDocuments } from '@platform/tauri/client';
-import { useNoteStore } from '@features/memo/store/note-store';
+import { useNotebookById } from '@features/memo/public/notebook-api';
 import { canonicalPath, joinNotebookMemoPath } from '@/lib/path';
 import { toast } from '@/lib/toast';
 import { Plus } from 'lucide-react';
 import { createMediaLibraryFile, parseMediaLibrary } from './model';
-import { MediaLibraryIcon } from '@features/memo/components/file-type-icon';
+import { CollectionResourceIcon } from '@features/collection/public/appearance-api';
 import {
   closeCollectionReferencePicker,
   collectionCandidateFolderLabel,
@@ -17,7 +18,7 @@ import {
   type CollectionReferenceCandidate,
   type CollectionReferenceInsertRange,
   type CollectionReferencePickerAnchor,
-} from '@features/collection/reference-picker';
+} from '@features/collection/public/reference-picker-api';
 
 function MediaLibraryReferencePicker({ editor, replaceRange, generation, ownerNotebookId }: {
   editor: Editor;
@@ -25,7 +26,7 @@ function MediaLibraryReferencePicker({ editor, replaceRange, generation, ownerNo
   generation: number;
   ownerNotebookId: string | null;
 }) {
-  const ownerNotebook = useNoteStore((state) => state.notebooks.find((notebook) => notebook.id === ownerNotebookId && !notebook.missing));
+  const ownerNotebook = useNotebookById(ownerNotebookId);
   const notebooks = useMemo(() => ownerNotebook ? [ownerNotebook] : [], [ownerNotebook]);
   const [candidates, setCandidates] = useState<CollectionReferenceCandidate[]>([]);
   const [loading, setLoading] = useState(true);
@@ -73,8 +74,9 @@ function MediaLibraryReferencePicker({ editor, replaceRange, generation, ownerNo
   useLayoutEffect(() => {
     const textarea = searchRef.current;
     if (!textarea) return;
-    textarea.style.height = '0px';
-    textarea.style.height = `${Math.min(textarea.scrollHeight + 2, window.innerHeight * 0.5)}px`;
+    textarea.style.height = 'auto';
+    const contentHeight = textarea.scrollHeight + 2;
+    textarea.style.height = `${Math.min(contentHeight, window.innerHeight * 0.5)}px`;
   }, [query]);
 
   const select = async (candidate: CollectionReferenceCandidate) => {
@@ -152,8 +154,9 @@ function MediaLibraryReferencePicker({ editor, replaceRange, generation, ownerNo
     }
   };
 
-  return <div className={`slash-menu-dropdown table-reference-picker${navigation.keyboardNavigation ? ' is-keyboard-navigation' : ''}`} role="dialog" aria-label="选择媒体库">
-    <div className="table-reference-picker__search flex shrink-0 items-start gap-1">
+  return <div className={`slash-menu-dropdown table-reference-picker${navigation.keyboardNavigation ? ' is-keyboard-navigation' : ''}`} role="dialog" aria-label="插入资料数据库">
+    <div className="table-reference-picker__title" role="heading" aria-level={2}>插入资料数据库</div>
+    <div className="table-reference-picker__search flex shrink-0 items-start gap-1 px-2">
       <textarea ref={searchRef} rows={1} value={query} onChange={(event) => {
         setQuery(event.currentTarget.value);
       }} onKeyDown={(event) => {
@@ -164,23 +167,29 @@ function MediaLibraryReferencePicker({ editor, replaceRange, generation, ownerNo
           if (candidate) void select(candidate);
           else void create();
         }
-      }} placeholder="输入名称搜索 或 新建" className="min-h-8 max-h-[50vh] min-w-0 flex-1 shrink-0 resize-none overflow-y-auto border-0 bg-transparent px-2 py-2 text-sm leading-5 shadow-none focus-visible:border-0 focus-visible:ring-0" />
-      {query.trim() && <button type="button" aria-label="新建媒体库" title="新建媒体库" disabled={creating} onMouseDown={(event) => event.preventDefault()} onClick={() => void create()} className="flex h-8 w-10 shrink-0 items-center justify-center rounded-md text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-50"><Plus className="h-4 w-4" aria-hidden="true" /></button>}
+      }} placeholder="输入名称创建" className="multidimensional-table__primary-title-input min-w-0 flex-1 !py-2" />
+      {query.trim() && <button type="button" aria-label="新建媒体库" title="新建媒体库" disabled={creating} onMouseDown={(event) => event.preventDefault()} onClick={() => void create()} className="mt-0.5 flex h-8 w-8 shrink-0 self-start items-center justify-center rounded-md text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-50"><Plus className="h-4 w-4" aria-hidden="true" /></button>}
     </div>
-    <div className="slash-menu-items-frame">
-      <div className="slash-menu-items" role="listbox" aria-label="媒体库列表">
-        <div className="slash-menu-header" role="presentation"><span>选择已创建集合插入</span></div>
+    <PopupScrollArea className="slash-menu-items-frame" scrollerClassName="slash-menu-items" scrollerProps={{ role: 'listbox', 'aria-label': '媒体库列表' }}>
+        <div className="slash-menu-header" role="presentation"><span>关联</span></div>
         {loading ? <div className="slash-menu-empty">正在读取媒体库…</div>
           : loadError ? <div className="slash-menu-empty text-[var(--destructive)]">{loadError}</div>
             : filtered.length === 0 ? <div className="slash-menu-empty">{candidates.length ? '没有匹配的媒体库' : '当前没有媒体库'}</div>
               : filtered.map((candidate, index) => <button key={`${candidate.notebookId}:${candidate.relativePath}`} ref={(element) => { navigation.optionRefs.current[index] = element; }} type="button" role="option" aria-selected={navigation.isSelected(index)} disabled={openingPath !== null || creating} onMouseMove={() => navigation.onOptionMouseMove(index)} onMouseDown={(event) => event.preventDefault()} onClick={() => void select(candidate)} className={`slash-menu-item disabled:opacity-50${navigation.isSelected(index) ? ' is-selected' : ''}`}>
-                <MediaLibraryIcon className="h-4 w-4 shrink-0" />
-                <span className="slash-menu-item-label min-w-0 flex-1">{candidate.name}</span>
-                <span className="slash-menu-item-description max-w-[42%]">{collectionCandidateFolderLabel(candidate)}</span>
+                <CollectionResourceIcon
+                  filePath={joinNotebookMemoPath(candidate.notebookPath, candidate.relativePath) ?? candidate.relativePath}
+                  notebookPath={candidate.notebookPath}
+                  fallbackType="media_library"
+                  className="h-4 w-4 shrink-0"
+                  loadWhenVisible
+                />
+                <span className="table-reference-picker__candidate-label min-w-0 flex-1">
+                  <span className="slash-menu-item-label">{candidate.name}</span>
+                  <span className="table-reference-picker__candidate-folder">{collectionCandidateFolderLabel(candidate)}</span>
+                </span>
                 {openingPath === candidate.relativePath && <span className="text-xs text-[var(--muted-foreground)]">读取中</span>}
               </button>)}
-      </div>
-    </div>
+    </PopupScrollArea>
   </div>;
 }
 

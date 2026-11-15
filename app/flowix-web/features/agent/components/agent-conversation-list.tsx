@@ -297,18 +297,19 @@ export function AgentConversationList({ isActive = true, onBack }: AgentConversa
   return (
     <section className="relative flex h-full min-h-0 flex-1 flex-col bg-[var(--list-bg)]" aria-label={t('memo.navigation.conversations')}>
       {/* Content-page header below the persistent sidebar navigation tabs. */}
-      <div className="flex items-center justify-between gap-2 px-3 pb-2">
-          <div className="flex min-w-0 flex-1 items-center gap-2">
+      <div className="flex items-center justify-between gap-2 px-3 pt-2">
+          <div className="flex min-w-0 flex-1 items-center">
             <button
               type="button"
               data-conversation-list-back
               aria-label={t('memo.navigation.backToFileTree')}
               title={t('memo.navigation.backToFileTree')}
               onClick={onBack}
-              className="group flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-xl border border-[var(--border)] bg-transparent p-0 text-sm text-[var(--foreground)] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)]"
+              className="group flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-xl bg-transparent p-0 text-sm text-[var(--foreground)] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)]"
             >
-              <ChevronLeft className="h-4 w-4 transition-[filter] duration-150 group-hover:brightness-125" aria-hidden="true" />
+              <ChevronLeft className="-translate-x-[7px] h-4 w-4 transition-[filter] duration-150 group-hover:brightness-125" aria-hidden="true" />
             </button>
+            <span className="-ml-1 text-sm font-medium">{t('memo.fileTree.allConversationsTitle')}</span>
           </div>
           <div className="flex items-center gap-1 shrink-0">
             <DropdownMenu
@@ -332,7 +333,7 @@ export function AgentConversationList({ isActive = true, onBack }: AgentConversa
                   />
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-[200px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+              <DropdownMenuContent scrollerClassName="space-y-0.5" align="end" className="w-[200px] rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
                 <DropdownMenuLabel className="flex items-center gap-1.5 px-[0.375rem] pb-[0.35rem] pt-[0.35rem] text-xs font-normal leading-[1.2] text-[var(--muted-foreground)]">
                   {t('agent.chat.newThread')}
                 </DropdownMenuLabel>
@@ -492,7 +493,7 @@ export function AgentConversationList({ isActive = true, onBack }: AgentConversa
                                   <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
                                 </button>
                               </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="w-[160px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+                              <DropdownMenuContent scrollerClassName="space-y-0.5" align="end" className="w-[160px] rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
                                 <ConversationActionItems
                                   favorite={favoriteIds.has(instance.instanceId)}
                                   openHost="column-2"
@@ -526,7 +527,7 @@ export function AgentConversationList({ isActive = true, onBack }: AgentConversa
                         </AgentConversationHoverCard>
                       </div>
                     </ContextMenuTrigger>
-                    <ContextMenuContent className="w-[160px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+                    <ContextMenuContent scrollerClassName="space-y-0.5" className="w-[160px] rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
                       <ConversationActionItems
                         context
                         favorite={favoriteIds.has(instance.instanceId)}

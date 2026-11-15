@@ -20,7 +20,7 @@ export function mountMainWindowNotebookEvents(): () => void {
   let disposed = false;
   const unsubscribe = subscribeNotebookChanges((change) => {
     const { notebookId } = change;
-    invalidateMentionNotes();
+    invalidateMentionNotes(notebookId);
     invalidateMentionTags();
     refreshAppPathNoteMetadata(notebookId);
 

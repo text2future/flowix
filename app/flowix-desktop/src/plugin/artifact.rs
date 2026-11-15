@@ -1,11 +1,10 @@
 use std::path::{Path, PathBuf};
 
+#[cfg(test)]
 use super::manifest::PluginParser;
 use super::PluginDescriptor;
 
-pub(super) use crate::artifact::{
-    ArtifactPointer as PluginArtifactPointer, ArtifactPointerMemo as PluginNoteFrontmatter,
-};
+pub(super) use crate::artifact::ArtifactPointer as PluginArtifactPointer;
 
 #[derive(Debug, Clone)]
 pub(super) struct ParsedPluginOutput {

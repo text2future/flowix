@@ -1,6 +1,5 @@
 import { Fragment } from 'react';
-import { Check, ChevronRight, Ellipsis, Globe, Palette } from 'lucide-react';
-import { LinkSimpleIcon, FolderOpenIcon, TrashSimpleIcon } from '@phosphor-icons/react';
+import { Check, ChevronRight, Ellipsis, FolderOpen, Globe, Link, Palette, Trash2 } from 'lucide-react';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@shared/ui/dropdown-menu';
 import { POPUP_SEPARATOR_CLASS } from '@shared/ui/popup-separator';
 import { CollectionDisplayMenuItems } from '@features/collection/public/header-api';
@@ -12,9 +11,14 @@ import type { DocumentTitlebarProps, DocumentTitlebarTarget } from './document-t
 
 export function ExternalTitlebarBadge({ target }: { target: DocumentTitlebarTarget }) {
   const { t } = useI18n();
-  if (!target.isOutsideCurrentNotebook) return null;
+  const label = target.isRepository
+    ? t('document.repository.titlebarBadge')
+    : target.isOutsideCurrentNotebook && !target.indexable
+      ? t('document.external.titlebarBadge')
+      : null;
+  if (!label) return null;
   return <span className="shrink-0 whitespace-nowrap pl-3 text-xs text-[var(--muted-foreground)]"
-    aria-label={t('document.external.titlebarBadge')}>{t('document.external.titlebarBadge')}</span>;
+    aria-label={label}>{label}</span>;
 }
 
 export function ExternalPathDisplay({ path }: { path: string }) {
@@ -213,7 +217,7 @@ export function MediaActions({
           </button>
         </Tooltip>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-[200px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+      <DropdownMenuContent scrollerClassName="space-y-0.5" align="end" className="w-[200px] rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
         {collectionDisplay && <>
           <CollectionDisplayMenuItems {...collectionDisplay} />
           <div role="separator" aria-hidden="true" className={POPUP_SEPARATOR_CLASS} />
@@ -222,23 +226,23 @@ export function MediaActions({
           onClick={() => { void onCopyLink(); }}
           className="group h-7 items-center justify-start gap-2 rounded-lg px-2 py-0 text-left hover:bg-[var(--hover-bg)] hover:text-[var(--foreground)]"
         >
-          <LinkSimpleIcon className="h-4 w-4" />
+          <Link className="h-4 w-4" />
           {t('document.action.copyLink')}
         </DropdownMenuItem>
         <DropdownMenuItem
           onClick={onRevealInFileManager}
           className="group h-7 items-center justify-start gap-2 rounded-lg px-2 py-0 text-left hover:bg-[var(--hover-bg)] hover:text-[var(--foreground)]"
         >
-          <FolderOpenIcon className="h-4 w-4" />
+          <FolderOpen className="h-4 w-4" />
           {t('memo.fileTree.reveal')}
         </DropdownMenuItem>
         {onRequestDelete && <>
           <div role="separator" aria-hidden="true" className={POPUP_SEPARATOR_CLASS} />
           <DropdownMenuItem
             onClick={onRequestDelete}
-            className="group h-7 items-center justify-start gap-2 rounded-lg px-2 py-0 text-left hover:bg-transparent hover:text-[var(--destructive)]"
+            className="group h-7 items-center justify-start gap-2 rounded-lg px-2 py-0 text-left hover:bg-[var(--hover-bg)] hover:text-[var(--destructive)]"
           >
-            <TrashSimpleIcon className="h-4 w-4" />
+            <Trash2 className="h-4 w-4" />
             {t('media.fileTree.delete')}
           </DropdownMenuItem>
         </>}

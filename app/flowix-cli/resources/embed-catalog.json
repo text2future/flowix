@@ -1,0 +1,205 @@
+{
+  "protocol": "flowix.embed",
+  "version": 1,
+  "maxViewRows": 200,
+  "maxInflight": 16,
+  "fieldTypes": [
+    "primary",
+    "tag",
+    "select",
+    "multi-select",
+    "text",
+    "number",
+    "boolean",
+    "date",
+    "url",
+    "icon",
+    "color",
+    "image"
+  ],
+  "errorCodes": [
+    "E_UNSUPPORTED",
+    "E_SCOPE",
+    "E_BUSY",
+    "E_INVALID",
+    "E_TIMEOUT",
+    "E_INTERNAL"
+  ],
+  "bindings": [
+    "text",
+    "attr",
+    "style",
+    "each",
+    "if",
+    "as"
+  ],
+  "metaKeys": [
+    "stats",
+    "views",
+    "custom-views",
+    "theme"
+  ],
+  "kinds": [
+    {
+      "kind": "capabilities",
+      "intent": "查询当前宿主能力",
+      "whenToUse": "确认当前页面可用的能力与授权范围",
+      "summary": "返回当前宿主协议、能力目录及授权范围",
+      "params": null,
+      "returns": "{ protocol, version, kinds, scope, authorization }",
+      "notes": [],
+      "metaKey": null
+    },
+    {
+      "kind": "dismiss-html-notice",
+      "intent": "关闭页面提示",
+      "whenToUse": "记住页面提示已关闭",
+      "summary": "在当前笔记本的 HTML 文件内记录提示已关闭",
+      "params": "{ id }",
+      "returns": "{ dismissed: true }",
+      "notes": [
+        "id 仅允许小写字母、数字和连字符，最长 64 个字符",
+        "关闭状态保存到当前 HTML 文件，并可能使页面重新加载"
+      ],
+      "metaKey": null
+    },
+    {
+      "kind": "notes-list",
+      "intent": "查看笔记列表",
+      "whenToUse": "工作台笔记列表",
+      "summary": "按指定字段排序返回当前笔记本的笔记，最多 100 条",
+      "params": "{ limit?, sortBy?, order?, cursor?, includeImages? }",
+      "returns": "{ notes[{ relativePath, title, preview, createdAt, updatedAt, href, imagePreview? }], truncated, nextCursor }",
+      "notes": [
+        "sortBy 为 createdAt / updatedAt / title，默认 createdAt；order 为 asc / desc，默认 desc",
+        "limit 默认 30，范围 1–100；使用 nextCursor 取下一页，排序参数需保持一致；includeImages 为 true 时每页最多 10 条并返回首图缩略图；笔记本变更后从首页重取"
+      ],
+      "metaKey": null
+    },
+    {
+      "kind": "upload-note-image",
+      "intent": "上传笔记图片",
+      "whenToUse": "保存粘贴或拖入的图片",
+      "summary": "将图片文件保存到当前笔记本附件目录",
+      "params": "{ file }",
+      "returns": "{ relativePath }",
+      "notes": [
+        "file 为 File，支持 PNG、JPEG、GIF、WebP，单张不超过 20 MiB",
+        "文件立即保存，未发布时仍保留在附件目录"
+      ],
+      "metaKey": null
+    },
+    {
+      "kind": "select-note-images",
+      "intent": "选择笔记图片",
+      "whenToUse": "为新笔记添加图片",
+      "summary": "通过系统对话框选择图片并保存到当前笔记本附件目录",
+      "params": null,
+      "returns": "{ images: string[] }",
+      "notes": [
+        "取消选择返回空数组；选择后附件立即保存"
+      ],
+      "metaKey": null
+    },
+    {
+      "kind": "create-note",
+      "intent": "创建笔记",
+      "whenToUse": "提交一条记录",
+      "summary": "在当前笔记本的指定文件夹创建 Markdown 笔记",
+      "params": "{ parentRelativePath, content, clientRequestId, images? }",
+      "returns": "{ relativePath, href }",
+      "notes": [
+        "clientRequestId 对每次新提交须唯一；重试时保留相同参数及标识",
+        "正文上限为 65536 UTF-8 字节；页面可直接创建笔记"
+      ],
+      "metaKey": null
+    },
+    {
+      "kind": "notebook-folders",
+      "intent": "选择笔记本文件夹",
+      "whenToUse": "需要选择笔记创建位置时",
+      "summary": "当前笔记本的文件夹选项，包含根目录及默认创建目录标记",
+      "params": null,
+      "returns": "{ folders[{ name, relativePath, depth, isDefault }], defaultRelativePath, defaultAvailable, truncated }",
+      "notes": [
+        "relativePath 为空字符串表示根目录；truncated 为 true 时列表不完整，不能据此判断默认目录不可用",
+        "配置的默认路径无效时请求失败"
+      ],
+      "metaKey": null
+    },
+    {
+      "kind": "notebook-views",
+      "intent": "找到能展示的数据集合",
+      "whenToUse": "任何「展示某个集合」的页面，第一步",
+      "summary": "笔记本内的集合清单及其视图定义（每页最多 50 个集合）",
+      "params": "{ cursor? }",
+      "returns": "{ collections[{ name, type, relativePath, href, defaultViewId, rowCount, views[{ id, name, layout }] }], truncated, nextCursor }",
+      "notes": [
+        "relativePath 直接喂给 view-data；它是笔记本内相对路径",
+        "rowCount 为 null 表示要跑查询才知道，别当 0，也别用它判断集合是否为空",
+        "href 是打开这个集合的链接，放进 <a href> 即可点开；为空表示这一项没有可打开的地址，别硬做链接"
+      ],
+      "metaKey": "views"
+    },
+    {
+      "kind": "view-data",
+      "intent": "取一个视图的行",
+      "whenToUse": "表格 / 看板 / 列表 / 图墙",
+      "summary": "一个集合视图的实际行：列定义 + 行（每行带 href 可直接跳转）；表格/工作文档/媒体库/文件夹集合各自按界面同一套规则出行。最多 200 行",
+      "params": "{ relativePath, viewId?, limit?, cursor? }",
+      "returns": "{ collection, viewId, fields[{ id, name, type, propertyKey }], rows[{ id, notePath, title, updatedAt, tags, properties, resolved, href }], total, truncated, nextCursor }",
+      "notes": [
+        "properties 用 fields[].propertyKey 取；title 已回退文件名，resolved=false 表示笔记索引里没有它",
+        "href 是打开这一行的链接（笔记才有，图片 / 文档为空字符串），放进 <a href> 即可点开",
+        "total 是总数，未知时为 null；truncated 为 true 时使用 nextCursor 继续读取，数据变化后从首页重取"
+      ],
+      "metaKey": null
+    },
+    {
+      "kind": "notebook-stats",
+      "intent": "摸清这个笔记本",
+      "whenToUse": "概览数字、标签分布",
+      "summary": "笔记本概览：笔记数、待办数、数据库数、标签 Top20（含柱宽百分比）",
+      "params": null,
+      "returns": "{ notebookId, totalMemos, todoMemos, databaseCount, memoCount, topTags[{ name, count, barWidth }] }",
+      "notes": [
+        "databaseCount 统计集合索引中有集合标识的全部集合；barWidth 可直接绑定；memoCount 在索引未就绪时为 null"
+      ],
+      "metaKey": "stats"
+    },
+    {
+      "kind": "product-theme",
+      "intent": "跟随产品配色",
+      "whenToUse": "让页面与产品外观一致",
+      "summary": "当前产品主题色板（background/foreground/brand/card 等 7 个 token）",
+      "params": null,
+      "returns": "{ id, tokens{ background, foreground, secondaryForeground, mutedForeground, border, brand, card } }",
+      "notes": [
+        "主题切换时宿主会推送 flowix:local-html-data-changed（kinds: [\"product-theme\"]）"
+      ],
+      "metaKey": "theme"
+    },
+    {
+      "kind": "notebook-custom-views",
+      "intent": "复用用户建好的筛选",
+      "whenToUse": "想用笔记本里已有的筛选条件，而不是自己定义",
+      "summary": "笔记本自定义视图过滤器（.flowix/system.json 中的 filters）",
+      "params": null,
+      "returns": "{ filters[] }",
+      "notes": [
+        "filters 的形状随产品版本变化，只做展示用，不要依赖具体字段"
+      ],
+      "metaKey": "custom-views"
+    }
+  ],
+  "templates": [
+    {
+      "id": "workbench",
+      "about": "零 JS 工作台：概览数字 + 标签分布 + 集合清单（纯声明式绑定）"
+    },
+    {
+      "id": "table",
+      "about": "集合表格：手动取行、按列渲染、笔记本变更后重取（命令式）"
+    }
+  ]
+}

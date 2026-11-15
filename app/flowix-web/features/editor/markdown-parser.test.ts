@@ -1,5 +1,6 @@
 import { Editor, type JSONContent } from '@tiptap/core';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import * as resourceContext from '@features/document/public/resource-context';
 import { createMarkdownEditorExtensions, serializeEditorMarkdown } from './markdown-editor-extensions';
 
 const editors: Editor[] = [];
@@ -9,9 +10,7 @@ afterEach(() => editors.splice(0).forEach(editor => editor.destroy()));
 function createEditor(content: string | JSONContent): Editor {
   const editor = new Editor({
     extensions: createMarkdownEditorExtensions({
-      getOwnerPath: () => undefined,
-      getAttachmentNotebookId: () => undefined,
-      workspaceHost: 'column-1',
+          workspaceHost: 'column-1',
       getPlaceholder: () => '',
     }),
     content,
@@ -26,6 +25,25 @@ function tableSource(value: string): string {
 }
 
 describe('Markdown parsing and browser compatibility', () => {
+  it.each([
+    ['report.pdf', 'fileAttachment'],
+    ['clip.mp4', 'videoAttachment'],
+    ['clip.mkv', 'videoAttachment'],
+  ])('saves an uploaded %s as a standard link and reopens it as a clickable link', (name, type) => {
+    const href = `../attachments/${name}`;
+    const attachment = { type, attrs: { url: href, src: href, name, title: name, storageMode: 'attachment', storageKey: `/book/attachments/${name}` } };
+    const editor = createEditor('');
+    const saved = editor.markdown!.serialize({ type: 'doc', content: [
+      type === 'fileAttachment' ? { type: 'paragraph', content: [attachment] } : attachment,
+    ] });
+    expect(saved).toBe(`[${name}](${href})`);
+    const reopened = createEditor(saved);
+    expect(reopened.getJSON().content?.[0].content?.[0]).toMatchObject({
+      type: 'text', text: name, marks: [{ type: 'link', attrs: { href } }],
+    });
+    expect(serializeEditorMarkdown(reopened)).toBe(saved);
+  });
+
   it.each([' ', '\u00a0', '&nbsp;', '&amp;nbsp;', '&NBSP;', '&nbsp; &amp;nbsp;'])
     ('opens and saves empty table headers and cells without placeholders: %s', marker => {
       const source = tableSource(marker);
@@ -88,4 +106,20 @@ describe('Markdown parsing and browser compatibility', () => {
     const document = createEditor(source).getJSON() as JSONContent;
     expect(document.content?.[0].content?.[0].text).toBe(code);
   });
+});
+
+
+it('serializes note cards from one document context without mutating live node locators', () => {
+  const snapshot = vi.spyOn(resourceContext, 'getDocumentResourceSnapshot').mockReturnValue({
+    notebooks: [{ id: 'book', name: 'Book', path: 'C:/Book', createdAt: 0, updatedAt: 0, isDefault: true }], repositories: [],
+    roots: [{ id: 'book', path: 'C:/Book', kind: 'notebook' }],
+  });
+  try {
+    const editor = createEditor('[[../first.md]] [[../second.md#Heading]]');
+    const before = editor.getJSON();
+    snapshot.mockClear();
+    expect(serializeEditorMarkdown(editor, 'C:/Book/sub/source.md')).toBe('[[../first.md]] [[../second.md#Heading]]');
+    expect(snapshot).toHaveBeenCalledTimes(1);
+    expect(editor.getJSON()).toEqual(before);
+  } finally { snapshot.mockRestore(); }
 });

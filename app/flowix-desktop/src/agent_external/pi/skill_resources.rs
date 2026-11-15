@@ -100,7 +100,7 @@ fn hash_skill_tree(
 fn compatible_skill_contents(contents: &[u8], command_name: &str) -> Result<Vec<u8>, String> {
     let source = std::str::from_utf8(contents)
         .map_err(|error| format!("notebook Pi Skill is not valid UTF-8: {error}"))?;
-    crate::commands::agent::skill_frontmatter::render_with_name(source, command_name)
+    flowix_core::skill_frontmatter::render_with_name(source, command_name)
 }
 
 fn stage_skill(
@@ -195,7 +195,7 @@ pub(super) fn capture(
     config_directory: &Path,
     session_directory: &Path,
 ) -> Result<PiStartupResources, String> {
-    let skills = crate::commands::agent::notebook_agents::enabled_notebook_skills(cwd)?;
+    let skills = flowix_core::notebook_agents::enabled_notebook_skills(cwd)?;
     let mut hasher = Sha256::new();
     let mut skill_directories = Vec::with_capacity(skills.len());
     for skill in skills {

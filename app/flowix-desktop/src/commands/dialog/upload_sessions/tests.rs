@@ -22,8 +22,11 @@ fn sessions_enforce_owner_order_limits_expiry_and_release() {
         sessions.begin(
             "main",
             0,
-            Some("notes/memo.md".into()),
-            "notebook".into(),
+            UploadDestination::Notebook {
+                notebook_id: "notebook".into(),
+                note_path: Some("notes/memo.md".into()),
+                repository_path: None,
+            },
             "file.bin".into(),
             size,
             false,
@@ -81,8 +84,11 @@ fn sessions_enforce_owner_order_limits_expiry_and_release() {
         .begin(
             "main",
             sessions.generation("main").unwrap(),
-            Some("notes/memo.md".into()),
-            "notebook".into(),
+            UploadDestination::Notebook {
+                notebook_id: "notebook".into(),
+                note_path: Some("notes/memo.md".into()),
+                repository_path: None,
+            },
             "empty".into(),
             0,
             false,

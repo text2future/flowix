@@ -76,7 +76,13 @@ page. Use `collection.read` when you need the raw YAML payload.
 {"action":"collection.list","notebook":"work","limit":50,"offset":0}
 {"action":"collection.describe","notebook":"work","collectionId":"col_…"}
 {"action":"collection.query","notebook":"work","collectionId":"col_…","domain":"notes","limit":50,"offset":0}
+{"action":"collection.add-note","notebook":"work","collectionId":"col_…","title":"Meeting notes","content":"# Meeting notes\n\nDecisions and follow-ups."}
 ```
+
+`collection.add-note` creates a Markdown note in the collection's note directory,
+adds an explicit `records.include` row, and advances the collection revision. It
+supports table collections and hybrid collections that contain the `notes`
+domain. Use it only when the user asks to add a note to that collection.
 
 The legacy `{ "command": "search ...", "stdin": "..." }` form remains  
 accepted for compatibility but is no longer the recommended contract.

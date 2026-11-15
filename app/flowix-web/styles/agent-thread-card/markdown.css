@@ -8,14 +8,6 @@
   text-align: center;
 }
 
-.agent-conversation-surface
-  .agent-thread-card__message--end
-  .agent-thread-card__message-content {
-  color: var(--muted-foreground);
-  font-size: calc(var(--agent-message-base-font-size, 15px) * var(--agent-message-size-scale, 1));
-  text-align: center;
-}
-
 /* 消息正文容器 ── 现在内容是 marked 输出的 HTML 树, 不能再用
  * white-space: pre-wrap (会把 <p> 节点当文本节点, 不再分段)。改成
  * 默认 block 流式 + overflow-wrap: anywhere (替代 word-break:
@@ -53,9 +45,8 @@
   text-align: center;
 }
 
-/* ── markdown 元素排版 ── 对齐面板 markdown-renderer WRAPPER_CLASS
- * 子选择器 (面板走 Tailwind arbitrary variant, 卡片走原生 CSS 子选择器,
- * 效果相同)。标题尺寸为 H1–H3 1.2 倍 agent 字号、H4–H6 继承 agent 字号；
+/* ── Markdown 元素排版 ── 面板和卡片共用消息渲染器及这些样式。
+ * 标题尺寸为 H1–H3 1.2 倍 agent 字号、H4–H6 继承 agent 字号；
  * 正文跟随 agent 字号档位。 */
 .agent-conversation-surface .agent-thread-card__message-content > *:first-child {
   margin-top: 0;
@@ -1388,7 +1379,7 @@
   border-radius: 0.75rem;
   background: var(--card);
   color: var(--agent-foreground);
-  box-shadow: 0 4px 24px -3px rgb(0 0 0 / 24%);
+  box-shadow: var(--floating-shadow-popup, 0 4px 24px -3px rgb(0 0 0 / 24%));
   opacity: 0;
   transform: scale(0.96);
   transform-origin: top left;
@@ -1539,13 +1530,7 @@
   display: none;
 }
 
-.agent-thread-card__codex-settings-title {
-  padding: 0.35rem 0.375rem 0.35rem;
-  color: var(--muted-foreground);
-  font-size: 0.75rem;
-  line-height: 1.2;
-}
-
+.agent-thread-card__codex-settings-title,
 .agent-thread-card__codex-settings-section {
   padding: 0.35rem 0.375rem 0.35rem;
   color: var(--muted-foreground);

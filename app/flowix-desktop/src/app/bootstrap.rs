@@ -112,7 +112,6 @@ pub fn run() {
     };
 
     let memo_file_arc = Arc::new(RwLock::new(memo_file));
-    let notebook_transition = Arc::new(std::sync::Mutex::new(()));
     let thread_manager = match ThreadManager::new_uninitialized(thread_db_path.clone()) {
         Ok(manager) => manager,
         Err(err) => {
@@ -144,7 +143,6 @@ pub fn run() {
     let memo_file_for_state = memo_file_arc.clone();
     let thread_manager_for_state = thread_manager_arc.clone();
     let startup_for_state = startup_coordinator.clone();
-    let notebook_transition_for_state = notebook_transition.clone();
     // �?��设�?登�?模块 ── 和上面同样的 prep 模式: clone �?setup �?���?
     let user_config_dir_for_device = user_config_dir.clone();
     // `system_data` 娌?
@@ -198,6 +196,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(crate::frame_scrollbar::init())
+        .plugin(crate::frame_interaction::init())
         .plugin(crate::local_html_preview::init())
         .manage(crate::app_update::AppUpdateState::default())
         .manage(open_targets::PendingOpenTargets::default())
@@ -369,6 +368,16 @@ pub fn run() {
                 }),
             );
 
+            // pi 的 Cloud 凭据路径要 `SyncManager` 与启动时选定的 API 基址。
+            // 只能在这里注入：`PiRpcManager` 在这两个对象之前构造（见上方 agent
+            // manager 的装配顺序），构造参数传不进去。
+            pi_rpc_manager.install_cloud_context(
+                crate::agent_external::pi::PiCloudContext::new(
+                    cloud_sync_for_state.clone(),
+                    cloud_environment.api_base(),
+                ),
+            );
+
             crate::dsh::set_user_selected_cli(
                 user_config_for_state
                     .get_preference()
@@ -377,7 +386,7 @@ pub fn run() {
             );
             let app_state = AppState {
                 upload_sessions: Default::default(),
-                document_access: Default::default(),
+                document_access: crate::app::document_access::DocumentAccess::new(&user_config_dir_for_device),
                 security_bookmarks: security_bookmarks_for_state.clone(),
                 export_access: Default::default(),
                 user_config: user_config_for_state.clone(),
@@ -397,7 +406,7 @@ pub fn run() {
                 plugin_runs: crate::plugin::PluginRunCoordinator::default(),
                 notebook_imports: Default::default(),
                 notebook_background: Default::default(),
-                notebook_transition: notebook_transition_for_state,
+                notebook_transition: Default::default(),
                 startup: startup_for_state,
                 watcher_retry_stop: Arc::new(AtomicBool::new(false)),
             };
@@ -452,13 +461,93 @@ pub fn run() {
                 std::sync::Arc::new(crate::events::TauriDispatcher::new(app.handle().clone()));
             app.manage(dispatcher);
             app.manage(
-                commands::external_document_watch::ExternalDocumentWatchState::new(
+                crate::external_watch::ExternalDocumentWatchState::new(
                     app.handle().clone(),
                 ),
             );
-            app.manage(commands::file_browser_watch::FileBrowserWatchState::new(
+            // The watcher asks whether a lease root may still be published; the
+            // answer depends on the notebook registry, which lives behind
+            // `AppState`. Injected here so `file_watch` never depends on the IPC
+            // command layer.
+            let file_watch_guard: crate::file_watch::FileRootGuard = {
+                let app = app.handle().clone();
+                std::sync::Arc::new(move |path: &std::path::Path| {
+                    let Some(state) = app.try_state::<crate::app::state::AppState>() else {
+                        return false;
+                    };
+                    crate::commands::helpers::is_registered_notebook_path_with_state(path, &state)
+                        || crate::commands::helpers::is_attached_notebook_directory_with_state(
+                            path, &state,
+                        )
+                })
+            };
+            app.manage(crate::file_watch::FileBrowserWatchState::new(
                 app.handle().clone(),
+                file_watch_guard,
             ));
+            // watcher 的一切「外部能力」都从这里注进去（云同步调度、变更登记、
+            // agent 会话路径重定位、后台索引/媒体扫描）。实现体自己按需取
+            // `AppState`，所以没有安装顺序要求 —— 真正的调用发生在事件到达之后。
+            // 这样磁盘观察模块不必反向依赖壳的装配容器。
+            crate::watcher::host_port::install(crate::watcher::host_port::HostPorts {
+                schedule_cloud_sync: |app, notebook_id, generation_changed| {
+                    commands::cloud::schedule_notebook_sync_observation(
+                        app.clone(),
+                        notebook_id.to_owned(),
+                        generation_changed,
+                    );
+                },
+                record_local_change: |app, notebook_id, cloud_id, kind, fingerprint| {
+                    // 沿用改造前的宽容语义：`AppState` 尚未就位时跳过登记，不 panic。
+                    // 事件可能在装配窗口里到达，而这是在 watcher 的工作线程上。
+                    let Some(state) = app.try_state::<AppState>() else {
+                        return Err("app state is not ready".to_string());
+                    };
+                    state
+                        .cloud_sync
+                        .record_v2_local_change(notebook_id, cloud_id, kind, fingerprint)
+                        .map_err(|error| error.to_string())
+                },
+                record_local_move: |app, notebook_id, from_path, to_path| {
+                    let Some(state) = app.try_state::<AppState>() else {
+                        return Err("app state is not ready".to_string());
+                    };
+                    state
+                        .cloud_sync
+                        .record_v2_local_move(notebook_id, from_path, to_path)
+                        .map_err(|error| error.to_string())
+                },
+                rebase_agent_paths: |app,
+                                     old_notebook_id,
+                                     new_notebook_id,
+                                     old_relative,
+                                     new_relative,
+                                     old_absolute,
+                                     new_absolute| {
+                    app.state::<AppState>()
+                        .thread_manager
+                        .rebase_agent_note_paths(
+                            old_notebook_id,
+                            new_notebook_id,
+                            old_relative,
+                            new_relative,
+                            old_absolute,
+                            new_absolute,
+                        )
+                        .map_err(|error| error.to_string())
+                },
+                request_background: |app, notebook_id, urgent, invalidate| {
+                    app.state::<AppState>()
+                        .notebook_background
+                        .request(notebook_id, urgent, invalidate);
+                },
+                request_media: |app, notebook_id| {
+                    app.state::<AppState>()
+                        .notebook_background
+                        .request_media(notebook_id)
+                        .is_some()
+                },
+            });
             // �?��时把 preference.json::watcher 应用�?MemoWatcher;
             // 同时监听 user-config-changed，在偏好更新后热加载 watcher 规则。
             {
@@ -667,6 +756,7 @@ pub fn run() {
             open_targets::acknowledge_open_targets,
             commands::memo::reads::search_path_notes,
             commands::memo::creates::add_path_document,
+            commands::memo::creates::create_html_note,
             commands::memo::creates::import_external_document_by_path,
             commands::memo::creates::move_memo_to_directory,
             commands::memo::creates::list_memo_templates,
@@ -714,10 +804,13 @@ pub fn run() {
             commands::collection::set_collection_display_state,
             commands::collection::set_collection_pinned,
             commands::collection::make_collection_identity_unique,
+            commands::folder::list_folder_index,
+            commands::folder::set_folder_index,
             commands::pinned::list_pinned_entries,
             commands::media::set_document_pinned,
             commands::file::get_notebook_view_preferences,
             commands::file::get_notebook_folder_options,
+            commands::file::get_html_notebook_folders,
             commands::file::is_path_index_excluded,
             commands::file::set_notebook_view_preferences,
             commands::file::read_file,
@@ -742,6 +835,7 @@ pub fn run() {
             commands::file::delete_file,
             commands::file::delete_folder,
             commands::file::create_folder,
+            commands::file::ensure_notebook_folder,
             commands::file::create_document,
             // font cache
             commands::font::begin_font_selection,
@@ -762,6 +856,7 @@ pub fn run() {
             commands::dialog::write_export_file,
             commands::export::export_pdf,
             commands::dialog::save_notebook_asset,
+            commands::dialog::retain_external_file_reference,
             commands::dialog::upload_sessions::begin_attachment_upload,
             commands::dialog::upload_sessions::append_attachment_upload,
             commands::dialog::upload_sessions::finish_attachment_upload,
@@ -1013,8 +1108,7 @@ fn spawn_workbench_startup(
             let app_state = app_state.inner();
             let _transition = app_state
                 .notebook_transition
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+                .lock();
             let current_notebook_id =
                 crate::lock_utils::read_lock(&memo_file, "memo_file").current_notebook_id_value();
             let mut watcher = memo_watcher.write().unwrap_or_else(|p| p.into_inner());
@@ -1098,8 +1192,7 @@ fn spawn_notebook_watch_retry(
             let state = app.state::<AppState>();
             let _transition = state
                 .notebook_transition
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+                .lock();
             let active_notebook_id = crate::lock_utils::read_lock(&state.memo_file, "memo_file")
                 .current_notebook_id_value();
             let active_config =

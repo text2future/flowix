@@ -6,6 +6,7 @@ pub mod cli;
 pub(crate) mod collection_store;
 pub mod errors;
 pub mod fmt;
+pub(crate) mod html;
 pub mod mcp;
 pub(crate) mod operation;
 pub(crate) mod output;

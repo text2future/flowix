@@ -3,9 +3,9 @@ import { decodeStorageKey } from './asset-markdown';
 import { resolveDocumentRelativeHref } from './document-relative-path';
 
 /**
- * 笔记索引里的 `thumbnail` 有两种值域：
- *   1. `asset://localhost/<存储键>` ── 编辑器内粘贴/上传的图片写回 Markdown 的形态；
- *   2. 文档相对路径 ── 外部写入或导入的 Markdown 原样保留（如 `配图/cover.jpg`）。
+ * 笔记索引里的 `thumbnail` 可能是：
+ *   1. `asset://localhost/<存储键>` ── 旧 Markdown 的兼容形式；
+ *   2. 文档相对路径 ── 当前 Markdown 的常规形式（如 `attachments/cover.jpg`）。
  *
  * 渲染端过去只处理第 1 种，第 2 种会被直接塞进 `<img src>`，被 WebView 当成
  * 相对自身 origin 的地址而 404。这里把两种都规约成可直接加载的 URL。

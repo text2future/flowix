@@ -1,4 +1,5 @@
 'use client';
+import { PopupScrollArea } from '@shared/ui/popup-scroll-area';
 
 /**
  * 集合 tab 条的「···」菜单。
@@ -219,7 +220,7 @@ export function CollectionViewMenu<TableField extends MenuField, TableView exten
       </button>
     </PopoverTrigger>
     {/* 触发按钮在 tab 行右端，弹层贴它的右缘向左展开，避免越过窗口右边。 */}
-    <PopoverContent key={step} align="end" side="bottom" sideOffset={5} fitViewport className={`${step === 'manage' ? 'w-[220px]' : 'w-[190px]'} rounded-xl p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]`}>
+    <PopoverContent key={step} align="end" side="bottom" sideOffset={5} fitViewport scrollable={step !== 'manage'} className={`${step === 'manage' ? 'flex min-h-0 flex-col w-[220px]' : 'w-[190px]'} rounded-xl p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]`}>
       {step === 'kind' ? <div className="space-y-0.5">
         <div className="px-2 py-1 text-xs text-[var(--muted-foreground)]">{t('collection.menu.addNoteViews')}</div>
         <Tooltip content={t('collection.menu.viewDescription.table')} side="right" align="start" sideOffset={0} className="w-[160px] whitespace-normal leading-5">
@@ -280,14 +281,14 @@ export function CollectionViewMenu<TableField extends MenuField, TableView exten
             ? <EyeIcon size={16} weight="bold" className="text-[var(--brand)]" aria-hidden="true" />
             : <EyeSlashIcon size={16} weight="bold" className="text-[var(--muted-foreground)]" aria-hidden="true" />}
         </button> : null}
-      </div> : step === 'manage' ? <div className="space-y-0.5">
+      </div> : step === 'manage' ? <div className="flex min-h-0 flex-col space-y-0.5">
         <div className="flex min-w-0 items-center gap-0.5 px-1.5 py-[0.35rem]">
           <button type="button" aria-label={t('collection.menu.backToViewTypes')} className="inline-flex min-h-4 shrink-0 items-center gap-0.5 rounded px-0 text-xs leading-[1.2] text-[var(--muted-foreground)] hover:text-[var(--foreground)] focus-visible:outline-none" onClick={() => wizard.setStep('kind')}>
             <ChevronLeft className="h-3.5 w-3.5" aria-hidden="true" />
             <span className="min-w-0 truncate text-xs leading-[1.2] text-[var(--muted-foreground)]">{t('collection.menu.manageViews')}</span>
           </button>
         </div>
-        <div ref={manageListRef} className="max-h-[min(60vh,420px)] space-y-0.5 overflow-y-auto">
+        <PopupScrollArea scrollerRef={manageListRef} className="max-h-[min(60vh,420px)]" scrollerClassName="space-y-0.5">
           {/* 全部已添加的 tab 按集合顺序展示；固定的文件夹 tab 保持在首位，不参与拖动。
               视图型宿主 tab 与表格视图同一套改名交互（铅笔 → 输入框 → 保存/失焦提交）。 */}
           {rows.map((row) => {
@@ -367,7 +368,7 @@ export function CollectionViewMenu<TableField extends MenuField, TableView exten
               </>}
             </div>;
           })}
-        </div>
+        </PopupScrollArea>
       </div> : <div className="space-y-0.5">
         <div className="flex min-w-0 items-center gap-0.5 px-1.5 py-[0.35rem]">
           {wizard.configuringViewId ? <span className="min-w-0 truncate px-0.5 text-xs leading-[1.2] text-[var(--muted-foreground)]">{fieldPickTitle}</span> : <button type="button" aria-label={t('collection.menu.backToViewTypes')} className="inline-flex min-h-4 shrink-0 items-center gap-0.5 rounded px-0 text-xs leading-[1.2] text-[var(--muted-foreground)] hover:text-[var(--foreground)] focus-visible:outline-none" onClick={wizard.backToKinds}>

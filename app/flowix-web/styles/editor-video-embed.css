@@ -8,8 +8,8 @@
   border: 1px solid var(--border-popup);
   border-radius: 10px;
   background: color-mix(in oklch, var(--popover) 94%, transparent);
-  color: #000;
-  box-shadow: 0 4px 24px -3px rgb(0 0 0 / 24%);
+  color: var(--popover-foreground);
+  box-shadow: var(--floating-shadow-popup, 0 4px 24px -3px rgb(0 0 0 / 24%));
   backdrop-filter: blur(18px);
   font-size: 12px;
   line-height: 1.4;
@@ -91,7 +91,7 @@
   border: 1px solid var(--border-popup);
   border-radius: 10px;
   background: color-mix(in oklch, var(--popover) 94%, transparent);
-  box-shadow: 0 4px 24px -3px rgb(0 0 0 / 24%);
+  box-shadow: var(--floating-shadow-popup, 0 4px 24px -3px rgb(0 0 0 / 24%));
   backdrop-filter: blur(18px);
   font-size: 12px;
   line-height: 1.4;
@@ -111,7 +111,7 @@
   border: 0;
   border-radius: 7px;
   background: transparent;
-  color: #000;
+  color: var(--popover-foreground);
   font: inherit;
   text-decoration: none;
   cursor: pointer;

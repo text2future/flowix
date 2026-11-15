@@ -153,6 +153,8 @@ pub fn strip_markdown(text: &str) -> String {
 
     static NOTE_LINK_RE: Lazy<Regex> =
         Lazy::new(|| Regex::new(r"(?is)<note\b[^>]*>.*?</note>").unwrap());
+    static WIKI_LINK_RE: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r"!?\[\[[^\]\r\n]*\]\]").unwrap());
     static MARKDOWN_IMAGE_RE: Lazy<Regex> =
         Lazy::new(|| Regex::new(r"!\[[^\]]*\]\([^)]+\)(?:\{[^}\n]*\})?").unwrap());
     static MARKDOWN_LINK_RE: Lazy<Regex> =
@@ -161,6 +163,7 @@ pub fn strip_markdown(text: &str) -> String {
     static WHITESPACE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s+").unwrap());
 
     let value = NOTE_LINK_RE.replace_all(&value, "");
+    let value = WIKI_LINK_RE.replace_all(&value, "");
     let value = MARKDOWN_IMAGE_RE.replace_all(&value, "");
     let value = MARKDOWN_LINK_RE.replace_all(&value, "");
     let value = MARKDOWN_DECORATION_RE.replace_all(&value, "");

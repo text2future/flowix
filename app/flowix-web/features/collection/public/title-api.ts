@@ -15,7 +15,7 @@
  * 这类私有路径（会触犯跨模块 public 边界门禁）。
  */
 export { CollectionTitle } from '@features/collection/collection-title';
-export { CollectionNameHeader, CollectionHeaderIcon, collectionHeaderTitle, type CollectionHeaderTitle, type CollectionHeaderSubtitle } from '@features/collection/collection-name-header';
+export { CollectionNameHeader, CollectionHeaderIcon, collectionHeaderTitle, folderHeaderTitle, type CollectionHeaderTitle, type CollectionHeaderSubtitle } from '@features/collection/collection-name-header';
 export { CollectionDisplayMenu } from '@features/collection/collection-display-menu';
 export { CollectionDisplayMenuItems } from '@features/collection/collection-display-menu';
 export { useCollectionNameEdit } from '@features/collection/use-collection-name-edit';

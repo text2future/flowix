@@ -1,4 +1,8 @@
-//! Notebook folder listings and collection-to-note reference maintenance.
+//! Notebook folder listings.
+//!
+//! Collection-to-note reference maintenance after a path moves lives in
+//! [`flowix_core::collection_store`], so the file watcher can call it without
+//! reaching into the command layer.
 use crate::{app::state::AppState, lock_utils::read_lock};
 use flowix_core::memo_file::{FileManagementPolicy, FileWriteOutcome, MemoFile, ResourceKind};
 use serde::{Deserialize, Serialize};
@@ -59,49 +63,6 @@ fn kind(path: &Path) -> &'static str {
     }
 }
 
-pub(crate) fn is_table_document_path(path: &Path) -> bool {
-    super::collection::collection_type_for_path(path)
-        == Some(flowix_core::collection::CollectionType::Table)
-}
-pub(crate) fn refresh_table_document_path(memo: &MemoFile, path: &Path) {
-    super::collection::refresh_path(memo, path);
-}
-pub(crate) fn refresh_view_document_path(memo: &MemoFile, path: &Path) {
-    super::collection::refresh_path(memo, path);
-}
-pub(crate) fn refresh_view_document_catalog_checked(
-    memo: &MemoFile,
-    id: &str,
-    _root: &Path,
-) -> Result<(), String> {
-    super::collection::refresh_catalog(memo, id)
-}
-pub(crate) fn refresh_view_document_catalog(memo: &MemoFile, id: &str, root: &Path) {
-    if let Err(error) = refresh_view_document_catalog_checked(memo, id, root) {
-        tracing::warn!(%error, "collection catalog refresh failed");
-    }
-}
-
-fn rebase_collection_document_paths(
-    source: &str,
-    notebook_id: &str,
-    old_path: &str,
-    new_path: &str,
-) -> Option<String> {
-    let mut document = flowix_core::collection::CollectionDocument::parse(source)
-        .ok()?
-        .normalized_v2()
-        .ok()?;
-    if !document
-        .rebase_paths_for_notebook(notebook_id, old_path, new_path)
-        .ok()?
-    {
-        return None;
-    }
-    document.revise().ok()?;
-    document.serialize().ok()
-}
-
 fn remove_table_document_note_records(source: &str, note_path: &str) -> Option<String> {
     let mut document = flowix_core::collection::CollectionDocument::parse(source)
         .ok()?
@@ -160,7 +121,7 @@ pub(crate) fn remove_table_note_records(memo_file: &MemoFile, notebook_id: &str,
     let Ok(root) = dunce::canonicalize(&notebook.path) else {
         return;
     };
-    let Ok(documents) = super::collection::list_for_rebase(memo_file, notebook_id) else {
+    let Ok(documents) = flowix_core::collection_store::list_for_rebase(memo_file, notebook_id) else {
         return;
     };
 
@@ -186,7 +147,7 @@ pub(crate) fn remove_table_note_records(memo_file: &MemoFile, notebook_id: &str,
                 Some(&source),
             ) {
                 Ok(FileWriteOutcome::Saved) => {
-                    refresh_table_document_path(memo_file, &path);
+                    flowix_core::collection_store::refresh_path(memo_file, &path);
                     break;
                 }
                 Ok(FileWriteOutcome::Conflict { .. }) => {
@@ -198,84 +159,6 @@ pub(crate) fn remove_table_note_records(memo_file: &MemoFile, notebook_id: &str,
                 }
             }
         }
-    }
-}
-
-/// Best-effort maintenance of note/media collection references after a generic path move.
-/// Collection folder mutations perform the same transformation inside their operation journal.
-pub(crate) fn rebase_collection_paths(
-    memo_file: &MemoFile,
-    notebook_id: &str,
-    old_relative_path: &str,
-    new_relative_path: &str,
-) {
-    if old_relative_path == new_relative_path
-        || old_relative_path.is_empty()
-        || new_relative_path.is_empty()
-    {
-        return;
-    }
-    let Some(notebook) = memo_file.get_notebook_config_by_id(notebook_id) else {
-        return;
-    };
-    let Ok(root) = dunce::canonicalize(&notebook.path) else {
-        return;
-    };
-    let Ok(documents) = super::collection::list_for_rebase(memo_file, notebook_id) else {
-        return;
-    };
-
-    for item in documents
-        .into_iter()
-        .filter(|item| item.parse_state == "valid")
-    {
-        let path = root.join(&item.relative_path);
-        let Ok(source) = fs::read_to_string(&path) else {
-            continue;
-        };
-        let Some(next) = rebase_collection_document_paths(
-            &source,
-            notebook_id,
-            old_relative_path,
-            new_relative_path,
-        ) else {
-            continue;
-        };
-        match memo_file.write_file_if_matches_for_notebook(notebook_id, &path, &next, Some(&source))
-        {
-            Ok(FileWriteOutcome::Saved) => refresh_table_document_path(memo_file, &path),
-            Ok(FileWriteOutcome::Conflict { .. }) => {
-                tracing::debug!(path = %path.display(), "table reference rebase skipped after concurrent edit")
-            }
-            Err(error) => {
-                tracing::debug!(path = %path.display(), "table reference rebase skipped: {error}")
-            }
-        }
-    }
-}
-
-/// Rebase references for a file or folder move when both paths belong to the
-/// same notebook. This path-based wrapper is used by generic file operations.
-pub(crate) fn rebase_collection_paths_for_move(memo_file: &MemoFile, source: &Path, target: &Path) {
-    let Ok(notebooks) = memo_file.read_notebook_configs() else {
-        return;
-    };
-    for notebook in notebooks {
-        let Ok(root) = dunce::canonicalize(&notebook.path) else {
-            continue;
-        };
-        let (Ok(old_relative), Ok(new_relative)) =
-            (source.strip_prefix(&root), target.strip_prefix(&root))
-        else {
-            continue;
-        };
-        rebase_collection_paths(
-            memo_file,
-            &notebook.id,
-            &old_relative.to_string_lossy().replace('\\', "/"),
-            &new_relative.to_string_lossy().replace('\\', "/"),
-        );
-        break;
     }
 }
 

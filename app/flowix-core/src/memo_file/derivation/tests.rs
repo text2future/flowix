@@ -810,3 +810,19 @@ fn agent_thread_card_attr_decodes_all_supported_entities() {
     assert_eq!(agents.len(), 1);
     assert_eq!(agents[0].title, "<AI> & Helper \u{00A0} v2");
 }
+
+#[test]
+fn wiki_note_references_do_not_become_derived_titles_or_previews() {
+    for reference in [
+        "[[./target.md]]",
+        "[[../资料/目标.md#标题|别名]]",
+        "[[C:/Notes/target.md]]",
+        r"[[\\server\share\target.md]]",
+        "[[file://server/share/target.md]]",
+    ] {
+        let (title, preview) = extract_title_and_preview(&format!("{reference}\n实际正文"));
+        assert_eq!(title, "实际正文", "{reference}");
+        assert_eq!(preview, "实际正文", "{reference}");
+    }
+    assert_eq!(extract_title_and_preview("前文 [[./target.md]] 后文").1, "前文 后文");
+}

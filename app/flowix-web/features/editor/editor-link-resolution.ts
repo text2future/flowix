@@ -1,4 +1,4 @@
-import { externalFileViewKind, isRelativePathHref } from '@features/editor/code-file';
+import { isRelativePathHref } from '@features/editor/code-file';
 import { normalizePlainLinkHref } from '@features/editor/extensions/markdown-link-markdown';
 import {
   decodeDocumentHref,
@@ -8,7 +8,19 @@ import {
 
 export { decodeDocumentHref as decodeEditorHref } from '@/lib/document-relative-path';
 export { isRelativePathHref } from '@features/editor/code-file';
-export type ResolvedEditorLocalLink = ResolvedDocumentPath;
+export type ResolvedEditorLocalLink = ResolvedDocumentPath & {
+  /** A bare, extensionless destination first probes the owning notebook root. */
+  notebookNoteName?: string;
+  /** Literal Wiki destination to try if its implicit .md note does not exist. */
+  fallbackPath?: string;
+};
+
+export function bareNotebookNoteName(rawHref: string | null | undefined): string | null {
+  const href = rawHref?.trim() ?? '';
+  const name = decodeDocumentHref(href.split(/[?#]/, 1)[0]);
+  return name && !/[.\\/:]/.test(name)
+    && !Array.from(name).some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127) ? name : null;
+}
 
 export interface EditorLinkContext {
   documentPath?: string | null;
@@ -28,11 +40,9 @@ export function resolveEditorLocalHref(
   if (!target) return null;
   if (windowsDrive || href.startsWith('/') || /^file:/i.test(href)) return target;
 
-  const pathPart = decodeDocumentHref(href.split(/[?#]/, 1)[0]);
-  const explicitRelative = /^\.{1,2}\//.test(pathPart);
-  const looksLikeBareDomain = /^[^/]+\.[a-z]{2,}(?:\/|$)/i.test(pathPart);
-  if (!explicitRelative && externalFileViewKind(target.path) === 'unavailable'
-    && !(target.isDirectory && !looksLikeBareDomain)) return null;
+  const notebookNoteName = bareNotebookNoteName(href);
+  if (notebookNoteName) return { ...target, notebookNoteName };
+
   return target;
 }
 
@@ -44,10 +54,10 @@ export function resolveEditorLocalHref(
  */
 export function editorLinkInputValue(rawHref: string | null | undefined): string {
   const raw = rawHref ?? '';
-  if (isRelativePathHref(raw)) return decodeDocumentHref(raw);
+  if (bareNotebookNoteName(raw) || isRelativePathHref(raw)) return decodeDocumentHref(raw);
   const normalized = normalizePlainLinkHref(raw);
   // 本机绝对路径 / file: 地址同样可能出现百分号转义, 进输入框前解码一次。
-  return normalized.startsWith('/') || /^file:/i.test(normalized)
+  return normalized.startsWith('/') || /^(?:file:|[a-z]:[\\/])/i.test(normalized)
     ? decodeDocumentHref(normalized)
     : normalized;
 }

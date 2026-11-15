@@ -15,7 +15,7 @@ describe('chunked attachment transport', () => {
 
     it('slices input and waits for each chunk before committing', async () => {
         const file = new File([new Uint8Array(UPLOAD_CHUNK_BYTES + 1)], 'file');
-        expect(await uploadInChunks(file, 'file', 'memo')).toEqual({ path: '/attachments/file', created: true });
+        expect(await uploadInChunks(file, 'file', { ownerPath: 'memo' })).toEqual({ path: '/attachments/file', created: true });
         expect(invoke).toHaveBeenNthCalledWith(1, 'begin_attachment_upload', { notePath: 'memo', fileName: 'file', size: file.size });
         expect(vi.mocked(readFileBase64).mock.calls.map(([blob]) => blob.size)).toEqual([UPLOAD_CHUNK_BYTES, 1]);
         expect(invoke).toHaveBeenNthCalledWith(2, 'append_attachment_upload', { uploadId: 'upload', offset: 0, content: 'YQ==' });
@@ -24,28 +24,37 @@ describe('chunked attachment transport', () => {
     });
 
     it('commits empty files without sending empty chunks', async () => {
-        await uploadInChunks(new File([], 'empty'), 'empty', 'memo');
+        await uploadInChunks(new File([], 'empty'), 'empty', { ownerPath: 'memo' });
         expect(readFileBase64).not.toHaveBeenCalled();
         expect(invoke).toHaveBeenCalledTimes(2);
     });
 
+    it('uploads external document attachments to the cache without a notebook owner', async () => {
+        const file = new File(['pdf'], 'report.pdf', { type: 'application/pdf' });
+        await uploadInChunks(file, file.name, { deduplicate: true, externalFileCache: true });
+        expect(invoke).toHaveBeenNthCalledWith(1, 'begin_attachment_upload', {
+            externalFileCache: true, fileName: 'report.pdf', size: 3, deduplicate: true,
+        });
+        expect(invoke).toHaveBeenLastCalledWith('finish_attachment_upload', { uploadId: 'upload' });
+    });
+
     it('cancels a session when reading fails', async () => {
         vi.mocked(readFileBase64).mockRejectedValue(new Error('read failed'));
-        await expect(uploadInChunks(new File(['x'], 'file'), 'file', 'memo')).rejects.toThrow('read failed');
+        await expect(uploadInChunks(new File(['x'], 'file'), 'file', { ownerPath: 'memo' })).rejects.toThrow('read failed');
         expect(invoke).toHaveBeenLastCalledWith('cancel_attachment_upload', { uploadId: 'upload' });
     });
 
     it('does not begin after cancellation', async () => {
         const controller = new AbortController();
         controller.abort();
-        await expect(uploadInChunks(new File([], 'file'), 'file', 'memo', controller.signal)).rejects.toMatchObject({ name: 'AbortError' });
+        await expect(uploadInChunks(new File([], 'file'), 'file', { ownerPath: 'memo', signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' });
         expect(invoke).not.toHaveBeenCalled();
     });
 
     it('cancels a session returned after the caller aborts', async () => {
         const controller = new AbortController();
         vi.mocked(invoke).mockImplementationOnce(async () => { controller.abort(); return 'upload'; });
-        await expect(uploadInChunks(new File(['x'], 'file'), 'file', 'memo', controller.signal)).rejects.toMatchObject({ name: 'AbortError' });
+        await expect(uploadInChunks(new File(['x'], 'file'), 'file', { ownerPath: 'memo', signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' });
         expect(readFileBase64).not.toHaveBeenCalled();
         expect(invoke).toHaveBeenLastCalledWith('cancel_attachment_upload', { uploadId: 'upload' });
     });
@@ -57,7 +66,7 @@ describe('chunked attachment transport', () => {
             if (command === 'finish_attachment_upload') controller.abort();
             return { path: '/attachments/file', created: true };
         });
-        expect(await uploadInChunks(new File([], 'file'), 'file', 'memo', controller.signal)).toEqual({ path: '/attachments/file', created: true });
+        expect(await uploadInChunks(new File([], 'file'), 'file', { ownerPath: 'memo', signal: controller.signal })).toEqual({ path: '/attachments/file', created: true });
         expect(invoke).toHaveBeenCalledTimes(2);
     });
 });

@@ -1,5 +1,7 @@
 'use client';
 
+import { TREE_ICON_COLOR_CLASS } from '@shared/ui/tree-icon-color';
+
 import { useSyncExternalStore } from 'react';
 import folderIcon from '@/assets/folder-outline.svg?raw';
 
@@ -195,7 +197,7 @@ export function ResourceFolderIcon({ className, hidden = false }: {
       aria-hidden="true"
       className={`inline-flex items-center justify-center ${className ?? ''} ${hidden
         ? 'text-[var(--muted-foreground)]'
-        : 'text-[color-mix(in_oklch,var(--foreground)_70%,black_30%)] [[data-theme="dark"]_&]:text-[var(--foreground)] [[data-theme="mist"]_&]:text-[var(--foreground)]'}`}
+        : TREE_ICON_COLOR_CLASS}`}
     >
       <span className="flex h-full w-full items-center justify-center" dangerouslySetInnerHTML={{ __html: folderIcon }} />
     </span>

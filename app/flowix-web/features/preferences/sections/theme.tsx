@@ -2,7 +2,6 @@
 
 import type { CSSProperties } from 'react';
 import { Monitor } from 'lucide-react';
-import { Button } from '@shared/ui/button';
 import { DEFAULT_THEME_ID, THEME_OPTIONS, sanitizeTheme, type ThemeId } from '@features/theme';
 import { cn } from '@/lib/utils';
 import { SectionHeader, FIELD_TITLE_CLASS } from '@features/preferences/sections/primitives';
@@ -173,16 +172,6 @@ export function ThemeSection({ settings, updateSettings }: ThemeSectionProps) {
                 }}
               />
             ))}
-          </div>
-
-          <div className="flex justify-start">
-            <Button
-              variant="outline"
-              className="px-3"
-              onClick={() => updateSettings({ theme: DEFAULT_THEME_ID })}
-            >
-              {t('preferences.resetDefaults')}
-            </Button>
           </div>
         </div>
       </div>

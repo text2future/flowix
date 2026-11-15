@@ -782,7 +782,7 @@ export class FrontmatterPropertyNodeView implements NodeView {
           value: property.value,
           notebook,
           disabled: !this.view.editable,
-          onChange: (path: string) => {
+          onChange: (paths: string[]) => {
             if (this.destroyed || !this.view.editable) return;
             const yaml = String(this.node.attrs.yamlContent ?? '');
             const current = parseVisibleFrontmatter(yaml).properties.find((item) => item.key === property.key);
@@ -790,7 +790,7 @@ export class FrontmatterPropertyNodeView implements NodeView {
             const pos = this.getPos();
             if (typeof pos !== 'number') return;
             try {
-              const yamlContent = updateVisibleFrontmatterProperty(yaml, current.key, current.key, path, 'Image');
+              const yamlContent = updateVisibleFrontmatterProperty(yaml, current.key, current.key, paths, 'Image');
               this.view.dispatch(this.view.state.tr.setNodeMarkup(pos, undefined, {
                 ...this.node.attrs,
                 yamlContent,

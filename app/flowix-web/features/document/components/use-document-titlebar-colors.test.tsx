@@ -61,7 +61,7 @@ beforeEach(async () => {
   const fileIdentity = ensureFileDisplayIdentity(`/book/color-${++sequence}.md`);
   reconcileFileDisplays([fileIdentity]);
   target = resolveDocumentTitlebarTarget(fileIdentity, {
-    fileIdentity, scopePath: '/book', notebookId: 'book', relativePath: `color-${sequence}.md`, indexable: true,
+    fileIdentity, scopePath: '/book', notebookId: 'book', notebookPath: '/book', relativePath: `color-${sequence}.md`, indexable: true,
   }, '/book');
   useNoteStore.setState({ notes: [note(target)] });
   root = createRoot(document.createElement('div'));
@@ -112,7 +112,7 @@ describe('titlebar color persistence', () => {
     const fileIdentity = ensureFileDisplayIdentity(`/book/other-${sequence}.md`);
     reconcileFileDisplays([target.fileIdentity, fileIdentity]);
     const other = resolveDocumentTitlebarTarget(fileIdentity, {
-      fileIdentity, scopePath: '/book', notebookId: 'book', relativePath: `other-${sequence}.md`, indexable: true,
+      fileIdentity, scopePath: '/book', notebookId: 'book', notebookPath: '/book', relativePath: `other-${sequence}.md`, indexable: true,
     }, '/book');
     await act(async () => {
       useNoteStore.setState({ notes: [...useNoteStore.getState().notes,

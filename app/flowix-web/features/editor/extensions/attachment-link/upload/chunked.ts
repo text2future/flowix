@@ -1,22 +1,26 @@
 import { invoke } from '@platform/tauri/core';
 import { readFileBase64 } from './io';
-import type { AttachmentSaveResult } from './file-source';
+import type { AttachmentSaveResult, AttachmentUploadRequest } from './file-source';
 
 export const UPLOAD_CHUNK_BYTES = 256 * 1024;
 
 export async function uploadInChunks(
     file: File,
     fileName: string,
-    ownerPath: string,
-    signal?: AbortSignal,
-    deduplicate = false,
+    { ownerPath, signal, deduplicate = false, externalFileCache = false, notebookId, repositoryPath }: AttachmentUploadRequest = {},
 ): Promise<AttachmentSaveResult> {
     const checkCancelled = () => {
         if (signal?.aborted) throw new DOMException('Upload cancelled', 'AbortError');
     };
     checkCancelled();
+    if (!ownerPath && !notebookId && !externalFileCache) throw new Error('OWNER_REQUIRED');
     const uploadId = await invoke<string>('begin_attachment_upload', {
-        notePath: ownerPath,
+        ...(externalFileCache
+            ? { externalFileCache: true }
+            : ownerPath
+                ? { notePath: ownerPath }
+                : { notebookId }),
+        ...(repositoryPath ? { repositoryPath } : {}),
         fileName,
         size: file.size,
         ...(deduplicate ? { deduplicate: true } : {}),

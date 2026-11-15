@@ -6,6 +6,7 @@ import {
   type SuggestionMenuConfig,
 } from '@features/editor/extensions/shared/suggestion-menu';
 import { NoteMentionDropdown } from '@features/editor/extensions/note-mention/note-mention-dropdown';
+import type { NoteMentionContextStorage } from '@features/editor/extensions/note-mention/note-mention-context';
 import {
   queryMentionNotes,
   toNoteReferenceAttrs,
@@ -36,15 +37,19 @@ const noteMentionConfig: SuggestionMenuConfig<MentionNoteItem> = {
     return query;
   },
 
-  fetchItems: (query) => queryMentionNotes(query),
+  fetchItems: (query, editor) => {
+    const context = editor.storage.noteMentionContext as NoteMentionContextStorage | undefined;
+    return queryMentionNotes(query, context?.getNotebookId());
+  },
 
-  render: ({ items, selectedIndex, scrollSelectedItem, hasMore, loading, onSelect, onHover, onLoadMore }) => (
+  render: ({ items, selectedIndex, scrollSelectedItem, hasMore, loading, error, onSelect, onHover, onLoadMore }) => (
     <NoteMentionDropdown
       items={items}
       selectedIndex={selectedIndex}
       scrollSelectedItem={scrollSelectedItem}
       hasMore={hasMore}
       loading={loading}
+      error={error}
       onSelect={onSelect}
       onHover={onHover}
       onLoadMore={onLoadMore}
@@ -85,7 +90,7 @@ const wikiNoteMentionConfig: SuggestionMenuConfig<MentionNoteItem> = {
     const text = view.state.doc.textBetween(triggerFrom, selection.from, '\n', '\n');
     if (!text.startsWith(trigger)) return null;
     const query = text.slice(trigger.length);
-    if (query.includes(']') || query.includes('\n')) return null;
+    if (/[\]】\n]/.test(query)) return null;
     return query;
   },
   onSelect: ({ editor, item, deleteTriggerText }) => {
@@ -103,3 +108,9 @@ const wikiNoteMentionConfig: SuggestionMenuConfig<MentionNoteItem> = {
 
 /** Obsidian-style `[[` note picker. */
 export const WikiNoteMention = createSuggestionExtension<MentionNoteItem>(wikiNoteMentionConfig);
+
+/** Chinese keyboard alias; inserts the same canonically serialized note reference. */
+export const ChineseWikiNoteMention = createSuggestionExtension<MentionNoteItem>({
+  ...wikiNoteMentionConfig,
+  trigger: '【【',
+});

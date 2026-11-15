@@ -1,5 +1,7 @@
+import { subscribeFrameInteraction } from "./frame-interaction";
 import * as React from "react";
 import { createPortal } from "react-dom";
+import { PopupSurface, getPopupContentHeight } from "./popup-scroll-area";
 import { cn } from "@/lib/utils";
 import { consumeCellPopupTriggerClick } from "@shared/ui/consume-cell-popup-click";
 
@@ -192,6 +194,7 @@ function SelectValue({ children, placeholder }: SelectValueProps) {
 }
 
 interface SelectContentProps {
+	scrollerClassName?: string;
 	children: React.ReactNode;
 	className?: string;
 	style?: React.CSSProperties;
@@ -211,6 +214,7 @@ interface SelectContentProps {
 
 function SelectContent({
 	children,
+	scrollerClassName,
 	className,
 	style,
 	align = "end",
@@ -224,23 +228,7 @@ function SelectContent({
 }: SelectContentProps) {
 	const { open, setOpen, triggerRef, anchorRect, anchorToCell } = useSelectContext();
 	const contentRef = React.useRef<HTMLDivElement>(null);
-	const scrollTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 	const [position, setPosition] = React.useState<React.CSSProperties | null>(null);
-	const [isScrolling, setIsScrolling] = React.useState(false);
-
-	React.useEffect(() => () => {
-		if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
-	}, []);
-
-	const handleScroll = () => {
-		setIsScrolling(true);
-		if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
-		scrollTimeoutRef.current = setTimeout(() => {
-			setIsScrolling(false);
-			scrollTimeoutRef.current = null;
-		}, 700);
-	};
-
 	React.useLayoutEffect(() => {
 		if (!open) return;
 		const trigger = triggerRef.current;
@@ -279,7 +267,7 @@ function SelectContent({
 						: Number.POSITIVE_INFINITY;
 				const preferredHeight = Math.min(
 					maxHeightPixels,
-					contentRef.current?.scrollHeight ?? Number.POSITIVE_INFINITY,
+					getPopupContentHeight(contentRef.current),
 				);
 				const requiredBelow = preferBelow ? Math.min(preferredHeight, 128) : preferredHeight;
 				const openAbove = availableBelow < requiredBelow && availableAbove > availableBelow;
@@ -329,32 +317,22 @@ function SelectContent({
 	React.useEffect(() => {
 		if (!open) return;
 
-		if (anchorToCell) {
-			const handlePointerDownOutside = (event: PointerEvent) => {
-				const target = event.target as Node;
-				if (
-					contentRef.current?.contains(target) ||
-					triggerRef.current?.contains(target)
-				) return;
-
-				consumeCellPopupTriggerClick(event);
-				setOpen(false);
-			};
-			document.addEventListener("pointerdown", handlePointerDownOutside, true);
-			return () => document.removeEventListener("pointerdown", handlePointerDownOutside, true);
-		}
-
-		const handleMouseDownOutside = (event: MouseEvent) => {
-			const target = event.target as Node;
-			if (
-				contentRef.current &&
-				!contentRef.current.contains(target) &&
-				!triggerRef.current?.contains(target)
-			) setOpen(false);
+		const handleOutside = (target: Node, event?: PointerEvent) => {
+			if (!contentRef.current || contentRef.current.contains(target) || triggerRef.current?.contains(target)) return;
+			if (anchorToCell && event) consumeCellPopupTriggerClick(event);
+			setOpen(false);
 		};
-
-		document.addEventListener("mousedown", handleMouseDownOutside);
-		return () => document.removeEventListener("mousedown", handleMouseDownOutside);
+		const unsubscribe = subscribeFrameInteraction(document, handleOutside);
+		const handlePointerDown = (event: PointerEvent) => handleOutside(event.target as Node, event);
+		const handleMouseDown = (event: MouseEvent) => handleOutside(event.target as Node);
+		// Preserve the existing table-cell click consumption and ordinary mouse timing.
+		if (anchorToCell) document.addEventListener("pointerdown", handlePointerDown, true);
+		else document.addEventListener("mousedown", handleMouseDown);
+		return () => {
+			unsubscribe();
+			document.removeEventListener("pointerdown", handlePointerDown, true);
+			document.removeEventListener("mousedown", handleMouseDown);
+		};
 	}, [open, setOpen, triggerRef, anchorToCell]);
 
 	// Close on escape
@@ -379,7 +357,9 @@ function SelectContent({
 	if (!open) return null;
 
 	return createPortal(
-		<div
+		<PopupSurface
+			scrollerClassName={scrollerClassName}
+			scrollable
 			ref={contentRef}
 			onKeyDown={(event) => {
 				if (closeOnEnter && event.key === "Enter" && event.target instanceof HTMLInputElement) {
@@ -387,7 +367,6 @@ function SelectContent({
 					setOpen(false);
 				}
 			}}
-			onScroll={handleScroll}
 			// `animate-in …` 是 tw-animate-css 的死类 (Tailwind v3 不生成),
 			// 换成共享关键帧类; select 通常向下弹出, origin 取顶部。
 			style={{
@@ -398,15 +377,13 @@ function SelectContent({
 			}}
 			className={cn(
 				"z-[150] min-w-[180px] bg-[var(--card)] border border-[var(--border-popup)] rounded-lg shadow-lg px-1.5 py-2 flowix-popover-enter",
-				fitViewport && "overflow-y-auto overscroll-contain [scrollbar-gutter:stable]",
 				className
 			)}
 			data-flowix-surface="select"
 			data-flowix-menu-child={keepParentMenuOpen ? "" : undefined}
-			data-scrolling={isScrolling ? "true" : "false"}
 		>
 			{children}
-		</div>,
+		</PopupSurface>,
 		document.body
 	);
 }

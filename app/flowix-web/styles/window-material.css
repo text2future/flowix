@@ -3,7 +3,8 @@
  * Without a material (including Windows 10), the solid theme palette applies. */
 html[data-window-material][data-theme="mist"] {
 	--background: transparent;
-	--frame-bg: transparent;
+	/* Paint the tint once on the frame, beneath the transparent panels. */
+	--frame-bg: rgb(0 0 0 / 70%);
 	--list-bg: transparent;
 	--document-bg: transparent;
 	--bg-titlebar: transparent;
@@ -19,11 +20,6 @@ html[data-window-material][data-theme="mist"] :where(
 	[data-workspace-host="column-1"]
 ) {
 	background: transparent !important;
-}
-
-/* Paint the tint once on the actual frame, beneath the transparent panels. */
-html[data-window-material][data-theme="mist"] {
-	--frame-bg: rgb(0 0 0 / 70%);
 }
 
 html[data-window-material][data-theme="mist"] .flowix-main-layout {

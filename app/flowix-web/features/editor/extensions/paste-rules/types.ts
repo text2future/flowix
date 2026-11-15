@@ -1,3 +1,4 @@
+import type { DocumentResourceContext } from '@/lib/document-resource-context';
 import type { LocalLinkContext } from '@/lib/local-link-reference';
 import type { Editor, JSONContent } from '@tiptap/core';
 import type { EditorView } from '@tiptap/pm/view';
@@ -16,11 +17,9 @@ export type PasteKind =
   | 'tsv-table'
   | 'markdown-block';
 
-export interface PasteContext {
+export interface PasteContext extends DocumentResourceContext {
   editor: Editor;
   view: EditorView;
-  /** The memo that owns attachments inserted by this editor instance. */
-  ownerPath?: string;
   linkContext?: LocalLinkContext;
   event: ClipboardEvent;
   types: string[];

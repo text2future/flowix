@@ -42,6 +42,12 @@ describe('anchor link guard', () => {
     expect(toastMock.error).toHaveBeenCalledOnce();
   });
 
+  it('blocks a scheme-less destination that looks like a domain when unhandled', () => {
+    const event = click(renderAnchor('example.com/docs'));
+    expect(event.defaultPrevented).toBe(true);
+    expect(toastMock.error).toHaveBeenCalledOnce();
+  });
+
   it('leaves a handled link alone', () => {
     const anchor = renderAnchor('skills/RESOLVER.md');
     anchor.addEventListener('click', (event) => event.preventDefault());
@@ -52,7 +58,7 @@ describe('anchor link guard', () => {
     expect(toastMock.error).not.toHaveBeenCalled();
   });
 
-  it.each(['https://example.com', 'example.com/docs', '#heading', '/Users/rop/notes/a.md'])(
+  it.each(['https://example.com', '#heading', '/Users/rop/notes/a.md'])(
     'keeps the existing meaning of %s',
     href => {
       const event = click(renderAnchor(href));

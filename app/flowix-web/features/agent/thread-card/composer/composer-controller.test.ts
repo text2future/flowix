@@ -12,6 +12,12 @@ import {
 import { insertComposerAttachmentToken } from "./composer-attachment-document";
 import { insertComposerSkillToken } from "./composer-skill-token";
 
+vi.mock('@features/document/public/resource-context', () => ({
+  getDocumentResourceSnapshot: () => ({
+    notebooks: [{ id: 'notebook-a', name: 'A', path: '/notes' }], repositories: [],
+  }),
+}));
+
 const controllers: ComposerController[] = [];
 const domParts: ReturnType<typeof createAgentComposerDom>[] = [];
 
@@ -224,7 +230,7 @@ describe("ComposerController note references", () => {
     expect(controller.editorInstance.view.hasFocus()).toBe(true);
   });
 
-  it("inserts a note card at the current cursor and persists its deep link", () => {
+  it("inserts a note card at the current cursor and persists its absolute wiki path", () => {
     const { controller, draft, getPersistedDraft } = setup();
     const editor = controller.editorInstance;
 
@@ -239,7 +245,7 @@ describe("ComposerController note references", () => {
     draft.flush();
 
     expect(controller.getPrompt()).toBe(
-      "before [reference](flowix://open?notebookId=notebook-a&f=reference.md) after",
+      "before [[/notes/reference.md]] after",
     );
     expect(editor.getJSON().content?.[0]?.content).toEqual(
       expect.arrayContaining([
@@ -247,7 +253,7 @@ describe("ComposerController note references", () => {
       ]),
     );
     expect(getPersistedDraft()).toBe(
-      "before [reference](flowix://open?notebookId=notebook-a&f=reference.md) after",
+      "before [[/notes/reference.md]] after",
     );
   });
 

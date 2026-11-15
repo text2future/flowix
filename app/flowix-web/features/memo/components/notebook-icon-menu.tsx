@@ -13,12 +13,14 @@ import {
 } from '@shared/ui/dropdown-menu';
 import { useI18n } from '@/lib/i18n';
 import { PREFERENCE_TAB_GROUPS, type PreferencesTabGroup } from '@features/preferences/public/tabs-api';
+import { recordProductUpdateCheck } from '@features/preferences/public/product-updates-api';
+import { AppUpdatePromptDialog, useManualAppUpdateCheck } from '@features/shell/public/system-api';
 import { AgentIcon } from '@features/agent/public/icon-api';
 import productLogo from '@/assets/productlogo.png';
 import { cn } from '@/lib/utils';
 import { toast } from '@/lib/toast';
 import { openUrl } from '@platform/tauri/opener';
-import { Check, ChevronDown, Plus, X } from 'lucide-react';
+import { Check, ChevronDown, Loader2, Plus, X } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@shared/ui/dialog';
 import { cloud, type CloudFeedbackAttachment } from '@platform/tauri/client/cloud';
 import { product } from '@platform/tauri/client/desktop';
@@ -31,11 +33,10 @@ interface NotebookIconMenuProps {
 }
 
 const NOTEBOOK_ICON_MENU_CLASS =
-  'w-[12.8rem] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]';
+  'w-[12.8rem] rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]';
 const NOTEBOOK_ICON_MENU_ITEM_CLASS =
   'group h-7 items-center justify-start gap-1.5 rounded-lg px-2 py-0 text-left hover:bg-[var(--hover-bg)] hover:text-[var(--foreground)]';
 const OFFICIAL_SITE_URL = 'https://flowix.cc';
-const COMMUNITY_URL = 'https://github.com/text2future/flowix';
 
 /**
  * 中间列顶部的图标 (统一展示产品图标):
@@ -48,6 +49,7 @@ export function NotebookIconMenu({
 }: NotebookIconMenuProps) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
+  const manualUpdateCheck = useManualAppUpdateCheck({ afterCheck: recordProductUpdateCheck });
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [feedbackType, setFeedbackType] = useState<'product_suggestion' | 'usage_issue'>('product_suggestion');
   const [feedbackTypeTriggerWidth, setFeedbackTypeTriggerWidth] = useState<number | null>(null);
@@ -194,7 +196,7 @@ export function NotebookIconMenu({
         align="start"
         side="bottom"
         sideOffset={2}
-        className={NOTEBOOK_ICON_MENU_CLASS}
+        scrollerClassName="space-y-0.5" className={NOTEBOOK_ICON_MENU_CLASS}
       >
         {visiblePreferenceGroups.map((group) => (
           <div key={group.labelKey}>
@@ -229,16 +231,30 @@ export function NotebookIconMenu({
           <span className="ml-auto font-mono text-xs text-[var(--muted-foreground)]">Flowix.CC</span>
         </DropdownMenuItem>
         <DropdownMenuItem
-          onClick={() => void openUrl(COMMUNITY_URL)}
+          disabled={['checking', 'downloading', 'installing'].includes(manualUpdateCheck.updater.status)}
+          keepOpenOnClick
+          onClick={() => { void manualUpdateCheck.checkNow().finally(() => setOpen(false)); }}
           className={NOTEBOOK_ICON_MENU_ITEM_CLASS}
         >
-          <span>{t('memo.list.notebookMenu.community')}</span>
-          <span className="ml-auto font-mono text-xs text-[var(--muted-foreground)]">GitHub</span>
+          <span>
+            {t(manualUpdateCheck.updater.status === 'checking'
+              ? 'preferences.general.productUpdates.checking'
+              : 'preferences.general.productUpdates.check')}
+          </span>
+          {manualUpdateCheck.updater.status === 'checking' && (
+            <Loader2 aria-hidden="true" className="ml-auto h-3.5 w-3.5 shrink-0 flowix-spin text-[var(--muted-foreground)]" />
+          )}
         </DropdownMenuItem>
         <DropdownMenuItem onClick={openFeedback} className={NOTEBOOK_ICON_MENU_ITEM_CLASS}>
           <span>{t('memo.list.notebookMenu.feedback')}</span>
         </DropdownMenuItem>
       </DropdownMenuContent>
+      <AppUpdatePromptDialog
+        open={manualUpdateCheck.promptOpen}
+        update={manualUpdateCheck.updater.update}
+        onOpenChange={manualUpdateCheck.setPromptOpen}
+        onDownload={() => void manualUpdateCheck.downloadNow()}
+      />
       <Dialog open={feedbackOpen} onOpenChange={(next) => { if (!feedbackBusy) setFeedbackOpen(next); }}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
@@ -256,7 +272,7 @@ export function NotebookIconMenu({
                       <ChevronDown className="h-4 w-4 text-[var(--muted-foreground)]" />
                     </button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" sideOffset={4} style={{ width: feedbackTypeTriggerWidth ?? undefined }} className="min-w-0 space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+                  <DropdownMenuContent scrollerClassName="space-y-0.5" align="start" sideOffset={4} style={{ width: feedbackTypeTriggerWidth ?? undefined }} className="min-w-0 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
                     <DropdownMenuItem onClick={() => setFeedbackType('product_suggestion')} className="flex h-8 items-center justify-between rounded-lg px-2 hover:bg-[var(--hover-bg)]">
                       <span>{t('memo.list.notebookMenu.feedback.suggestion')}</span>
                       {feedbackType === 'product_suggestion' && <Check className="h-4 w-4 text-[var(--brand)]" />}

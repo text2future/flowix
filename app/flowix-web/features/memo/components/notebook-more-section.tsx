@@ -11,12 +11,10 @@ export function NotebookMoreSection({
   order,
   onHeightChange,
   sectionActions,
-  compactTopSpacing = false,
 }: {
   order: number;
   onHeightChange: (height: number) => void;
   sectionActions?: ReactNode;
-  compactTopSpacing?: boolean;
 }) {
   const { t } = useI18n();
   const sectionRef = useRef<HTMLElement | null>(null);
@@ -35,7 +33,7 @@ export function NotebookMoreSection({
   return (
     <section
       ref={sectionRef}
-      className={cn('pb-3', compactTopSpacing && '-mt-2.5')}
+      className="pb-3"
       aria-label={t('memo.fileTree.moreTitle')}
       data-notebook-more-section="true"
       style={{ order }}

@@ -1,3 +1,4 @@
+import type { DocumentResourceContext } from '@/lib/document-resource-context';
 import type { LocalLinkContext } from '@/lib/local-link-reference';
 import { Extension } from '@tiptap/core';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
@@ -7,8 +8,7 @@ import { hasImportableHtml, isInternalEditorHtml, sanitizeExternalHtml } from '@
 import type { PasteContext } from '@features/editor/extensions/paste-rules/types';
 import type { Editor } from '@tiptap/core';
 
-interface PasteDocumentContext {
-  ownerPath?: string;
+interface PasteDocumentContext extends DocumentResourceContext {
   linkContext?: LocalLinkContext;
 }
 
@@ -26,7 +26,7 @@ function createPasteContext(editor: Editor, snapshot: ClipboardSnapshot, event: 
 export const ManagedPasteRules = Extension.create<{
   getLinkContext?: (ownerPath?: string) => LocalLinkContext | undefined;
   ownerPath?: string;
-  getOwnerPath?: () => string | undefined;
+  getContext?: () => DocumentResourceContext;
 }>({
   name: 'managedPasteRules',
   priority: 1100,
@@ -35,15 +35,21 @@ export const ManagedPasteRules = Extension.create<{
     return {
       getLinkContext: undefined,
       ownerPath: undefined,
-      getOwnerPath: undefined,
+      getContext: undefined,
     };
   },
 
   addStorage() {
     return {
       documentContext: (ownerPath?: string): PasteDocumentContext => {
-        const path = ownerPath ?? (this.options.getOwnerPath ? this.options.getOwnerPath() : this.options.ownerPath);
-        return { ownerPath: path, linkContext: this.options.getLinkContext?.(path) };
+        const context = this.options.getContext?.() ?? { ownerPath: this.options.ownerPath, documentPath: this.options.ownerPath };
+        const documentPath = context.documentPath ?? ownerPath ?? context.ownerPath;
+        return {
+          ...context,
+          ...(ownerPath ? { ownerPath } : {}),
+          documentPath,
+          linkContext: this.options.getLinkContext?.(documentPath),
+        };
       },
     };
   },
@@ -65,9 +71,7 @@ export const ManagedPasteRules = Extension.create<{
             const clipboardData = event.clipboardData;
             if (!clipboardData) return false;
             const snapshot = readClipboardSnapshot(clipboardData);
-            const ownerPath = this.options.getOwnerPath
-              ? this.options.getOwnerPath()
-              : this.options.ownerPath;
+            const ownerPath = this.options.getContext?.().ownerPath ?? this.options.ownerPath;
             if (snapshot.html && !hasImportableHtml(snapshot.html) && snapshot.text) {
               event.preventDefault();
               return pasteClipboardSnapshot(this.editor, { ...snapshot, html: '' }, ownerPath);

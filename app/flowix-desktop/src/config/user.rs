@@ -496,17 +496,6 @@ impl DeepSeekHarnessSettingsFile {
         })
     }
 
-    fn from_ai_config(config: &AiConfigFile) -> Self {
-        let Some(provider) = Self::provider_settings_for_ai_config(config) else {
-            return Self::default();
-        };
-        let mut providers = BTreeMap::new();
-        providers.insert(Self::route_id_for_ai_config(config), provider);
-        Self {
-            llm_pi_ai: DeepSeekHarnessLlmSettings { providers },
-        }
-    }
-
     pub(crate) fn to_ai_config_for_route(
         route_id: &str,
         provider: &DeepSeekHarnessProviderSettings,
@@ -1084,22 +1073,6 @@ impl UserConfigStore {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(error.into()),
         }
-    }
-
-    /// Render a standalone Harness settings document for a one-shot probe.
-    ///
-    /// A probe must be able to validate a model that has not been saved yet.
-    /// Keeping this renderer separate from `set_deepseek_harness_config`
-    /// avoids mutating the user's durable settings just to test a draft.
-    pub(crate) fn deepseek_harness_settings_yaml(
-        config: &AiModelConfig,
-    ) -> Result<String, UserConfigError> {
-        serde_yaml::to_string(&DeepSeekHarnessSettingsFile::from_ai_config(
-            &AiConfigFile {
-                model: config.clone(),
-            },
-        ))
-        .map_err(UserConfigError::Yaml)
     }
 
     /// 先把 secrets �?db (主存�?, 再把 **不含明文 key** �?TOML 落盘
