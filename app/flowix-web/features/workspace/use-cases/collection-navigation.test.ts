@@ -13,7 +13,15 @@ vi.mock('@platform/tauri/client', async (importOriginal) => ({
   ...await importOriginal<typeof import('@platform/tauri/client')>(),
   collections: { resolve: mocks.resolve }, externalDocuments: { read: mocks.read, write: mocks.write }, notebooks: { getAll: mocks.getAll },
 }));
-vi.mock('@features/memo/public/workspace-api', () => ({ getWorkspaceMemoState: () => ({ notebooks: [{ id: 'book', path: '/book' }] }) }));
+vi.mock('@features/memo/public/workspace-api', () => ({
+  getWorkspaceMemoState: () => ({
+    notebooks: [{ id: 'book', path: '/book' }],
+    setSelectedNotebook: vi.fn(),
+    setSelectedNote: vi.fn(),
+    loadNotes: vi.fn(async () => {}),
+  }),
+  setCurrentWorkspaceNotebook: vi.fn(async () => {}),
+}));
 vi.mock('@features/document/public/workspace-api', () => ({
   getWorkspaceDocumentState: () => ({ activeExternalSession: null, activeAgentConversationId: null, clearDocument: mocks.clear }),
   recordWorkspaceDocumentNavigation: vi.fn(),
@@ -122,16 +130,18 @@ it('opens a malformed calendar without withdrawing selection, then repairs it ev
   expect(useWorkColumnStore.getState().navigation.target).not.toHaveProperty('unavailableReason');
 });
 
-it('keeps a malformed folder collection selected and recoverable', async () => {
+it('opens the folder surface without inspecting a damaged .index.yaml inside it', async () => {
   const document = createTableDocument('table', '项目', 'folder');
   document.dataset.source = { scope: 'containing_folder' };
   mocks.read.mockResolvedValue(serializeTableDocument(document).replace('placement: folder', 'placement: broken'));
   const { files } = await import('@platform/tauri/client');
-  const read = vi.spyOn(files, 'read').mockResolvedValue(await mocks.read());
+  const read = vi.spyOn(files, 'read').mockRejectedValue(new Error('文件夹入口不该读 .index.yaml'));
   try {
     await openFolderCollection('book', '/book/项目');
+    // 文件夹不再是集合：目录里残留什么文件都不影响落点，也不会带出「格式无效」。
     expect(useWorkColumnStore.getState().navigation.target).toMatchObject({
-      kind: 'table', filePath: '/book/项目/.index.yaml', unavailableReason: '集合文件格式无效',
+      kind: 'folder-collection', folderPath: '/book/项目', notebookId: 'book',
     });
+    expect(read).not.toHaveBeenCalled();
   } finally { read.mockRestore(); }
 });

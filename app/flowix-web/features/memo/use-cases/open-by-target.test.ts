@@ -20,6 +20,7 @@ vi.mock('@platform/tauri/client', () => ({ notes: {
 } }));
 
 import { openNoteByDeepLink } from './open-by-target';
+import { notes } from '@platform/tauri/client';
 import { peekAgentLocationRequest, cancelAgentLocationRequest } from '../../document/use-cases/agent-location-navigation';
 
 describe('note deep links', () => {
@@ -139,6 +140,34 @@ describe('note deep links', () => {
   it('refuses a notebook-relative link with no notebook to resolve it', async () => {
     await expect(openNoteByDeepLink('flowix://open?f=Projects%2FPlan.md'))
       .rejects.toThrow('missing its notebook');
+    expect(openWorkspaceSurface).not.toHaveBeenCalled();
+  });
+
+  /**
+   * A collection card in an HTML page emits exactly this kind of link. Two
+   * things made it fail on click, and both are pinned here: `pathStatus` is a
+   * Markdown-only command (the Rust guard answers "outside a notebook or is not
+   * Markdown"), and a collection has no browser-column surface — the browser
+   * column would show the collection file or a file browser instead.
+   */
+  it('opens a collection link in the work column without asking for note status', async () => {
+    // The shared mock keeps calls from earlier tests; only this one matters.
+    vi.mocked(notes.pathStatus).mockClear();
+    await openNoteByDeepLink(`flowix://open?b=My+Vault&f=${encodeURIComponent('项目/.index.yaml')}`, null, {
+      destination: 1,
+    });
+
+    expect(notes.pathStatus).not.toHaveBeenCalled();
+    expect(openWorkspaceSurface).toHaveBeenCalledWith({
+      index: 0,
+      target: { kind: 'external', path: 'C:/Notes/项目/.index.yaml', scopePath: 'C:/Notes', transitionId: null },
+    });
+  });
+
+  it('still reports a missing note instead of opening an empty surface', async () => {
+    vi.mocked(notes.pathStatus).mockResolvedValueOnce('missing');
+
+    await expect(openNoteByDeepLink('flowix://open?b=My+Vault&f=Projects%2FGone.md')).rejects.toThrow();
     expect(openWorkspaceSurface).not.toHaveBeenCalled();
   });
 });

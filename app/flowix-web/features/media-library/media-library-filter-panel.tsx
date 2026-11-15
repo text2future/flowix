@@ -3,7 +3,7 @@ import { Check, ChevronDown, ChevronRight, X } from 'lucide-react';
 import type { NotebookFolderOption } from '@platform/tauri/client';
 import { Popover, PopoverContent, PopoverTrigger } from '@shared/ui/popover';
 import { DropdownMenuLabel } from '@shared/ui/dropdown-menu';
-import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
+import { PopupScrollArea } from '@shared/ui/popup-scroll-area';
 import { useI18n } from '@/lib/i18n';
 import { ResourceFolderIcon } from '@features/surface/resource-file-icon';
 
@@ -123,7 +123,7 @@ export function MediaLibraryFilterPanel({
           </PopoverTrigger>
         </div>
           <PopoverContent anchorSelector="[data-media-library-location-menu]" side="left" align="start" sideOffset={0} style={{ zIndex: 170 }} className="max-h-[min(60vh,280px)] w-[260px] max-w-[calc(100vw-16px)] overflow-hidden rounded-xl p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
-            <OverlayScrollbar className="max-h-[calc(min(60vh,280px)_-_8px)]" scrollerClassName="max-h-[calc(min(60vh,280px)_-_8px)] overflow-y-auto overflow-x-hidden">
+            <PopupScrollArea className="max-h-[calc(min(60vh,280px)_-_8px)]" scrollerClassName="max-h-[calc(min(60vh,280px)_-_8px)] ">
             <DropdownMenuLabel className="px-2">{t('multidimensionalTable.autoCollect.browseLocation')}</DropdownMenuLabel>
             {folderOptionsLoading ? <p className="px-2 py-2 text-xs text-[var(--muted-foreground)]">{t('mediaLibrary.loadingFolders')}</p>
               : <div className="space-y-0.5">
@@ -173,7 +173,7 @@ export function MediaLibraryFilterPanel({
                   </div>;
                 })}
               </div>}
-            </OverlayScrollbar>
+            </PopupScrollArea>
           </PopoverContent>
       </Popover>;
 

@@ -32,17 +32,23 @@ export function useNotebookTreeSectionLayout({
   const [repositorySectionHeight, setRepositorySectionHeight] = useState(0);
   const [moreSectionHeight, setMoreSectionHeight] = useState(0);
 
-  const visibleSectionOrder = useMemo(() => sectionOrder.filter((section) => (
+  // Sections the view is allowed to mount. Agents stay here before they measure
+  // a height — dropping them on the first frame would mean they never mount,
+  // never measure, and never appear.
+  const renderableSectionOrder = useMemo(() => sectionOrder.filter((section) => (
     !hiddenSections.includes(section) && (section === 'files'
       || section === 'repositories'
       || section === 'more'
-      || (section === 'agents' && Boolean(notebookId) && agentSectionHeight > 0)
+      || (section === 'agents' && Boolean(notebookId))
       || (section === 'pinned' && (pinnedItemCount > 0 || pinnedHasPrevious || pinnedHasMore)))
-  )), [agentSectionHeight, hiddenSections, notebookId, pinnedHasMore, pinnedHasPrevious, pinnedItemCount, sectionOrder]);
+  )), [hiddenSections, notebookId, pinnedHasMore, pinnedHasPrevious, pinnedItemCount, sectionOrder]);
 
-  const moreSectionPosition = visibleSectionOrder.indexOf('more');
-  const moreCompactTopSpacing = moreSectionPosition > 0
-    && visibleSectionOrder[moreSectionPosition - 1] === 'repositories';
+  // Ordering/“fills remaining space” only counts sections that occupy space.
+  const visibleSectionOrder = useMemo(
+    () => renderableSectionOrder.filter((section) => section !== 'agents' || agentSectionHeight > 0),
+    [agentSectionHeight, renderableSectionOrder],
+  );
+
   const pinnedSectionHeight = pinnedItemCount > 0 || pinnedHasPrevious || pinnedHasMore
     ? TREE_HEADER_HEIGHT + (pinnedCollapsed ? 0 : pinnedItemCount * TREE_ROW_SIZE + (pinnedHasPrevious || pinnedHasMore ? TREE_ROW_SIZE : 0)) + 12
     : 0;
@@ -51,7 +57,7 @@ export function useNotebookTreeSectionLayout({
     pinned: pinnedSectionHeight,
     files: TREE_HEADER_HEIGHT,
     repositories: repositorySectionHeight,
-    more: moreSectionHeight - (moreCompactTopSpacing ? 10 : 0),
+    more: moreSectionHeight,
   };
   const treeContentOffset = TREE_HEADER_HEIGHT + sectionOrder
     .slice(0, sectionOrder.indexOf('files'))
@@ -82,8 +88,8 @@ export function useNotebookTreeSectionLayout({
   }, []);
 
   return {
+    renderableSectionOrder,
     visibleSectionOrder,
-    moreCompactTopSpacing,
     treeContentOffset,
     setMoreSectionHeight,
     handleAgentSectionHeightChange,

@@ -66,15 +66,18 @@ export function useDocumentTitlebarActions(target: DocumentTitlebarTarget) {
     }
   };
 
-  const copyFolderPath = async () => {
+  const copyPath = async (path: string) => {
     try {
-      await navigator.clipboard.writeText(parentDirectoryPath(filePath, target.scopePath ?? '/'));
+      await navigator.clipboard.writeText(path);
       toast.success(t('memo.fileTree.pathCopied'));
     } catch (error) {
-      logger.warn('copy folder path failed', { error, filePath });
+      logger.warn('copy path failed', { error, path });
       toast.error(t('memo.fileTree.copyFailed'));
     }
   };
+
+  const copyFolderPath = () => copyPath(parentDirectoryPath(filePath, target.scopePath ?? '/'));
+  const copyDocumentPath = () => copyPath(filePath);
 
   const revealFile = async () => {
     try { await product.revealInFileManager(filePath); }
@@ -84,6 +87,6 @@ export function useDocumentTitlebarActions(target: DocumentTitlebarTarget) {
   return {
     colors, changeColors, fontSwitch, selectedFontSizeMode, setEditorFontSizeMode,
     confirmVersion, setConfirmVersion, restoringVersionId, versionRefreshKey,
-    restorePathVersion, copyFolderPath, revealFile,
+    restorePathVersion, copyFolderPath, copyDocumentPath, revealFile,
   };
 }

@@ -1,8 +1,6 @@
 import { Node, type MarkdownToken } from '@tiptap/core';
 import { Lexer, Tokenizer } from 'marked';
 import { resolveEditorImageSource, type EditorImageContext } from '../editor-image-source';
-import { translate } from '@/lib/i18n';
-import { getCurrentAppLanguage } from '@features/preferences/public/runtime-api';
 import { scanHead } from '../markdown-tokenizer-source';
 
 // Use CommonMark's HTML boundaries, including quoted > characters, rather than
@@ -28,7 +26,6 @@ declare module '@tiptap/core' {
 
 interface PreservedHtmlOptions {
   getImageContext?: () => EditorImageContext | undefined;
-  onViewSourceMode?: () => void;
 }
 
 function inlineHtml(src: string): string | undefined {
@@ -147,15 +144,7 @@ function createPreservedHtml(inline: boolean) {
             };
             parsed.body.childNodes.forEach(child => appendPreview(child, dom));
           }
-          if (this.options.onViewSourceMode) {
-            const button = document.createElement('button');
-            button.type = 'button';
-            button.textContent = translate(getCurrentAppLanguage(), 'document.action.viewSource');
-            button.addEventListener('click', () => this.options.onViewSourceMode?.());
-            dom.append(button);
-          }
         };
-        dom.addEventListener('dblclick', () => this.options.onViewSourceMode?.());
         this.storage.refreshers.add(refresh);
         refresh();
         return {

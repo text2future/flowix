@@ -23,7 +23,7 @@ const stripComments = css => css.replace(/\/\*[\s\S]*?\*\//g, '');
 // own their classes directly. editor-host.css is the explicit NodeView bridge.
 for (const name of await readdir(styles)) {
   if (!name.endsWith('.css')) continue;
-  if (!/^editor.*\.css$/.test(name) && !['index.css', 'code-editor.css', 'multidimensional-table.css'].includes(name)) continue;
+  if (!/^editor.*\.css$/.test(name) && !['index.css', 'code-editor.css', 'multidimensional-table.css', 'popup-list.css'].includes(name)) continue;
   const css = postcss.parse(await readFile(join(styles, name), 'utf8'));
   css.walkRules(rule => {
     for (const selector of rule.selectors) {
@@ -70,6 +70,22 @@ for (const file of cssSources) {
     declaredInStyles.add(variable);
   }
 }
+
+// Shared popup rules may include Agent selectors alongside editor selectors.
+// Check only the Agent selectors and their declarations, since the other
+// selectors intentionally belong to different UI areas.
+postcss.parse(await readFile(join(styles, 'popup-list.css'), 'utf8')).walkRules(rule => {
+  const agentSelectors = rule.selectors.filter(selector => /\.agent-[\w-]+/.test(selector));
+  for (const selector of agentSelectors) {
+    if (selector.includes('.markdown-editor')) boundaryErrors.push(`popup-list.css: Agent styling depends on its editor host: ${selector}`);
+  }
+  if (!agentSelectors.length) return;
+  for (const [, variable] of stripComments(rule.toString()).matchAll(/var\(\s*(--(?:agent|atc)-[\w-]+)/g)) {
+    if (!declaredInStyles.has(variable) && !JS_PROVIDED_VARS.has(variable)) {
+      boundaryErrors.push(`popup-list.css: ${variable} is consumed but never declared (Agent CSS, theme or JS)`);
+    }
+  }
+});
 
 for (const folder of ['agent-conversation', 'agent-thread-card']) {
   for (const name of await readdir(join(styles, folder))) {

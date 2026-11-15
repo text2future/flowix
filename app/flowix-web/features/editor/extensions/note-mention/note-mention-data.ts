@@ -1,5 +1,6 @@
 import { notes } from '@platform/tauri/client';
 import { useNoteStore } from '@features/memo/store/note-store';
+import { joinNotebookMemoPath } from '@/lib/path';
 import type { NoteReferenceAttrs } from '@features/editor/extensions/note-link/view-note';
 
 export interface MentionNoteItem {
@@ -13,19 +14,26 @@ export interface MentionNoteItem {
   originalPath: string | null;
 }
 
-let cachedItems: MentionNoteItem[] | null = null;
-let cachePromise: Promise<MentionNoteItem[]> | null = null;
+interface NotebookMentionCache {
+  items: MentionNoteItem[] | null;
+  promise: Promise<MentionNoteItem[]> | null;
+}
+
+const cacheByNotebookId = new Map<string, NotebookMentionCache>();
 
 /** The picker renders titles only, so it asks for the title-only projection. */
 const MENTION_LIMIT = 200;
 
-async function fetchMentionNotes(): Promise<MentionNoteItem[]> {
+async function fetchMentionNotes(notebookId: string): Promise<MentionNoteItem[]> {
   const state = useNoteStore.getState();
   if (!state.notebooksInitialized) await state.loadNotebooks();
-  const notebooks = useNoteStore.getState().notebooks;
-  const groups = await Promise.all(notebooks.map(async (notebook) => {
-    const summaries = await notes.listSummaries(notebook.id);
-    return summaries.map((note): MentionNoteItem => ({
+
+  const notebook = useNoteStore.getState().notebooks.find((item) => item.id === notebookId);
+  if (!notebook) return [];
+
+  const summaries = await notes.listSummaries(notebookId);
+  return summaries
+    .map((note): MentionNoteItem => ({
       relativePath: note.relativePath,
       filename: note.relativePath.split('/').pop() || note.relativePath,
       title: note.title,
@@ -34,47 +42,70 @@ async function fetchMentionNotes(): Promise<MentionNoteItem[]> {
       notebookName: notebook.name,
       notebookPath: notebook.path,
       originalPath: null,
-    }));
-  }));
-  return groups.flat().sort((a, b) => b.updatedAt - a.updatedAt);
+    }))
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+/** Cache summaries independently so one notebook cannot poison another. */
+function loadMentionNotes(notebookId: string): Promise<MentionNoteItem[]> {
+  let entry = cacheByNotebookId.get(notebookId);
+  if (!entry) {
+    entry = { items: null, promise: null };
+    cacheByNotebookId.set(notebookId, entry);
+  }
+  if (entry.items) return Promise.resolve(entry.items);
+  if (entry.promise) return entry.promise;
+
+  const currentEntry = entry;
+  const promise = fetchMentionNotes(notebookId)
+    .then((items) => {
+      if (cacheByNotebookId.get(notebookId) === currentEntry) {
+        currentEntry.items = items;
+      }
+      return items;
+    })
+    .catch((err) => {
+      if (cacheByNotebookId.get(notebookId) === currentEntry) {
+        cacheByNotebookId.delete(notebookId);
+      }
+      throw err;
+    });
+  currentEntry.promise = promise;
+  return promise;
 }
 
 /**
- * Load every note title once. Filtering happens in memory: refetching on each
- * keystroke meant one full IPC round trip per notebook per character typed.
- * `invalidateMentionNotes` is called on the notebook change events that can add
- * or remove a note, so the cache tracks the tree.
+ * Query notes from exactly one notebook. A missing notebook context produces
+ * no candidates; failures for the target notebook are allowed to reach the UI
+ * so they are not presented as an empty search result.
  */
-function loadMentionNotes(): Promise<MentionNoteItem[]> {
-  if (cachedItems) return Promise.resolve(cachedItems);
-  if (!cachePromise) {
-    cachePromise = fetchMentionNotes()
-      .then((items) => {
-        cachedItems = items;
-        return items;
-      })
-      .catch((err) => {
-        console.warn('[note-mention] load failed:', err);
-        cachePromise = null;
-        return [];
-      });
-  }
-  return cachePromise;
-}
+export function queryMentionNotes(
+  query: string,
+  notebookId: string | null | undefined,
+): Promise<MentionNoteItem[]> {
+  if (!notebookId) return Promise.resolve([]);
 
-export function invalidateMentionNotes(): void {
-  cachedItems = null;
-  cachePromise = null;
-}
-
-export function queryMentionNotes(query: string): Promise<MentionNoteItem[]> {
   const normalizedQuery = query.trim().toLocaleLowerCase();
-  return loadMentionNotes().then((items) => {
+  return loadMentionNotes(notebookId).then((items) => {
     const matched = normalizedQuery
       ? items.filter((item) => item.title.toLocaleLowerCase().includes(normalizedQuery))
       : items;
     return matched.slice(0, MENTION_LIMIT);
   });
+}
+
+/** Historical references must check every candidate, including duplicate names. */
+export function listNoteReferenceCandidates(
+  _query: string,
+  notebookId?: string,
+): Promise<MentionNoteItem[]> {
+  return notebookId ? loadMentionNotes(notebookId) : Promise.resolve([]);
+}
+
+/** Invalidate one notebook, or all caches when no identity is available. */
+export function invalidateMentionNotes(notebookId?: string | null): void {
+  if (notebookId) cacheByNotebookId.delete(notebookId);
+  else cacheByNotebookId.clear();
 }
 
 export function toNoteReferenceAttrs(item: MentionNoteItem): NoteReferenceAttrs {
@@ -83,7 +114,7 @@ export function toNoteReferenceAttrs(item: MentionNoteItem): NoteReferenceAttrs 
     relativePath: item.relativePath,
     notebookName: item.notebookName,
     title: item.title,
-    originalPath: item.originalPath,
+    originalPath: item.originalPath ?? joinNotebookMemoPath(item.notebookPath, item.relativePath),
     linkStyle: 'flowix',
     linkTarget: null,
     heading: null,

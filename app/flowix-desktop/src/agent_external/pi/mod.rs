@@ -1,9 +1,11 @@
+mod cloud_context;
 mod package_seed;
 mod runtime;
 mod shell;
 mod skill_resources;
 
 pub(crate) use runtime::resolve_pi_binary;
+pub use cloud_context::PiCloudContext;
 pub use runtime::{PiHistoryPage, PiHistoryRevision, PiRpcManager, PiSessionSnapshot};
 pub mod config;
 

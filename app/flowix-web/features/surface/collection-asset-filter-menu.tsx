@@ -48,8 +48,8 @@ export function CollectionAssetFilterMenu({ source, indexPath, notebookPath, edi
       className="flex h-8 w-full items-center justify-between rounded-lg px-1.5 text-left text-sm hover:bg-[var(--hover-bg)] disabled:opacity-50">
       <span>{t('collection.filter.assets')}</span><ChevronRight className="h-3.5 w-3.5 text-[var(--muted-foreground)]" />
     </button></PopoverTrigger>
-    <PopoverContent side="left" align="start" sideOffset={0} fitViewport style={{ zIndex: 160 }} keepParentMenuOpen ignorePopoverOutside ignoreSelectOutside
-      className="max-h-[min(70vh,420px)] w-[320px] overflow-y-auto rounded-xl p-1.5">
+    <PopoverContent scrollable side="left" align="start" sideOffset={0} fitViewport style={{ zIndex: 160 }} keepParentMenuOpen ignorePopoverOutside ignoreSelectOutside
+      className="max-h-[min(70vh,420px)] w-[320px] rounded-xl p-1.5">
       {filter.renderPanel(false)}
     </PopoverContent>
   </Popover>;

@@ -825,7 +825,7 @@ export function TagTree({
                 )}
               </div>
               </ContextMenuTrigger>
-              <ContextMenuContent className="w-[160px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+              <ContextMenuContent scrollerClassName="space-y-0.5" className="w-[160px] rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
                 <ContextMenuItem
                   onClick={() => startRename(tag)}
                   className="h-7 items-center justify-start gap-2 rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"

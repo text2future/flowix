@@ -1,3 +1,4 @@
+import { createPopupScrollAreaDom } from '@shared/ui/popup-scroll-area-dom';
 import type { Editor } from "@tiptap/core";
 import {
   insertComposerFolderToken,
@@ -13,7 +14,6 @@ export interface ComposerFolderReference {
 }
 
 const NOTE_SEARCH_DEBOUNCE_MS = 150;
-const MENU_SCROLLBAR_HIDE_DELAY_MS = 700;
 
 export interface ComposerFolderControllerOptions {
   editor: Editor;
@@ -24,6 +24,7 @@ export interface ComposerFolderControllerOptions {
   listNotes?: (query: string) => Promise<readonly MentionNoteItem[]>;
   noteGroupLabel?: string;
   noteEmptyLabel?: string;
+  noteErrorLabel?: string;
   onChange?: () => void;
   focusInput?: () => void;
 }
@@ -42,15 +43,17 @@ export class ComposerFolderController {
   private readonly listNotes: (query: string) => Promise<readonly MentionNoteItem[]>;
   private readonly noteGroupLabel: string;
   private readonly noteEmptyLabel: string;
+  private readonly noteErrorLabel: string;
   private readonly onChange: () => void;
   private readonly focusInput: () => void;
   private menu: HTMLDivElement | null = null;
   private filteredFolders: readonly ComposerFolderReference[] = [];
   private notes: readonly MentionNoteItem[] = [];
   private notesLoading = false;
+  private notesError = false;
   private notesRequestGeneration = 0;
   private notesSearchTimer: ReturnType<typeof setTimeout> | null = null;
-  private menuScrollbarHideTimer: ReturnType<typeof setTimeout> | null = null;
+  private menuScrollbar: ReturnType<typeof createPopupScrollAreaDom> | null = null;
   private activeIndex = 0;
   private isKeyboardNavigation = true;
   private dismissedValue: string | null = null;
@@ -67,6 +70,7 @@ export class ComposerFolderController {
     this.listNotes = options.listNotes ?? (async () => []);
     this.noteGroupLabel = options.noteGroupLabel ?? "笔记";
     this.noteEmptyLabel = options.noteEmptyLabel ?? "暂无笔记";
+    this.noteErrorLabel = options.noteErrorLabel ?? "笔记加载失败，请重试";
     this.onChange = options.onChange ?? (() => undefined);
     this.focusInput = options.focusInput ?? (() => {
       this.editor.commands.focus(null, { scrollIntoView: false });
@@ -122,6 +126,7 @@ export class ComposerFolderController {
     this.mentionRange = { from: mention.from, to: mention.to };
     this.notes = [];
     this.notesLoading = true;
+    this.notesError = false;
     this.activeIndex = 0;
     this.isKeyboardNavigation = true;
     // Do not flash an empty/loading popup when there are no matching folders.
@@ -179,16 +184,18 @@ export class ComposerFolderController {
       const mention = this.getMentionAtCursor();
       if (!mention || mention.query !== query) return;
       this.notes = notes;
+      this.notesError = false;
       this.mentionRange = { from: mention.from, to: mention.to };
     } catch (error) {
       if (this.disposed || generation !== this.notesRequestGeneration) return;
       this.notes = [];
+      this.notesError = true;
       console.warn("[agent-composer] note mention query failed:", error);
     } finally {
       if (this.disposed || generation !== this.notesRequestGeneration) return;
       this.notesLoading = false;
       const itemCount = this.getMenuItems().length;
-      if (itemCount === 0) {
+      if (itemCount === 0 && !this.notesError) {
         this.closeMenu();
         return;
       }
@@ -294,35 +301,21 @@ export class ComposerFolderController {
 
   private openMenu(): void {
     if (!this.menu) {
-      this.menu = document.createElement("div");
-      this.menu.className = "agent-composer-slash-menu agent-composer-slash-menu--folder";
-      this.menu.setAttribute("role", "listbox");
-      this.menu.setAttribute("aria-label", "资料和笔记");
+      this.menuScrollbar = createPopupScrollAreaDom(document, { frameClassName: "popup-scroll-area--surface agent-composer-slash-menu agent-composer-slash-menu--folder" });
+      this.menu = this.menuScrollbar.frame;
+      this.menuScrollbar.scroller.setAttribute("role", "listbox");
+      this.menuScrollbar.scroller.setAttribute("aria-label", "资料和笔记");
       this.menu.setAttribute("data-flowix-surface", "popover");
-      this.menu.addEventListener("scroll", this.handleMenuScroll, { passive: true });
       document.body.append(this.menu);
     }
     this.renderMenuItems();
     this.updateMenuPosition();
   }
 
-  private readonly handleMenuScroll = (): void => {
-    const menu = this.menu;
-    if (!menu) return;
-    menu.dataset.scrolling = "true";
-    if (this.menuScrollbarHideTimer !== null) {
-      clearTimeout(this.menuScrollbarHideTimer);
-    }
-    this.menuScrollbarHideTimer = setTimeout(() => {
-      if (this.menu === menu) delete menu.dataset.scrolling;
-      this.menuScrollbarHideTimer = null;
-    }, MENU_SCROLLBAR_HIDE_DELAY_MS);
-  };
-
   private renderMenuItems(): void {
-    const menu = this.menu;
+    const menu = this.menuScrollbar?.scroller;
     if (!menu) return;
-    menu.classList.toggle("is-keyboard-navigation", this.isKeyboardNavigation);
+    this.menu?.classList.toggle("is-keyboard-navigation", this.isKeyboardNavigation);
     menu.replaceChildren();
     if (this.filteredFolders.length > 0) {
       const groupLabel = document.createElement("div");
@@ -343,6 +336,11 @@ export class ComposerFolderController {
       loading.className = "agent-composer-slash-menu__empty";
       loading.textContent = "正在搜索笔记…";
       menu.append(loading);
+    } else if (this.notesError) {
+      const error = document.createElement("div");
+      error.className = "agent-composer-slash-menu__empty";
+      error.textContent = this.noteErrorLabel;
+      menu.append(error);
     } else if (this.notes.length === 0) {
       const empty = document.createElement("div");
       empty.className = "agent-composer-slash-menu__empty";
@@ -456,10 +454,8 @@ export class ComposerFolderController {
   }
 
   private closeMenu(): void {
-    if (this.menuScrollbarHideTimer !== null) {
-      clearTimeout(this.menuScrollbarHideTimer);
-      this.menuScrollbarHideTimer = null;
-    }
+    this.menuScrollbar?.destroy();
+    this.menuScrollbar = null;
     this.menu?.remove();
     this.menu = null;
     this.mentionRange = null;

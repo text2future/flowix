@@ -27,7 +27,7 @@ import {
   workDocumentsFilterFromCondition,
   type WorkDocumentsDocument,
   type WorkDocumentsKind,
-} from '@features/work-documents/model';
+} from '@features/collection/public/work-documents-model-api';
 
 /**
  * 列表的集合文件格式：v2 单类型文件 或 hybrid（v3）文档里的 work_documents 域。
@@ -41,7 +41,7 @@ const WORK_DOCUMENTS_CODEC: CollectionDocumentCodec<WorkDocumentsDocument> = {
   sourceDomain: (content) => collectionSourceDomain(content, 'work_documents'),
 };
 
-export function WorkDocumentsCollectionView({ onSurfaceLifecycleReady, reportPresentation, filePath, fileIdentity, notebookPath: rawNotebookPath, notebookId = null, expectedCollectionId, workspaceHost = 'column-1', editable = true, activeViewId, actionsHost, onOpenNoteFilter, onDatasetFilterOpenChange, pageScroll = false }: {
+export function WorkDocumentsCollectionView({ onSurfaceLifecycleReady, reportPresentation, filePath, fileIdentity, notebookPath: rawNotebookPath, notebookId = null, expectedCollectionId, workspaceHost = 'column-1', editable = true, activeViewId, actionsHost, onOpenNoteFilter, onDatasetFilterOpenChange, pageScroll = false, workDocumentsPageSize, showLoadMoreButton = false }: {
   onSurfaceLifecycleReady?: (lifecycle: SurfaceLifecycle | null) => void;
   reportPresentation?: (update: SurfacePresentationUpdate) => void;
   filePath: string;
@@ -50,14 +50,18 @@ export function WorkDocumentsCollectionView({ onSurfaceLifecycleReady, reportPre
   notebookId?: string | null;
   expectedCollectionId?: string | null;
   workspaceHost?: 'column-1' | 'column-2';
-  /** 集合外壳里的 tab 面板：只把操作区 portal 进 nav 右侧操作槽（见 DocumentListView）。 */
+  /** 嵌入外层标题栏时将筛选操作 portal 到宿主（见 DocumentListView）。 */
   actionsHost?: CollectionActionsHost;
   onOpenNoteFilter?: () => void;
   onDatasetFilterOpenChange?: (open: boolean) => void;
   editable?: boolean;
   activeViewId?: string | null;
-  /** 整页滚动（集合外壳）：列表自然撑开，滚动交给外壳的页面滚动容器。 */
+  /** 无内部滚动区时，列表按内容自然撑开，由外层容器负责滚动。 */
   pageScroll?: boolean;
+  /** 覆盖工作文档列表默认的服务端分页数量。 */
+  workDocumentsPageSize?: number;
+  /** 使用底部按钮手动加载下一页。 */
+  showLoadMoreButton?: boolean;
 }) {
   const notebookPath = rawNotebookPath ? canonicalDirectoryPath(rawNotebookPath) : null;
   const notebooks = useNoteStore((state) => state.notebooks);
@@ -264,6 +268,8 @@ export function WorkDocumentsCollectionView({ onSurfaceLifecycleReady, reportPre
       refreshPaused={saving}
       actionsHost={actionsHost}
       pageScroll={pageScroll}
+      workDocumentsPageSize={workDocumentsPageSize}
+      showLoadMoreButton={showLoadMoreButton}
     />
   </div>;
 }

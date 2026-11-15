@@ -59,10 +59,9 @@ describe('resolveEditorLocalHref', () => {
   });
 
   it('treats a literal # as a fragment delimiter (CommonMark semantics)', () => {
-    // marked does not encode '#' in destinations, so `a#b.md` is a fragment
-    // link whose path `a` has no extension — it keeps the historic web
-    // semantics, same as before this feature.
-    expect(resolveEditorLocalHref('a#b.md', DOCUMENT_PATH)).toBeNull();
+    expect(resolveEditorLocalHref('a#b.md', DOCUMENT_PATH)).toMatchObject({
+      notebookNoteName: 'a', anchor: 'b.md',
+    });
   });
 
   it('keeps a percent-encoded # inside a filename intact', () => {
@@ -89,9 +88,9 @@ describe('resolveEditorLocalHref', () => {
     expect(resolveEditorLocalHref('//example.com/a.md', DOCUMENT_PATH)).toBeNull();
   });
 
-  it('keeps bare domains on the historic web path', () => {
-    expect(resolveEditorLocalHref('example.com', DOCUMENT_PATH)).toBeNull();
-    expect(resolveEditorLocalHref('example.com/docs', DOCUMENT_PATH)).toBeNull();
+  it('treats scheme-less Markdown destinations as relative paths', () => {
+    expect(resolveEditorLocalHref('example.com', DOCUMENT_PATH)).not.toBeNull();
+    expect(resolveEditorLocalHref('example.com/docs', DOCUMENT_PATH)).not.toBeNull();
   });
 
   it('requires a document path for relative targets', () => {
@@ -118,7 +117,7 @@ describe('decodeEditorHref', () => {
   });
 });
 
-// 相对路径 ≠ 域名：`skills/a.md` 指向同级文件，只有 web 形态才配加上协议。
+// Markdown 中无协议的地址按相对路径解析；网页地址使用显式协议。
 describe('isRelativePathHref', () => {
   it.each([
     'skills/RESOLVER.md',
@@ -129,6 +128,10 @@ describe('isRelativePathHref', () => {
     'notes/2024.计划/a.md',
     'images/pic.png',
     'skills/',
+    'skills',
+    'data.custom',
+    'example.com',
+    'example.com/docs',
   ])('treats a path-shaped reference as a sibling path: %s', href => {
     expect(isRelativePathHref(href)).toBe(true);
   });
@@ -138,14 +141,11 @@ describe('isRelativePathHref', () => {
     'http://example.com',
     'mailto:a@b.com',
     'flowix://open?b=Book&f=a.md',
-    'example.com',
-    'example.com/docs',
     '//example.com/a.md',
     '/Users/rop/notes/a.md',
     'D:\\notes\\a.md',
     '#heading',
     '?query=1',
-    'skills',
     '',
     '   ',
   ])('keeps other hrefs out of the sibling-path rule: %s', href => {
@@ -154,13 +154,22 @@ describe('isRelativePathHref', () => {
 
   it('ignores query and fragment when classifying the path', () => {
     expect(isRelativePathHref('skills/a.md?v=2')).toBe(true);
-    expect(isRelativePathHref('example.com/docs?v=2')).toBe(false);
+    expect(isRelativePathHref('example.com/docs?v=2')).toBe(true);
   });
 
-  // 与编辑器既有解析保持一致：`resolveEditorLocalHref` 只在扩展名不可用（无法
-  // 判定为文档）时才把裸域名当 web，因此 `example.com/a.md` 仍按本地路径处理。
+  // 目录名称包含点号也不会把相对路径变成网页地址。
   it('stays consistent with the editor resolver for host-shaped paths with a file extension', () => {
     expect(isRelativePathHref('example.com/a.md')).toBe(true);
     expect(resolveEditorLocalHref('example.com/a.md', DOCUMENT_PATH)).not.toBeNull();
   });
+});
+
+it('keeps bare extensionless destinations editable and probes a notebook note', () => {
+  expect(resolveEditorLocalHref('资料#标题', DOCUMENT_PATH)).toMatchObject({ notebookNoteName: '资料', anchor: '标题' });
+  expect(resolveEditorLocalHref('folder/data.custom', DOCUMENT_PATH)).not.toBeNull();
+});
+
+it('opens a native UNC path as an absolute local link', () => {
+  expect(resolveEditorLocalHref(String.raw`\\server\share\资料.md`, DOCUMENT_PATH))
+    .toEqual({ path: '//server/share/资料.md', anchor: null });
 });

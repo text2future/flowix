@@ -34,11 +34,8 @@ export interface CollectionNameEditControls {
 
 const NAME_STYLES = {
   tab: {
-    button: 'rounded px-0.5 py-1 text-sm font-medium leading-none',
-    // input 不给显式高度：高度由行盒 + padding 自然撑出（与 button 相同的 28px）。
-    // WebKit 里显式高度的 input 按内容盒垂直居中文字，与 button 的行盒定位差 ~2px，
-    // 会导致进出编辑文字跳动（header 44px 档实测）。
-    input: 'rounded px-0.5 py-1 text-sm font-medium leading-none',
+    button: 'h-full inline-flex items-center rounded px-0.5 text-sm font-medium leading-none',
+    input: 'h-full rounded px-0.5 text-sm font-medium leading-none',
     spinner: 'h-3.5 w-3.5',
   },
   header: {
@@ -72,44 +69,52 @@ export function EditableCollectionName({
   const style = NAME_STYLES[size];
   const unavailable = edit.disabled || edit.busy;
   const displayTitle = edit.busy ? edit.draft.trim() || title : title;
+  const inputBackground = size === 'tab' ? 'bg-transparent' : 'bg-[var(--muted)]';
+  const buttonHover = size === 'tab' ? '' : 'transition-colors hover:bg-[var(--muted)]';
+  const nameControl = edit.editing ? <input
+    ref={edit.inputRef}
+    aria-label={inputLabel}
+    value={edit.draft}
+    disabled={unavailable}
+    onChange={(event) => edit.setDraft(event.currentTarget.value)}
+    onBlur={(event) => { void edit.commit(event.currentTarget.value); }}
+    onKeyDown={(event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        event.currentTarget.blur();
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        edit.cancel();
+      }
+    }}
+    className={`box-border min-w-[2em] max-w-full flex-[0_1_auto] [field-sizing:content] border-0 ${inputBackground} text-[var(--foreground)] outline-none ${style.input}`}
+  /> : <button
+    type="button"
+    onDoubleClick={(event) => {
+      if (unavailable) return;
+      event.preventDefault();
+      edit.captureCaret(event.currentTarget, event.clientX, event.clientY);
+      edit.beginEdit();
+    }}
+    aria-label={`${renameLabel}：${displayTitle}`}
+    title={`${renameHint}：${displayTitle}`}
+    disabled={unavailable}
+    onKeyDown={(event) => {
+      if (event.key === 'Enter' || event.key === 'F2') {
+        event.preventDefault();
+        edit.beginEdit();
+      }
+    }}
+    className={`min-w-[2em] max-w-full flex-[0_1_auto] truncate text-left text-[var(--foreground)] ${buttonHover} disabled:opacity-100 ${style.button}`}
+  >{displayTitle}</button>;
 
   return <>
-    {edit.editing ? <input
-      ref={edit.inputRef}
-      aria-label={inputLabel}
-      value={edit.draft}
-      disabled={unavailable}
-      onChange={(event) => edit.setDraft(event.currentTarget.value)}
-      onBlur={(event) => { void edit.commit(event.currentTarget.value); }}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter') {
-          event.preventDefault();
-          event.currentTarget.blur();
-        } else if (event.key === 'Escape') {
-          event.preventDefault();
-          edit.cancel();
-        }
-      }}
-      className={`box-border min-w-[2em] max-w-full flex-[0_1_auto] [field-sizing:content] border-0 bg-[var(--muted)] text-[var(--foreground)] outline-none ${style.input}`}
-    /> : <button
-      type="button"
-      onDoubleClick={(event) => {
-        if (unavailable) return;
-        event.preventDefault();
-        edit.captureCaret(event.currentTarget, event.clientX, event.clientY);
-        edit.beginEdit();
-      }}
-      aria-label={`${renameLabel}：${displayTitle}`}
-      title={`${renameHint}：${displayTitle}`}
-      disabled={unavailable}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === 'F2') {
-          event.preventDefault();
-          edit.beginEdit();
-        }
-      }}
-      className={`min-w-[2em] max-w-full flex-[0_1_auto] truncate text-left text-[var(--foreground)] transition-colors hover:bg-[var(--muted)] disabled:opacity-100 ${style.button}`}
-    >{displayTitle}</button>}
+    {/* 小标题的 hover / 编辑背景共用固定高度外壳，避免原生 input 高度改变背景边界。 */}
+    {size === 'tab'
+      ? <span className={`inline-flex h-7 min-w-[2em] max-w-full flex-[0_1_auto] items-center rounded transition-colors ${edit.editing ? 'bg-[var(--muted)]' : 'hover:bg-[var(--muted)]'}`}>
+        {nameControl}
+      </span>
+      : nameControl}
     {edit.busy && <span role="status" aria-label={t('memo.fileTree.renaming')} className="inline-flex shrink-0 items-center text-[var(--muted-foreground)]">
       <LoaderCircle className={`${style.spinner} flowix-spin`} aria-hidden="true" />
     </span>}

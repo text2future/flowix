@@ -26,7 +26,7 @@ export function splitDisplay(text: string): { notebookName: string; title: strin
 }
 
 export function pickAttr(attrsStr: string, name: string): string | null {
-  const re = new RegExp(`${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, 'i');
+  const re = new RegExp(`(?:^|\\s)${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, 'i');
   const m = attrsStr.match(re);
   if (!m) return null;
   return unescapeHtml(m[1] ?? m[2] ?? '');

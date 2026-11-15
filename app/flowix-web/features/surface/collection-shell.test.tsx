@@ -12,17 +12,24 @@ const calls = vi.hoisted(() => ({
   mediaProps: { current: null as Record<string, unknown> | null },
 }));
 
+const folderAppearance = vi.hoisted(() => ({
+  useFolderAppearance: vi.fn(),
+  saveFolderAppearance: vi.fn(),
+}));
+
 vi.mock('@features/collection/public/folder-api', () => ({
   readCollectionSummary: () => Promise.resolve(calls.summary.current),
-  // 文件夹 → 集合体地址的唯一换算（真实模块里同一条规则）。
-  collectionIndexPathForFolder: (folderPath: string) => `${folderPath.replace(/[\\/]+$/, '')}/.index.yaml`,
   addCollectionDomain: vi.fn(),
   addCollectionNoteView: vi.fn(),
   removeCollectionDomain: vi.fn(),
-  ensureFolderCollection: vi.fn(),
   resolveCollectionScope: (source: unknown) => (source ? { relativePath: '客户周报', depth: 'descendants' as const } : undefined),
   updateCollectionProperties: vi.fn(),
   // 头图 seed 规则在真实模块里做哈希；这里给可断言的确定性替身（同一 seed ⇒ 同一图）。
+}));
+/** 文件夹外观住在 `folder_index` 表里：外壳只为文件夹表面订阅它。 */
+vi.mock('@features/collection/folder-appearance', () => ({
+  useFolderAppearance: folderAppearance.useFolderAppearance,
+  saveFolderAppearance: folderAppearance.saveFolderAppearance,
 }));
 vi.mock('./collection-asset-filter-menu', () => ({ CollectionAssetFilterMenu: () => <button data-testid="inline-assets-filter">资料筛选</button> }));
 vi.mock('@platform/tauri/event-bus', () => ({ subscribe: (_name: string, callback: (event: unknown) => void) => {
@@ -89,6 +96,7 @@ afterEach(async () => {
   calls.tableProps.current = null;
   calls.mediaProps.current = null;
   calls.showTableActions = true;
+  folderAppearance.useFolderAppearance.mockReturnValue(undefined);
   window.localStorage.clear();
   vi.clearAllMocks();
 });
@@ -168,7 +176,8 @@ describe('collection shell', () => {
     expect(host?.querySelector('[aria-label="集合视图"]')?.textContent).not.toContain('全部');
   });
 
-  it('直接打开文件夹：同一套外壳，多出的文件树 tab 来自 file_tree 标记', async () => {
+  it('直接打开文件夹：只有一个「文件」tab，目录里的 .index.yaml 不再被读成集合', async () => {
+    // 故意放一份「有媒体域 + file_tree」的集合内容：文件夹表面必须完全忽略它。
     calls.summary.current = HYBRID_WITH_FILE_TREE;
     const node = await renderShell({
       folderPath: '/book/客户周报',
@@ -178,9 +187,10 @@ describe('collection shell', () => {
     });
 
     expect(node.querySelector('h2')?.textContent).toBe('客户周报');
-    expect(node.querySelector('[aria-label="集合视图"]')?.textContent).toContain('文件夹');
-    expect(node.querySelector('[aria-label="集合视图"]')?.textContent).toContain('图墙');
-    expect(calls.tableProps.current?.showNavTitle).toBe(false);
+    // tab 条只有「文件」一项：目录里的 .index.yaml 不再被当成集合（否则这里会出现「图墙」）。
+    expect(node.querySelector('[aria-label="集合视图"]')?.textContent).toBe('文件夹');
+    expect(node.querySelector('[data-testid="media-panel"]')).toBeNull();
+    expect(calls.tableProps.current).toBeNull();
   });
 
   it('大标题双击改名：失焦保存后标题跟着新路径走', async () => {
@@ -244,19 +254,22 @@ it('rename failure restores the original title and allows editing again', async 
 
 describe('collection shell active tab', () => {
   const folderProps = { folderPath: '/book/客户周报', notebookId: 'book', notebookPath: '/book', host: 'column-1' as const };
+  const collectionProps = { filePath: '/book/客户周报/.index.yaml', notebookId: 'book', notebookPath: '/book', host: 'column-1' as const };
 
-  it('文件夹集合默认落在「文件树」tab', async () => {
+  it('文件夹表面恒定只有一个「文件」tab，不读集合体也不落表格', async () => {
     calls.summary.current = HYBRID_WITH_FILE_TREE;
     const node = await renderShell(folderProps);
 
     expect(activeTab()).toBe('文件夹');
+    expect(node.querySelector('[aria-label="集合视图"]')?.textContent).toBe('文件夹');
     expect(node.querySelector('[data-view-scope]')).toBeNull();
+    expect(calls.tableProps.current).toBeNull();
   });
 
   it('同一资料域的不同 tab 把自己的视图 ID 交给内容面板', async () => {
     calls.summary.current = { ...HYBRID_WITH_FILE_TREE, views: [...HYBRID_WITH_FILE_TREE.views,
       { id: 'v3', name: '视频', domain: 'media' }] };
-    const node = await renderShell(folderProps);
+    const node = await renderShell(collectionProps);
     await act(async () => selectTab('media:v2'));
     expect(node.querySelector('[data-testid="media-panel"]')?.getAttribute('data-active-view')).toBe('v2');
     expect(node.querySelector('[data-view-scope]')?.textContent).toBe('仅资料');
@@ -268,7 +281,7 @@ describe('collection shell active tab', () => {
 
   it('从图墙打开笔记筛选时保持图墙 tab，不跳转到表格', async () => {
     calls.summary.current = HYBRID_WITH_FILE_TREE;
-    const node = await renderShell(folderProps);
+    const node = await renderShell(collectionProps);
     await act(async () => selectTab('media:v2'));
     expect(activeTab()).toBe('图墙');
 
@@ -338,17 +351,17 @@ describe('collection shell active tab', () => {
     expect(node.querySelector('[data-host-actions-slot] button[aria-label="管理数据集"]')).not.toBeNull();
   });
 
-  it('文件树、图墙、列表和表格切换时，只有当前面板占用操作区', async () => {
+  it('图墙、列表和表格切换时，只有当前面板占用操作区', async () => {
     calls.summary.current = {
       ...HYBRID_WITH_FILE_TREE,
       domains: ['notes', 'media', 'work_documents'],
       views: [...HYBRID_WITH_FILE_TREE.views, { id: 'w1', name: '列表', domain: 'work_documents' }],
       defaultByDomain: { ...HYBRID_WITH_FILE_TREE.defaultByDomain, work_documents: 'w1' },
     };
-    const node = await renderShell(folderProps);
+    const node = await renderShell(collectionProps);
     const slot = () => node.querySelector('[data-host-actions-slot]');
     const select = selectTab;
-    expect(slot()?.querySelector('button[aria-label="管理数据集"]')).not.toBeNull();
+    expect(slot()?.textContent).not.toContain('媒体操作');
     await act(async () => select('media:v2'));
     expect(slot()?.textContent).toBe('媒体操作');
     // 已挂载面板遇到操作槽移除/重建，也要切换到新的目标，不留在脱离 DOM 的节点里。
@@ -362,12 +375,9 @@ describe('collection shell active tab', () => {
     expect(slot()?.textContent).toBe('媒体操作');
     await act(async () => select('work_documents:w1'));
     expect(slot()?.textContent).toBe('列表操作');
-    await act(async () => select('files'));
-    expect(slot()?.querySelector('button[aria-label="管理数据集"]')).not.toBeNull();
-    expect(slot()?.textContent).not.toContain('媒体操作');
-    expect(slot()?.textContent).not.toContain('列表操作');
     await act(async () => (calls.tableProps.current?.onActiveViewChange as (id: string) => void)('v1'));
     expect(slot()?.textContent).not.toContain('媒体操作');
+    expect(slot()?.textContent).not.toContain('列表操作');
     expect(node.querySelectorAll('[aria-label="集合视图"]')).toHaveLength(1);
   });
 
@@ -398,9 +408,9 @@ describe('collection shell active tab', () => {
     expect(activeTab()).toBe('表格');
   });
 
-  it('切换 tab 保存偏好，但文件夹重新打开默认仍为文件树', async () => {
+  it('切换 tab 保存偏好，重新打开同一个集合直接落在上次的 tab', async () => {
     calls.summary.current = HYBRID_WITH_FILE_TREE;
-    await renderShell(folderProps);
+    await renderShell(collectionProps);
 
     const select = selectTab;
     // 资料域 tab 按**视图实例**记：键形如 `media:<viewId>`，不再是旧的域级键。
@@ -411,11 +421,11 @@ describe('collection shell active tab', () => {
     // 重新打开同一个集合（新实例）：直接落在上次的 tab。
     await act(async () => root?.unmount());
     root = undefined;
-    await renderShell(folderProps);
-    expect(activeTab()).toBe('文件夹');
+    await renderShell(collectionProps);
+    expect(activeTab()).toBe('图墙');
   });
 
-  it('文件夹入口不受上次表格视图偏好的影响，默认选中文件树', async () => {
+  it('文件夹入口不受上次 tab 偏好的影响：永远只有「文件」', async () => {
     calls.summary.current = HYBRID_WITH_FILE_TREE;
     window.localStorage.setItem('flowix:collection:active-host-tab:c1', 'notes');
     const node = await renderShell(folderProps);
@@ -423,73 +433,87 @@ describe('collection shell active tab', () => {
     expect(node.querySelector('button[aria-label="管理数据集"]')).not.toBeNull();
   });
 
-  it('记录里的 tab 已不成立时回落默认（文件树被关掉 → 表格视图）', async () => {
+  it('记录里的 tab 已不成立时回落默认（集合文件没有文件树 tab → 表格视图）', async () => {
     window.localStorage.setItem('flowix:collection:active-host-tab:c1', 'files');
-    calls.summary.current = { ...HYBRID_WITH_FILE_TREE, fileTree: false };
-    await renderShell(folderProps);
+    calls.summary.current = HYBRID_WITH_FILE_TREE;
+    await renderShell(collectionProps);
 
     expect(activeTab()).toBe('表格');
   });
 
   it.each(['table', 'gallery', 'kanban', 'calendar'] as const)('唯一 tab 栏的添加菜单可创建 %s', async (layout) => {
-    calls.summary.current = null;
+    calls.summary.current = { ...HYBRID_NOTES_ONLY, sources: {}, properties: {} };
     const api = await import('@features/collection/public/folder-api');
     const label = { table: '表格', gallery: '画廊', kanban: '看板', calendar: '日历' }[layout];
     vi.mocked(api.addCollectionNoteView).mockResolvedValue({
       summary: { ...HYBRID_NOTES_ONLY, sources: {}, properties: {}, fileTree: true,
         views: [{ id: 'new-view', name: label, domain: 'notes' }], defaultByDomain: { notes: 'new-view' } }, viewId: 'new-view',
     });
-    const node = await renderShell(folderProps);
+    const node = await renderShell(collectionProps);
     expect(node.querySelectorAll('[aria-label="集合视图"]')).toHaveLength(1);
     await act(async () => node.querySelector<HTMLButtonElement>('button[aria-label="显示设置"]')?.click());
     const labels = [...document.querySelectorAll('button')].map((button) => button.textContent);
     for (const name of ['表格', '画廊', '看板', '日历']) expect(labels).toContain(name);
-    const choice = [...document.querySelectorAll('button')].find((button) => button.textContent === label);
-    await act(async () => choice?.click());
+    // 「表格」既是已有 tab 的标签也是菜单项：菜单在 portal 里，取最后一个（展开的那一层）。
+    const choices = [...document.querySelectorAll('button')].filter((button) => button.textContent === label);
+    await act(async () => choices[choices.length - 1]?.click());
     if (layout === 'calendar' || layout === 'kanban') {
       const field = [...document.querySelectorAll('button')].find((button) => button.textContent === (layout === 'calendar' ? '日期' : '状态'));
       expect(field).toBeDefined();
       await act(async () => field?.click());
     }
-    expect(api.addCollectionNoteView).toHaveBeenCalledWith('/book/客户周报/.index.yaml', '/book', layout, '/book/客户周报', layout === 'calendar' ? '__note_calendar_date__' : undefined);
+    expect(api.addCollectionNoteView).toHaveBeenCalledWith('/book/客户周报/.index.yaml', '/book', layout, null, layout === 'calendar' ? '__note_calendar_date__' : undefined);
     expect(node.querySelectorAll('[aria-label="集合视图"]')).toHaveLength(1);
     expect(calls.tableProps.current?.showNavigation).toBe(false);
     expect(calls.tableProps.current?.initialViewId).toBe('new-view');
   });
 
-  it.each([['media', '图墙'], ['work_documents', '列表']] as const)('空文件夹从同一个菜单添加 %s', async (domain, label) => {
-    calls.summary.current = null;
+  it.each([['media', '图墙'], ['work_documents', '列表']] as const)('空集合从同一个菜单添加 %s', async (domain, label) => {
+    calls.summary.current = { ...HYBRID_NOTES_ONLY, sources: {}, properties: {} };
     const api = await import('@features/collection/public/folder-api');
-    vi.mocked(api.ensureFolderCollection).mockResolvedValue({
+    vi.mocked(api.addCollectionDomain).mockResolvedValue({
       ...HYBRID_NOTES_ONLY, sources: {}, properties: {}, fileTree: true, domains: [domain],
       views: [{ id: 'asset-view', name: label, domain }], defaultByDomain: { [domain]: 'asset-view' },
     });
-    const node = await renderShell(folderProps);
+    const node = await renderShell(collectionProps);
     await act(async () => node.querySelector<HTMLButtonElement>('button[aria-label="显示设置"]')?.click());
     const choice = [...document.querySelectorAll('button')].find((button) => button.textContent?.startsWith(label));
     await act(async () => choice?.click());
-    expect(api.ensureFolderCollection).toHaveBeenCalledWith('/book/客户周报', '/book', '客户周报', domain);
+    expect(api.addCollectionDomain).toHaveBeenCalledWith('/book/客户周报/.index.yaml', '/book', domain);
     expect(node.querySelectorAll('[aria-label="集合视图"]')).toHaveLength(1);
   });
 
-  it('文件夹入口尚无 .index.yaml：文件树不套灰色描边框（与有集合时的版式一致），且右侧操作槽照旧给出', async () => {
+  it('文件夹表面的「···」只有显示标题 / 显示头图，不会凭空建集合并加视图', async () => {
+    calls.summary.current = HYBRID_WITH_FILE_TREE;
+    const node = await renderShell(folderProps);
+    const api = await import('@features/collection/public/folder-api');
+    await act(async () => node.querySelector<HTMLButtonElement>('button[aria-label="显示设置"]')?.click());
+    const labels = [...document.querySelectorAll('button')].map((button) => button.textContent);
+    expect(labels).toContain('显示标题');
+    expect(labels).toContain('显示头图');
+    expect(labels).not.toContain('图墙');
+    expect(labels).not.toContain('表格');
+    expect(api.addCollectionDomain).not.toHaveBeenCalled();
+    expect(api.addCollectionNoteView).not.toHaveBeenCalled();
+    expect(node.querySelectorAll('[aria-label="集合视图"]')).toHaveLength(1);
+  });
+
+  it('文件夹表面直接渲染文件树：不套灰色描边框，右侧操作槽照旧给出', async () => {
     calls.summary.current = null;
     const node = await renderShell(folderProps);
 
-    // 缺集合时走的是「占位 tab + 文件树」的兜底分支，不再有那圈 rounded-xl border
-    // （集合图标也已去容器：无 tint 也无描边，:not 排除项保留只为兼容旧类名残留）。
     expect(node.textContent).toContain('文件夹');
     expect(node.querySelector('.rounded-xl.border:not(.collection-header-icon-tint)')).toBeNull();
 
-    // 回归：兜底态也必须有 nav 右侧的操作槽，否则文件树的数据集合按钮会整块消失
+    // 回归：nav 右侧的操作槽必须存在，否则文件树的数据集合按钮会整块消失
     // （首次点开文件夹看不见、切一次 tab 又出现）。
     const slot = node.querySelector<HTMLElement>('[data-host-actions-slot]');
     expect(slot).not.toBeNull();
-    // 文件树操作由外壳直接渲染，不依赖 `.index.yaml` 或表格加载。
+    // 文件树操作由外壳直接渲染，不依赖集合文件或表格加载。
     expect(slot?.querySelector('button[aria-label="管理数据集"]')).not.toBeNull();
   });
 
-  it('文件夹入口尚无 .index.yaml：默认隐藏头图，不请求在线图片', async () => {
+  it('文件夹没有外观属性时默认隐藏头图，不请求在线图片', async () => {
     calls.summary.current = null;
     const node = await renderShell(folderProps);
     expect(node.querySelector('img[src^="https://"]')).toBeNull();
@@ -497,11 +521,26 @@ describe('collection shell active tab', () => {
     expect(node.querySelector('button[aria-label="切换图片"]')).toBeNull();
   });
 
-  it('已有文件夹集合显式开启但未选图片时显示色块背景', async () => {
-    calls.summary.current = { ...HYBRID_WITH_FILE_TREE, properties: { banner_hidden: { type: 'Boolean', value: false } } };
+  it('文件夹外观来自 folder_index：显式开启但未选图片时显示色块背景', async () => {
+    calls.summary.current = null;
+    folderAppearance.useFolderAppearance.mockReturnValue({ banner_hidden: { type: 'Boolean', value: false } });
     const node = await renderShell(folderProps);
+    expect(folderAppearance.useFolderAppearance).toHaveBeenCalledWith('/book', '/book/客户周报', 'book');
     expect(node.querySelector('img[src^="https://"]')).toBeNull();
     expect(node.querySelector('.collection-banner-placeholder')).not.toBeNull();
+  });
+
+  it('文件夹的「显示头图」写进 folder_index，不写集合属性', async () => {
+    calls.summary.current = null;
+    folderAppearance.saveFolderAppearance.mockResolvedValue({});
+    const node = await renderShell(folderProps);
+    // 面板不可编辑/不可切换时没有悬浮工具条，所以直接走「···」菜单里的同一条写入口。
+    await act(async () => node.querySelector<HTMLButtonElement>('button[aria-label="显示设置"]')?.click());
+    const toggle = [...document.querySelectorAll('button')].find((button) => button.textContent === '显示头图');
+    await act(async () => toggle?.click());
+    expect(folderAppearance.saveFolderAppearance).toHaveBeenCalledWith('/book', '客户周报', {
+      banner_hidden: { type: 'Boolean', value: false },
+    });
   });
 });
 

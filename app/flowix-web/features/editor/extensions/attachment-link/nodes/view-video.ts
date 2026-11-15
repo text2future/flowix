@@ -3,7 +3,11 @@ import type { NodeView as ProseMirrorNodeView, EditorView, Decoration } from '@t
 import type { ViewMutationRecord } from '@tiptap/pm/view';
 import { NodeSelection } from '@tiptap/pm/state';
 import { Node, InputRule, mergeAttributes, type JSONContent } from '@tiptap/core';
-import { assetMarkdownUrl, assetUrl, decodeStorageKey, isVideoUrl } from '@features/editor/extensions/attachment-link/utils';
+import { assetUrl, decodeStorageKey, isVideoUrl } from '@features/editor/extensions/attachment-link/utils';
+import type { EditorImageContext } from '@features/editor/editor-image-source';
+import { resolveDocumentRelativeHref } from '@/lib/document-relative-path';
+import { markdownAssetHref } from '@/lib/asset-markdown';
+import { escapeMarkdownLinkLabel } from '@features/editor/extensions/shared/markdown-link-destination';
 import { renderFlowixMediaStyleComment } from '@features/editor/extensions/attachment-link/markdown/media-style';
 import { normalizeVideoAlignment, videoMarkdownSpec } from '@features/editor/extensions/attachment-link/markdown/video-markdown';
 
@@ -134,7 +138,13 @@ class VideoView implements ProseMirrorNodeView {
         this.seekBy(direction === 'backward' ? -MEDIA_SEEK_STEP_SECONDS : MEDIA_SEEK_STEP_SECONDS);
     };
 
-    constructor(node: ProseMirrorNode, view: EditorView, getPos: () => number, decorations: readonly Decoration[]) {
+    constructor(
+        node: ProseMirrorNode,
+        view: EditorView,
+        getPos: () => number,
+        decorations: readonly Decoration[],
+        private readonly getImageContext?: () => EditorImageContext | undefined,
+    ) {
         this.node = node;
         this.view = view;
         this.getPos = getPos;
@@ -240,9 +250,13 @@ class VideoView implements ProseMirrorNodeView {
      */
     private applySrc(video: HTMLVideoElement, attrs: VideoAttributes): void {
         const storageKey = stringAttribute(attrs.storageKey);
+        const authoredSrc = stringAttribute(attrs.src);
+        const localTarget = resolveDocumentRelativeHref(authoredSrc, this.getImageContext?.()?.documentPath);
         const nextSrc = attrs.storageMode === 'attachment' && storageKey
             ? assetUrl(storageKey)
-            : stringAttribute(attrs.src);
+            : localTarget && (localTarget.path.startsWith('/') || /^[a-z]:\//i.test(localTarget.path) || localTarget.path.startsWith('//'))
+                ? assetUrl(localTarget.path)
+                : authoredSrc;
 
         if (nextSrc === this.appliedSrc) return;
         this.appliedSrc = nextSrc;
@@ -350,8 +364,12 @@ class VideoView implements ProseMirrorNodeView {
 
 // ─── VideoAttachment Node ────────────────────────────────────────────────────
 
-export const VideoAttachment = Node.create({
+export const VideoAttachment = Node.create<{ getImageContext?: () => EditorImageContext | undefined }>({
     name: 'videoAttachment',
+
+    addOptions() {
+        return { getImageContext: undefined };
+    },
     group: 'block',
     inline: false,
     atom: true,
@@ -455,7 +473,8 @@ export const VideoAttachment = Node.create({
                 }
                 return pos;
             },
-            props.decorations
+            props.decorations,
+            this.options.getImageContext,
         );
     },
 
@@ -463,11 +482,9 @@ export const VideoAttachment = Node.create({
 
     renderMarkdown(node: JSONContent) {
         const { title, storageMode, storageKey, src } = node.attrs || {};
-        const videoSrc = storageMode === 'attachment' && storageKey
-            ? assetMarkdownUrl(String(storageKey))
-            : src || '';
+        const videoSrc = markdownAssetHref(src, storageMode, storageKey);
         const align = normalizeVideoAlignment(node.attrs?.align);
         const style = align === 'center' ? {} : { align };
-        return `${renderFlowixMediaStyleComment(style)}[${title || ''}](${videoSrc})`;
+        return `${renderFlowixMediaStyleComment(style)}[${escapeMarkdownLinkLabel(String(title || ''))}](${videoSrc})`;
     },
 });

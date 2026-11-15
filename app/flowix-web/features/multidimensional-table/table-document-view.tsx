@@ -4,17 +4,15 @@ import { DialogFooter } from '@shared/ui/dialog-footer';
 import { createPortal } from 'react-dom';
 import { CollectionNoteFilterSlot } from '@shared/ui/collection-note-filter-slot';
 
-import type { CollectionPanelControls } from '@features/collection/public/panel-api';
 import { noteViewOptions, calendarDateChoices } from './note-view-options';
-import { CollectionActionsPortal, type CollectionActionsHost } from '@shared/ui/collection-actions';
+import { CollectionActionsPortal } from '@shared/ui/collection-actions';
 import { resolveTableView } from './view-selection';
 import { useTableViewManagement } from './use-table-view-management';
 import { useTableTitle } from './use-table-title';
 import { notePropertyEditorValue, isCalendarCreateWritableField } from './table-note-properties';
 import { normalizeNoteFilterCondition } from '@features/collection/public/note-filter-api';
 import { subscribeCollectionDatasetFilter } from '@features/collection/public/dataset-filter-api';
-import { legacyTableLocationFilter } from './table-legacy-location';
-import { isTableDatabaseNote, tableDatabaseFilter } from './table-database-filter';
+import { collectionConditionRecords, collectionDatasetRecords } from './collection-records';
 import { NotePropertyImageValue, propertyImagePaths as imagePaths } from '@features/document/properties/image-value-input';
 import { DateValueInput } from '@features/document/components/note-properties/date-value-input';
 import { ColorValueInput } from '@features/document/properties/color-value-input';
@@ -28,14 +26,10 @@ import { collectionSessionKey } from '@/lib/collection-session-key';
 import { MultidimensionalTableLoadingSkeleton } from '@shared/ui/multidimensional-table-loading-skeleton';
 import { FlowixCheckbox } from '@shared/ui/flowix-checkbox';
 
-import { friendlyErrorMessage } from '@/lib/friendly-error-message';
-
-import type { SurfaceLifecycle, SurfacePresentationUpdate } from '@features/workspace/public/surface-api';
 
 import { reviseCollection } from '@features/collection/model';
-import { useContext, useCallback, useEffect, useImperativeHandle, useId, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
-import { ChevronRight, LoaderCircle, Plus, MousePointerClick, Table2 } from 'lucide-react';
-import { EyeIcon, EyeSlashIcon } from '@phosphor-icons/react';
+import { useContext, useCallback, useEffect, useImperativeHandle, useId, useMemo, useRef, useState } from 'react';
+import { ChevronRight, LoaderCircle, Plus, MousePointerClick } from 'lucide-react';
 import { collections, windows, type NoteEntry } from '@platform/tauri/client';
 import { NOTE_COLOR_HEX } from '@features/memo/store';
 import { canonicalPath, joinNotebookMemoPath } from '@/lib/path';
@@ -50,7 +44,6 @@ import { usePropertyPresets } from '@features/properties/public-api';
 import { createFileBrowserTarget } from '@features/workspace/public/browser-column-api';
 import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
 import { CollectionTitle } from '@features/collection/public/title-api';
-import type { FileDisplayIdentity } from '@/lib/file-display-registry';
 import { displayTitleFromFilename } from '@/lib/utils';
 import { collectionDisplayName } from '@features/collection/model';
 import { Button } from '@shared/ui/button';
@@ -61,9 +54,6 @@ import { useI18n } from '@/lib/i18n';
 import { getPropertyTypeDefinition } from '@/lib/property-types';
 import {
   createUuidV7,
-  addKanbanView,
-  addCalendarDateView,
-  addTableView,
   type MultidimensionalTableDocument,
   type TableField,
   type TableRecord,
@@ -77,25 +67,26 @@ import {
 import {
   BUILTIN_TABLE_FIELDS,
   NOTE_CALENDAR_DATE_FIELD_ID,
-  builtinPresetValue,
   builtinPresetTableField,
-  isBuiltinTableFieldId,
-  builtinTableFieldValue,
   builtinTableFieldLabel,
 } from './builtin-fields';
 import { groupRecordsByValue } from './view-index';
-import { noteMatchesCollectionFilter } from './record-filter';
 import { applyTableView } from './view-records';
 import { useTableImages } from './use-table-images';
 import { useTableScrollLoading } from './use-table-scroll-loading';
 import { TableCalendarView, TableGalleryView, TableKanbanView } from './table-secondary-views';
 import { TableNoteDropOverlay } from './table-note-drop-overlay';
-import { TableSortButton, cycleTableSort, tableSortDirection } from './table-sort-button';
+import { TableSortButton, tableSortDirection } from './table-sort-button';
 import { TableDatasetMenu } from './table-dataset-menu';
 import { sortFields } from './field-order';
 import { useTableColumnDrag } from './use-table-column-drag';
 import { useTableRowDrag } from './use-table-row-drag';
 import { useAutoContentColumnWidths, type AutoColumnContent } from './use-auto-content-column-widths';
+import { computeAutoSizedColumns } from './table-auto-columns';
+import { DatasetFieldVisibilityButton, datasetFieldVisibility } from './table-dataset-visibility';
+import { TableIdentityMismatchScreen, TableLoadErrorScreen } from './table-view-state-screens';
+import { useTableStructureCommands } from './use-table-structure-commands';
+import type { TableDocumentViewProps } from './table-document-view-props';
 import { TableFieldList } from './table-field-list';
 import { TableBooleanInput, TableNumberInput, TableRecordRow } from './table-record-row';
 import { TableTagValueInput } from './table-tag-value-input';
@@ -108,7 +99,7 @@ import { CollectionTabBar, CollectionTabStrip } from '@shared/ui/collection-tab-
 import { useTableSession } from './use-table-session';
 import { useTableCellWriter, type TableCellSaveStatus } from './use-table-cell-writer';
 import { useTableViewSelection } from './use-table-view-selection';
-import { toggleDatasetTableFieldVisibility } from './table-commands';
+import { tableFieldUsesPropertyKey } from './table-preset-bindings';
 import { visibleFieldIds } from './table-view-config';
 import { displayTableFieldValue } from './table-cell-display';
 import { IncompatibleViewEmptyState } from './incompatible-view-empty-state';
@@ -135,64 +126,7 @@ import {
 } from './table-view-helpers';
 
 
-export interface TableDocumentViewProps {
-  onSurfaceLifecycleReady?: (lifecycle: SurfaceLifecycle | null) => void;
-  reportPresentation?: (update: SurfacePresentationUpdate) => void;
-  filePath: string;
-  /** Stable runtime identity for the table file; survives a rename. */
-  fileIdentity?: FileDisplayIdentity;
-  notebookPath: string | null;
-  notebookId: string | null;
-  expectedCollectionId?: string | null;
-  initialViewId?: string | null;
-  onActiveViewChange?: (viewId: string) => void;
-  /** Collection shells own the only tab bar and receive note dataset actions here. */
-  showNavigation?: boolean;
-  collectionActionsHost?: CollectionActionsHost;
-  /** Open the collection's asset filter from the shared dataset menu. */
-  onOpenAssetFilter?: () => void;
-  assetFilterMenu?: ReactNode;
-  /** Collection shell routing hook for keeping the note filter action visible while it is open. */
-  onDatasetFilterOpenChange?: (open: boolean) => void;
-  panelControlsRef?: Ref<CollectionPanelControls>;
-  /** 是否渲染 nav 里的集合名称；外壳自带标题头时置 false，避免一个集合出现两个名字。 */
-  showNavTitle?: boolean;
-  editable?: boolean;
-  canCreateFields?: boolean;
-  canCreateRecords?: boolean;
-  /** Show the explicit “关联笔记” entry independently from generic record creation controls. */
-  showAssociateNoteAction?: boolean;
-  canDeleteViews?: boolean;
-  /** The table is rendered as a node inside the Markdown editor. */
-  embeddedInEditor?: boolean;
-  /** Removes the reference node when an embedded table cannot be loaded. */
-  onRemoveReference?: () => void;
-  /** Renders title bar actions and receives the table dataset action. */
-  trailingActions?: (datasetAction: ReactNode) => ReactNode;
-  /** Called after the table file has been renamed. */
-  onFilePathChange?: (filePath: string) => void;
-  /** 集合头图是否展示（无图时是占位）；null = 该入口不提供头图开关。 */
-  bannerVisible?: boolean | null;
-  /** 切换头图显示 / 隐藏（写入集合属性 banner_hidden）。 */
-  onToggleBannerVisibility?: () => void;
-  /**
-   * 整页滚动模式：集合外壳把「头图 → 标题 → tab 条 → 列表」放进同一个滚动容器，
-   * 此时 nav 吸顶（钉在头部）、各层容器不再裁切，表头 thead 吸在 nav 下沿，
-   * 宽表的横向滚动交给外层滚动容器承担。
-   */
-  pageScroll?: boolean;
-  /**
-   * 当前激活视图的版式（table / gallery / calendar / kanban）与它需要的横向宽度。
-   * 外壳用它决定整页滚动轨道要多宽：只有表格需要横向余量（宽表整页横滚），
-   * 画廊/日历是流式内容，撑宽了会凭空多出一条横向滚动条。
-   */
-  onActiveLayoutChange?: (layout: string | null, contentWidth: number | null) => void;
-  /**
-   * 集合外壳里打开时给列表区域挂上统一右键菜单（新建笔记 / 导入笔记 .md）。
-   * 独立打开的表格文档不传，避免在非集合场景多出一层菜单。
-   */
-  collectionAreaMenu?: boolean;
-}
+export type { TableDocumentViewProps } from './table-document-view-props';
 
 const EMPTY_CELL_STATUSES: ReadonlyMap<string, TableCellSaveStatus> = new Map();
 /** 不在集合外壳里时右键菜单为空：触发器不动系统菜单，也不渲染任何项。 */
@@ -470,34 +404,25 @@ function TableDocumentViewSession({
   }, [noteByKey, notesLoadError]);
   const conditionRecords = useMemo(() => {
     if (!document || !noteField) return [];
-    const legacyFilter = legacyTableLocationFilter(document);
-    const databaseFilter = tableDatabaseFilter(document);
-    const linkedPaths = new Set(document.dataset.records.include.map((record) => record.note_path.replace(/\\/g, '/')).filter(Boolean));
-    const excludedPaths = new Set(document.dataset.records.exclude.map((record) => record.note_path.replace(/\\/g, '/')));
-    return notes.flatMap((note) => {
-      const notePath = note.relativePath.replace(/\\/g, '/');
-      const matchesLegacy = legacyFilter && noteMatchesCollectionFilter(note, collectionFilterFields, noteField.id, legacyFilter);
-      const matchesDatabase = databaseFilter && noteMatchesCollectionFilter(note, collectionFilterFields, noteField.id, tableDatabaseFilter(document, notePath)!);
-      if (linkedPaths.has(notePath) || excludedPaths.has(notePath) || (!matchesLegacy && !matchesDatabase)) return [];
-      let id = conditionRecordIdsRef.current.get(notePath);
-      if (!id) {
-        id = `rec_${createUuidV7()}`;
+    return collectionConditionRecords({
+      document, notes, filterFields: collectionFilterFields,
+      // Ids stay stable across renders so row keys survive a filter edit.
+      recordIdFor: (notePath) => {
+        const existing = conditionRecordIdsRef.current.get(notePath);
+        if (existing) return existing;
+        const id = `rec_${createUuidV7()}`;
         conditionRecordIdsRef.current.set(notePath, id);
-      }
-      return [{ id, updated_at: new Date(note.updatedAt).toISOString(), note_path: notePath }];
+        return id;
+      },
     });
   }, [collectionFilterFields, document, noteField, notes]);
   const conditionRecordIds = useMemo(() => new Set(conditionRecords.map((record) => record.id)), [conditionRecords]);
   const datasetRecords = useMemo(() => {
     if (!document) return conditionRecords;
-    const filter = tableDatabaseFilter(document);
-    const explicit = document.dataset.records.include.filter((record) => {
-      if (!filter || !isTableDatabaseNote(document, record.note_path)) return true;
-      const note = noteForRecord(record);
-      return !note || noteMatchesCollectionFilter(note, collectionFilterFields, document.dataset.schema.primary_field_id, tableDatabaseFilter(document, record.note_path)!);
+    return collectionDatasetRecords({
+      document, notes, filterFields: collectionFilterFields, conditionRecords,
     });
-    return [...explicit, ...conditionRecords];
-  }, [collectionFilterFields, conditionRecords, document, noteForRecord]);
+  }, [collectionFilterFields, conditionRecords, document, notes]);
   const visibleRecords = useMemo(() => document
     ? applyTableView(datasetRecords, activeView, collectionFilterFields, document.dataset.schema.primary_field_id, noteForRecord)
     : datasetRecords, [activeView, collectionFilterFields, datasetRecords, document, noteForRecord]);
@@ -532,94 +457,16 @@ function TableDocumentViewSession({
     const page = Math.min(tablePage, pageCount - 1);
     return visibleRecords.slice(embeddedInEditor ? page * tablePageSize : 0, (page + 1) * tablePageSize);
   }, [embeddedInEditor, tablePage, tablePageSize, visibleRecords]);
-  const autoSizedColumns = useMemo<AutoColumnContent[]>(() => {
-    if (!document || activeView?.layout !== 'table') return [];
-    const visibleIds = visibleFieldIds(activeView);
-    const fields = [
-      ...document.dataset.schema.fields.filter((field) => visibleIds.includes(field.id)),
-      ...BUILTIN_TABLE_FIELDS.filter((field) => visibleIds.includes(field.id)).flatMap((field) => {
-        const preset = builtinPresetTableField(field.id);
-        return [preset ?? { id: field.id, name: field.label, type: field.type, property_key: field.propertyKey ?? field.id }];
-      }),
-    ];
-    return fields.flatMap<AutoColumnContent>((field) => {
-      const label = fieldLabel(field, propertyFields, t);
-      if (field.type === 'Tag') return [{
-        id: field.id,
-        label,
-        type: 'tags' as const,
-        isNoteTags: canonicalizePropertyKey(field.property_key ?? '') === 'tags',
-        itemGapWidth: 4.8,
-        values: columnSizingRecords.map((record) => {
-          const note = noteForRecord(record);
-          const value = builtinPresetTableField(field.id) ? builtinPresetValue(field.id, note) : notePropertyEditorValue(note, field);
-          return Array.isArray(value) ? value.filter((tag): tag is string => typeof tag === 'string') : [];
-        }),
-      }];
-      if (field.type === 'primary') return [{
-        id: field.id,
-        label,
-        type: 'primary' as const,
-        textValues: columnSizingRecords.map((record) => {
-          const note = noteForRecord(record);
-          const text = note
-            ? displayTitleFromFilename(note.relativePath)
-            : !record.note_path ? '笔记不存在' : `未找到笔记 ${displayTitleFromFilename(record.note_path)}`;
-          return { text, extraWidth: note ? 24 + (conditionRecordIds.has(record.id) ? 15 : 0) : 0 };
-        }),
-      }];
-      if (field.type === 'Select' || field.type === 'MultiSelect') return [{
-        id: field.id,
-        label,
-        type: 'chips' as const,
-        extraWidth: 22,
-        itemGapWidth: 4,
-        values: columnSizingRecords.map((record) => {
-          const note = noteForRecord(record);
-          const value = builtinPresetTableField(field.id)
-            ? builtinPresetValue(field.id, note)
-            : notePropertyEditorValue(note, field);
-          const optionLabel = (item: unknown) => field.options?.find((option) => option.id === item || option.label === item)?.label ?? String(item);
-          if (field.type === 'Select') return value == null || value === '' ? [] : [optionLabel(value)];
-          const selected = Array.isArray(value)
-            ? value
-            : typeof value === 'string' ? value.split(',').map((item) => item.trim()).filter(Boolean) : [];
-          return selected.map(optionLabel);
-        }),
-      }];
-      return [{
-        id: field.id,
-        label,
-        type: 'text' as const,
-        textValues: columnSizingRecords.map((record) => {
-          const note = noteForRecord(record);
-          const builtinPreset = builtinPresetTableField(field.id);
-          const value = builtinPreset
-            ? builtinPresetValue(field.id, note)
-            : isBuiltinTableFieldId(field.id)
-              ? builtinTableFieldValue(field.id, note, notebookPath)
-              : notePropertyEditorValue(note, field);
-          if (field.type === 'Boolean') return { text: '', extraWidth: 16 };
-          if (field.type === 'Icon') return { text: '', extraWidth: value ? 48 : 20 };
-          if (field.type === 'Color') {
-            const colors = Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : [];
-            const count = colors.map(String).filter(Boolean).length;
-            return { text: '', extraWidth: count ? count * 15 - 6 : 0 };
-          }
-          if (field.type === 'Image') {
-            const hasImage = imagePaths(value).length > 0;
-            return { text: hasImage ? '' : 'Upload', extraWidth: hasImage ? 36 : 0 };
-          }
-          return {
-            text: value == null ? '' : String(value),
-            extraWidth: field.type === 'Number'
-              ? isBuiltinTableFieldId(field.id) ? 0 : 24
-              : field.type === 'Date' && value && !isBuiltinTableFieldId(field.id) ? 20 : 0,
-          };
-        }),
-      }];
-    });
-  }, [conditionRecordIds, document, activeView, columnSizingRecords, noteForRecord, notebookPath, propertyFields, t]);
+  const autoSizedColumns = useMemo<AutoColumnContent[]>(() => computeAutoSizedColumns({
+    document,
+    activeView,
+    columnSizingRecords,
+    noteForRecord,
+    notebookPath,
+    propertyFields,
+    conditionRecordIds,
+    t,
+  }), [conditionRecordIds, document, activeView, columnSizingRecords, noteForRecord, notebookPath, propertyFields, t]);
   const autoColumnWidths = useAutoContentColumnWidths(tableElementRef, autoSizedColumns);
   const secondaryViewRecords = useMemo(() => activeView?.layout === 'table'
     ? visibleRecords
@@ -875,146 +722,17 @@ function TableDocumentViewSession({
 
 
 
-  const createViewForField = useCallback(async (field: TableField | string) => {
-    if (!document || !pendingViewType || saving) return;
-    const sequence = loadSequenceRef.current;
-    const fieldId = typeof field === 'string' ? field : field.id;
-    if ((pendingViewType === 'calendar' && typeof field !== 'string' && field.type !== 'Date')
-      || (pendingViewType === 'kanban' && (typeof field === 'string' || field.type !== 'Select'))) return;
-    try {
-      const added = pendingViewType === 'calendar' && fieldId === NOTE_CALENDAR_DATE_FIELD_ID
-        ? addCalendarDateView(document)
-        : addTableView(document, pendingViewType, fieldId);
-      if (await save(added.document, false, sequence) && isCurrentSession(sequence)) {
-        activateView(added.view.id);
-        viewWizard.close();
-      }
-    } catch (error) {
-      toast.error(friendlyErrorMessage(error, t, 'errors.friendly.tableView'));
-    }
-  }, [document, isCurrentSession, loadSequenceRef, activateView, pendingViewType, save, saving, viewWizard]);
-
-  const saveConfiguredViewField = useCallback(async (
-    viewId: string,
-    viewType: 'calendar' | 'kanban',
-    fieldId: string,
-    dataset = document?.dataset,
-  ) => {
-    if (!document || !dataset || saving) return false;
-    const sequence = loadSequenceRef.current;
-    const configKey = viewType === 'calendar' ? 'date_field' : 'group_by';
-    const next: MultidimensionalTableDocument = {
-      ...document,
-      collection: reviseCollection(document.collection),
-      dataset,
-      views: { ...document.views, items: document.views.items.map((view) => view.id === viewId
-        ? { ...view, config: { ...view.config, [configKey]: fieldId } }
-        : view) },
-    };
-    return await save(next, false, sequence) && isCurrentSession(sequence);
-  }, [document, isCurrentSession, loadSequenceRef, save, saving]);
-
-  const selectViewField = useCallback(async (field: TableField | string) => {
-    if (!configuringViewId) return createViewForField(field);
-    if (!document || !pendingViewType || saving) return;
-    let fieldId = typeof field === 'string' ? field : field.id;
-    let dataset = document.dataset;
-    try {
-      if (pendingViewType === 'calendar' && fieldId === NOTE_CALENDAR_DATE_FIELD_ID) {
-        const added = addCalendarDateView(document);
-        fieldId = added.view.config.date_field as string;
-        dataset = added.document.dataset;
-      }
-      if (await saveConfiguredViewField(configuringViewId, pendingViewType, fieldId, dataset)) {
-        viewWizard.close();
-      }
-    } catch (error) {
-      toast.error(friendlyErrorMessage(error, t, 'errors.friendly.tableViewSave'));
-    }
-  }, [configuringViewId, createViewForField, document, pendingViewType, saveConfiguredViewField, saving, viewWizard]);
-
-  const createKanbanViewForStatus = useCallback(async () => {
-    if (!document || pendingViewType !== 'kanban' || saving) return;
-    const sequence = loadSequenceRef.current;
-    try {
-      const added = addKanbanView(document);
-      if (await save(added.document, false, sequence) && isCurrentSession(sequence)) {
-        activateView(added.view.id);
-        viewWizard.close();
-      }
-    } catch (error) {
-      toast.error(friendlyErrorMessage(error, t, 'errors.friendly.tableView'));
-    }
-  }, [document, isCurrentSession, loadSequenceRef, activateView, pendingViewType, save, saving, viewWizard]);
-
-  const chooseKanbanStatusField = useCallback(async () => {
-    if (!configuringViewId) return createKanbanViewForStatus();
-    if (!document || saving) return;
-    try {
-      const added = addKanbanView(document);
-      if (await saveConfiguredViewField(configuringViewId, 'kanban', added.field.id, added.document.dataset)) {
-        viewWizard.close();
-      }
-    } catch (error) {
-      toast.error(friendlyErrorMessage(error, t, 'errors.friendly.tableViewSave'));
-    }
-  }, [configuringViewId, createKanbanViewForStatus, document, saveConfiguredViewField, saving, viewWizard]);
-
-  const createGalleryView = useCallback(async () => {
-    if (!document || saving) return;
-    const sequence = loadSequenceRef.current;
-    const added = addTableView(document, 'gallery');
-    if (await save(added.document, false, sequence) && isCurrentSession(sequence)) {
-      activateView(added.view.id);
-      viewWizard.close();
-    }
-  }, [document, isCurrentSession, loadSequenceRef, activateView, save, saving, viewWizard]);
-
-  const createDataTableView = useCallback(async () => {
-    if (!document || saving) return;
-    const sequence = loadSequenceRef.current;
-    const added = addTableView(document, 'table');
-    if (await save(added.document, false, sequence) && isCurrentSession(sequence)) {
-      activateView(added.view.id);
-      viewWizard.close();
-    }
-  }, [document, isCurrentSession, loadSequenceRef, activateView, save, saving, viewWizard]);
-
-  const toggleTableFieldVisibility = useCallback(async (fieldId: string) => {
-    if (!editable || !document || saving) return;
-    const next = toggleDatasetTableFieldVisibility(document, fieldId);
-    if (next !== document) await save(next);
-  }, [document, editable, save, saving]);
-  const hideTableField = useCallback(async (fieldId: string) => {
-    const currentDocument = latestDocumentRef.current;
-    if (!editable || !currentDocument || saving) return;
-    const next = toggleDatasetTableFieldVisibility(currentDocument, fieldId);
-    if (next !== currentDocument) await save(next);
-  }, [editable, save, saving]);
-
-  const toggleColumnSort = useCallback(async (fieldId: string) => {
-    if (!editable || !document || saving) return;
-    const view = document.views.items.find((item) => item.id === activeViewId && item.layout === 'table');
-    if (!view) return;
-    const next: MultidimensionalTableDocument = {
-      ...document,
-      collection: reviseCollection(document.collection),
-      views: { ...document.views, items: document.views.items.map((item) => item.id === view.id
-        ? { ...item, sort: cycleTableSort(item.sort, fieldId) } : item) },
-    };
-    if (await save(next)) setTablePage(0);
-  }, [activeViewId, document, editable, save, saving]);
+  const {
+    selectViewField, createKanbanViewForStatus, chooseKanbanStatusField,
+    createGalleryView, createDataTableView, toggleTableFieldVisibility,
+    hideTableField, toggleColumnSort, createTableFieldOption,
+  } = useTableStructureCommands({
+    document, editable, saving, save, loadSequenceRef, isCurrentSession, activeViewId,
+    latestDocumentRef, queueHeaderFieldEdits, viewWizard, pendingViewType, configuringViewId,
+    activateView, setTablePage, t,
+  });
 
   const handleAutoOpenHandled = useCallback(() => setAutoOpenPrimaryRecordId(null), []);
-  const createTableFieldOption = useCallback(async (field: TableField, label: string): Promise<{ id: string; label: string } | null> => {
-    const trimmed = label.trim();
-    if (!trimmed || (field.type !== 'Select' && field.type !== 'MultiSelect')) return null;
-    const existing = field.options?.find((option) => option.label === trimmed);
-    if (existing) return existing;
-    const option = { id: `opt_${createUuidV7()}`, label: trimmed };
-    const saved = await queueHeaderFieldEdits(field, field.name ?? field.property_key ?? '', [...(field.options ?? []), option]);
-    return saved ? option : null;
-  }, [queueHeaderFieldEdits]);
 
   const handleRowActionOpenChange = useCallback((open: boolean, recordId: string) => {
     setRowActionRecordId(open ? recordId : null);
@@ -1157,26 +875,21 @@ function TableDocumentViewSession({
     : [], [activeView]);
   if (loadError) {
     if (reportPresentation) return null;
-    return <div className={`flex h-full min-h-0 flex-col items-center justify-center gap-3 p-8 text-center ${embeddedInEditor ? 'rounded-lg border border-[var(--border)] bg-[var(--editor-block-bg)]' : ''}`}>
-      <Table2 className="h-8 w-8 text-[var(--muted-foreground)] opacity-70" aria-hidden="true" />
-      <div className="text-sm">无法显示多维表格</div>
-      {loadError !== '不支持的多维表格文件格式' && <div className="max-w-lg text-xs text-[var(--muted-foreground)]">{t('errors.friendly.tableLoad')}</div>}
-      <div className="flex items-center gap-2">
-        <Button type="button" variant="outline" size="sm" className="rounded-lg" onClick={() => void load()}>重新加载</Button>
-        {embeddedInEditor
-          ? onRemoveReference && <Button type="button" variant="outline" size="sm" className="rounded-lg" disabled={!editable} onClick={onRemoveReference}>移除</Button>
-          : document?.collection.placement !== 'folder' && <Button type="button" variant="outline" size="sm" className="rounded-lg text-[var(--destructive)]" disabled={!editable} onClick={() => window.dispatchEvent(new CustomEvent('flowix:request-delete-external-file', { detail: { filePath: currentFilePath, notebookPath } }))}>删除多维表格</Button>}
-      </div>
-    </div>;
+    return <TableLoadErrorScreen
+      embeddedInEditor={embeddedInEditor}
+      loadError={loadError}
+      editable={editable}
+      placement={document?.collection.placement}
+      t={t}
+      onReload={() => void load()}
+      onRemoveReference={onRemoveReference}
+      onDeleteFile={() => window.dispatchEvent(new CustomEvent('flowix:request-delete-external-file', { detail: { filePath: currentFilePath, notebookPath } }))}
+    />;
   }
   if (!document) return <MultidimensionalTableLoadingSkeleton showSpinner={!reportPresentation} />;
   if (expectedCollectionId && document.collection.id !== expectedCollectionId) {
     if (reportPresentation) return null;
-    return <div className="flex h-full min-h-0 flex-col items-center justify-center gap-2 p-6 text-center">
-      <Table2 className="h-7 w-7 text-[var(--muted-foreground)]" aria-hidden="true" />
-      <div className="text-sm font-medium">引用的表格身份已变化</div>
-      <div className="max-w-lg text-xs text-[var(--muted-foreground)]">当前路径对应的多维表格与引用节点保存的 table.id 不一致，请重新选择表格。</div>
-    </div>;
+    return <TableIdentityMismatchScreen />;
   }
 
   const titleField = document.dataset.schema.fields.find((field) => field.id === document.dataset.schema.primary_field_id);
@@ -1189,34 +902,17 @@ function TableDocumentViewSession({
   const showAssociateNoteButton = canCreateRecords || showAssociateNoteAction;
   const tableDisplayName = collectionDisplayName(currentFilePath, document.collection.placement);
   const datasetTableViews = document.views.items.filter((view) => view.layout === 'table');
-  const datasetFieldChecked = (fieldId: string) => datasetTableViews.length > 0
-    && datasetTableViews.every((view) => visibleFieldIds(view).includes(fieldId));
-  const datasetFieldMixed = (fieldId: string) => !datasetFieldChecked(fieldId)
-    && datasetTableViews.some((view) => visibleFieldIds(view).includes(fieldId));
-  const datasetFieldVisibilityButton = (fieldId: string, label: string, className = '') => {
-    const checked = datasetFieldChecked(fieldId);
-    const mixed = datasetFieldMixed(fieldId);
-    const action = checked ? '隐藏' : '展示';
-    const ariaLabel = mixed ? `部分表格视图中展示，点击后全部展示${label}` : `${action}${label}`;
-    return <button
-      type="button"
-      aria-label={ariaLabel}
-      title={ariaLabel}
-      aria-pressed={checked ? true : mixed ? 'mixed' : false}
+  const datasetFieldVisibilityButton = (fieldId: string, label: string, className = '') => (
+    <DatasetFieldVisibilityButton
+      fieldId={fieldId}
+      label={label}
+      className={className}
+      state={datasetFieldVisibility(datasetTableViews, fieldId)}
       disabled={!editable || saving || datasetTableViews.length === 0}
-      onClick={() => void toggleTableFieldVisibility(fieldId)}
-      className={`${className} inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-40`}
-    >{checked || mixed
-      ? <EyeIcon size={16} weight="bold" className="text-[var(--brand)]" aria-hidden="true" />
-      : <EyeSlashIcon size={16} weight="bold" className="text-[var(--muted-foreground)]" aria-hidden="true" />}</button>;
-  };
-  const presetAlreadyAdded = (preset: PropertyPreset) => {
-    const propertyKey = canonicalizePropertyKey(preset.key).toLocaleLowerCase();
-    if (document.dataset.schema.fields.some((field) => field.property_key
-      && canonicalizePropertyKey(field.property_key).toLocaleLowerCase() === propertyKey)) return true;
-    const builtin = BUILTIN_TABLE_FIELDS.find((field) => builtinPresetTableField(field.id)?.property_key === propertyKey);
-    return Boolean(builtin && document.dataset.schema.preset_fields.includes(builtin.id));
-  };
+      onToggle={(id) => void toggleTableFieldVisibility(id)}
+    />
+  );
+  const presetAlreadyAdded = (preset: PropertyPreset) => tableFieldUsesPropertyKey(document, preset.key);
   const isSystemPresetField = (field: TableField) => tablePresets.system.some((preset) => preset.id === field.id);
   const storedAutoCollectConfig = tableAutoCollectConfig(document);
   const datasetMenuProps = {
@@ -1475,6 +1171,7 @@ function TableDocumentViewSession({
           inputLabel="多维表格名称"
           renameLabel="重命名多维表格"
           renameHint="双击重命名"
+          showIcon={!embeddedInEditor}
           edit={{ editing: editingTableName, draft: tableNameDraft, setDraft: setTableNameDraft,
             inputRef: tableNameInputRef, captureCaret: captureTableTitleCaret,
             beginEdit: beginEditTableTitle, commit: commitTableTitle,
@@ -1915,7 +1612,7 @@ function TableDocumentViewSession({
         else addField();
       }
       }} anchorRect={newFieldAnchor?.rect ?? null}>
-      <PopoverContent side="left" align={newFieldAnchor?.align ?? 'start'} sideOffset={0} ignorePopoverOutside={newFieldTypeMenuOpen || newFieldPresetMenuOpen} style={{ zIndex: 160 }} className="max-h-[min(70vh,420px)] w-[213px] max-w-[calc(100vw-16px)] overflow-y-auto rounded-xl p-1.5 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+      <PopoverContent scrollable side="left" align={newFieldAnchor?.align ?? 'start'} sideOffset={0} ignorePopoverOutside={newFieldTypeMenuOpen || newFieldPresetMenuOpen} style={{ zIndex: 160 }} className="max-h-[min(70vh,420px)] w-[213px] max-w-[calc(100vw-16px)] rounded-xl p-1.5 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
         <TableFieldEditorForm
           name={newFieldPropertyKey}
           onNameChange={setNewFieldPropertyKey}
@@ -2011,7 +1708,7 @@ function TableDocumentViewSession({
         setCalendarEditingRecord(null);
       }
     }} anchorRect={calendarAddAnchorRect}>
-      <PopoverContent side="right" align="start" sideOffset={8} fitViewport ignorePopoverOutside style={{ zIndex: 160 }} className="calendar-note-create-popover flex max-h-[min(424px,100vh)] w-[320px] max-w-[calc(100vw-16px)] flex-col overflow-hidden rounded-xl px-2 py-2 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+      <PopoverContent scrollable={false} side="right" align="start" sideOffset={8} fitViewport ignorePopoverOutside style={{ zIndex: 160 }} className="calendar-note-create-popover flex max-h-[min(424px,100vh)] w-[320px] max-w-[calc(100vw-16px)] flex-col overflow-hidden rounded-xl px-2 py-2 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
         <NoteCreatePicker
           value={calendarAddTitle} onChange={setCalendarAddTitle}
           mode={calendarEditingRecord ? 'edit' : 'create'} allowSelect={false}
@@ -2049,7 +1746,7 @@ function TableDocumentViewSession({
                                     value={value}
                                     notebook={resolvedNotebookId && notebookPath ? { id: resolvedNotebookId, path: notebookPath } : undefined}
                                     disabled={saving}
-                                    onChange={(path) => setValue(field.multiple ? [...(Array.isArray(value) ? value.map(String) : []), path] : path)}
+                                    onChange={setValue}
                                   />
                                   : <input type="url" value={String(value ?? '')} disabled={saving} onChange={(event) => setValue(event.currentTarget.value)} className={inputClass} />;
               return <div key={field.id} className="flex min-w-0 items-center gap-2 border-b border-[var(--border)] last:border-b-0">
@@ -2076,7 +1773,7 @@ function TableDocumentViewSession({
         setNotePickerCalendarDate(null);
       }
     }} anchorRect={notePickerAnchorRect}>
-      <PopoverContent side="bottom" align="start" sideOffset={6} fitViewport className="w-[280px] max-w-[calc(100vw-16px)] rounded-xl px-2 py-2 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+      <PopoverContent scrollable={false} side="bottom" align="start" sideOffset={6} fitViewport className="w-[280px] max-w-[calc(100vw-16px)] rounded-xl px-2 py-2 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
         <NoteCreatePicker
           value={newNoteTitle} onChange={setNewNoteTitle}
           notes={availableNotes} allowSelect

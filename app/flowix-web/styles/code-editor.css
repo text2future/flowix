@@ -51,7 +51,7 @@
 	--code-editor-source-header-height: 54px;
 	--code-editor-line-padding-left: 10px;
 	--code-editor-line-padding-right: 20px;
-	--code-editor-content-padding-top: 14px;
+	--code-editor-content-padding-top: 0px;
 	--code-editor-content-padding-bottom: 28px;
 }
 
@@ -129,7 +129,7 @@
 	display: block;
 	min-height: 100%;
 	margin: 0;
-	padding: var(--code-editor-content-padding-top, 14px) 0 var(--code-editor-content-padding-bottom, 28px);
+	padding: var(--code-editor-content-padding-top, 0px) 0 var(--code-editor-content-padding-bottom, 28px);
 	box-sizing: border-box;
 	flex-grow: 2;
 	flex-shrink: 0;
@@ -259,7 +259,7 @@
 	display: block;
 	position: absolute;
 	inset-inline: 0;
-	top: var(--code-editor-source-header-top, var(--code-editor-content-padding-top, 14px));
+	top: var(--code-editor-source-header-top, var(--code-editor-content-padding-top, 0px));
 	height: var(--code-editor-source-header-height, 54px);
 	border-radius: 4px 0 0 4px;
 	background-color: var(--code-editor-active-surface-bg);
@@ -270,7 +270,7 @@
 .code-editor .cm-source-mode-toggle {
 	display: flex;
 	position: absolute;
-	top: var(--code-editor-source-header-top, var(--code-editor-content-padding-top, 14px));
+	top: var(--code-editor-source-header-top, var(--code-editor-content-padding-top, 0px));
 	left: 0;
 	width: 100%;
 	height: var(--code-editor-source-header-height, 54px);

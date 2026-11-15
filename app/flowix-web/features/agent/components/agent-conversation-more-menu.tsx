@@ -46,7 +46,7 @@ export function AgentConversationMoreMenu({
           <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-[202px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+      <DropdownMenuContent scrollerClassName="space-y-0.5" align="end" className="w-[202px] rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
         <AgentConversationMoreMenuItems instance={instance} onRename={onRename} />
       </DropdownMenuContent>
     </DropdownMenu>

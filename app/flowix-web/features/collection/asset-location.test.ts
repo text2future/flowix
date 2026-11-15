@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import { createMediaLibrary, parseMediaLibrary, serializeMediaLibrary, matchesMediaCollectionFilter } from '../media-library/model';
 import { resolveMediaLibraryAddDirectory } from '../media-library/add-location';
-import { createWorkDocumentsCollection, parseWorkDocumentsCollection, serializeWorkDocumentsCollection } from '../work-documents/model';
+import { createWorkDocumentsCollection, parseWorkDocumentsCollection, serializeWorkDocumentsCollection } from './work-documents-model';
 import { resolveCollectionScope, resolveCollectionLocationScope, pathInCollectionScope } from './collection-scope';
 import { resolveDatasetFilterForLocation } from './dataset-filter-location';
 import { resolveCollectionSaveDirectory } from './save-location';

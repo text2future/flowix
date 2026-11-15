@@ -29,7 +29,8 @@ describe('remote page scrollbar host', () => {
     expect(post).toHaveBeenLastCalledWith({
       type: 'flowix:web-frame-scrollbar',
       mac: false,
-      color: 'color-mix(in oklch, oklch(0.55 0.02 260) 40%, transparent)',
+      color: 'color-mix(in oklch, oklch(0.55 0.02 260) 50%, transparent)',
+      hoverColor: 'color-mix(in oklch, oklch(0.55 0.02 260) 80%, transparent)',
     }, '*');
     expect(iframe.contentDocument).not.toBeNull();
   });
@@ -80,12 +81,12 @@ describe('remote page scrollbar host', () => {
     expect(warn).toHaveBeenCalledOnce();
   });
 
-  it('uses the stronger macOS weight and stops after disconnect', () => {
+  it('uses the shared macOS palette and stops after disconnect', () => {
     document.documentElement.dataset.os = 'mac';
     const post = vi.spyOn(iframe.contentWindow!, 'postMessage');
     disconnect = connectWebFrameScrollbar(iframe);
     expect(post).toHaveBeenLastCalledWith(expect.objectContaining({
-      mac: true, color: expect.stringContaining('78%'),
+      mac: true, color: expect.stringContaining('50%'), hoverColor: expect.stringContaining('80%'),
     }), '*');
     post.mockClear();
     disconnect();
@@ -201,6 +202,65 @@ describe('remote page scrollbar runtime', () => {
     }
   });
 
+  it('keeps one viewport entry when scrolling moves between html and body', () => {
+    Object.defineProperty(document.documentElement, 'scrollHeight', { configurable: true, value: 1000 });
+    Object.defineProperty(document.documentElement, 'clientHeight', { configurable: true, value: 200 });
+    Object.defineProperty(document.body, 'scrollHeight', { configurable: true, value: 1000 });
+    Object.defineProperty(document.body, 'clientHeight', { configurable: true, value: 200 });
+    try {
+      window.eval(runtime);
+      const layer = document.getElementById('flowix-overlay-scroll-layer')!;
+      // One pair for the viewport and one pair for the independent content.
+      expect(layer.querySelectorAll('.flowix-overlay-thumb')).toHaveLength(4);
+      Object.defineProperty(document.documentElement, 'scrollHeight', { configurable: true, value: 200 });
+      document.dispatchEvent(new Event('scroll'));
+      expect(layer.querySelectorAll('.flowix-overlay-thumb')).toHaveLength(4);
+      expect(document.body.hasAttribute(overlayAttribute)).toBe(true);
+      expect(document.documentElement.hasAttribute(overlayAttribute)).toBe(true);
+    } finally {
+      for (const element of [document.documentElement, document.body]) {
+        Reflect.deleteProperty(element, 'scrollHeight');
+        Reflect.deleteProperty(element, 'clientHeight');
+      }
+    }
+  });
+
+  it('rechecks a viewport gutter that appears after initial loading', async () => {
+    vi.useFakeTimers();
+    Object.defineProperty(document.documentElement, 'scrollHeight', { configurable: true, value: 200 });
+    Object.defineProperty(document.documentElement, 'clientHeight', { configurable: true, value: 200 });
+    Object.defineProperty(document.documentElement, 'clientWidth', { configurable: true, value: window.innerWidth });
+    try {
+      window.eval(runtime);
+      await vi.advanceTimersByTimeAsync(10);
+      Object.defineProperty(document.documentElement, 'scrollHeight', { configurable: true, value: 1000 });
+      Object.defineProperty(document.documentElement, 'clientWidth', { configurable: true, value: window.innerWidth - 15 });
+      document.dispatchEvent(new Event('scroll'));
+      const rootThumb = document.querySelector<HTMLElement>('#flowix-overlay-scroll-layer .flowix-overlay-thumb[data-axis="v"]')!;
+      expect(rootThumb.style.display).toBe('none');
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(parent.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'flowix:web-frame-scrollbar-status', mode: 'body-scroller' }), '*',
+      );
+    } finally {
+      vi.useRealTimers();
+      for (const property of ['scrollHeight', 'clientHeight', 'clientWidth']) Reflect.deleteProperty(document.documentElement, property);
+    }
+  });
+
+  it('waits for the document to finish parsing before starting', () => {
+    Object.defineProperty(document, 'readyState', { configurable: true, value: 'loading' });
+    window.eval(runtime);
+    configure();
+    expect(document.getElementById('flowix-overlay-scroll-layer')).toBeNull();
+    // The viewport may be painted by body before the page has finished parsing.
+    expect(document.getElementById('flowix-overlay-scroll-style')?.textContent)
+      .toContain('body:not(#flowix-overlay-scroll-layer)::-webkit-scrollbar');
+    Object.defineProperty(document, 'readyState', { configurable: true, value: 'interactive' });
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    expect(document.getElementById('flowix-overlay-scroll-layer')).not.toBeNull();
+  });
+
   it('reveals the thumb on scroll and hides it after the delay', async () => {
     vi.useFakeTimers();
     window.eval(runtime);
@@ -214,6 +274,20 @@ describe('remote page scrollbar runtime', () => {
     await vi.advanceTimersByTimeAsync(150);
     expect(thumb('v')!.style.opacity).toBe('0');
     vi.useRealTimers();
+  });
+
+  it('keeps the thumb visible while hovered and fades after leaving', async () => {
+    vi.useFakeTimers();
+    try {
+      window.eval(runtime);
+      const vertical = thumb('v')!;
+      vertical.dispatchEvent(new Event('pointerenter'));
+      await vi.advanceTimersByTimeAsync(800);
+      expect(vertical.style.opacity).toBe('1');
+      vertical.dispatchEvent(new Event('pointerleave'));
+      await vi.advanceTimersByTimeAsync(800);
+      expect(vertical.style.opacity).toBe('0');
+    } finally { vi.useRealTimers(); }
   });
 
   it('paints and reveals the horizontal thumb like the vertical one', () => {
@@ -270,9 +344,38 @@ describe('remote page scrollbar runtime', () => {
     ['http:', 'asset.localhost', 'http://asset.localhost/D%3A/notes/demo.html'],
   ])('adopts local HTML previews (%s)', (protocol, hostname, href) => {
     vi.stubGlobal('location', { protocol, hostname, href });
-    window.eval(runtime);
-    expect(content.hasAttribute(overlayAttribute)).toBe(true);
-    expect(document.getElementById('flowix-overlay-scroll-layer')).not.toBeNull();
+    const optIn = document.createElement('meta');
+    optIn.name = 'flowix-scroll-container';
+    optIn.content = 'body';
+    document.head.append(optIn);
+    try {
+      window.eval(runtime);
+      expect(content.hasAttribute(overlayAttribute)).toBe(true);
+      expect(document.getElementById('flowix-overlay-scroll-layer')).not.toBeNull();
+      expect(document.documentElement.style.overflow).toBe('hidden');
+      expect(document.body.style.position).toBe('fixed');
+      expect(document.body.style.overflowY).toBe('auto');
+    } finally { optIn.remove(); }
+  });
+
+  it('preserves the root scrolling layout of local pages without opt-in', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('location', { protocol: 'asset:', hostname: 'localhost', href: 'asset://localhost/demo.html' });
+    Object.defineProperty(document.documentElement, 'scrollHeight', { configurable: true, value: 1000 });
+    Object.defineProperty(document.documentElement, 'clientHeight', { configurable: true, value: 200 });
+    Object.defineProperty(document.documentElement, 'clientWidth', { configurable: true, value: window.innerWidth - 15 });
+    try {
+      window.eval(runtime);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(document.documentElement.style.overflow).toBe('');
+      expect(document.body.style.position).toBe('');
+      expect(parent.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'flowix:web-frame-scrollbar-status', suppressed: true, mode: 'viewport',
+      }), '*');
+    } finally {
+      vi.useRealTimers();
+      for (const key of ['scrollHeight', 'clientHeight', 'clientWidth']) Reflect.deleteProperty(document.documentElement, key);
+    }
   });
 
   it('leaves wheel handling and overflow untouched', () => {

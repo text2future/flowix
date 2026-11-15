@@ -1,7 +1,7 @@
 import { type MouseEvent } from 'react';
 import { LoaderCircle } from 'lucide-react';
 import { useSelectedItemScroll } from '@features/editor/extensions/shared/use-selected-item-scroll';
-import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
+import { PopupScrollArea } from '@shared/ui/popup-scroll-area';
 import type { MentionNoteItem } from '@features/editor/extensions/note-mention/note-mention-data';
 import { useI18n } from '@/lib/i18n';
 
@@ -11,6 +11,7 @@ export interface NoteMentionDropdownProps {
   scrollSelectedItem: boolean;
   hasMore: boolean;
   loading: boolean;
+  error?: boolean;
   onSelect: (item: MentionNoteItem) => void;
   onHover: (index: number) => void;
   onLoadMore: () => void;
@@ -22,6 +23,7 @@ export function NoteMentionDropdown({
   scrollSelectedItem,
   hasMore,
   loading,
+  error = false,
   onSelect,
   onHover,
   onLoadMore,
@@ -55,7 +57,7 @@ export function NoteMentionDropdown({
           />
         )}
       </div>
-      <OverlayScrollbar
+      <PopupScrollArea
         className="mention-note-items-frame"
         scrollerClassName="mention-note-items"
         scrollerRef={scrollerRef}
@@ -70,6 +72,8 @@ export function NoteMentionDropdown({
             <div className="mention-note-empty mention-note-empty--loading">
               <span className="mention-note-loading-title">{t('editor.noteMention.loading')}</span>
             </div>
+          ) : error ? (
+            <div className="mention-note-empty">{t('editor.noteMention.error')}</div>
           ) : items.length === 0 ? (
             <div className="mention-note-empty">{t('editor.noteMention.empty')}</div>
           ) : (
@@ -108,7 +112,7 @@ export function NoteMentionDropdown({
               {t('editor.noteMention.loadMore')}
             </button>
           )}
-      </OverlayScrollbar>
+      </PopupScrollArea>
     </div>
   );
 }

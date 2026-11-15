@@ -597,13 +597,13 @@ export const MemoTitleEditor = forwardRef<MemoTitleEditorHandle, MemoTitleEditor
         </PopoverContent>
       </Popover>
       <Popover open={addPropertyOpen} onOpenChange={closeAddPropertyForm} anchorRect={addPropertyAnchorRect}>
-        <PopoverContent
+        <PopoverContent scrollable
           side="right"
           align="start"
           sideOffset={0}
           ignorePopoverOutside={addPropertyTypeMenuOpen}
           style={{ zIndex: 170 }}
-          className="memo-title-add-property max-h-[min(70vh,420px)] w-[213px] max-w-[calc(100vw-16px)] overflow-y-auto rounded-xl p-1.5 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]"
+          className="memo-title-add-property max-h-[min(70vh,420px)] w-[213px] max-w-[calc(100vw-16px)] rounded-xl p-1.5 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]"
         >
           <TableFieldEditorForm
             name={addPropertyName}

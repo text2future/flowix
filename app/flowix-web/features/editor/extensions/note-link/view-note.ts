@@ -1,21 +1,21 @@
-// Markdown form: [title](flowix://open?b=...&f=...).
+import type { EditorLinkContext } from '@features/editor/editor-link-resolution';
+// Wiki cards persist as notebook-local relative note paths; other targets use Markdown links.
 
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import type { NodeView as ProseMirrorNodeView, EditorView } from '@tiptap/pm/view';
 import { Node, nodeInputRule, nodePasteRule, type InputRuleMatch, type JSONContent, type PasteRuleMatch } from '@tiptap/core';
 import { NodeSelection } from '@tiptap/pm/state';
 
-import { noteLinkForIndexedPath } from '@features/editor/extensions/note-link/memo-resolver';
-import { openNoteByNotebookPath, openNoteByPhysicalPath } from '@features/memo/public/note-navigation-api';
-import { queryMentionNotes } from '@features/editor/extensions/note-mention/note-mention-data';
-import { parseBooleanAttr, splitDisplay, stripMdSuffix } from '@features/editor/extensions/note-link/markdown';
+import { openNoteByPhysicalPath } from '@features/memo/public/note-navigation-api';
+import { listNoteReferenceCandidates } from '@features/editor/extensions/note-mention/note-mention-data';
+import { stripMdSuffix } from '@features/editor/extensions/note-link/markdown';
 import {
-  attrsFromMarkdownNoteLink, attrsFromWikiNoteLink, escapeMarkdownLinkText, noteReferenceOpenLink,
+  attrsFromMarkdownNoteLink, attrsFromWikiNoteLink, attrsFromLegacyNoteTag,
   parseMarkdownNoteLinkAtStart, parseWikiNoteLinkAtStart, noteReferenceMarkdownSpec,
   type NoteReferenceAttrs, type ParsedWikiNoteLink,
 } from './note-reference-markdown';
 export type { NoteReferenceAttrs } from './note-reference-markdown';
-export { isRelativeNoteDestination, parseWikiNoteLinkAtStart, splitObsidianTarget } from './note-reference-markdown';
+export { parseWikiNoteLinkAtStart, splitObsidianTarget } from './note-reference-markdown';
 import { translate, type I18nKey } from '@/lib/i18n';
 import { getCurrentAppLanguage } from '@features/preferences/public/runtime-api';
 import { createInlineAtomMaintenancePlugin, removeHardBreaksAroundInlineAtoms } from '@features/editor/extensions/shared/inline-atom-maintenance';
@@ -28,28 +28,26 @@ import {
 } from '@features/editor/extensions/shared/inline-atom-nodeview';
 import { navigateToHeadingAnchor } from '@features/editor/components/heading-anchor-navigation';
 import GithubSlugger from 'github-slugger';
-import { notes as notesClient } from '@platform/tauri/client';
+import { files, notes as notesClient } from '@platform/tauri/client';
 import type { NoteEntry } from '@platform/tauri/client/notes';
 import { useNoteStore } from '@features/memo/store/note-store';
-import { joinNotebookMemoPath } from '@/lib/path';
+import { resolveNoteReference, resolveNoteReferenceTarget, renderNoteReferenceMarkdown, noteReferenceMarkdownNode, wikiReferencePath, type NoteReferenceContext } from './note-reference-path';
+import { prepareLocalLinkNavigation } from '@features/editor/local-link-navigation';
 import { displayTitleFromFilename } from '@/lib/utils';
+import { resolveDocumentRelativeHref } from '@/lib/document-relative-path';
+import { formatDocumentPathReference } from '@/lib/document-resource-context';
+import { createNoteContentIconElement } from '@features/content/public/content-api';
 import { toast } from '@/lib/toast';
 import {
   NoteReferencePreviewController,
   type NoteReferencePreviewData,
 } from '@features/editor/extensions/note-link/note-reference-preview-controller';
 
+
 // ─── Attrs ────────────────────────────────────────────────────────────────────
 
 function noteReferenceDisplayTitle(attrs: NoteReferenceAttrs): string {
   if (attrs.relativePath) return displayTitleFromFilename(attrs.relativePath);
-  if (attrs.linkTarget?.startsWith('flowix://open?')) {
-    try {
-      const url = new URL(attrs.linkTarget);
-      const file = url.searchParams.get('f') ?? url.searchParams.get('file') ?? url.searchParams.get('relativePath') ?? url.searchParams.get('path');
-      if (file) return displayTitleFromFilename(file);
-    } catch { /* Keep the authored label for malformed links. */ }
-  }
   if (attrs.originalPath) return displayTitleFromFilename(attrs.originalPath);
   return stripMdSuffix(attrs.title || '');
 }
@@ -65,28 +63,6 @@ function tKey(key: I18nKey, params?: Record<string, string | number>): string {
  * reading need this to know what `relativePath` is relative to.
  */
 export type OwnerNotebookIdProvider = () => string | null | undefined;
-
-/** Notebook named by a reference's own attrs; null when unknown or ambiguous. */
-function targetNotebookId(attrs: NoteReferenceAttrs): string | null {
-  if (attrs.notebookId) return attrs.notebookId;
-  const { notebookName } = attrs;
-  if (!notebookName) return null;
-  const matches = useNoteStore.getState().notebooks.filter((notebook) => notebook.name === notebookName);
-  return matches.length === 1 ? matches[0].id : null;
-}
-
-/**
- * Notebook a reference actually resolves inside.
- *
- * An explicit notebook wins (even when it is ambiguous, so a broken cross-book
- * link never silently retargets); otherwise the reference is same-notebook and
- * inherits the owning document's notebook.
- */
-function referenceNotebookId(attrs: NoteReferenceAttrs, ownerNotebookId: string | null | undefined): string | null {
-  if (attrs.notebookId) return attrs.notebookId;
-  if (attrs.notebookName) return targetNotebookId(attrs);
-  return attrs.relativePath ? ownerNotebookId ?? null : null;
-}
 
 function findLastMarkdownNoteLink(text: string): InputRuleMatch | null {
   let found: InputRuleMatch | null = null;
@@ -165,11 +141,15 @@ class NoteReferenceView implements ProseMirrorNodeView {
     getPos: (() => number | undefined) | undefined,
     private readonly presentation: 'document' | 'composer',
     private readonly getOwnerNotebookId: OwnerNotebookIdProvider | undefined,
+    private readonly getDocumentPath: (() => string | undefined) | undefined,
+    private readonly getReferenceContext: (() => NoteReferenceContext) | undefined,
+    private readonly getLinkContext: (() => EditorLinkContext | undefined) | undefined,
   ) {
     this.node = node;
     this.view = view;
     this.getPos = getPos;
     this.dom = this.createCard();
+    if (this.presentation === 'document') queueMicrotask(() => { void this.normalizeLink(); });
     if (this.presentation === 'composer') {
       this.previewController = new NoteReferencePreviewController({
         anchor: this.dom,
@@ -178,35 +158,64 @@ class NoteReferenceView implements ProseMirrorNodeView {
           || tKey('editor.noteLink.untitled'),
         loadData: () => this.loadNotePreviewData(),
         openNote: async (data) => {
-          await openNoteByNotebookPath(
-            data.notebookId,
-            data.relativePath,
-            null,
-            { destination: 1 },
-          );
+          await openNoteByPhysicalPath(data.filePath, data.heading, { destination: 1 });
         },
         t: (key) => tKey(key),
         onError: (error) => toast.error(error instanceof Error ? error.message : String(error)),
       });
     }
+  }
 
-    // mount 时按笔记本和相对路径校验目标是否仍存在.
+  /** Convert old/general references to the same link mark used by authored Markdown. */
+  private async normalizeLink(): Promise<void> {
+    if (this.destroyed || !this.view.state.schema.marks.link) return;
+    const attrs = this.node.attrs as NoteReferenceAttrs;
+    const key = this.previewLocatorKey();
+    let link = noteReferenceMarkdownNode(attrs, this.referenceContext());
+    if (attrs.linkStyle === 'wiki' && attrs.linkTarget) {
+      const context = this.referenceContext();
+      const notePath = wikiReferencePath(attrs, context.documentPath);
+      const rawPath = resolveDocumentRelativeHref(attrs.linkTarget, context.documentPath)?.path;
+      try {
+        // Probe the note first; only then fall back to a literal directory/file.
+        const note = notePath ? await files.resolveLocation(notePath) : null;
+        const actual = note?.isDirectory != null ? note
+          : rawPath && rawPath !== notePath ? await files.resolveLocation(rawPath) : null;
+        if (actual?.isDirectory === false && actual.path !== notePath) {
+          link = noteReferenceMarkdownNode({ ...attrs, linkStyle: 'flowix', linkTarget: null,
+            originalPath: actual.path, notebookId: actual.notebookId ?? null, relativePath: null }, context) ?? link;
+        }
+        if (actual?.isDirectory === true
+          || (actual?.isDirectory === false && !/\.(md|markdown)$/i.test(actual.path))) {
+          const href = formatDocumentPathReference({ path: actual.path, anchor: attrs.heading,
+            ...(actual.isDirectory ? { isDirectory: true } : {}) }, context.documentPath, context.notebooks);
+          link = { type: 'text', text: attrs.title || attrs.linkTarget,
+            marks: [{ type: 'link', attrs: { href } }] };
+        }
+      } catch { /* Unavailable targets retain their authored spelling. */ }
+    }
+    if (!link || this.destroyed || key !== this.previewLocatorKey()) return;
+    const pos = this.getPos?.();
+    if (pos === undefined || this.view.state.doc.nodeAt(pos) !== this.node) return;
+    this.view.dispatch(this.view.state.tr.replaceWith(pos, pos + this.node.nodeSize,
+      this.view.state.schema.nodeFromJSON(link)).setMeta('addToHistory', false));
   }
 
   /** Notebook that owns this document, when the host can supply one. */
   private ownerNotebookId(): string | null {
-    return this.getOwnerNotebookId?.() ?? null;
+    return this.getReferenceContext?.().notebookId ?? this.getOwnerNotebookId?.() ?? null;
   }
 
   private createCard(): HTMLElement {
     // notebookName 不再用于渲染 (见下方 nameSpan 注释), 仍在 attrs 里保留;
     // 这里只解构 UI 需要的字段.
-    const { notebookId, relativePath, notebookName, originalPath, linkTarget, stale } = this.node.attrs as NoteReferenceAttrs;
+    const { notebookId, relativePath, notebookName, originalPath, linkTarget, heading, stale } = this.node.attrs as NoteReferenceAttrs;
 
     // 视觉 stale 判定:
     //   - 已 stale (applyAttrs 写入) → 视觉 stale
     const hasTarget = Boolean(relativePath && (notebookId || notebookName || this.ownerNotebookId()))
-      || Boolean(originalPath || linkTarget);
+      || Boolean(originalPath || linkTarget)
+      || Boolean(heading && !notebookId && !relativePath);
     const effectiveStale = stale || !hasTarget;
 
     // 外层 wrapper: 与 .editor-file-attachment 同结构 (display:inline),
@@ -237,23 +246,16 @@ class NoteReferenceView implements ProseMirrorNodeView {
       card.setAttribute('title', effectiveStale ? tKey('editor.noteLink.stale', { path: originalPath }) : originalPath);
     }
 
-    // 使用侧边栏默认文档图标的 SVG 路径, 内联渲染以避免依赖 React。
+    // Composer mention 使用文件树里的笔记图标；正文引用仍显示跳转图标。
     const icon = document.createElement('span');
     icon.className = 'note-reference__icon';
-    icon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 18 18" fill="none" aria-hidden="true"><g transform="matrix(0.6923077 0 0 0.6923077 0.6923077 0.6923077)"><line x1="7.6666" y1="11.36" x2="10.3333" y2="11.36" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.2" vector-effect="non-scaling-stroke"/><line x1="7.6666" y1="15.18" x2="16.3333" y2="15.18" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.2" vector-effect="non-scaling-stroke"/><path d="M 3.6667 19 V 5 c 0 -1.4733 1.1933 -2.6667 2.6667 -2.6667 h 7.448 c 0.3533 0 0.6933 0.14 0.9427 0.3907 l 5.2187 5.2187 c 0.2507 0.2507 0.3907 0.5893 0.3907 0.9427 v 10.1146 c 0 1.4733 -1.1933 2.6667 -2.6667 2.6667 H 6.3333 c -1.4733 0 -2.6667 -1.1933 -2.6667 -2.6667 Z" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.2" vector-effect="non-scaling-stroke"/><path d="M 20.2133 8.3333 h -4.5467 c -0.736 0 -1.3333 -0.5973 -1.3333 -1.3333 V 2.4693" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.2" vector-effect="non-scaling-stroke"/></g></svg>`;
+    if (this.presentation === 'composer') {
+      icon.append(createNoteContentIconElement({ width: 14, height: 14 }));
+    } else {
+      icon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-square-arrow-up-right-exit preview-icon" aria-hidden="true"><path d="M21 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6"/><path d="m21 3-9 9"/><path d="M15 3h6v6"/></svg>`;
+    }
 
-    // 名称 = `title` 单段。
-    //
-    // 历史: 早期是 `notebookName > title` 三段 (notebook muted / chevron /
-    // title primary), notebookName 拿 nbSpan, chevron 拿 inline SVG, title
-    // 拿 titleSpan; 但 notebookName 在大量 round-trip 路径下 (markdown 解析、
-    // refreshMemoAttrs 异步补齐之前) 都为空, 导致刷新加载后会发生一次
-    // "title-only → 三段" 的 DOM 替换 (createCard 在 update() 里被再跑一遍),
-    // 视觉抖动 + caret 落点抖动. 简化为单段后, 新增 / 刷新两条路径首次
-    // 渲染就一致, 后续 refresh 即便补到 notebookName 也不影响渲染.
-    //
-    // 仍保留 notebookName 在 attrs 里 (markdown round-trip / 双击跳转跨笔记本
-    // 都还要用), 只是 UI 层不再展示.
+    // 只展示文件名，保持首次渲染与载入笔记本元数据后的布局一致。
     const nameSpan = document.createElement('span');
     nameSpan.className = 'note-reference__name';
     const titleSpan = document.createElement('span');
@@ -313,94 +315,43 @@ class NoteReferenceView implements ProseMirrorNodeView {
       attrs.relativePath ?? '',
       attrs.originalPath ?? '',
       attrs.linkTarget ?? '',
+      attrs.heading ?? '',
+      this.getDocumentPath?.() ?? this.getReferenceContext?.().documentPath ?? '',
     ]);
   }
 
-  private async loadNotePreviewData(): Promise<NoteReferencePreviewData | null> {
-    let attrs = this.node.attrs as NoteReferenceAttrs;
-    let notebookId = attrs.notebookId;
-    let relativePath = attrs.relativePath ?? null;
-    let notebookPath: string | null = null;
-    let location: Awaited<ReturnType<typeof notesClient.resolveLocation>> | null = null;
-    let physicalPath = attrs.originalPath;
-    let notebookName = attrs.notebookName;
-
-    if (attrs.linkTarget && /^flowix:\/\/open\?/i.test(attrs.linkTarget)) {
-      try {
-        const url = new URL(attrs.linkTarget);
-        notebookId ||= url.searchParams.get('notebookId');
-        relativePath ||= url.searchParams.get('f') ?? url.searchParams.get('file') ?? url.searchParams.get('relativePath');
-        notebookName ||= url.searchParams.get('b') ?? url.searchParams.get('book') ?? '';
-        physicalPath ||= url.searchParams.get('path');
-      } catch { /* Keep the authored attrs as fallback. */ }
-    } else if (!physicalPath && attrs.linkTarget && /^\//.test(attrs.linkTarget)) {
-      physicalPath = attrs.linkTarget;
-    }
-
-    if ((!notebookId || !relativePath) && physicalPath) {
-      try {
-        location = await notesClient.resolveLocation(physicalPath);
-        notebookId ||= location?.notebookId;
-        relativePath ||= location?.relativePath;
-        notebookPath = location?.notebookPath ?? null;
-      } catch { /* A missing note still gets a title-only preview. */ }
-    }
-
-    if (!notebookId || !relativePath) {
-      // Relative wiki links may be resolved lazily by the same note-reference
-      // resolver used when opening the chip. Re-read attrs after it completes.
-      if (attrs.linkStyle === 'wiki' && attrs.linkTarget) {
-        await this.refreshMemoAttrs();
-        attrs = this.node.attrs as NoteReferenceAttrs;
-        notebookId = attrs.notebookId;
-        relativePath = attrs.relativePath ?? null;
-      }
-    }
-
-    if (!notebookId && relativePath && notebookName) {
-      let notebooks = useNoteStore.getState().notebooks;
-      if (!notebooks.length) {
-        await useNoteStore.getState().loadNotebooks();
-        notebooks = useNoteStore.getState().notebooks;
-      }
-      const matches = notebooks.filter((item) => item.name === notebookName);
-      if (matches.length === 1) notebookId = matches[0].id;
-    }
-
-    // Same-notebook references name no notebook at all: they resolve inside the
-    // notebook that owns this document.
-    if (!notebookId && relativePath && !notebookName) notebookId = this.ownerNotebookId();
-
-    if (!notebookId || !relativePath) {
-      return null;
-    }
-
-    let notebook = useNoteStore.getState().notebooks.find((item) => item.id === notebookId);
-    if (!notebook) {
-      await useNoteStore.getState().loadNotebooks();
-      notebook = useNoteStore.getState().notebooks.find((item) => item.id === notebookId);
-    }
-    notebookPath ||= notebook?.path ?? null;
-    const filePath = notebookPath ? joinNotebookMemoPath(notebookPath, relativePath) : null;
-    if (!notebookPath || !filePath) {
-      return null;
-    }
-
-    let entry: NoteEntry | null = null;
-    try {
-      entry = await notesClient.getIndexed(notebookId, relativePath);
-    } catch { /* Render the saved reference title if the index is unavailable. */ }
-
-    const data: NoteReferencePreviewData = {
-      title: entry?.title || noteReferenceDisplayTitle(attrs) || tKey('editor.noteLink.untitled'),
-      preview: entry?.preview ?? '',
-      thumbnail: entry?.thumbnail ?? null,
-      notebookId,
-      relativePath,
-      notebookPath,
-      filePath,
+  private referenceContext(): NoteReferenceContext {
+    return this.getReferenceContext?.() ?? {
+      documentPath: this.getDocumentPath?.() ?? '',
+      notebookId: this.ownerNotebookId() ?? undefined,
+      notebooks: useNoteStore.getState().notebooks,
     };
-    return data;
+  }
+
+  private async resolveTarget() {
+    const attrs = this.node.attrs as NoteReferenceAttrs;
+    const target = resolveNoteReference(attrs, this.referenceContext());
+    if (target.kind === 'path') return target;
+    if (target.kind === 'unresolved' && target.reason === 'notebook-unavailable'
+      && (attrs.notebookId || attrs.notebookName || this.ownerNotebookId())) {
+      await useNoteStore.getState().loadNotebooks();
+    }
+    return resolveNoteReferenceTarget(attrs, this.referenceContext(), listNoteReferenceCandidates);
+  }
+
+  private async loadNotePreviewData(): Promise<NoteReferencePreviewData | null> {
+    const target = await this.resolveTarget();
+    if (!target || await notesClient.pathStatus(target.path) === 'missing') return null;
+    const location = await notesClient.resolveLocation(target.path).catch(() => null);
+    let entry: NoteEntry | null = null;
+    if (location?.notebookId && location.relativePath) {
+      entry = await notesClient.getIndexed(location.notebookId, location.relativePath).catch(() => null);
+    }
+    return {
+      title: entry?.title || noteReferenceDisplayTitle(this.node.attrs as NoteReferenceAttrs) || tKey('editor.noteLink.untitled'),
+      preview: entry?.preview ?? '', thumbnail: entry?.thumbnail ?? null,
+      filePath: target.path, heading: target.heading,
+    };
   }
 
   private selectOnClick(): void {
@@ -424,10 +375,8 @@ class NoteReferenceView implements ProseMirrorNodeView {
     this.lastOpenAt = now;
 
     const attrs = this.node.attrs as NoteReferenceAttrs;
-    if (attrs.linkTarget && /^flowix:\/\/memo\//i.test(attrs.linkTarget)) {
-      this.applyAttrs({ stale: true });
-      return;
-    }
+    const locatorKey = this.previewLocatorKey();
+    const isCurrentTarget = () => !this.destroyed && locatorKey === this.previewLocatorKey();
 
     try {
       // 跨文档锚点随打开流程发布定位请求（与 Agent 链接同一通道，slug 归一化
@@ -435,20 +384,34 @@ class NoteReferenceView implements ProseMirrorNodeView {
       // 本文档）时才在当前编辑器内滚动。
       const sameDocumentHeading = Boolean(attrs.heading)
         && !attrs.linkTarget && !attrs.notebookId && !attrs.relativePath && !attrs.originalPath;
-      // A same-notebook reference has no notebook of its own; it means "this
-      // document's notebook".
-      const notebookId = referenceNotebookId(attrs, this.ownerNotebookId());
-      if (notebookId && attrs.relativePath) {
-        await openNoteByNotebookPath(notebookId, attrs.relativePath, attrs.heading);
-      } else if (attrs.originalPath) {
-        await openNoteByPhysicalPath(attrs.originalPath, attrs.heading);
-      } else if (attrs.linkTarget) {
-        await openNoteByPhysicalPath(attrs.linkTarget);
+      const target = await this.resolveTarget();
+      if (!isCurrentTarget()) return;
+      if (target) {
+        let path = target.path;
+        if (this.presentation === 'document') {
+          const context = this.referenceContext();
+          const fallbackPath = attrs.linkStyle === 'wiki' && attrs.linkTarget
+            ? resolveDocumentRelativeHref(attrs.linkTarget, context.documentPath)?.path : undefined;
+          const localTarget = { path, anchor: target.heading, ...(fallbackPath ? { fallbackPath } : {}) };
+          const navigation = this.getLinkContext?.();
+          if (navigation?.openLocalPath) {
+            await navigation.openLocalPath(localTarget);
+            return;
+          }
+          const prepared = await prepareLocalLinkNavigation(localTarget, context.documentPath, {
+            notebooks: context.notebooks, isCurrent: isCurrentTarget,
+          });
+          if (!prepared || !isCurrentTarget()) return;
+          if (prepared.isCurrentDocument && !target.heading) return;
+          path = prepared.location.path;
+        }
+        await openNoteByPhysicalPath(path, target.heading);
       } else if (sameDocumentHeading) {
+        toast.info(tKey('editor.link.currentDocument'));
         const slug = new GithubSlugger().slug(attrs.heading!);
         let attempts = 0;
         const navigate = () => {
-          if (this.destroyed || navigateToHeadingAnchor(this.view.dom, `#${slug}`)) return;
+          if (!isCurrentTarget() || navigateToHeadingAnchor(this.view.dom, `#${slug}`)) return;
           attempts += 1;
           if (attempts < 10) window.setTimeout(navigate, 50);
         };
@@ -457,10 +420,11 @@ class NoteReferenceView implements ProseMirrorNodeView {
         this.applyAttrs({ stale: true });
         return;
       }
-      if (attrs.stale) {
+      if (isCurrentTarget() && attrs.stale) {
         this.applyAttrs({ stale: false });
       }
     } catch (err) {
+      if (!isCurrentTarget()) return;
       this.applyAttrs({ stale: true });
 
       console.warn('[note-reference] open failed:', err);
@@ -515,123 +479,9 @@ class NoteReferenceView implements ProseMirrorNodeView {
     this.previewController?.syncAnchorState();
     if (previousKey !== this.previewLocatorKey()) {
       this.previewController?.invalidate();
+      if (this.presentation === 'document') queueMicrotask(() => { void this.normalizeLink(); });
     }
-    // update 触发场景: 文档被外部修改 / 切换 memo / undo-redo,
-    // 节点 attrs 可能刚被改过, 仍跑一次异步校验兜底.
     return true;
-  }
-
-  /** Validate a note reference using its path target. */
-  private refreshPromise: Promise<void> | null = null;
-
-  refreshMemoAttrs(): Promise<void> {
-    if (this.refreshPromise) return this.refreshPromise;
-
-    const initialAttrs = this.node.attrs as NoteReferenceAttrs;
-    if (!initialAttrs.notebookId && !initialAttrs.notebookName && !initialAttrs.originalPath && !initialAttrs.linkTarget) {
-      return Promise.resolve();
-    }
-
-    this.refreshPromise = (async () => {
-      try {
-        if (initialAttrs.notebookName && initialAttrs.relativePath && !initialAttrs.notebookId) {
-          let notebooks = useNoteStore.getState().notebooks;
-          if (!notebooks.some((item) => item.name === initialAttrs.notebookName)) {
-            await useNoteStore.getState().loadNotebooks();
-            notebooks = useNoteStore.getState().notebooks;
-          }
-          const matches = notebooks.filter((item) => item.name === initialAttrs.notebookName);
-          const notebook = matches.length === 1 ? matches[0] : null;
-          const path = notebook ? joinNotebookMemoPath(notebook.path, initialAttrs.relativePath) : null;
-          const content = path ? await notesClient.readDocument(path) : null;
-          this.applyAttrs({ notebookId: notebook?.id ?? null, stale: content === null });
-          return;
-        }
-        if (initialAttrs.notebookId && initialAttrs.relativePath) {
-          let notebook = useNoteStore.getState().notebooks.find((item) => item.id === initialAttrs.notebookId);
-          if (!notebook) {
-            await useNoteStore.getState().loadNotebooks();
-            notebook = useNoteStore.getState().notebooks.find((item) => item.id === initialAttrs.notebookId);
-          }
-          const path = notebook ? joinNotebookMemoPath(notebook.path, initialAttrs.relativePath) : null;
-          const content = path ? await notesClient.readDocument(path) : null;
-          const stale = content === null;
-          const current = this.node.attrs as NoteReferenceAttrs;
-          if (current.stale !== stale || (notebook && current.notebookName !== notebook.name)) {
-            this.applyAttrs({ stale, ...(notebook ? { notebookName: notebook.name } : {}) });
-          }
-          return;
-        }
-        if (initialAttrs.originalPath) {
-          const content = await notesClient.readDocument(initialAttrs.originalPath);
-          const stale = content === null;
-          if ((this.node.attrs as NoteReferenceAttrs).stale !== stale) this.applyAttrs({ stale });
-          return;
-        }
-        // Same-notebook reference: validate inside the owning document's
-        // notebook. Without an owner there is nothing to validate against.
-        if (initialAttrs.relativePath && !initialAttrs.notebookId && !initialAttrs.notebookName) {
-          const ownerNotebookId = this.ownerNotebookId();
-          if (!ownerNotebookId) return;
-          let notebook = useNoteStore.getState().notebooks.find((item) => item.id === ownerNotebookId);
-          if (!notebook) {
-            await useNoteStore.getState().loadNotebooks();
-            notebook = useNoteStore.getState().notebooks.find((item) => item.id === ownerNotebookId);
-          }
-          const path = notebook ? joinNotebookMemoPath(notebook.path, initialAttrs.relativePath) : null;
-          const content = path ? await notesClient.readDocument(path) : null;
-          const stale = content === null;
-          if ((this.node.attrs as NoteReferenceAttrs).stale !== stale) this.applyAttrs({ stale });
-          return;
-        }
-        const target = initialAttrs.linkTarget!;
-        let notebookId: string | null = null;
-        let relativePath: string | null = null;
-        if (/^flowix:\/\/open\?/i.test(target)) {
-          const url = new URL(target);
-          notebookId = url.searchParams.get('notebookId');
-          relativePath = url.searchParams.get('f') ?? url.searchParams.get('file') ?? url.searchParams.get('relativePath');
-          if ((!notebookId || !relativePath) && url.searchParams.get('path')) {
-            const location = await notesClient.resolveLocation(url.searchParams.get('path')!);
-            notebookId = location.notebookId;
-            relativePath = location.relativePath;
-          }
-        } else {
-          const basename = target.replace(/\\/g, '/').split('/').pop()?.replace(/\.md$/i, '') ?? target;
-          const matches = await queryMentionNotes(basename);
-          const normalized = target.replace(/\\/g, '/').toLocaleLowerCase();
-          const match = matches.find((item) => item.relativePath.toLocaleLowerCase() === normalized
-            || item.filename.toLocaleLowerCase() === `${normalized}.md`
-            || item.title.toLocaleLowerCase() === normalized)
-            ?? matches[0];
-          notebookId = match?.notebookId ?? null;
-          relativePath = match?.relativePath ?? null;
-        }
-        const current = this.node.attrs as NoteReferenceAttrs;
-        if (!notebookId || !relativePath) {
-          if (!current.stale) {
-            this.applyAttrs({ stale: true });
-          }
-          return;
-        }
-        const patch: Partial<NoteReferenceAttrs> = {};
-        if (current.notebookId !== notebookId) patch.notebookId = notebookId;
-        if (current.relativePath !== relativePath) patch.relativePath = relativePath;
-        if (current.stale) {
-          patch.stale = false;
-        }
-        if (Object.keys(patch).length > 0) {
-          this.applyAttrs(patch);
-        }
-      } catch (err) {
-
-        console.warn('[note-reference] refresh failed:', err);
-      } finally {
-        this.refreshPromise = null;
-      }
-    })();
-
-    return this.refreshPromise;
   }
 
   selectNode(): void {
@@ -662,19 +512,26 @@ class NoteReferenceView implements ProseMirrorNodeView {
 // ─── Node definition ──────────────────────────────────────────────────────────
 
 export interface NoteReferenceOptions {
-  /** Notebook owning the document being serialized; same-notebook links drop it. */
+  /** Notebook owning the document being serialized. */
   getOwnerNotebookId?: OwnerNotebookIdProvider;
+  getDocumentPath?: () => string | undefined;
+  getReferenceContext?: () => NoteReferenceContext;
+  getLinkContext?: () => EditorLinkContext | undefined;
 }
 
 /**
  * `renderMarkdown` is invoked without tiptap's extension context (no
  * `this.options`), so the owning notebook is captured in this closure instead
- * of being configured on the node.
+ * of being read from mutable application state during serialization.
  */
 export function createNoteReferenceExtension(
   presentation: 'document' | 'composer',
-  { getOwnerNotebookId }: NoteReferenceOptions = {},
+  { getOwnerNotebookId, getDocumentPath, getReferenceContext, getLinkContext }: NoteReferenceOptions = {},
 ) {
+  const context = (): NoteReferenceContext => getReferenceContext?.() ?? {
+    documentPath: getDocumentPath?.() ?? '', notebookId: getOwnerNotebookId?.() ?? undefined,
+    notebooks: useNoteStore.getState().notebooks,
+  };
   return Node.create({
     name: 'noteReference',
     group: 'inline',
@@ -703,23 +560,25 @@ export function createNoteReferenceExtension(
       return [
         {
           tag: 'note',
-          getAttrs: (el: HTMLElement) => {
-            const notebookId   = el.getAttribute('notebook') || null;
-            const originalPath = el.getAttribute('path') || null;
-            const relativePath = el.getAttribute('relativePath') || null;
-            const stale        = parseBooleanAttr(el.getAttribute('stale'));
-            const { notebookName, title } = splitDisplay(el.textContent ?? '');
-            return { notebookId, relativePath, notebookName, title, originalPath, linkStyle: 'flowix', linkTarget: null, heading: null, stale };
-          },
+          getAttrs: (el: HTMLElement) => attrsFromLegacyNoteTag(name => el.getAttribute(name), el.textContent ?? ''),
         },
       ];
     },
 
     renderHTML({ node }) {
       const a = node.attrs as NoteReferenceAttrs;
+      const referenceContext = context();
+      const target = resolveNoteReference(a, referenceContext);
+      const transferPath = a.linkStyle === 'wiki'
+        ? wikiReferencePath(a, referenceContext.documentPath) ?? (target.kind === 'path' ? target.path : '')
+        : target.kind === 'path' ? target.path : '';
       return [
         'note',
         {
+          'data-note-path': transferPath,
+          'data-note-target': a.linkTarget ?? '',
+          'data-note-style': a.linkStyle,
+          'data-note-heading': a.heading ?? '',
           notebook: a.notebookId ?? '',
           relativePath: a.relativePath ?? '',
           path: a.originalPath ?? '',
@@ -738,44 +597,7 @@ export function createNoteReferenceExtension(
     ...noteReferenceMarkdownSpec,
 
     renderMarkdown(node: JSONContent) {
-      const a = (node?.attrs ?? {}) as NoteReferenceAttrs;
-      const displayTitle = escapeMarkdownLinkText(noteReferenceDisplayTitle(a));
-      if (a.linkStyle === 'wiki' && a.linkTarget) {
-        const target = `${a.linkTarget}${a.heading ? `#${a.heading}` : ''}`;
-        const naturalTitle = a.linkTarget.split('/').pop()?.replace(/\.md$/i, '') ?? a.linkTarget;
-        return `[[${target}${a.title && a.title !== naturalTitle ? `|${a.title}` : ''}]]`;
-      }
-      if (a.linkStyle === 'markdown' && a.linkTarget) {
-        const target = `${a.linkTarget}${a.heading ? `#${a.heading}` : ''}`.replace(/ /g, '%20');
-        return `[${escapeMarkdownLinkText(a.title || stripMdSuffix(a.linkTarget))}](${target})`;
-      }
-      if (a.linkTarget && /^flowix:\/\/memo\//i.test(a.linkTarget)) {
-        return `[${displayTitle}](${a.linkTarget})`;
-      }
-      if (a.relativePath) {
-        const target = noteReferenceOpenLink({
-          relativePath: a.relativePath,
-          heading: a.heading,
-          notebookId: targetNotebookId(a),
-          notebookName: a.notebookName,
-        }, getOwnerNotebookId?.());
-        if (target) return `[${displayTitle}](${target})`;
-        if (a.linkTarget) {
-          return `[${displayTitle}](${a.linkTarget})`;
-        }
-      }
-      if (a.linkTarget?.startsWith('flowix://open?') && !a.originalPath) {
-        return `[${displayTitle}](${a.linkTarget})`;
-      }
-      const pathLink = a.originalPath ? noteLinkForIndexedPath(a.originalPath) : null;
-      if (pathLink) {
-        return `[${displayTitle}](${pathLink})`;
-      }
-      if (a.originalPath) {
-        const fallback = `flowix://open?path=${encodeURIComponent(a.originalPath)}`;
-        return `[${displayTitle}](${fallback})`;
-      }
-      return escapeMarkdownLinkText(stripMdSuffix(a.title || ''));
+      return renderNoteReferenceMarkdown((node?.attrs ?? {}) as NoteReferenceAttrs, context());
     },
 
     // ─── NodeView ─────────────────────────────────────────────────────────────
@@ -787,6 +609,9 @@ export function createNoteReferenceExtension(
         getPos as () => number | undefined,
         presentation,
         getOwnerNotebookId,
+        getDocumentPath,
+        getReferenceContext,
+        getLinkContext,
       );
     },
 

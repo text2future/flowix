@@ -39,6 +39,22 @@ fn strip_fragment(value: &str) -> &str {
     value.split(['#', '?']).next().unwrap_or_default()
 }
 
+/// Compare Windows/UNC roots lexically even when indexing on another platform.
+fn absolute_notebook_target(path: &str, book: &NotebookConfig) -> Option<String> {
+    let path = path.replace('\\', "/");
+    let root = book.path.replace('\\', "/");
+    let root = root.trim_end_matches('/');
+    let windows = path.as_bytes().get(1) == Some(&b':') || path.starts_with("//");
+    let prefix = format!("{root}/");
+    let inside = if windows {
+        path.get(..prefix.len())?.eq_ignore_ascii_case(&prefix)
+    } else {
+        path.starts_with(&prefix)
+    };
+    inside.then_some(())?;
+    normalize(path.get(prefix.len()..)?)
+}
+
 fn destination(
     source: &str,
     raw: &str,
@@ -82,26 +98,32 @@ fn destination(
         return None;
     }
     if raw.starts_with("file:") {
-        let path = url::Url::parse(raw).ok()?.to_file_path().ok()?;
-        let relative = path.strip_prefix(Path::new(&book.path)).ok()?.to_str()?;
-        let target = normalize(relative)?;
+        let url = url::Url::parse(raw).ok()?;
+        let mut path = decode(url.path())?;
+        if let Some(host) = url.host_str().filter(|host| *host != "localhost") {
+            path = format!("//{host}{path}");
+        } else if path.as_bytes().get(2) == Some(&b':') {
+            path.remove(0);
+        }
+        let target = absolute_notebook_target(&path, book)?;
         return markdown_path(&target).then_some(("path".into(), target));
-    }
-    if raw.starts_with("//") || raw.split('/').next().is_some_and(|s| s.contains(':')) {
-        return None;
     }
     // Wiki destinations are note names, not URLs: ? is a literal filename
     // character on platforms that support it. Both syntaxes support anchors.
-    let target = decode(if wiki {
+    let mut target = decode(if wiki {
         raw.split('#').next().unwrap_or_default()
     } else {
         strip_fragment(raw)
-    })?;
+    })?.replace('\\', "/");
     if target.is_empty() {
         return raw
             .starts_with('#')
             .then_some(("path".into(), source.to_owned()));
     }
+    // A bare Markdown destination first addresses a same-named note at notebook root.
+    let root_note = !wiki && !target.contains('/') && !target.contains(':')
+        && Path::new(&target).extension().is_none();
+    if root_note { target.push_str(".md"); }
     if !wiki && !markdown_path(&target) {
         return None;
     }
@@ -129,25 +151,17 @@ fn destination(
     {
         return None;
     }
-    if target.starts_with('/') {
-        // Markdown absolute filesystem destinations only belong to this vault
-        // when their root matches. Wiki leading slash denotes vault root.
-        let path = if wiki {
-            target.trim_start_matches('/').to_owned()
-        } else {
-            Path::new(&target)
-                .strip_prefix(Path::new(&book.path))
-                .ok()?
-                .to_str()?
-                .to_owned()
-        };
-        return Some(("path".into(), normalize(&path)?));
+    if target.starts_with('/') || target.as_bytes().get(1) == Some(&b':') {
+        let path = absolute_notebook_target(&target, book)?;
+        return Some(("path".into(), path));
     }
-    if wiki && !target.contains('/') {
-        return Some(("wiki".into(), target));
+    if target.split('/').next().is_some_and(|part| part.contains(':')) {
+        return None;
     }
-    let relative = !wiki || target.starts_with("./") || target.starts_with("../");
-    let path = if relative && !parent.is_empty() {
+    let target = if wiki && Path::new(&target).extension().is_none() {
+        format!("{target}.md")
+    } else { target };
+    let path = if !root_note && !parent.is_empty() {
         format!("{parent}/{target}")
     } else {
         target

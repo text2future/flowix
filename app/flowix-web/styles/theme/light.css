@@ -81,14 +81,9 @@
 	--bg-titlebar: oklch(0.984 0.005 var(--neutral-hue));
 	/* 文档: 纯白纸面, 与 --popover 一致 (rock 模式). */
 	--document-bg: oklch(1 0 0);
-	/* document-foreground: 原写死 chroma=0, 改为 var(--neutral-hue) 派生. */
-	--document-foreground: oklch(0.300 0.009 var(--neutral-hue));
+	--document-foreground: var(--foreground);
 	/* 链接: 仍用 brand-hue 派生, 保留紫色 brand 锚点. */
 	--document-link: oklch(0.45 0.18 var(--brand-hue));
-	/* 高亮: 原 light 用 hue 102 + chroma 0.124 — 在白底上"刺眼",
-	 * 抢 brand 焦点. 借鉴 rock 的"暖琥珀 + 降 chroma 至 0.060" 套路
-	 * (hue 84), 在白底上读作"日光奶油高亮", 不抢 brand 焦点. */
-	--document-highlight-bg: oklch(0.940 0.060 84);
 	/* 标签: 借鉴 rock 的"chip 用中性色, 不染 brand"套路 — 原 light 的
 	 * tag-bg/hover-bg 用 brand-hue 染色, 让 chip 与正文字形成色相差,
 	 * 视觉上"tag 像被框出的彩色字", 与"被高亮的正文"两种语义混在一起.
@@ -140,7 +135,7 @@
 	/* 信息提示: 标准蓝色 #0085E6 — 与 destructive/warning 语义区分,
 	 * 用于 "新版本" 等可点击信息块. 各主题统一, 跨主题切换时信息块
 	 * 视觉一致. */
-	--info: #0085e6;
+	--info: #0078cf;
 	--info-foreground: oklch(1 0 0);
 
 	color-scheme: light;

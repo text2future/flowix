@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@shared/ui/popover';
-import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
+import { PopupScrollArea } from '@shared/ui/popup-scroll-area';
 import { cn } from '@/lib/utils';
 import {
   NotebookIcon,
@@ -58,9 +58,9 @@ export function NotebookIconPopover({
         sideOffset={6}
         className="z-[230] w-[280px] rounded-xl border border-[var(--border-popup)] bg-[var(--card)] p-2 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]"
       >
-        <OverlayScrollbar
+        <PopupScrollArea
           className="max-h-[240px]"
-          scrollerClassName="max-h-[240px] overflow-y-auto overflow-x-hidden pr-1"
+          scrollerClassName="max-h-[240px] pr-1"
         >
           <div className="grid grid-cols-6 gap-1">
             {NOTEBOOK_ICON_OPTIONS.map((option) => {
@@ -91,7 +91,7 @@ export function NotebookIconPopover({
               );
             })}
           </div>
-        </OverlayScrollbar>
+        </PopupScrollArea>
       </PopoverContent>
     </Popover>
   );

@@ -365,7 +365,7 @@ export function AgentTasksSection({
                 <Plus className="h-3.5 w-3.5" aria-hidden="true" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-[200px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+            <DropdownMenuContent scrollerClassName="space-y-0.5" align="end" className="w-[200px] rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
               <DropdownMenuLabel className="flex items-center gap-1.5 px-[0.375rem] pb-[0.35rem] pt-[0.35rem] text-xs font-normal leading-[1.2] text-[var(--muted-foreground)]">
                 {t('agent.chat.newThread')}
               </DropdownMenuLabel>
@@ -449,7 +449,7 @@ export function AgentTasksSection({
                         <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
                       </button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-[160px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+                    <DropdownMenuContent scrollerClassName="space-y-0.5" align="end" className="w-[160px] rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
                       <ConversationActionItems
                         favorite={favoriteIds.has(instance.instanceId)}
                         openHost="column-2"

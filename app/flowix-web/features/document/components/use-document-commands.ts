@@ -5,8 +5,6 @@ import { useCallback } from 'react';
 import { displayTitleFromFilename } from '@/lib/utils';
 import { sanitizeFileName, stripFrontmatter } from '@/lib/export-utils';
 import { notes, dialogs, type SaveFileFilter } from '@platform/tauri/client';
-import { buildNoteOpenLinkFromPath } from '@platform/open-target/path-link';
-import { useNoteStore } from '@features/memo/store/note-store';
 import { memoDocumentOperations } from '@features/document/use-cases/memo-document-operations';
 import { translate } from '@/lib/i18n';
 import { getCurrentAppLanguage } from '@features/preferences/public/runtime-api';
@@ -152,20 +150,6 @@ export function useDocumentCommands({
     }
   }, [currentDocumentPath, getCurrentDocumentContent]);
 
-  const handleCopyLink = useCallback(async () => {
-    if (!currentDocumentPath) return;
-
-    try {
-      const link = buildNoteOpenLinkFromPath(currentDocumentPath, useNoteStore.getState().notebooks);
-      if (!link) throw new Error('Cannot create an unambiguous notebook link');
-      await writeClipboardText(link);
-      toast.success(tCmd('document.command.copySuccess'));
-    } catch (error) {
-      logger.warn('[useDocumentCommands] Failed to copy document link:', { error: error });
-      toast.error(tCmd('document.command.copyFailed'));
-    }
-  }, [currentDocumentPath]);
-
   const handleExportMarkdown = useCallback(async () => {
     const doc = await requireExportableDocument();
     if (!doc) return;
@@ -248,7 +232,6 @@ export function useDocumentCommands({
 
   return {
     handleCopyFullText,
-    handleCopyLink,
     handleExportMarkdown,
     handleSaveAsTemplate,
     handleExportWord,

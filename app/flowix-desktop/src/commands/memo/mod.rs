@@ -29,11 +29,10 @@ pub mod links;
 pub mod versions;
 
 // `helpers` is `pub(crate)`: memo commands access it via `super::helpers`.
-pub use reads::*;
 
 use serde::Serialize;
 
-use flowix_core::memo_file::{Memo, NoteEntry};
+use flowix_core::memo_file::NoteEntry;
 
 // Shared response / item structs 鈹€鈹€ referenced by multiple sections below.
 

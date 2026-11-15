@@ -3,7 +3,7 @@ import type { Editor, RawCommands } from '@tiptap/core';
 import { handleFileUpload } from './plugin';
 import { createAttachmentUpload, createAttachmentUploadFromPaths } from './storage';
 import { runTrackedUpload } from './pending';
-import type { OpenFileDialogParams } from './file-source';
+import type { AttachmentUploadOptions, OpenFileDialogParams } from './file-source';
 import { isTauriApp } from './file-source';
 
 function pickBrowserFiles(params: OpenFileDialogParams | undefined, signal: AbortSignal): Promise<File[]> {
@@ -35,12 +35,8 @@ function pickBrowserFiles(params: OpenFileDialogParams | undefined, signal: Abor
     });
 }
 
-export function createAttachmentCommands(
-    ownerPath?: string,
-    getNotebookId?: () => string | undefined,
-    getOwnerPath?: () => string | undefined,
-): Partial<RawCommands> {
-    const resolveOwnerPath = () => getOwnerPath ? getOwnerPath() : ownerPath;
+export function createAttachmentCommands(options: Pick<AttachmentUploadOptions, 'ownerPath' | 'getContext'>): Partial<RawCommands> {
+    const getContext = () => options.getContext?.() ?? { ownerPath: options.ownerPath, documentPath: options.ownerPath };
     return {
         openFileDialog:
             (params?: OpenFileDialogParams) =>
@@ -54,15 +50,14 @@ export function createAttachmentCommands(
                         });
                         if (!paths?.length || signal.aborted) return [];
                         return (await createAttachmentUploadFromPaths(paths, {
-                            ownerPath: resolveOwnerPath(),
-                            notebookId: getNotebookId?.(),
+                            ...getContext(),
                             signal,
                             deduplicate: true,
                         })).assets;
                     }
                     const files = await pickBrowserFiles(params, signal);
                     if (signal.aborted) return [];
-                    return (await createAttachmentUpload(files, undefined, undefined, resolveOwnerPath(), signal, true)).assets;
+                    return (await createAttachmentUpload(files, { ...getContext(), signal, deduplicate: true })).assets;
                 }, undefined, params?.replaceRange);
                 return true;
             },
@@ -71,7 +66,7 @@ export function createAttachmentCommands(
             (params: { files: File[]; position?: number }) =>
             ({ editor }: { editor: Editor }) => {
                 if (editor.isDestroyed || !editor.isEditable) return false;
-                void handleFileUpload(editor.view, params.files, params.position, undefined, resolveOwnerPath());
+                void handleFileUpload(editor.view, params.files, { ...getContext(), position: params.position });
                 return true;
             },
     };

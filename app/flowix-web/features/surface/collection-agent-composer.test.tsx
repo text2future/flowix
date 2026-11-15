@@ -145,4 +145,27 @@ describe('CollectionAgentComposer', () => {
 
     expect(calls.createWithPrompt).not.toHaveBeenCalled();
   });
+
+  it('文件夹表面引用目录本身，不冒充集合', async () => {
+    const node = document.createElement('div');
+    root = createRoot(node);
+    await act(async () => root?.render(<CollectionAgentComposer
+      kind="folder"
+      notebookId="nb-1"
+      collectionId={null}
+      collectionName="Flowix"
+      collectionPath="/tmp/Flowix"
+      indexPath={null}
+      host="column-1"
+    />));
+    const input = node.querySelector('input');
+    if (!input) throw new Error('composer input missing');
+    await type(input, '这个文件夹里有什么');
+    await pressEnter(input);
+
+    const sentPrompt = calls.createWithPrompt.mock.calls[0]?.[2] as string;
+    expect(sentPrompt.startsWith('这个文件夹里有什么\n\n参考文件夹 [@Flowix](flowix://folder/')).toBe(true);
+    expect(sentPrompt).not.toContain('flowix://collection/');
+    expect(sentPrompt).not.toContain('collectionId');
+  });
 });

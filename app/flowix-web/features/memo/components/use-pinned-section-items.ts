@@ -12,8 +12,8 @@ interface UsePinnedSectionItemsOptions {
   entries: PinnedTreeItem[];
   /** Pinned folder full paths in sidebar order; these render above `entries`. */
   folderPaths: readonly string[];
-  /** Every loaded tree item, used to resolve a pinned folder's own node. */
-  loadedItems: readonly DocTreeItem[];
+  /** canonical path → node 索引，用来解析置顶文件夹自己的节点（含未展开过的）。 */
+  itemByPath: ReadonlyMap<string, DocTreeItem>;
   nodes: ReadonlyMap<string, DocTreeItem>;
   /** Pinned-group-local expand state, decoupled from the files tree's. */
   expanded: ReadonlySet<string>;
@@ -80,17 +80,15 @@ function syntheticFolder(fullPath: string): DocTreeItem {
 export function buildPinnedSectionItems({
   entries,
   folderPaths,
-  loadedItems,
+  itemByPath,
   nodes,
   expanded,
   sort,
 }: UsePinnedSectionItemsOptions): PinnedTreeItem[] {
   if (folderPaths.length === 0) return entries;
-  const byPath = new Map(loadedItems.map((item) => [canonicalPath(item.fullPath), item] as const));
   const roots: DocTreeItem[] = [];
   for (const path of folderPaths) {
-    const key = canonicalPath(path);
-    const resolved = byPath.get(key);
+    const resolved = itemByPath.get(canonicalPath(path));
     if (resolved?.type === 'folder') roots.push(resolved);
     else roots.push(syntheticFolder(path));
   }
@@ -113,9 +111,9 @@ export function buildPinnedSectionItems({
 }
 
 export function usePinnedSectionItems(options: UsePinnedSectionItemsOptions): PinnedTreeItem[] {
-  const { entries, folderPaths, loadedItems, nodes, expanded, sort } = options;
+  const { entries, folderPaths, itemByPath, nodes, expanded, sort } = options;
   return useMemo(
-    () => buildPinnedSectionItems({ entries, folderPaths, loadedItems, nodes, expanded, sort }),
-    [entries, expanded, folderPaths, loadedItems, nodes, sort],
+    () => buildPinnedSectionItems({ entries, folderPaths, itemByPath, nodes, expanded, sort }),
+    [entries, expanded, folderPaths, itemByPath, nodes, sort],
   );
 }

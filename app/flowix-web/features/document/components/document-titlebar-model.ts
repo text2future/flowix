@@ -1,6 +1,6 @@
 import type { FileDisplayIdentity } from '@/lib/file-display-registry';
 import type { DocumentEditorMode } from '@features/document/store/document-editor-view-store';
-import { canonicalPath, notebookRelativeDirectoryPath } from '@/lib/path';
+import { samePath, notebookRelativeDirectoryPath } from '@/lib/path';
 
 /** Snapshot of the displayed file; commands never resolve a different active session. */
 export interface DocumentTitlebarTarget {
@@ -10,12 +10,16 @@ export interface DocumentTitlebarTarget {
   relativePath: string | null;
   indexable: boolean;
   isOutsideCurrentNotebook: boolean;
+  /** The displayed file is inside one of this notebook's configured repositories. */
+  isRepository?: boolean;
 }
 
 interface TitlebarDocumentSession {
   fileIdentity: FileDisplayIdentity;
   scopePath: string | null;
   notebookId?: string | null;
+  /** Actual notebook root; scopePath may be a narrower repository access scope. */
+  notebookPath?: string | null;
   relativePath?: string | null;
   indexable?: boolean;
 }
@@ -24,12 +28,13 @@ export function resolveDocumentTitlebarTarget(
   fileIdentity: FileDisplayIdentity,
   session: TitlebarDocumentSession | null,
   currentNotebookPath: string | null,
+  repositoryPaths: readonly string[] = [],
 ): DocumentTitlebarTarget {
   const matchingSession = session?.fileIdentity.displayId === fileIdentity.displayId
-    && canonicalPath(session.fileIdentity.path) === canonicalPath(fileIdentity.path)
+    && samePath(session.fileIdentity.path, fileIdentity.path)
     ? session : null;
-  const notebookPath = matchingSession?.notebookId && matchingSession.scopePath
-    ? matchingSession.scopePath : currentNotebookPath;
+  const notebookPath = matchingSession?.notebookPath
+    ?? (matchingSession?.notebookId ? null : currentNotebookPath);
   return {
     fileIdentity,
     scopePath: matchingSession ? matchingSession.scopePath : currentNotebookPath,
@@ -38,6 +43,8 @@ export function resolveDocumentTitlebarTarget(
     indexable: matchingSession?.indexable === true,
     isOutsideCurrentNotebook: !notebookPath
       || notebookRelativeDirectoryPath(notebookPath, fileIdentity.path) === null,
+    isRepository: repositoryPaths.some((repositoryPath) =>
+      notebookRelativeDirectoryPath(repositoryPath, fileIdentity.path) !== null),
   };
 }
 
@@ -50,6 +57,8 @@ export function resolveDocumentTitlebarTarget(
 export interface DocumentTitlebarBreadcrumbItem {
   label: string;
   type?: 'folder' | 'file';
+  /** Marks a registered repository root so its folder popover can show the repository icon. */
+  isRepository?: boolean;
   /** Segment path; folder segments use it to open the file tree popover. */
   path?: string;
 }
@@ -70,7 +79,7 @@ export interface DocumentTitlebarProps {
   /** 文档路径面包屑（根段=笔记本/仓库目录名）；缺省时标题栏回退为普通标题。 */
   breadcrumb?: DocumentTitlebarBreadcrumbItem[] | null;
   /** 面包屑文件夹弹层选中文件后，在当前栏打开它（缺省则面包屑只展示）。 */
-  onBreadcrumbFileOpen?: (filePath: string, scopePath: string) => void;
+  onBreadcrumbFileOpen?: (filePath: string, rootPath: string) => void;
   document: {
     target: DocumentTitlebarTarget | null;
     /** File-browser editors own their buffer and commands independently of the primary document store. */
@@ -97,7 +106,6 @@ export interface DocumentTitlebarProps {
     versionHistory: boolean;
   };
   actions: {
-    onCopyLink: () => void;
     onCopyFullText: () => void;
     onExportMarkdown: () => void;
     onSaveAsTemplate: () => void;
@@ -114,5 +122,13 @@ export interface DocumentTitlebarProps {
    * 当前内容是集合时给出地址与所属笔记本；文档、媒体和文件夹菜单共享集合操作。
    * 文件夹入口没有其它操作菜单时，标题栏单独渲染集合菜单。
    */
-  collectionDisplay?: { indexPath: string; notebookPath?: string | null; notebookId?: string | null } | null;
+  collectionDisplay?: {
+    indexPath: string;
+    notebookPath?: string | null;
+    notebookId?: string | null;
+    collectionPath?: string | null;
+    collectionId?: string | null;
+    name?: string | null;
+    supportsNotes?: boolean;
+  } | null;
 }

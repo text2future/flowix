@@ -106,6 +106,41 @@ afterEach(async () => {
 });
 
 describe('block gap input integration', () => {
+  it('types at the terminal gap and undoes paragraph creation with the text', async () => {
+    const editor = createEditor();
+    const before = editor.getJSON();
+    await act(async () => {
+      editor.view.dispatch(editor.state.tr.setSelection(new GapCursor(editor.state.doc.resolve(editor.state.doc.content.size))));
+      type(editor, 'after');
+    });
+    expect(editor.state.doc.lastChild?.textContent).toBe('after');
+    expect(editor.state.selection).toBeInstanceOf(TextSelection);
+    await act(async () => { editor.commands.undo(); });
+    expect(editor.getJSON()).toEqual(before);
+  });
+
+  it('opens slash commands at the terminal gap', async () => {
+    const editor = createEditor();
+    await act(async () => {
+      editor.view.dispatch(editor.state.tr.setSelection(new GapCursor(editor.state.doc.resolve(editor.state.doc.content.size))));
+      type(editor, '/');
+    });
+    expect(isSlashMenuOpen(editor.view)).toBe(true);
+    expect(editor.state.doc.lastChild?.textContent).toBe('/');
+  });
+
+  it('creates the IME text context at the terminal gap only on composition input', () => {
+    const editor = createEditor();
+    editor.view.dispatch(editor.state.tr.setSelection(new GapCursor(editor.state.doc.resolve(editor.state.doc.content.size))));
+    expect(editor.state.doc.childCount).toBe(2);
+    editor.view.dom.dispatchEvent(new InputEvent('beforeinput', {
+      bubbles: true, cancelable: true, inputType: 'insertCompositionText', data: '中',
+    }));
+    expect(editor.state.doc.childCount).toBe(3);
+    expect(editor.state.doc.lastChild?.type.name).toBe('paragraph');
+    expect(editor.state.selection).toBeInstanceOf(TextSelection);
+  });
+
   it('opens the real slash menu when slash is the first input at a gap', async () => {
     const editor = createEditor();
     await act(async () => { selectGap(editor); type(editor, '/'); });
@@ -181,7 +216,7 @@ describe('block gap input integration', () => {
     selectGap(editor);
     const file = new File(['image'], 'screenshot.png', { type: 'image/png' });
     const event = paste(editor, '', [file]);
-    expect(handleFileUpload).toHaveBeenCalledWith(editor.view, [file], 1, undefined, undefined);
+    expect(handleFileUpload).toHaveBeenCalledWith(editor.view, [file], expect.objectContaining({ position: 1 }));
     expect(editor.state.selection).toBeInstanceOf(GapCursor);
     expect(editor.state.doc.childCount).toBe(2);
     expect(event.defaultPrevented).toBe(true);

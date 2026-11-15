@@ -31,6 +31,7 @@ const EXPECTED_EXTENSION_ORDER = [
   'videoEmbed',
   'tableReference',
   'mediaLibraryReference',
+  'workDocumentsReference',
   'highlight',
   'tablePlugin',
   'taskList',
@@ -42,8 +43,10 @@ const EXPECTED_EXTENSION_ORDER = [
   'markdownPaste',
   'frontmatter',
   'noteReference',
+  'noteMentionContext',
   'suggestion-@',
   'suggestion-[[',
+  'suggestion-【【',
   'suggestion-#',
   'blockGapCursor',
   'editorFirstBlockMark',
@@ -61,8 +64,6 @@ const EXPECTED_EXTENSION_ORDER = [
 
 function registryNames(): string[] {
   return createMarkdownEditorExtensions({
-    getOwnerPath: () => undefined,
-    getAttachmentNotebookId: () => undefined,
     workspaceHost: 'column-1',
     getPlaceholder: () => '',
   }).map((extension) => extension.name);

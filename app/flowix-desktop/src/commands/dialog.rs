@@ -14,6 +14,7 @@ use crate::app::state::AppState;
 mod attachment_fingerprint;
 mod attachments;
 mod base64_input;
+pub(super) mod external_file_images;
 mod upload_quota;
 pub(crate) mod upload_sessions;
 
@@ -55,8 +56,8 @@ fn discover_obsidian_vaults() -> Result<Vec<ObsidianVaultRecord>, String> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(_) => return Err("OBSIDIAN_CONFIG_READ_FAILED".to_string()),
     };
-    let config: serde_json::Value = serde_json::from_str(&contents)
-        .map_err(|_| "OBSIDIAN_CONFIG_INVALID".to_string())?;
+    let config: serde_json::Value =
+        serde_json::from_str(&contents).map_err(|_| "OBSIDIAN_CONFIG_INVALID".to_string())?;
     let Some(vaults) = config.get("vaults").and_then(serde_json::Value::as_object) else {
         return Ok(Vec::new());
     };
@@ -341,6 +342,7 @@ pub async fn save_notebook_asset(
     source_path: String,
     notebook_id: Option<String>,
     note_path: Option<String>,
+    repository_path: Option<String>,
     deduplicate: Option<bool>,
     reuse_notebook_file: Option<bool>,
     reuse_existing_attachment: Option<bool>,
@@ -371,10 +373,14 @@ pub async fn save_notebook_asset(
         let (owner, _) =
             attachments::resolve_note_owner(&store, notebook_id.as_deref(), note_path.as_deref())
                 .map_err(|error| error.to_string())?;
-        attachments::notebook_root(&store, Some(&owner)).map_err(|error| error.to_string())?
+        match repository_path.as_deref() {
+            Some(path) => attachments::repository_root(&store, &owner, path),
+            None => attachments::notebook_root(&store, Some(&owner)),
+        }
+        .map_err(|error| error.to_string())?
     };
-    // Notebook-local assets are already durable workspace files. Return their
-    // canonical path instead of making an attachment copy.
+    // Reuse only files inside the destination root. Files outside a repository
+    // go into its attachments/ even if they belong to the associated notebook.
     if reuse_notebook_file.unwrap_or(false) && source.starts_with(&root) {
         return Ok(Some(attachments::SavedNotebookAsset {
             path: source.to_string_lossy().into_owned(),
@@ -391,16 +397,33 @@ pub async fn save_notebook_asset(
         move || -> Result<Option<attachments::SavedNotebookAsset>, String> {
             let _permit = permit;
             let store = read_lock(&memo_file, "memo_file");
-            let saved = attachments::save_for_owner_in_directory(
-                &store,
-                notebook_id.as_deref(),
-                note_path.as_deref(),
-                &name,
-                &mut reader,
-                deduplicate,
-                target_directory.as_deref(),
-                reuse_existing_attachment.unwrap_or(true),
-            )
+            let saved = if let Some(repository_path) = repository_path.as_deref() {
+                let (owner, _) = attachments::resolve_note_owner(
+                    &store,
+                    notebook_id.as_deref(),
+                    note_path.as_deref(),
+                )
+                .map_err(|error| error.to_string())?;
+                attachments::save_for_repository(
+                    &store,
+                    &owner,
+                    repository_path,
+                    &name,
+                    &mut reader,
+                    deduplicate,
+                )
+            } else {
+                attachments::save_for_owner_in_directory(
+                    &store,
+                    notebook_id.as_deref(),
+                    note_path.as_deref(),
+                    &name,
+                    &mut reader,
+                    deduplicate,
+                    target_directory.as_deref(),
+                    reuse_existing_attachment.unwrap_or(true),
+                )
+            }
             .map_err(|error| error.to_string())?;
             Ok(Some(saved))
         },
@@ -410,17 +433,32 @@ pub async fn save_notebook_asset(
 }
 
 #[tauri::command]
+pub fn retain_external_file_reference(
+    window: tauri::WebviewWindow,
+    source_path: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let source = dunce::canonicalize(source_path).map_err(|error| error.to_string())?;
+    if !source.is_file()
+        || !super::helpers::can_access_document_path(&source, window.label(), &state)
+        || super::helpers::is_internal_notebook_path(&source, &state)
+    {
+        return Err("Referenced file is not authorized".to_string());
+    }
+    state.security_bookmarks.record_file(&source).map_err(|error| error.to_string())?;
+    state.document_access.retain_file_reference(&source)
+        .map(|path| path.to_string_lossy().into_owned())
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub async fn copy_attachment_file(
     window: tauri::WebviewWindow,
     source_path: String,
     target_path: String,
     state: State<'_, AppState>,
 ) -> Result<bool, String> {
-    let source = attachments::authorized_attachment(
-        &read_lock(&state.memo_file, "memo_file"),
-        Path::new(&source_path),
-    )
-    .map_err(|error| error.to_string())?;
+    let source = accessible_attachment_source(&source_path, window.label(), &state)?;
     let source = source.as_path();
 
     let mut reader = fs::File::open(source).map_err(|error| error.to_string())?;
@@ -438,20 +476,36 @@ pub async fn copy_attachment_file(
 
 #[tauri::command]
 pub async fn open_attachment_file(
+    window: tauri::WebviewWindow,
     app: tauri::AppHandle,
     source_path: String,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let source = attachments::authorized_attachment(
-        &read_lock(&state.memo_file, "memo_file"),
-        Path::new(&source_path),
-    )
-    .map_err(|error| error.to_string())?;
+    let source = accessible_attachment_source(&source_path, window.label(), &state)?;
     let source = source.as_path();
 
     app.opener()
         .open_path(source.display().to_string(), None::<String>)
         .map_err(|e| e.to_string())
+}
+
+fn accessible_attachment_source(
+    source_path: &str,
+    window_label: &str,
+    state: &State<'_, AppState>,
+) -> Result<std::path::PathBuf, String> {
+    let store = read_lock(&state.memo_file, "memo_file");
+    if let Ok(path) = attachments::authorized_attachment(&store, Path::new(source_path)) {
+        return Ok(path);
+    }
+    let source = dunce::canonicalize(source_path).map_err(|error| error.to_string())?;
+    if !source.is_file()
+        || !super::helpers::can_access_document_path(&source, window_label, state)
+        || super::helpers::is_internal_notebook_path(&source, state)
+    {
+        return Err("Attachment source is not authorized".to_string());
+    }
+    Ok(source)
 }
 
 // ==================== IPC: 瀵煎嚭 ====================

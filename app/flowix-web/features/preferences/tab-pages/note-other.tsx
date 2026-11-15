@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 import { canonicalDirectoryPath } from '@/lib/path';
 import { Select, SelectTrigger, SelectContent, SelectItem } from '@shared/ui/select';
 import { Popover, PopoverTrigger, PopoverContent } from '@shared/ui/popover';
-import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
+import { PopupScrollArea } from '@shared/ui/popup-scroll-area';
 import { FieldRow, SectionHeader } from '@features/preferences/sections/primitives';
 import { useUserSettingsStore } from '@features/preferences/store/user-settings-store';
 import { ResourceFolderIcon } from '@features/surface/public/shell-api';
@@ -255,9 +255,9 @@ export function NoteOtherPreferencesTab() {
                 className="max-h-[min(60vh,280px)] w-[260px] max-w-[calc(100vw-16px)] overflow-hidden rounded-xl p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]"
               >
                 <div className="mention-note-header">{t('preferences.noteOther.createLocation.pickerTitle')}</div>
-                <OverlayScrollbar
+                <PopupScrollArea
                   className="mention-note-items-frame max-h-[calc(min(60vh,280px)_-_36px)]"
-                  scrollerClassName="mention-note-items max-h-[calc(min(60vh,280px)_-_36px)] overflow-y-auto overflow-x-hidden"
+                  scrollerClassName="mention-note-items max-h-[calc(min(60vh,280px)_-_36px)] "
                 >
                   {folderOptionsLoading
                     ? <p className="px-2 py-2 text-xs text-[var(--muted-foreground)]">{t('preferences.general.loading')}</p>
@@ -319,7 +319,7 @@ export function NoteOtherPreferencesTab() {
                         })}
                       </div>
                     )}
-                </OverlayScrollbar>
+                </PopupScrollArea>
               </PopoverContent>
             </Popover>
           </FieldRow>

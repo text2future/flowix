@@ -5,6 +5,8 @@ import type { Editor, JSONContent } from '@tiptap/core';
 import { closeHistory } from '@tiptap/pm/history';
 import { mergeFrontmatterYaml } from '@features/document/properties/frontmatter-model';
 import type { ManagedPasteRule, PasteContext, PasteRuleResult } from '@features/editor/extensions/paste-rules/types';
+import { createAttachmentUploadFromPaths } from '@features/editor/extensions/attachment-link/upload/storage';
+import { runTrackedUpload } from '@features/editor/extensions/attachment-link/upload/pending';
 import { handleFileUpload } from '@features/editor/extensions/attachment-link/upload/plugin';
 import { filterFilesByMimeTypes } from '@features/editor/extensions/attachment-link/upload/file-source';
 import { localLinkReference } from '@/lib/local-link-reference';
@@ -138,9 +140,11 @@ export function createManagedPasteRules(options: {
       kind: 'files',
       priority: 1000,
       match: ({ files }) => filterFilesByMimeTypes(files, options.allowedMimeTypes).length > 0,
-      run: ({ view, files, ownerPath }) => {
+      run: ({ view, files, ownerPath, notebookId, repositoryPath, documentPath, externalFileCache }) => {
         const filteredFiles = filterFilesByMimeTypes(files, options.allowedMimeTypes);
-        void handleFileUpload(view, filteredFiles, view.state.selection.from, undefined, ownerPath);
+        void handleFileUpload(view, filteredFiles, {
+          position: view.state.selection.from, ownerPath, notebookId, repositoryPath, documentPath, externalFileCache,
+        });
         return 'handled';
       },
     },
@@ -151,10 +155,17 @@ export function createManagedPasteRules(options: {
       match: ({ text, files, html, editor, linkContext }) => files.length === 0
         && isSingleAddressHtml(html, text) && !editor.isActive('codeBlock') && !editor.isActive('code')
         && !!editor.schema.marks.link && !!linkContext && !!text.trim(),
-      run: ({ text, editor, linkContext }) => {
+      run: ({ text, editor, view, linkContext, externalFileCache, documentPath }) => {
         const reference = linkContext && localLinkReference(text, linkContext);
         if (!reference) return 'continue';
         if (isImageFilePath(reference.path) && editor.schema.nodes.image) {
+          if (externalFileCache) {
+            void runTrackedUpload(view, async (signal) =>
+              (await createAttachmentUploadFromPaths([reference.path], {
+                externalFileCache: true, documentPath, signal,
+              })).assets);
+            return 'handled';
+          }
           return insertPastedContent({ type: 'image', attrs: { src: reference.href, alt: reference.label } }, editor)
             ? 'handled' : 'continue';
         }

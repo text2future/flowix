@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NotebookDocumentCreateDialog, type NotebookDocumentCreateRequest } from './notebook-document-create-dialog';
 import { createTableDocumentFile } from '@features/multidimensional-table/public/create-api';
 import { createMediaLibraryFile } from '@features/media-library/model';
-import { createWorkDocumentsCollectionFile } from '@features/work-documents/model';
+import { createWorkDocumentsCollectionFile } from '@features/collection/public/work-documents-model-api';
 import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
 import { toast } from '@/lib/toast';
 
@@ -13,7 +13,7 @@ vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }));
 vi.mock('@/lib/toast', () => ({ toast: { error: vi.fn() } }));
 vi.mock('@features/multidimensional-table/public/create-api', () => ({ createTableDocumentFile: vi.fn() }));
 vi.mock('@features/media-library/model', () => ({ createMediaLibraryFile: vi.fn() }));
-vi.mock('@features/work-documents/model', () => ({ createWorkDocumentsCollectionFile: vi.fn() }));
+vi.mock('@features/collection/public/work-documents-model-api', () => ({ createWorkDocumentsCollectionFile: vi.fn() }));
 vi.mock('@features/workspace/public/open-surface-api', () => ({ openWorkspaceSurface: vi.fn() }));
 vi.mock('@shared/ui/dialog', () => {
   const Surface = ({ children }: { children: ReactNode }) => <div>{children}</div>;

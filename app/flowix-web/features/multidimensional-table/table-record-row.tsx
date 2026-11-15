@@ -413,11 +413,11 @@ export const TableRecordRow = memo(function TableRecordRow({
                     ? <button type="button" disabled={saving} className="multidimensional-table__primary-title !py-1" title={displayTitleFromFilename(note.relativePath)}>
                       {isRuleLinked && !editingPrimary && <LightningIcon className="multidimensional-table__rule-link-icon" aria-hidden="true" />}
                       <ContentIcon content={{ kind: 'note' }} className="multidimensional-table__note-icon" />
-                      <span>{displayTitleFromFilename(note.relativePath)}</span>
+                      <span className="font-semibold">{displayTitleFromFilename(note.relativePath)}</span>
                     </button>
                     : <button type="button" disabled={saving} aria-label="创建笔记" className="multidimensional-table__primary-title multidimensional-table__primary-title--placeholder !py-1" />}
                 </PopoverTrigger>
-                <PopoverContent align="start" side="bottom" sideOffset={4} fitViewport matchAnchorWidth={1.02} matchAnchorHeight={1.08} className="multidimensional-table__cell-editor-popover max-w-[calc(100vw-1rem)] rounded-lg px-2 py-0 shadow-[0_0px_24px_-3px_rgb(0_0_0_/_0.12)]">
+                <PopoverContent scrollable={false} align="start" side="bottom" sideOffset={4} fitViewport matchAnchorWidth={1.02} matchAnchorHeight={1.08} className="multidimensional-table__cell-editor-popover max-w-[calc(100vw-1rem)] rounded-lg px-2 py-0 shadow-[0_0px_24px_-3px_rgb(0_0_0_/_0.12)]">
                   <NoteCreatePicker
                     value={primaryTitleDraft}
                     onChange={setPrimaryTitleDraft}
@@ -445,15 +445,14 @@ export const TableRecordRow = memo(function TableRecordRow({
             </>;
           })()
             : field.type === 'Image' ? (() => {
-              const path = imagePaths(value)[0];
-              return <ImageValueInput
-                path={path}
-                src={path ? imageUrls[`${record.id}:${field.id}:${path}`] : null}
-                disabled={cellDisabled}
-                uploading={uploadingImageFieldId === field.id}
-                emptyLabel="Upload"
-                onSelect={() => void chooseImage()}
-              />;
+              const paths = imagePaths(value);
+              return <div className="flex items-center gap-1 overflow-x-auto">
+                {paths.map((path, index) => <span key={`${path}-${index}`} className="group relative h-8 w-8 shrink-0">
+                  <img src={imageUrls[`${record.id}:${field.id}:${path}`] ?? undefined} title={path} alt="" className="h-8 w-8 rounded-md object-cover" />
+                  {!cellDisabled && <button type="button" title="移除图片" aria-label={`移除图片 ${index + 1}`} onClick={() => onUpdateCell(record, note, field, paths.filter((_, i) => i !== index))} className="absolute right-0 top-0 rounded bg-black/70 px-1 text-xs text-white opacity-0 group-hover:opacity-100 focus:opacity-100">×</button>}
+                </span>)}
+                <ImageValueInput disabled={cellDisabled} uploading={uploadingImageFieldId === field.id} emptyLabel={paths.length ? '+' : 'Upload'} onSelect={() => void chooseImage()} />
+              </div>;
             })()
               : field.type === 'Color' ? <ColorValueInput
                 value={Array.isArray(value) ? value.map(String).join(', ') : typeof value === 'string' ? value : ''}
@@ -565,7 +564,7 @@ export const TableRecordRow = memo(function TableRecordRow({
     </td>
     </tr>
     </ContextMenuTrigger>
-    <ContextMenuContent className="min-w-[160px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+    <ContextMenuContent scrollerClassName="space-y-0.5" className="min-w-[160px] rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
       <ContextMenuItem
         disabled={saving || !note}
         onSelect={() => { if (note) onOpenNote(note); }}

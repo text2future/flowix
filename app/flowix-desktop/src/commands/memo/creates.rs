@@ -23,6 +23,166 @@ use crate::watcher::runtime::{mark_self_create_dir_for, mark_self_write_for};
 use super::helpers::*;
 use super::*;
 
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HtmlCreateReceipt {
+    fingerprint: String,
+    relative_path: String,
+    complete: bool,
+}
+
+/// Create a page-submitted note with a durable request receipt. A pending
+/// receipt with no matching file is deliberately not retried automatically:
+/// the result could have been moved or deleted after a process interruption.
+#[tauri::command]
+pub async fn create_html_note(
+    notebook_id: String,
+    page_path: String,
+    parent_relative_path: String,
+    content: String,
+    client_request_id: String,
+    images: Option<Vec<String>>,
+    window: tauri::WebviewWindow,
+    app: AppHandle,
+) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+    if content.trim().is_empty() || content.len() > 64 * 1024
+        || client_request_id.len() < 16 || client_request_id.len() > 128
+        || !client_request_id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') {
+        return Err("INVALID_INPUT".into());
+    }
+    let images = images.unwrap_or_default();
+    if images.len() > 20 { return Err("INVALID_IMAGES".into()); }
+    let origin_window_label = window.label().to_string();
+    crate::document_io::run("create_html_note", move || {
+        use fs2::FileExt;
+        use std::io::Write;
+        use std::path::Component;
+        let state = app.state::<AppState>();
+        let memo = read_lock(&state.memo_file, "memo_file");
+        let notebook = memo.get_notebook_config_by_id(&notebook_id).ok_or("NOTEBOOK_NOT_FOUND")?;
+        let root = fs::canonicalize(&notebook.path).map_err(|e| e.to_string())?;
+        let page = fs::canonicalize(&page_path).map_err(|e| e.to_string())?;
+        if !page.starts_with(&root) || !page.is_file() { return Err("INVALID_PAGE".to_string()); }
+        let relative = Path::new(&parent_relative_path);
+        if !parent_relative_path.is_empty() && (parent_relative_path.len() > 4096 || parent_relative_path.contains('\\')
+            || relative.components().any(|part| !matches!(part, Component::Normal(_)))
+            || relative.components().next().is_some_and(|part| part.as_os_str() == ".flowix")) {
+            return Err("INVALID_FOLDER".to_string());
+        }
+        let mut folder = root.clone();
+        for part in relative.components() {
+            folder.push(part.as_os_str());
+            let meta = fs::symlink_metadata(&folder).map_err(|e| e.to_string())?;
+            if !meta.is_dir() || meta.file_type().is_symlink() { return Err("INVALID_FOLDER".to_string()); }
+        }
+        if !folder.starts_with(&root) || flowix_core::memo_file::FileManagementPolicy::from_notebook_root(&root).is_index_hidden_at(&root, relative) {
+            return Err("INVALID_FOLDER".to_string());
+        }
+        let mut unique = std::collections::HashSet::new();
+        for image in &images {
+            let path = Path::new(image);
+            if image.len() > 4096 || image.contains('\\') || !image.starts_with("attachments/")
+                || path.components().any(|part| !matches!(part, Component::Normal(_)))
+                || !unique.insert(image) { return Err("INVALID_IMAGES".into()); }
+            let extension = path.extension().and_then(|x| x.to_str()).unwrap_or("").to_ascii_lowercase();
+            if !matches!(extension.as_str(), "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "ico" | "avif" | "tif" | "tiff" | "heic" | "heif") { return Err("INVALID_IMAGES".into()); }
+            let target = fs::canonicalize(root.join(path)).map_err(|_| "INVALID_IMAGES")?;
+            let attachments = fs::canonicalize(root.join("attachments")).map_err(|_| "INVALID_IMAGES")?;
+            if !attachments.starts_with(&root) || !target.starts_with(&attachments) || !target.is_file() { return Err("INVALID_IMAGES".into()); }
+        }
+        let final_content = if images.is_empty() { content.clone() } else {
+            use serde_yaml::{Mapping, Value};
+            let normalized = content.replace("\r\n", "\n");
+            let (mut frontmatter, body) = if let Some(rest) = normalized.strip_prefix("---\n") {
+                let end = rest.find("\n---\n").ok_or("INVALID_FRONTMATTER")?;
+                let parsed: Value = serde_yaml::from_str(&rest[..end]).map_err(|_| "INVALID_FRONTMATTER")?;
+                let map = match parsed { Value::Mapping(map) => map, Value::Null => Mapping::new(), _ => return Err("INVALID_FRONTMATTER".into()) };
+                (map, &rest[end + 5..])
+            } else { (Mapping::new(), normalized.as_str()) };
+            let key = Value::String("images".into());
+            let mut all = match frontmatter.remove(&key) {
+                None | Some(Value::Null) => Vec::new(),
+                Some(Value::String(value)) => vec![Value::String(value)],
+                Some(Value::Sequence(values)) if values.iter().all(|value| value.is_string()) => values,
+                _ => return Err("INVALID_IMAGES".into()),
+            };
+            for image in &images { let value = Value::String(image.clone()); if !all.contains(&value) { all.push(value); } }
+            frontmatter.insert(key, Value::Sequence(all));
+            let types_key = Value::String("flowix_property_types".into());
+            let mut types = match frontmatter.remove(&types_key) { None | Some(Value::Null) => Mapping::new(), Some(Value::Mapping(map)) => map, _ => return Err("INVALID_FRONTMATTER".into()) };
+            types.insert(Value::String("images".into()), Value::String("Image".into()));
+            frontmatter.insert(types_key, Value::Mapping(types));
+            let yaml = serde_yaml::to_string(&frontmatter).map_err(|e| e.to_string())?;
+            format!("---\n{}---\n{}", yaml, body)
+        };
+        let hash = |bytes: &[u8]| format!("{:x}", Sha256::digest(bytes));
+        let key = hash(format!("{}\0{}\0{}", notebook_id, page.display(), client_request_id).as_bytes());
+        let fingerprint = if images.is_empty() { hash(format!("{}\0{}", parent_relative_path, content).as_bytes()) } else { hash(format!("{}\0{}\0{}", parent_relative_path, content, serde_json::to_string(&images).map_err(|e| e.to_string())?).as_bytes()) };
+        let receipt_dir = dirs::home_dir().ok_or("HOME_UNAVAILABLE")?.join(".flowix").join("html-create-receipts");
+        fs::create_dir_all(&receipt_dir).map_err(|e| e.to_string())?;
+        let lock_path = receipt_dir.join(format!("{key}.lock"));
+        let lock = fs::OpenOptions::new().read(true).write(true).create(true).open(lock_path).map_err(|e| e.to_string())?;
+        lock.lock_exclusive().map_err(|e| e.to_string())?;
+        let receipt_path = receipt_dir.join(format!("{key}.json"));
+        let existing = match fs::read(&receipt_path) {
+            Ok(data) => Some(serde_json::from_slice::<HtmlCreateReceipt>(&data).map_err(|e| e.to_string())?),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => return Err(e.to_string()),
+        };
+        if let Some(receipt) = existing.as_ref() {
+            if receipt.fingerprint != fingerprint { return Err("REQUEST_ID_CONFLICT".into()); }
+            if receipt.complete { return Ok(receipt.relative_path.clone()); }
+            let path = root.join(&receipt.relative_path);
+            let metadata = fs::symlink_metadata(&path).map_err(|_| "CREATE_RESULT_UNKNOWN".to_string())?;
+            if !metadata.is_file() || metadata.file_type().is_symlink()
+                || fs::read(&path).map_err(|e| e.to_string())? != final_content.as_bytes() {
+                return Err("CREATE_RESULT_UNKNOWN".to_string());
+            }
+        }
+        // Serialize HTML submissions to the same folder while choosing a free
+        // readable filename and recording it in the request receipt.
+        let folder_key = hash(format!("{}\0{}", notebook_id, parent_relative_path).as_bytes());
+        let folder_lock = fs::OpenOptions::new().read(true).write(true).create(true)
+            .open(receipt_dir.join(format!("folder-{folder_key}.lock"))).map_err(|e| e.to_string())?;
+        folder_lock.lock_exclusive().map_err(|e| e.to_string())?;
+        let relative_path = existing.as_ref().map(|r| r.relative_path.clone()).unwrap_or_else(|| {
+            let first_line: String = content.lines().map(str::trim).find(|line| !line.is_empty())
+                .unwrap_or("记录").chars().take(100).map(|ch| if ch.is_control() { ' ' } else { ch }).collect();
+            let sanitized = MemoFile::sanitize_memo_filename_component(&first_line);
+            // A single filename component is commonly limited to 255 UTF-8
+            // bytes. Leave space for the extension and any conflict suffix.
+            let mut base = String::new();
+            for ch in sanitized.chars() {
+                if base.len() + ch.len_utf8() > 220 { break; }
+                base.push(ch);
+            }
+            let base = base.trim_matches(|ch: char| ch == ' ' || ch == '.');
+            let base = if base.is_empty() { "记录" } else { base };
+            let windows_stem = base.split('.').next().unwrap_or("").to_ascii_uppercase();
+            let reserved = matches!(windows_stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+                || (windows_stem.len() == 4 && (windows_stem.starts_with("COM") || windows_stem.starts_with("LPT"))
+                    && matches!(windows_stem.as_bytes()[3], b'1'..=b'9'));
+            let safe_base = if reserved { format!("{base}_") } else { base.to_string() };
+            let filename = flowix_core::memo_file::resolve_filename_conflict(&folder, &safe_base, &[]);
+            if parent_relative_path.is_empty() { filename } else { format!("{parent_relative_path}/{filename}") }
+        });
+        if existing.is_none() {
+            let receipt = HtmlCreateReceipt { fingerprint: fingerprint.clone(), relative_path: relative_path.clone(), complete: false };
+            let bytes = serde_json::to_vec(&receipt).map_err(|e| e.to_string())?;
+            let mut file = fs::OpenOptions::new().write(true).create_new(true).open(&receipt_path).map_err(|e| e.to_string())?;
+            file.write_all(&bytes).and_then(|_| file.sync_all()).map_err(|e| e.to_string())?;
+            memo.create_file_for_notebook(&notebook_id, &root.join(&relative_path), final_content.as_bytes()).map_err(|e| e.to_string())?;
+        }
+        memo.refresh_note_path_after_write(&notebook_id, &relative_path);
+        mark_self_write_for(&app, &root.join(&relative_path));
+        let receipt = HtmlCreateReceipt { fingerprint, relative_path: relative_path.clone(), complete: true };
+        flowix_core::memo_file::atomic_write_bytes(&receipt_path, &serde_json::to_vec(&receipt).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+        crate::events::path_change::NotebookPathCreated::from_window(notebook_id, relative_path.clone(), origin_window_label).emit(&app);
+        Ok(relative_path)
+    }).await.map_err(|e| e.to_string())?
+}
+
 /// Stable path-document creation error.
 #[derive(Debug, serde::Serialize)]
 pub struct MemoCreateError {
@@ -38,7 +198,7 @@ pub struct CreatedPathDocumentResult {
     path: String,
     initial_content: String,
     entry: flowix_core::memo_file::NoteEntry,
-    notebook_change: super::super::path_change::NotebookPathCreated,
+    notebook_change: crate::events::path_change::NotebookPathCreated,
 }
 
 impl CreatedPathDocumentResult {
@@ -113,7 +273,7 @@ pub async fn add_path_document(
             &body,
         )?;
         mark_self_write_for(&app, &created.path);
-        let notebook_change = super::super::path_change::NotebookPathCreated::from_window(
+        let notebook_change = crate::events::path_change::NotebookPathCreated::from_window(
             created.notebook.id.clone(),
             created.entry.relative_path.clone(),
             origin_window_label,
@@ -298,7 +458,7 @@ pub fn create_path_from_template(
         .create(&notebook_id, parent.as_deref(), &title, body)
         .map_err(|e| e.to_string())?;
     mark_self_write_for(&app, &created.path);
-    let notebook_change = super::super::path_change::NotebookPathCreated::from_window(
+    let notebook_change = crate::events::path_change::NotebookPathCreated::from_window(
         created.notebook.id.clone(),
         created.entry.relative_path.clone(),
         window.label().to_string(),
@@ -339,7 +499,7 @@ pub fn import_external_document_by_path(
         .create(&notebook_id, parent.as_deref(), title, &content)
         .map_err(|error| error.to_string())?;
     mark_self_write_for(&app, &created.path);
-    let notebook_change = super::super::path_change::NotebookPathCreated::from_window(
+    let notebook_change = crate::events::path_change::NotebookPathCreated::from_window(
         created.notebook.id.clone(),
         created.entry.relative_path.clone(),
         window.label().to_string(),
@@ -359,7 +519,7 @@ pub fn import_external_document_by_path(
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MoveMemoResult {
-    pub notebook_change: super::super::path_change::NotebookPathMove,
+    pub notebook_change: crate::events::path_change::NotebookPathMove,
     pub path: String,
 }
 
@@ -377,7 +537,7 @@ pub fn move_memo_to_directory(
         return Err("absolute document path required".into());
     }
     let _watch_move =
-        crate::commands::external_document_watch::begin_path_move(&app, requested_path);
+        crate::external_watch::begin_path_move(&app, requested_path);
     let (moved, old_relative, old_path) = {
         let memo_file = read_lock(&state.memo_file, "memo_file");
         let (source_notebook_id, relative_path) =
@@ -399,10 +559,10 @@ pub fn move_memo_to_directory(
         mark_self_write_for(&app, &moved.path);
         (moved, relative_path, original.path)
     };
-    crate::commands::external_document_watch::rebase_path(&app, requested_path, &moved.path);
+    crate::external_watch::rebase_path(&app, requested_path, &moved.path);
     {
         let memo_file = read_lock(&state.memo_file, "memo_file");
-        crate::commands::document_list::rebase_collection_paths(
+        flowix_core::collection_store::rebase_collection_paths(
             &memo_file,
             &notebook_id,
             &old_relative,
@@ -424,7 +584,7 @@ pub fn move_memo_to_directory(
             "note was moved but agent note references could not be rebased: {error}"
         );
     }
-    let notebook_change = super::super::path_change::NotebookPathMove::new(
+    let notebook_change = crate::events::path_change::NotebookPathMove::new(
         notebook_id.clone(),
         old_relative,
         moved.entry.relative_path.clone(),

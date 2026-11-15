@@ -205,7 +205,8 @@ try {
   frontmatter.className = 'frontmatter-property-node';
   frontmatter.dataset.visible = 'false';
   const leadingCard = document.createElement('section');
-  leadingCard.className = 'agent-thread-card agent-conversation-surface';
+  // The real editor's first-block extension supplies this class.
+  leadingCard.className = 'agent-thread-card agent-conversation-surface editor-leading-block';
   leadingCard.contentEditable = 'false';
   const leadingContainer = document.createElement('div');
   leadingContainer.className = 'agent-thread-card__container';
@@ -235,7 +236,7 @@ try {
   const codeGapCursor = document.createElement('div');
   codeGapCursor.className = 'ProseMirror-gapcursor';
   const codeWrapper = document.createElement('div');
-  codeWrapper.className = 'code-block-wrapper';
+  codeWrapper.className = 'code-block-wrapper editor-first-block editor-leading-block';
   const codeContent = document.createElement('pre');
   codeContent.className = 'code-block-content';
   codeWrapper.append(codeContent);

@@ -8,7 +8,7 @@ export interface CollectionReferenceInsertRange {
 }
 
 export type CollectionReferencePickerAnchor =
-  | { kind: 'slash'; rect: Pick<DOMRect, 'left' | 'top' | 'right' | 'bottom'> }
+  | { kind: 'editor-column'; element: HTMLElement }
   | { kind: 'button'; element: HTMLElement; align?: 'left' | 'right' };
 
 export interface CollectionReferenceCandidate {
@@ -20,7 +20,7 @@ export interface CollectionReferenceCandidate {
   name: string;
 }
 
-type PickerKind = 'table' | 'media-library';
+type PickerKind = 'table' | 'media-library' | 'work-documents';
 type PickerContent = (generation: number, onClose: () => void) => ReactNode;
 
 let pickerRoot: Root | null = null;
@@ -68,18 +68,50 @@ function updatePickerPosition(editor: Editor, position: number, anchor: Collecti
   const host = pickerHost;
   if (!host || editor.isDestroyed) return;
   try {
-    const coords = editor.view.coordsAtPos(position);
-    const rect = anchor.kind === 'button' && anchor.element.isConnected
-      ? anchor.element.getBoundingClientRect()
-      : anchor.kind === 'slash' ? anchor.rect : coords;
-    const width = Math.min(PICKER_WIDTH, window.innerWidth - VIEWPORT_PADDING * 2);
-    const maxHeight = Math.max(0, Math.min(320, window.innerHeight - VIEWPORT_PADDING * 2));
+    const anchorElement = anchor.element.isConnected ? anchor.element : null;
+    const rect = anchorElement?.getBoundingClientRect()
+      ?? editor.view.coordsAtPos(position);
+    const isEditorColumn = anchor.kind === 'editor-column' && anchorElement !== null;
+    const columnInset = isEditorColumn ? VIEWPORT_PADDING * 2 : 0;
+    const width = Math.max(0, Math.min(
+      PICKER_WIDTH,
+      window.innerWidth - VIEWPORT_PADDING * 2,
+      isEditorColumn ? rect.right - rect.left - columnInset * 2 : PICKER_WIDTH,
+    ));
+    const columnTop = isEditorColumn
+      ? Math.max(rect.top + VIEWPORT_PADDING, VIEWPORT_PADDING)
+      : VIEWPORT_PADDING;
+    const columnBottom = isEditorColumn
+      ? Math.min(rect.bottom - VIEWPORT_PADDING, window.innerHeight - VIEWPORT_PADDING)
+      : window.innerHeight - VIEWPORT_PADDING;
+    const viewportMaxHeight = Math.max(0, Math.min(320, columnBottom - columnTop));
+    const picker = host.firstElementChild instanceof HTMLElement ? host.firstElementChild : null;
     host.style.width = `${width}px`;
-    host.style.maxHeight = `${maxHeight}px`;
-    const height = Math.min(host.offsetHeight || maxHeight, maxHeight);
-    const requestedTop = anchor.kind === 'button' ? rect.bottom : rect.top;
-    host.style.top = `${Math.min(Math.max(requestedTop, VIEWPORT_PADDING), Math.max(VIEWPORT_PADDING, window.innerHeight - height - VIEWPORT_PADDING))}px`;
-    const requestedLeft = anchor.kind === 'button' && anchor.align === 'right' ? rect.right - width : rect.left;
+    if (isEditorColumn && picker && picker.style.width !== `${width}px`) {
+      picker.style.width = `${width}px`;
+    }
+    if (picker && picker.style.maxHeight !== `${viewportMaxHeight}px`) {
+      picker.style.maxHeight = `${viewportMaxHeight}px`;
+    }
+    const height = Math.min(picker?.offsetHeight || viewportMaxHeight, viewportMaxHeight);
+
+    let top: number;
+
+    if (isEditorColumn) {
+      host.style.transformOrigin = 'bottom right';
+      top = columnBottom - height;
+    } else {
+      host.style.transformOrigin = anchor.kind === 'button' && anchor.align === 'right' ? 'top right' : 'top left';
+      top = Math.min(
+        Math.max(rect.bottom, VIEWPORT_PADDING),
+        Math.max(VIEWPORT_PADDING, window.innerHeight - height - VIEWPORT_PADDING),
+      );
+    }
+
+    host.style.top = `${top}px`;
+    const requestedLeft = isEditorColumn
+      ? rect.right - width - columnInset
+      : anchor.kind === 'button' && anchor.align === 'right' ? rect.right - width : rect.left;
     host.style.left = `${Math.min(Math.max(requestedLeft, VIEWPORT_PADDING), Math.max(VIEWPORT_PADDING, window.innerWidth - width - VIEWPORT_PADDING))}px`;
   } catch {
     closeCollectionReferencePicker();
@@ -108,15 +140,25 @@ function ReferencePickerFrame({ editor, replaceRange, anchor, onClose, children 
     document.addEventListener('keydown', escape, true);
     window.addEventListener('resize', reposition);
     window.addEventListener('scroll', reposition, true);
+    let repositionFrame = 0;
+    const scheduleReposition = () => {
+      if (repositionFrame) return;
+      repositionFrame = window.requestAnimationFrame(() => {
+        repositionFrame = 0;
+        reposition();
+      });
+    };
     const observer = pickerHost && typeof ResizeObserver !== 'undefined'
-      ? new ResizeObserver(reposition)
+      ? new ResizeObserver(scheduleReposition)
       : null;
     if (observer && pickerHost) observer.observe(pickerHost);
+    if (observer && anchor.kind === 'editor-column') observer.observe(anchor.element);
     return () => {
       document.removeEventListener('mousedown', outside, true);
       document.removeEventListener('keydown', escape, true);
       window.removeEventListener('resize', reposition);
       window.removeEventListener('scroll', reposition, true);
+      if (repositionFrame) window.cancelAnimationFrame(repositionFrame);
       observer?.disconnect();
     };
   }, [anchor, editor, onClose, replaceRange.from]);
@@ -142,10 +184,17 @@ export function openCollectionReferencePicker(
     : null;
   pickerAnchorActions?.setAttribute('data-reference-picker-open', 'true');
   pickerHost = document.createElement('div');
+  pickerHost.className = 'flowix-popover-enter';
   pickerHost.dataset.collectionReferencePicker = kind;
   pickerHost.style.position = 'fixed';
   pickerHost.style.zIndex = '2147483647';
   pickerHost.style.width = `${PICKER_WIDTH}px`;
+  if (anchor.kind === 'editor-column') {
+    pickerHost.style.transformOrigin = 'bottom right';
+    pickerHost.style.setProperty('--flowix-popover-enter-y', '4px');
+  } else {
+    pickerHost.style.transformOrigin = anchor.align === 'right' ? 'top right' : 'top left';
+  }
   document.body.appendChild(pickerHost);
   pickerRoot = createRoot(pickerHost);
   const onClose = () => closeCollectionReferencePicker(generation);

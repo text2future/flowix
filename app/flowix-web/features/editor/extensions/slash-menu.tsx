@@ -28,6 +28,7 @@ import type { AgentTypeKey } from '@/types/agent';
 import { applyListType } from './list-transforms';
 import { openTableReferencePicker } from '@features/multidimensional-table/table-reference-picker';
 import { openMediaLibraryReferencePicker } from '@features/media-library/media-library-reference-picker';
+import { openWorkDocumentsReferencePicker } from '@features/work-documents/public/reference-api';
 import type { TableViewType } from '@features/multidimensional-table/model';
 import { insertTableTemplate } from './table/table-templates';
 
@@ -130,6 +131,7 @@ function filterItems(query: string, availableItems = getAvailableSlashMenuItems(
       item.id,
       labelText,
       item.description,
+      item.descriptionKey ? translate(language, item.descriptionKey) : '',
       ...item.keywords,
     ].join(' ').toLowerCase();
 
@@ -452,6 +454,7 @@ function updatePosition(view: EditorView) {
     Math.max(viewportPadding, window.innerWidth - menuWidth - viewportPadding)
   );
 
+  menuContainer.style.transformOrigin = placeAbove ? 'bottom left' : 'top left';
   menuContainer.style.top = `${top}px`;
   menuContainer.style.left = `${left}px`;
 }
@@ -523,6 +526,7 @@ function openMenu(view: EditorView, editor: Editor, triggerFrom: number, deleteF
   };
 
   menuContainer = document.createElement('div');
+  menuContainer.className = 'flowix-popover-enter';
   menuContainer.style.position = 'fixed';
   menuContainer.style.zIndex = '2147483647';
   menuContainer.style.width = '220px';
@@ -582,7 +586,7 @@ async function createChildNoteReference(editor: Editor): Promise<void> {
 
   try {
     const created = await store.createNote(undefined, notebook.id);
-    invalidateMentionNotes();
+    invalidateMentionNotes(notebook.id);
     editor
       .chain()
       .focus()
@@ -605,20 +609,13 @@ async function createChildNoteReference(editor: Editor): Promise<void> {
 }
 
 function getSlashReferencePickerContext(editor: Editor, blockRange: { from: number; to: number } | null) {
-  const slashMenuRect = menuContainer?.getBoundingClientRect();
-  const cursorCoords = editor.view.coordsAtPos(editor.state.selection.from);
-  const anchor = {
-    kind: 'slash' as const,
-    rect: slashMenuRect ?? {
-      left: cursorCoords.left,
-      right: cursorCoords.left,
-      top: cursorCoords.bottom + 6,
-      bottom: cursorCoords.bottom + 6,
-    },
-  };
   const replaceRange = isBlockStartTrigger(editor)
     ? blockRange ?? undefined
     : prepareSlashBlockTarget(editor);
+  const editorColumn = editor.view.dom.closest<HTMLElement>('[data-workspace-host]')
+    ?? editor.view.dom.closest<HTMLElement>('.markdown-editor')
+    ?? editor.view.dom;
+  const anchor = { kind: 'editor-column' as const, element: editorColumn };
   return { anchor, replaceRange };
 }
 
@@ -655,12 +652,14 @@ function handleSelect(item: SlashMenuItem): void {
   }
 
   const preferredViewType = TABLE_VIEW_TYPE_BY_SLASH_ID[item.id];
-  if (item.id === 'media-library-reference' || preferredViewType) {
+  if (item.id === 'media-library-reference' || item.id === 'work-documents-list' || preferredViewType) {
     const { anchor, replaceRange } = getSlashReferencePickerContext(editor, slashBlockRange);
     closeMenu();
     if (!replaceRange) return;
     if (item.id === 'media-library-reference') {
       openMediaLibraryReferencePicker(editor, replaceRange, anchor);
+    } else if (item.id === 'work-documents-list') {
+      openWorkDocumentsReferencePicker(editor, replaceRange, anchor);
     } else {
       openTableReferencePicker(editor, replaceRange, anchor, preferredViewType);
     }

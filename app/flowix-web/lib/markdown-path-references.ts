@@ -1,7 +1,10 @@
-import { documentFileHref, documentRelativeHref, resolveDocumentRelativeHref } from './document-relative-path';
+import { documentFileHref, documentRelativeHref, encodeAbsoluteDocumentPath, resolveDocumentRelativeHref, wikiDocumentHref } from './document-relative-path';
+import { canonicalPath, notebookForPath } from './path';
+import { formatDocumentPathReference } from './document-resource-context';
+import { resolveWikiDocumentHref, wikiReferenceSpans } from './wiki-reference';
 import { movedPath, type PathMove } from './markdown-path-move';
 
-export interface MarkdownPathLink { href: string; label: string; image: boolean }
+export interface MarkdownPathLink { href: string; label: string; image: boolean; wiki?: boolean }
 
 interface MarkdownNode {
   type: string;
@@ -17,7 +20,15 @@ interface MarkdownNode {
 export async function mapMarkdownLinks(content: string, map: (link: MarkdownPathLink) => MarkdownPathLink): Promise<string> {
   const { fromMarkdown } = await import('mdast-util-from-markdown');
   const edits: Array<{ start: number; end: number; text: string }> = [];
+  const blocked: Array<{ start: number; end: number }> = [];
+  const frontmatter = /^\uFEFF?(?:[ \t]*\r?\n)*---\r?\n[\s\S]*?\r?\n(?:---|\.\.\.)(?:\r?\n|$)/.exec(content);
+  if (frontmatter) blocked.push({ start: 0, end: frontmatter[0].length });
   const visit = (node: MarkdownNode) => {
+    if (['code', 'inlineCode', 'html', 'link', 'image', 'definition'].includes(node.type)) {
+      const start = node.position?.start.offset;
+      const end = node.position?.end.offset;
+      if (start !== undefined && end !== undefined) blocked.push({ start, end });
+    }
     if ((node.type === 'link' || node.type === 'image') && node.url) {
       const start = node.position?.start.offset;
       const end = node.position?.end.offset;
@@ -51,6 +62,15 @@ export async function mapMarkdownLinks(content: string, map: (link: MarkdownPath
     node.children?.forEach(visit);
   };
   visit(fromMarkdown(content));
+  for (const { start, token } of wikiReferenceSpans(content, blocked)) {
+    const updated = map({ href: token.href, label: token.title, image: content[start - 1] === '!', wiki: true });
+    if (updated.wiki === false) {
+      const label = updated.label.replace(/\\/g, '\\\\').replace(/\[/g, '\\[').replace(/\]/g, '\\]');
+      edits.push({ start, end: start + token.raw.length, text: `[${label}](${updated.href})` });
+    } else if (updated.href !== token.href) {
+      edits.push({ start: start + 2, end: start + 2 + token.href.length, text: updated.href });
+    }
+  }
   let result = content;
   for (const edit of edits.sort((left, right) => right.start - left.start)) {
     result = result.slice(0, edit.start) + edit.text + result.slice(edit.end);
@@ -59,17 +79,34 @@ export async function mapMarkdownLinks(content: string, map: (link: MarkdownPath
 }
 
 /** Maintain relative and file-URL destinations for source and target moves. */
-export async function rewriteDocumentPathLinks(content: string, sourceBefore: string, sourceAfter: string, moves: readonly PathMove[]): Promise<string> {
+export async function rewriteDocumentPathLinks(content: string, sourceBefore: string, sourceAfter: string, moves: readonly PathMove[], roots: readonly { id: string; path: string }[] = []): Promise<string> {
   return mapMarkdownLinks(content, link => {
-    const href = link.href;
-    const absolute = /^file:/i.test(href);
-    if (!absolute && !/^\.{1,2}\//.test(href)) return link;
-    const target = resolveDocumentRelativeHref(href, sourceBefore);
+    const href = link.wiki && /^[\\/]{2}/.test(link.href) ? `file:${canonicalPath(link.href)}` : link.href;
+    const absolute = /^(?:file:|\/|[a-z]:[\\/])/i.test(href);
+    if (!absolute && !link.wiki && !/^\.{1,2}[\\/]/.test(href)) return link;
+    const target = link.wiki ? resolveWikiDocumentHref(href, sourceBefore) : resolveDocumentRelativeHref(href, sourceBefore);
     if (!target) return link;
     const path = moves.reduce((value, move) => movedPath(value, move), target.path);
     if (path === target.path && (absolute || sourceBefore === sourceAfter)) return link;
-    const updated = absolute ? documentFileHref({ ...target, path })
-      : documentRelativeHref({ ...target, path }, sourceAfter) ?? documentFileHref({ ...target, path });
+    const destination = { ...target, path };
+    if (link.wiki) {
+      const href = formatDocumentPathReference(destination, sourceAfter, roots);
+      const owner = notebookForPath(sourceAfter, roots);
+      const targetOwner = notebookForPath(path, roots);
+      const sameNotebook = roots.length ? owner && targetOwner?.id === owner.id : /^\.{1,2}\//.test(href);
+      return { ...link, wiki: Boolean(sameNotebook && /\.(md|markdown)$/i.test(path)),
+        href: sameNotebook ? wikiDocumentHref(href) : href };
+
+    }
+    let updated: string;
+    if (!absolute) {
+      updated = documentRelativeHref(destination, sourceAfter) ?? documentFileHref(destination);
+    } else if (/^file:/i.test(href)) {
+      updated = documentFileHref(destination);
+    } else {
+      updated = encodeAbsoluteDocumentPath(path) + (target.search ?? '')
+        + (target.anchor ? `#${encodeURIComponent(target.anchor)}` : '');
+    }
     return { ...link, href: updated };
   });
 }

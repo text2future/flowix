@@ -11,9 +11,7 @@ afterEach(() => {
 function createEditor(content: string): Editor {
   const editor = new Editor({
     extensions: createMarkdownEditorExtensions({
-      getOwnerPath: () => undefined,
-      getAttachmentNotebookId: () => undefined,
-      workspaceHost: 'column-1',
+          workspaceHost: 'column-1',
       getPlaceholder: () => '',
     }),
     content,

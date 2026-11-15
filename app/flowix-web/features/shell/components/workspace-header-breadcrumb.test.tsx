@@ -49,7 +49,7 @@ afterEach(async () => { await act(async () => root.unmount()); node.remove(); pl
 
 const folderTriggers = () => [...node.querySelectorAll<HTMLButtonElement>('[aria-label="collection.openFolder"]')];
 
-it('opens a folder segment as a file tree and hands the picked file back with the root scope', async () => {
+it('opens a folder segment as a file tree and returns the breadcrumb root path', async () => {
   const openFile = vi.fn();
   await act(async () => root.render(<WorkspaceHeaderBreadcrumb items={items} onOpenFile={openFile} />));
 

@@ -2,13 +2,13 @@ import { getWorkspaceAgentRepositories } from "@features/agent/public/workspace-
 import { useNoteStore } from "@features/memo/store/note-store";
 import type { ComposerFolderReference } from "./composer-folder-controller";
 
-/** Read the folders configured for the notebook that owns the current note. */
-export function getCurrentNotebookComposerFolders(): readonly ComposerFolderReference[] {
-  const memoState = useNoteStore.getState();
-  const notebook = memoState.selectedNotebook;
-  if (!notebook) return [];
+/** Read the folders configured for the supplied notebook. */
+export function getCurrentNotebookComposerFolders(
+  notebookId: string | null | undefined = useNoteStore.getState().selectedNotebook?.id,
+): readonly ComposerFolderReference[] {
+  if (!notebookId) return [];
 
-  return getWorkspaceAgentRepositories(notebook.id).map((repository) => ({
+  return getWorkspaceAgentRepositories(notebookId).map((repository) => ({
     path: repository.path,
     name: repository.name,
   }));

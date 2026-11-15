@@ -23,29 +23,36 @@ function file(path: string, name: string): DocTreeItem {
 }
 
 describe('buildLoadedTreeIndex', () => {
-  it('uses loaded children over the root placeholder and fills every table at once', () => {
-    const placeholder = dir('/root/sub', 'sub');
+  it('resolves a root placeholder to the loaded node and still indexes unregistered children', () => {
     const loaded = dir('/root/sub', 'sub', [file('/root/sub/note.md', 'note.md')]);
+    const nodes = new Map<string, DocTreeItem>([['/root/sub', loaded]]);
 
-    const index = buildLoadedTreeIndex({
-      rootChildren: [placeholder],
-      nodes: new Map([[placeholder.fullPath, loaded]]),
-    });
+    const index = buildLoadedTreeIndex({ rootChildren: [dir('/root/sub', 'sub')], nodes });
 
-    expect(index.items.map((item) => item.fullPath)).toEqual(['/root/sub', '/root/sub/note.md']);
-    // 索引与 items 同源，命中同一批节点。
-    expect([...index.itemByPath.keys()]).toEqual(['/root/sub', '/root/sub/note.md']);
     expect(index.itemByPath.get('/root/sub')).toBe(loaded);
+    // 子项没单独登记进 nodes 也要能查到：flatten 是按父节点 children 下钻的，
+    // 这类行渲染得出来，选/删/拖都得按路径找得到它。
+    expect(index.itemByPath.get('/root/sub/note.md')).toBe(loaded.children![0]);
     expect([...index.folderPaths]).toEqual(['/root/sub']);
   });
 
-  it('still indexes nodes that watcher reconcile detached from their parent', () => {
+  it('still reaches root items that have not been reconciled into nodes yet', () => {
+    // 首次读取前后、watcher 重建后的瞬时窗口：根项还不在 nodes 里。
+    const placeholder = dir('/root/filled', 'filled');
+
+    const index = buildLoadedTreeIndex({ rootChildren: [placeholder], nodes: new Map() });
+
+    expect(index.itemByPath.get('/root/filled')).toBe(placeholder);
+    expect(index.folderPaths.has('/root/filled')).toBe(true);
+  });
+
+  it('indexes nodes that watcher reconcile detached from their parent', () => {
     const index = buildLoadedTreeIndex({
       rootChildren: [dir('/root/filled', 'filled')],
       nodes: new Map([['/root/lost.md', file('/root/lost.md', 'lost.md')]]),
     });
 
-    expect(index.items.map((item) => item.fullPath)).toEqual(['/root/filled', '/root/lost.md']);
+    expect(index.itemByPath.has('/root/lost.md')).toBe(true);
     expect(index.folderPaths.has('/root/lost.md')).toBe(false);
   });
 });

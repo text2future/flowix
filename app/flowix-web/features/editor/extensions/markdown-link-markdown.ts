@@ -1,5 +1,5 @@
 import { Extension, type MarkdownParseHelpers, type MarkdownToken, type PasteRuleMatch, type InputRuleMatch } from '@tiptap/core';
-import { isVideoUrl } from '@features/editor/extensions/attachment-link/markdown/asset-markdown';
+import { readMarkdownLink } from './shared/markdown-link-destination';
 import { sanitizeLinkHref } from '@/lib/safe-link';
 
 interface ParsedMarkdownLink {
@@ -10,7 +10,6 @@ interface ParsedMarkdownLink {
 }
 
 const ASSET_URL_RE = /^(asset:\/\/|https?:\/\/asset\.localhost\/)/i;
-const MARKDOWN_LINK_RE = /!?\[([^\]\n]+)\]\(([^)\n]+)\)/g;
 const FLOWIX_MEMO_URL_RE = /^flowix:\/\/memo\/.*$/i;
 
 export function normalizePlainLinkHref(url: string | null | undefined): string {
@@ -41,7 +40,7 @@ function normalizeMarkdownDestination(url: string | null | undefined): string {
 }
 
 export function isPlainMarkdownLinkUrl(url: string | null | undefined): boolean {
-  if (!url || FLOWIX_MEMO_URL_RE.test(url) || ASSET_URL_RE.test(url) || isVideoUrl(url)) return false;
+  if (!url || FLOWIX_MEMO_URL_RE.test(url) || ASSET_URL_RE.test(url)) return false;
   return true;
 }
 
@@ -56,24 +55,26 @@ function stripOptionalTitle(destination: string): { href: string; title: string 
   return { href: normalizeMarkdownDestination(titleMatch[1]), title: titleMatch[2] || null };
 }
 
-function parseMarkdownLinkMatch(match: RegExpExecArray): ParsedMarkdownLink | null {
-  const raw = match[0];
-  if (raw.startsWith('!')) return null;
-  const text = match[1]?.trim();
-  const { href, title } = stripOptionalTitle(match[2] ?? '');
-  if (!text || !isPlainMarkdownLinkUrl(href)) return null;
-  return { raw, text, href, title };
+function* markdownLinkMatches(text: string): Generator<ParsedMarkdownLink & { index: number }> {
+  for (let index = text.indexOf('['); index >= 0; index = text.indexOf('[', index + 1)) {
+    let escapes = 0;
+    for (let at = index - 1; at >= 0 && text[at] === '\\'; at--) escapes++;
+    if (escapes % 2 || text[index - 1] === '!' || text[index + 1] === '[') continue;
+    const link = readMarkdownLink(text, index);
+    if (!link || /[\r\n]/.test(text.slice(index, link.end + 1))) continue;
+    const { href, title } = stripOptionalTitle(link.url);
+    if (!link.label || !isPlainMarkdownLinkUrl(href)) continue;
+    yield { index, raw: text.slice(index, link.end + 1), text: link.label, href, title };
+    index = link.end;
+  }
 }
 
 export function findLastMarkdownLink(text: string): InputRuleMatch | null {
   let found: InputRuleMatch | null = null;
-  MARKDOWN_LINK_RE.lastIndex = 0;
-  for (const match of text.matchAll(MARKDOWN_LINK_RE)) {
-    if (match.index === undefined) continue;
-    const parsed = parseMarkdownLinkMatch(match);
-    if (!parsed || match.index + parsed.raw.length !== text.length) continue;
+  for (const parsed of markdownLinkMatches(text)) {
+    if (parsed.index + parsed.raw.length !== text.length) continue;
     found = {
-      index: match.index,
+      index: parsed.index,
       text: parsed.raw,
       replaceWith: parsed.text,
       data: { href: parsed.href, title: parsed.title },
@@ -84,13 +85,10 @@ export function findLastMarkdownLink(text: string): InputRuleMatch | null {
 
 export function findMarkdownLinkPasteMatches(text: string): PasteRuleMatch[] {
   const matches: PasteRuleMatch[] = [];
-  MARKDOWN_LINK_RE.lastIndex = 0;
-  for (const match of text.matchAll(MARKDOWN_LINK_RE)) {
-    if (match.index === undefined) continue;
-    const parsed = parseMarkdownLinkMatch(match);
+  for (const parsed of markdownLinkMatches(text)) {
     if (!parsed) continue;
     matches.push({
-      index: match.index,
+      index: parsed.index,
       text: parsed.raw,
       replaceWith: parsed.text,
       data: { href: parsed.href, title: parsed.title },

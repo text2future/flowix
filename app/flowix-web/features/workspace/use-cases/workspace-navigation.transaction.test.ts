@@ -1,3 +1,6 @@
+import { openBrowserColumnTarget } from './browser-column-navigation';
+import { useWorkspaceSessionStore } from '../store/workspace-session-store';
+import { navigateWorkspaceSession } from './session-navigation';
 import { seedWorkColumn, seedBrowserColumn } from '@features/workspace/test-support/workspace-fixtures';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -50,6 +53,9 @@ const mocks = vi.hoisted(() => ({
   openExternalDocument: vi.fn(),
   resolveMarkdownLocation: vi.fn(),
   setCurrentNotebook: vi.fn(),
+  notebookPersistenceRevision: 0,
+  persistedNotebookId: undefined as string | null | undefined,
+  requestedNotebookId: undefined as string | null | undefined,
 }));
 
 vi.mock('@features/memo/store/note-store', () => ({
@@ -71,6 +77,24 @@ vi.mock('@platform/tauri/client', () => ({
   notes: { resolveLocation: mocks.resolveMarkdownLocation },
   notebooks: { setCurrent: mocks.setCurrentNotebook },
 }));
+vi.mock('@features/memo/public/workspace-api', () => ({
+  getWorkspaceMemoState: () => mocks.memoState,
+  getSelectedWorkspaceNotebookId: () => mocks.memoState.selectedNotebookId,
+  needsWorkspaceNotebookPersistence: (notebookId: string | null) => (
+    (mocks.requestedNotebookId !== undefined && mocks.requestedNotebookId !== notebookId)
+    || (mocks.persistedNotebookId !== undefined && mocks.persistedNotebookId !== notebookId)
+  ),
+  setCurrentWorkspaceNotebook: async (notebook: string | null | { id: string }) => {
+    const notebookId = typeof notebook === 'string' ? notebook : notebook?.id ?? null;
+    const revision = ++mocks.notebookPersistenceRevision;
+    mocks.requestedNotebookId = notebookId;
+    await mocks.setCurrentNotebook(notebookId);
+    if (revision === mocks.notebookPersistenceRevision) {
+      mocks.persistedNotebookId = notebookId;
+      mocks.requestedNotebookId = undefined;
+    }
+  },
+}));
 
 import { useWorkColumnStore } from '../store/work-column-store';
 import { NavigationCancelledError } from '@/lib/navigation-cancelled-error';
@@ -78,6 +102,7 @@ import { useBrowserColumnStore } from '../store/browser-column-store';
 import { registerWorkspaceSurfaceLifecycle } from '../store/surface-lifecycle-store';
 import {
   openExternalTarget,
+  openFolderCollectionChooserTarget,
   reconcileDeletedNotebook,
   selectNotebook,
 } from './workspace-navigation';
@@ -119,6 +144,9 @@ describe('workspace navigation transaction', () => {
     mocks.clearDocument.mockResolvedValue(undefined);
     mocks.setCurrentNotebook.mockReset();
     mocks.setCurrentNotebook.mockResolvedValue(undefined);
+    mocks.notebookPersistenceRevision = 0;
+    mocks.persistedNotebookId = undefined;
+    mocks.requestedNotebookId = undefined;
     mocks.memoState.upsertMemo.mockClear();
     mocks.memoState.setSelectedNotebook.mockClear();
     mocks.memoState.setNotebooks.mockClear();
@@ -127,6 +155,163 @@ describe('workspace navigation transaction', () => {
     mocks.memoState.setActivePluginId.mockClear();
     mocks.memoState.loadNotebooks.mockResolvedValue(undefined);
     mocks.memoState.loadMemos.mockResolvedValue(undefined);
+  });
+
+  it('does not replace the primary sidebar notebook when opening a folder in the secondary session', async () => {
+    const sessions = useWorkspaceSessionStore.getState();
+    sessions.reset();
+    sessions.swapColumnContents();
+    const primary = { id: 'a', path: '/a' };
+    mocks.memoState.notebooks = [primary, { id: 'b', path: '/b' }];
+    mocks.memoState.setSelectedNotebook(primary);
+    try {
+      await openFolderCollectionChooserTarget({ kind: 'folder-collection', notebookId: 'b', notebookPath: '/b', folderPath: '/b/folder', folderName: 'folder' });
+      expect(mocks.memoState.selectedNotebookId).toBe('a');
+      expect(mocks.setCurrentNotebook).not.toHaveBeenCalled();
+      expect(useWorkColumnStore.getState().navigation.target).toMatchObject({ kind: 'folder-collection', notebookId: 'b' });
+    } finally { sessions.reset(); resetWorkspace(); }
+  });
+
+  it('keeps the sidebar notebook in sync after column swapping, popup selection and history', async () => {
+    const sessionStore = useWorkspaceSessionStore.getState();
+    sessionStore.reset();
+    sessionStore.swapColumnContents();
+    const a = { id: 'a', path: '/a' };
+    const b = { id: 'b', path: '/b' };
+    mocks.memoState.notebooks = [a, b];
+    mocks.memoState.setSelectedNotebook(a);
+    const folder = (book: typeof a) => ({ kind: 'folder-collection' as const, notebookId: book.id,
+      notebookPath: book.path, folderPath: `${book.path}/folder`, folderName: 'folder' });
+    try {
+      await selectNotebook(b as Parameters<typeof selectNotebook>[0]);
+      expect(mocks.memoState.selectedNotebookId).toBe('b');
+      expect(mocks.memoState.loadNotes).toHaveBeenLastCalledWith({ notebookId: 'b' });
+      await openBrowserColumnTarget(folder(a));
+      expect(mocks.memoState.selectedNotebookId).toBe('a');
+      await openBrowserColumnTarget(folder(b));
+      expect(mocks.memoState.selectedNotebookId).toBe('b');
+      expect(await navigateWorkspaceSession(0, 'back')).toBe(true);
+      expect(mocks.memoState.selectedNotebookId).toBe('a');
+      expect(await navigateWorkspaceSession(0, 'forward')).toBe(true);
+      expect(mocks.memoState.selectedNotebookId).toBe('b');
+    } finally { sessionStore.reset(); resetWorkspace(); }
+  });
+
+  it('restores notebook ownership when history moves between a file and a folder', async () => {
+    useWorkspaceSessionStore.getState().reset();
+    resetWorkspace();
+    mocks.memoState.notebooks = [{ id: 'a', path: '/a' }, { id: 'b', path: '/b' }];
+    mocks.resolveMarkdownLocation.mockResolvedValue({ path: '/a/source.md', notebookId: 'a', notebookPath: '/a',
+      relativePath: 'source.md', indexable: true });
+    mocks.openExternalDocument.mockImplementation(async (path: string) => {
+      mocks.documentState.activeExternalSession = { fileIdentity: { displayId: 'history-file-a', path }, scopePath: '/a', transitionId: 1 };
+    });
+    await openExternalTarget('/a/source.md', { history: 'push' });
+    await openFolderCollectionChooserTarget({ kind: 'folder-collection', notebookId: 'b', notebookPath: '/b', folderPath: '/b/folder', folderName: 'folder' }, undefined, 'push');
+    expect(mocks.memoState.selectedNotebookId).toBe('b');
+    expect(await navigateWorkspaceSession(0, 'back')).toBe(true);
+    expect(mocks.memoState.selectedNotebookId).toBe('a');
+    expect(useWorkColumnStore.getState().navigation.target).toMatchObject({ kind: 'external', path: '/a/source.md' });
+    expect(await navigateWorkspaceSession(0, 'forward')).toBe(true);
+    expect(mocks.memoState.selectedNotebookId).toBe('b');
+  });
+
+  it('replays cross-notebook folder history through the same notebook switch transaction', async () => {
+    useWorkspaceSessionStore.getState().reset();
+    resetWorkspace();
+    const a = { id: 'a', path: '/a' };
+    const b = { id: 'b', path: '/b' };
+    mocks.memoState.notebooks = [a, b];
+    mocks.memoState.setSelectedNotebook(a);
+    const folder = (notebook: typeof a) => ({ kind: 'folder-collection' as const, notebookId: notebook.id,
+      notebookPath: notebook.path, folderPath: `${notebook.path}/folder`, folderName: 'folder' });
+    await openFolderCollectionChooserTarget(folder(a), undefined, 'push');
+    await openFolderCollectionChooserTarget(folder(b), undefined, 'push');
+    expect(mocks.memoState.selectedNotebookId).toBe('b');
+    expect(await navigateWorkspaceSession(0, 'back')).toBe(true);
+    expect(mocks.memoState.selectedNotebookId).toBe('a');
+    expect(useWorkColumnStore.getState().navigation.target).toMatchObject(folder(a));
+    expect(await navigateWorkspaceSession(0, 'forward')).toBe(true);
+    expect(mocks.memoState.selectedNotebookId).toBe('b');
+    expect(useWorkColumnStore.getState().navigation.target).toMatchObject(folder(b));
+    expect(mocks.memoState.loadNotes.mock.calls.map(call => call[0])).toEqual([
+      { notebookId: 'b' }, { notebookId: 'a' }, { notebookId: 'b' },
+    ]);
+  });
+
+  it('uses the same notebook/list updates for popup selection and folder navigation', async () => {
+    const a = { id: 'a', path: '/a' };
+    const b = { id: 'b', path: '/b' };
+    mocks.memoState.notebooks = [a, b];
+    mocks.memoState.setSelectedNotebook(a);
+    await selectNotebook(b as Parameters<typeof selectNotebook>[0]);
+    expect(mocks.memoState.selectedNotebookId).toBe('b');
+    expect(mocks.memoState.loadNotes).toHaveBeenLastCalledWith({ notebookId: 'b' });
+    await openFolderCollectionChooserTarget({ kind: 'folder-collection', notebookId: 'a', notebookPath: '/a', folderPath: '/a/folder', folderName: 'folder' });
+    expect(mocks.memoState.selectedNotebookId).toBe('a');
+    expect(mocks.memoState.loadNotes).toHaveBeenLastCalledWith({ notebookId: 'a' });
+    expect(mocks.setCurrentNotebook.mock.calls.map(call => call[0])).toEqual(['b', 'a']);
+  });
+
+  it('switches notebook ownership before committing a cross-notebook folder', async () => {
+    const previous = { id: 'a', path: '/a' };
+    const destination = { id: 'b', path: '/b' };
+    mocks.memoState.notebooks = [previous, destination];
+    mocks.memoState.setSelectedNotebook(previous);
+    const target = { kind: 'folder-collection' as const, notebookId: 'b', notebookPath: '/b', folderPath: '/b/folder', folderName: 'folder' };
+    await openFolderCollectionChooserTarget(target);
+    expect(mocks.setCurrentNotebook).toHaveBeenCalledWith('b');
+    expect(mocks.memoState.selectedNotebookId).toBe('b');
+    expect(mocks.memoState.selectedNote).toBeNull();
+    expect(mocks.memoState.loadNotes).toHaveBeenCalledWith({ notebookId: 'b' });
+    expect(useWorkColumnStore.getState().navigation.target).toMatchObject(target);
+  });
+
+  it('restores native selection when a newer navigation returns to the still-selected notebook', async () => {
+    const a = { id: 'a', path: '/a' };
+    const b = { id: 'b', path: '/b' };
+    mocks.memoState.notebooks = [a, b];
+    mocks.memoState.setSelectedNotebook(a);
+    let finishFirstSwitch!: () => void;
+    mocks.setCurrentNotebook.mockImplementationOnce(() => new Promise<void>(resolve => {
+      finishFirstSwitch = resolve;
+    }));
+
+    const firstNavigation = openFolderCollectionChooserTarget({
+      kind: 'folder-collection', notebookId: 'b', notebookPath: '/b', folderPath: '/b/folder', folderName: 'folder',
+    });
+    await vi.waitFor(() => expect(mocks.setCurrentNotebook).toHaveBeenCalledWith('b'));
+
+    await openFolderCollectionChooserTarget({
+      kind: 'folder-collection', notebookId: 'a', notebookPath: '/a', folderPath: '/a/folder', folderName: 'folder',
+    });
+    expect(mocks.setCurrentNotebook.mock.calls.map(([id]) => id)).toEqual(['b', 'a']);
+    expect(mocks.memoState.selectedNotebookId).toBe('a');
+
+    finishFirstSwitch();
+    await firstNavigation;
+  });
+
+  it('does not switch notebooks for a folder within the selected notebook', async () => {
+    const notebook = { id: 'a', path: '/a' };
+    mocks.memoState.notebooks = [notebook];
+    mocks.memoState.setSelectedNotebook(notebook);
+    await openFolderCollectionChooserTarget({ kind: 'folder-collection', notebookId: 'a', notebookPath: '/a', folderPath: '/a/folder', folderName: 'folder' });
+    expect(mocks.setCurrentNotebook).not.toHaveBeenCalled();
+    expect(mocks.memoState.loadNotes).not.toHaveBeenCalled();
+  });
+
+  it('restores the previous notebook if loading the destination folder notebook fails', async () => {
+    const previous = { id: 'a', path: '/a' };
+    mocks.memoState.notebooks = [previous, { id: 'b', path: '/b' }];
+    mocks.memoState.setSelectedNotebook(previous);
+    const previousNote = mocks.memoState.selectedNote;
+    mocks.memoState.loadNotes.mockRejectedValueOnce(new Error('load failed'));
+    await expect(openFolderCollectionChooserTarget({ kind: 'folder-collection', notebookId: 'b', notebookPath: '/b', folderPath: '/b/folder', folderName: 'folder' })).rejects.toThrow('load failed');
+    expect(mocks.memoState.selectedNotebookId).toBe('a');
+    expect(mocks.memoState.selectedNote).toEqual(previousNote);
+    expect(mocks.setCurrentNotebook.mock.calls.map(call => call[0])).toEqual(['b', 'a']);
+    expect(useWorkColumnStore.getState().navigation.target.kind).toBe('empty');
   });
 
   it('retains the previous Work target without a failure or retry action when leaving is refused', async () => {

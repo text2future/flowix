@@ -28,6 +28,14 @@ sha2 = { workspace = true }
 rusqlite = { workspace = true }
 tempfile = { workspace = true }
 fs2 = { workspace = true }
+# Notebook-template installation unpacks an untrusted ZIP, so the deflate
+# reader lives next to the validation rules instead of in the shell.
+# `deflate-flate2-zlib-rs` rather than the bare `deflate-flate2`: the latter
+# leaves flate2 without a compression backend, which only compiles when another
+# crate in the graph happens to turn one on. zlib-rs is pure Rust, so `cargo
+# check -p flowix-core` stays self-contained on every platform.
+zip = { workspace = true, features = ["deflate-flate2-zlib-rs"] }
+same-file = "1"
 diffy = "0.5.2"
 pulldown-cmark = { version = "0.13", default-features = false }
 percent-encoding = "2.3"

@@ -18,7 +18,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@shared/ui/dropdown-menu';
-import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
+import { PopupScrollArea } from '@shared/ui/popup-scroll-area';
 import { TagIcon, TagSvgIcon } from '@shared/ui/tag-icon';
 
 const MEMO_NAVIGATION_MENU_CLASS =
@@ -182,7 +182,7 @@ export function MemoNavigationSubmenu({
             </div>
           )}
           {submenuContent ?? (
-            <OverlayScrollbar
+            <PopupScrollArea
               className="mention-note-items-frame"
               scrollerClassName="mention-note-items"
             >
@@ -216,7 +216,7 @@ export function MemoNavigationSubmenu({
                   </button>
                 ))
               )}
-            </OverlayScrollbar>
+            </PopupScrollArea>
           )}
         </div>
       )}
@@ -353,7 +353,7 @@ export function MemoNavigationDropdown({
           </button>
         )}
       </div>
-      <DropdownMenuContent align="start" side="bottom" className={MEMO_NAVIGATION_MENU_CLASS}>
+      <DropdownMenuContent scrollable={false} align="start" side="bottom" className={MEMO_NAVIGATION_MENU_CLASS}>
         {leadingContent}
         <NoteFilterMenu
           key={selectedNotebookId ?? 'no-notebook'}
@@ -392,7 +392,7 @@ export function MemoNavigationDropdown({
             submenuClassName="memo-navigation-tag-tree-submenu"
             hideHeader
             submenuContent={(
-              <OverlayScrollbar
+              <PopupScrollArea
                 className="mention-note-items-frame memo-navigation-tag-tree-frame"
                 scrollerClassName="mention-note-items"
               >
@@ -401,7 +401,7 @@ export function MemoNavigationDropdown({
                   onSelectTag={closeMenu}
                   variant="menu"
                 />
-              </OverlayScrollbar>
+              </PopupScrollArea>
             )}
             valueAdornment={activeFilter === 'tagged' && selectedTagName ? (
               <span className="inline-flex max-w-[100px] items-center truncate text-xs text-[var(--muted-foreground)]">

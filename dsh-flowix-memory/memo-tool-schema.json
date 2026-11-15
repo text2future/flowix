@@ -3,8 +3,8 @@
   "properties": {
     "action": {
       "type": "string",
-      "enum": ["notebooks", "list", "tags", "show", "search", "create", "edit", "write", "delete", "collection.list", "collection.describe", "collection.query", "collection.read", "artifact.list", "artifact.describe", "artifact.create"],
-      "description": "Structured operation. For collections, call collection.list, then collection.describe, then collection.query. Use a returned note address with show to read its body. Prefer this over the legacy command field."
+      "enum": ["notebooks", "list", "tags", "show", "search", "create", "edit", "write", "delete", "collection.list", "collection.describe", "collection.query", "collection.read", "collection.add-note", "artifact.list", "artifact.describe", "artifact.create"],
+      "description": "Structured operation. For collections, call collection.list, then collection.describe and collection.query. Use collection.add-note only when asked to add a Markdown note to a table collection; it creates and links the note as a row. Prefer this over the legacy command field."
     },
     "notebook": { "type": "string", "description": "Notebook name or id; defaults to the current notebook where supported." },
     "address": { "type": "string", "description": "Notebook-relative note address (<notebook-id>::<path>) or an absolute note path. Use this with show, edit, write, or delete." },
@@ -18,8 +18,9 @@
     "pluginId": { "type": "string" },
     "sourceNote": { "type": "string" },
     "producer": { "type": "string", "default": "agent-mcp" },
-    "collectionId": { "type": "string", "description": "Stable collection identity. Provide this or path for collection.read, collection.describe, and collection.query." },
-    "path": { "type": "string", "description": "Notebook-relative collection file path. Provide this or collectionId for collection.read, collection.describe, and collection.query." },
+    "collectionId": { "type": "string", "description": "Stable collection identity. Provide this or path for collection.read, collection.describe, collection.query, and collection.add-note." },
+    "path": { "type": "string", "description": "Notebook-relative collection file path. Provide this or collectionId for collection.read, collection.describe, collection.query, and collection.add-note." },
+    "title": { "type": "string", "description": "Required note title for collection.add-note." },
     "collectionType": { "type": "string", "enum": ["table", "media_library", "work_documents", "hybrid"], "description": "Optional collection.list type filter." },
     "domain": { "type": "string", "enum": ["notes", "media", "work_documents"], "description": "Collection data domain. Required when querying a hybrid collection." },
     "viewId": { "type": "string", "description": "Optional saved view to apply while querying a collection." },
@@ -40,6 +41,12 @@
     "if": { "properties": { "action": { "enum": ["collection.describe", "collection.query"] } }, "required": ["action"] },
     "then": {
       "required": ["notebook"],
+      "oneOf": [{ "required": ["collectionId"] }, { "required": ["path"] }]
+    }
+  }, {
+    "if": { "properties": { "action": { "const": "collection.add-note" } }, "required": ["action"] },
+    "then": {
+      "required": ["notebook", "title", "content"],
       "oneOf": [{ "required": ["collectionId"] }, { "required": ["path"] }]
     }
   }],

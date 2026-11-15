@@ -23,7 +23,7 @@
  * 「···」→「显示标题」对两者行为一致。
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { CollectionDatabaseIcon, type CollectionDefaultIcon } from './collection-icon';
+import { CollectionDatabaseIcon, CollectionFolderIcon, type CollectionDefaultIcon } from './collection-icon';
 import { cn } from '@/lib/utils';
 import { collectionDisplayName } from './model';
 import { EditableCollectionName, type CollectionNameEditControls } from './editable-collection-name';
@@ -41,16 +41,21 @@ export function collectionHeaderTitle(filePath: string): CollectionHeaderTitle {
   return { name: collectionDisplayName(filePath, 'standalone'), kind: 'file' };
 }
 
-/** Persisted user icons take precedence over the header's default database icon. */
-export function CollectionHeaderIcon({ iconSrc, iconClassName }: {
-  /** 链路兼容保留：header 默认图形已统一为数据库图标，不再按视图域区分。 */
+/** 文件夹表面没有集合体，标题直接从目录路径派生。 */
+export function folderHeaderTitle(folderPath: string): CollectionHeaderTitle {
+  const name = folderPath.split(/[\\/]/).filter(Boolean).pop() ?? '';
+  return { name, kind: 'folder' };
+}
+
+/** Persisted user icons take precedence over the header's default icon. */
+export function CollectionHeaderIcon({ iconSrc, defaultIcon, iconClassName }: {
   defaultIcon?: CollectionDefaultIcon; iconSrc?: string;
   /** 覆盖默认尺寸类（banner 变体用它让图标本体以 h-12 w-12 直接展示）。 */
   iconClassName?: string;
 }) {
-  return iconSrc
-    ? <img src={iconSrc} alt="" className={iconClassName ?? 'h-6 w-6 object-contain'} draggable={false} />
-    : <CollectionDatabaseIcon className={iconClassName ?? 'h-[18px] w-[18px]'} />;
+  if (iconSrc) return <img src={iconSrc} alt="" className={iconClassName ?? 'h-6 w-6 object-contain'} draggable={false} />;
+  if (defaultIcon === 'folder') return <CollectionFolderIcon className={iconClassName ?? 'h-[18px] w-[18px]'} />;
+  return <CollectionDatabaseIcon className={iconClassName ?? 'h-[18px] w-[18px]'} />;
 }
 
 /**

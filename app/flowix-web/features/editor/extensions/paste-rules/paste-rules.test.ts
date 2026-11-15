@@ -59,9 +59,7 @@ describe('paste rule helpers', () => {
     expect(attachmentUploadMock.handleFileUpload).toHaveBeenCalledWith(
       view,
       files,
-      7,
-      undefined,
-      'memo-a',
+      expect.objectContaining({ position: 7, ownerPath: 'memo-a' }),
     );
   });
 

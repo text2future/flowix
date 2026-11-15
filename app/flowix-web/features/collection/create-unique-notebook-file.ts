@@ -14,6 +14,8 @@ export async function createUniqueNotebookFile(
     : notebookRoot;
   if (!folderPath) throw new Error('集合目录无效');
 
+  await files.ensureNotebookFolder(notebookRoot, relativeFolder ?? '');
+
   let existingNames = new Set(
     (await files.getDirChildren(folderPath)).map((entry) => entry.name.toLocaleLowerCase()),
   );

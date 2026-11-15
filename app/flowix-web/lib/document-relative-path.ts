@@ -57,6 +57,7 @@ export function resolveDocumentRelativeHref(
 ): ResolvedDocumentPath | null {
   let href = rawHref?.trim() ?? '';
   if (!href || hasControlCharacters(href)) return null;
+  if (href.startsWith('\\\\')) href = `file:${canonicalPath(href)}`;
   const fileUrl = /^file:/i.test(href);
   if (fileUrl) {
     try {
@@ -90,6 +91,17 @@ export function resolveDocumentRelativeHref(
 /** Encode each URL component, including Markdown destination delimiters. */
 export function encodeDocumentComponent(value: string): string {
   return encodeURIComponent(value).replace(/[!'()*]/g, character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
+/** Encode an absolute filesystem path for a Markdown link destination. */
+export function encodeAbsoluteDocumentPath(path: string): string {
+  const canonical = canonicalPath(path);
+  // A leading // is a web URL in Markdown; UNC files need the standard file scheme.
+  if (canonical.startsWith('//')) return documentFileHref({ path: canonical, anchor: null });
+  return canonical.split('/').map((segment, index) => {
+    if (index === 0 && /^[a-z]:$/i.test(segment)) return segment;
+    return encodeDocumentComponent(segment);
+  }).join('/');
 }
 
 /** Generate a portable reference from the linking document's directory. */
@@ -128,4 +140,16 @@ export function documentFileHref(target: ResolvedDocumentPath): string {
   const encoded = path.split('/').map(encodeDocumentComponent).join('/').replace(/^([a-z])%3A/i, '$1:');
   const base = path.startsWith('//') ? `file:${encoded}` : path.startsWith('/') ? `file://${encoded}` : `file:///${encoded}`;
   return base + (target.search ?? '') + (target.anchor ? `#${encodeDocumentComponent(target.anchor)}` : '');
+}
+
+/** Readable wiki destinations, keeping filename delimiters escaped and anchors intact. */
+export function wikiDocumentHref(href: string): string {
+  const delimiter = href.search(/[?#]/);
+  const path = delimiter < 0 ? href : href.slice(0, delimiter);
+  const suffix = delimiter < 0 ? '' : href.slice(delimiter);
+  return path.split('/').map(part => {
+    try {
+      return decodeURIComponent(part).replace(/[%#?[\]|]/g, character => encodeURIComponent(character));
+    } catch { return part; }
+  }).join('/') + suffix;
 }

@@ -1,5 +1,5 @@
 import { Extension } from "@tiptap/core";
-import { scanHead } from '@features/editor/public/markdown-tokenizer-api';
+import { scanHead } from '@/lib/bounded-source';
 
 import {
   FLOWIX_AGENT_THREAD_CARD_MARKER,

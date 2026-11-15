@@ -20,3 +20,10 @@ pub mod text_merge;
 pub use service::{FlowixError, NotePage, NoteSaveOutcome, NoteService};
 
 pub mod collection;
+pub mod collection_store;
+pub mod file_copy;
+pub mod market_archive;
+pub mod notebook_agents;
+pub mod notebook_template;
+pub mod path_scope;
+pub mod skill_frontmatter;

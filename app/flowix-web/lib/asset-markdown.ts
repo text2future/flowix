@@ -1,9 +1,23 @@
 /**
- * Markdown 中附件地址（`asset://` 存储键）的编解码。
+ * Legacy `asset://` Markdown destination compatibility.
  *
- * 放在 foundation 层是因为它既被编辑器（写回 Markdown）使用，也被卡片/表格
- * 这类只读投影使用 ── 后者不能反向依赖 `features/editor` 的私有模块。
+ * New documents store regular relative or absolute filesystem paths. Keep the
+ * decoder so existing Markdown continues to load and can be migrated on save.
  */
+import { encodeAbsoluteDocumentPath } from './document-relative-path';
+
+export function isRuntimeAssetHref(href: string): boolean {
+  return /^(?:(?:flowix-asset|asset):\/\/|https?:\/\/asset\.localhost\/)/i.test(href);
+}
+
+/** Authored Markdown paths take precedence over transient WebView URLs. */
+export function markdownAssetHref(source: unknown, storageMode: unknown, storageKey: unknown): string {
+  const authored = typeof source === 'string' ? source : '';
+  if (authored && !isRuntimeAssetHref(authored)) return authored;
+  return storageMode === 'attachment' && typeof storageKey === 'string' && storageKey
+    ? encodeAbsoluteDocumentPath(storageKey)
+    : authored;
+}
 
 export function decodeStorageKey(src: string): string | null {
   if (!src.startsWith('asset://') && !src.startsWith('http://asset.localhost/') && !src.startsWith('https://asset.localhost/')) return null;

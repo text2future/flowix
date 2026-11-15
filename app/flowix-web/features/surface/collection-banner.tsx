@@ -28,7 +28,7 @@ import {
   UploadSimpleIcon,
 } from '@phosphor-icons/react';
 import { Popover, PopoverContent, PopoverTrigger } from '@shared/ui/popover';
-import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
+import { PopupScrollArea } from '@shared/ui/popup-scroll-area';
 import type { CollectionScope } from '@features/collection/public/folder-api';
 import { ONLINE_BANNER_IMAGES, onlineBannerBase, onlineBannerCropUrl, onlineBannerThumbUrl } from '@features/collection/public/folder-api';
 import { requestMediaPreview } from './media-preview-tasks';
@@ -215,7 +215,7 @@ export function CollectionBanner({
               <CaretDownIcon size={10} weight="bold" aria-hidden="true" />
             </button>
           </PopoverTrigger>
-          <PopoverContent align="end" side="bottom" sideOffset={0} fitViewport className="w-[520px] overflow-x-hidden rounded-xl p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+          <PopoverContent scrollable={false} align="end" side="bottom" sideOffset={0} fitViewport className="flex min-h-0 flex-col w-[520px] overflow-hidden rounded-xl p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
             <BannerImagePicker
               notebookPath={notebookPath}
               options={options}
@@ -260,12 +260,11 @@ function BannerImagePicker({
     { key: 'online', label: t('collection.banner.onlineGallery') },
     { key: 'upload', label: t('collection.banner.upload') },
   ];
-  // 滚动条走产品统一的 OverlayScrollbar：自绘滑块浮在内容之上不占列表宽度，
+  // 滚动条走产品统一的 PopupScrollArea：自绘滑块浮在内容之上不占列表宽度，
   // 只在用户滚动时浮现；--edge-aligned 让滑块贴住弹窗右内缘并保留条目留白。
-  // 横向滚动条整体禁用（horizontalScrollbar=false + scroller overflow-x-hidden +
-  // 弹窗 overflow-x-hidden，抵掉 edge-aligned 负外边距带来的横向溢出）。
-  return <div>
-    <div role="tablist" className="flex items-center gap-1 px-1 pb-1 pt-0.5">
+  // 图片列表自行滚动；tab 栏固定，窄窗口下列表可收缩。
+  return <div className="flex min-h-0 flex-1 flex-col">
+    <div role="tablist" className="flex shrink-0 items-center gap-1 px-1 pb-1 pt-0.5">
       {tabs.map(({ key, label }) => (
         <button
           key={key}
@@ -284,10 +283,8 @@ function BannerImagePicker({
         </button>
       ))}
     </div>
-    <OverlayScrollbar
-      horizontalScrollbar={false}
-      className="overlay-scrollbar-frame--edge-aligned h-[320px] min-h-[320px]"
-      scrollerClassName="h-[320px] min-h-[320px] overflow-y-auto overflow-x-hidden"
+    <PopupScrollArea
+      className="overlay-scrollbar-frame--edge-aligned h-[320px]"
       observeContent
     >
       {tab === 'folder'
@@ -295,7 +292,7 @@ function BannerImagePicker({
         : tab === 'online'
           ? <OnlineImageGrid selectedPath={selectedPath} onSelect={onSelect} />
           : <UploadPanel uploading={uploading} onUpload={onUpload} />}
-    </OverlayScrollbar>
+    </PopupScrollArea>
   </div>;
 }
 

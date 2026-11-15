@@ -75,6 +75,7 @@ export function MemoList({
   const showFolderView = memoListView === 'folders' && Boolean(selectedNotebook);
   const NotebookLoadingState = memoListView === 'folders' ? FileTreeLoadingSkeleton : ListSurfaceLoadingState;
   const [createTypeMenuOpen, setCreateTypeMenuOpen] = useState(false);
+  const [repositoriesPageOpen, setRepositoriesPageOpen] = useState(false);
   const [createViewsExpanded, setCreateViewsExpanded] = useState(false);
   const [documentCreateRequest, setDocumentCreateRequest] = useState<NotebookDocumentCreateRequest | null>(null);
   const [createTemplates, setCreateTemplates] = useState<NoteTemplate[]>([]);
@@ -475,6 +476,7 @@ export function MemoList({
           sortSubmenuOpen,
           createTypeMenuOpen,
           isCreatingMemo,
+          hideCreateButton: showFolderView && repositoriesPageOpen,
           createTemplates,
           conversationOptions: newConversationSelection.options,
           createViewsExpanded,
@@ -534,6 +536,7 @@ export function MemoList({
               onCreateFolder={handleCreateFolder}
               defaultCreateFolder={defaultCreateFolder}
               onSetDefaultCreateFolder={handleFolderDefaultCreateFolderChange}
+              onRepositoriesPageOpenChange={setRepositoriesPageOpen}
               isActive={isActive && dataLoadingEnabled && showFolderView && defaultCreateFolderReady}
               onCreateNote={handleCreateNoteInFolder}
             />

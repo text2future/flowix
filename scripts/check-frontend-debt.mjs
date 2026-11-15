@@ -40,20 +40,35 @@ const MAX_NEW_FILE_LINES = 1000;
 // 2026-11-10：markdown-editor.tsx 941→859，同样是拆分（序列化策略抽成
 // useDeferredMarkdownSerialization，另删除未使用的 initialParsedContent
 // 预解析入口），不是放宽门槛。
+// 2026-11-15（文件夹/引用节点改造那一轮）：
+//   - markdown-editor.tsx 858→858、external-agent-settings-controller.ts
+//     2404→2398、agent-thread-card-view.tsx 2017→2004：都是抽出模块把行数降回来
+//     （useDocumentAttachmentContext / PopoverScrollers / composerSkillLoaders），
+//     记录值只下调不复用；
+//   - lib/i18n/messages.*.ts：新增文案不再往主表堆，`document.*` 整域迁到
+//     messages.document.{zh-CN,en-US} 分片，主表随之回到阈值以内；
+//   - frontmatter-property.test.ts 1238→1246：测试文件按上述先例对齐实测
+//     （新增的是 settings-store 前置钩子与一条 aria 断言），非待拆逻辑。
+// 2026-11-15（同轮收尾）：table-document-view.tsx 2107→1804。该文件在 2baf0d91
+//   （2026-11-11）被续写到 2107 却没同步记录值，闸门因此红着；这次按「拆分而非上调」
+//   处置：自动列宽内容采样抽成 table-auto-columns.ts、对外 props 契约抽成
+//   table-document-view-props.ts、视图/字段结构命令收成 use-table-structure-commands.ts
+//   （与既有 useTableKanban/useTableFieldEdits 同一形态）、显隐开关与两个状态屏各自成模块、
+//   预设判重下沉到 table-preset-bindings.ts。记录值随实测定为 1804，之后只许下降。
 // 若将来生产文件再超限，唯一合法出路仍是拆分，不得在这里改大数字。
 const FROZEN_FILES = {
-  'features/multidimensional-table/table-document-view.tsx': 1931,
-  'features/agent/thread-card/settings/external-agent-settings-controller.ts': 2404,
+  'features/multidimensional-table/table-document-view.tsx': 1804,
+  'features/agent/thread-card/settings/external-agent-settings-controller.ts': 2398,
   'lib/i18n/messages.en-US.ts': { lines: 2371, exempt: true },
   'lib/i18n/messages.zh-CN.ts': { lines: 2345, exempt: true },
   'features/preferences/sections/agent.tsx': 2085,
-  'features/agent/thread-card/agent-thread-card-view.tsx': 2017,
+  'features/agent/thread-card/agent-thread-card-view.tsx': 2004,
   'features/memo/components/notebook-file-tree.tsx': 1431,
   'features/memo/components/notebook-file-tree.test.tsx': 1556,
   'features/memo/components/memo-list.tsx': 1361,
   'features/workspace/use-cases/workspace-navigation.ts': 1356,
   'features/agent/thread-card/settings/notebook-agent-settings-dialog.tsx': 1276,
-  'features/editor/extensions/frontmatter-property.test.ts': 1238,
+  'features/editor/extensions/frontmatter-property.test.ts': 1246,
   'features/editor/extensions/codeblock-shiki/codeblock-shiki-view.ts': 1192,
   'features/editor/extensions/frontmatter-property-editor.ts': 1089,
   'features/shell/main-layout.tsx': 592,

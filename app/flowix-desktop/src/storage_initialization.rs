@@ -388,6 +388,24 @@ fn reset_pending_notebooks_with_progress(
                                 notebook.id
                             )
                         }),
+                    // 文件夹不再为每一份 `.index.yaml` 启动集合：旧文件里的
+                    // 图标 / 头图 / 副标题迁进 `folder_index`，文件移到
+                    // `.flowix/legacy-folder-index/` 备份。迁移自身也带幂等标记，
+                    // 这里再记一层是因为它要改写用户目录。
+                    NotebookInitializationJob::MigrateFolderIndex => memo_file
+                        .migrate_legacy_folder_collections(&notebook.id)
+                        .map(|migrated| {
+                            if migrated > 0 {
+                                tracing::info!(notebook_id = %notebook.id, migrated,
+                                    "legacy folder collections migrated into folder_index");
+                            }
+                        })
+                        .map_err(|error| {
+                            format!(
+                                "migrate notebook {} folder index failed: {error}",
+                                notebook.id
+                            )
+                        }),
                 },
                 report,
                 completed,

@@ -144,8 +144,8 @@ describe('inline link editor', () => {
         name: 'insertContent',
         arg: {
           type: 'text',
-          marks: [{ type: 'link', attrs: { href: 'http://example.com' } }],
-          text: 'http://example.com',
+          marks: [{ type: 'link', attrs: { href: 'example.com' } }],
+          text: 'example.com',
         },
       },
       { name: 'run' },
@@ -196,9 +196,9 @@ describe('inline link editor', () => {
     expect(onClose).toHaveBeenCalledWith('canceled');
   });
 
-  it('decodes path destinations but normalizes web hosts for the input', () => {
+  it('decodes local destinations and preserves explicit web URLs for the input', () => {
     expect(editorLinkInputValue('skills/a.md')).toBe('skills/a.md');
-    expect(editorLinkInputValue('example.com')).toBe('http://example.com');
+    expect(editorLinkInputValue('example.com')).toBe('example.com');
     expect(editorLinkInputValue('/tmp/a%20b.md')).toBe('/tmp/a b.md');
     expect(editorLinkInputValue('https://example.com/a%20b')).toBe('https://example.com/a%20b');
   });

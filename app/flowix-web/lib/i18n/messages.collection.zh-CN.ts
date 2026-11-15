@@ -10,6 +10,7 @@ const zhCN = {
   "collection.composerSend": "发送给 {name}",
   "collection.composerAdd": "添加附件",
   "collection.agentSwitch": "切换",
+  "collection.createConversation": "使用 {name} 新建对话",
   // tab 条：文件树（仅文件夹类型的集合，且 .index.yaml 的 file_tree 为真）→ 表格视图 → 图墙 / 列表
   "collection.filesTab": "文件夹",
   "collection.emptyFiles": "此集合是空的",

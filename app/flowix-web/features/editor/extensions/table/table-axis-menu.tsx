@@ -5,7 +5,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { createPortal } from 'react-dom';
 import { useI18n } from '@/lib/i18n';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@shared/ui/dropdown-menu';
-import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
+import { PopupScrollArea } from '@shared/ui/popup-scroll-area';
 import { POPUP_SEPARATOR_CLASS } from '@shared/ui/popup-separator';
 import { FlowixBackgroundPalette } from '../../components/flowix-background-palette';
 import { setTableBackground } from './table-background-commands';
@@ -141,10 +141,10 @@ export function TableAxisMenu({ editor }: { editor: Editor }) {
           onMouseDown={event => event.preventDefault()}>
           {row ? <TableBordersIcon /> : <TableAlignmentIcon />}<span className="flex-1">{t(row ? 'editor.table.borderStyle' : 'editor.table.alignment')}</span><CaretRightIcon size={14} />
         </button></DropdownMenuTrigger>
-        <DropdownMenuContent side="right" sideOffset={0} keepParentMenuOpen onMouseEnter={cancelSubmenuClose} onMouseLeave={scheduleSubmenuClose} className="table-style-menu min-w-[190px] rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
-          <OverlayScrollbar className="table-style-menu-scroll-frame" scrollerClassName="table-style-menu-scroller max-h-[min(360px,55vh)] space-y-0.5">
+        <DropdownMenuContent scrollable={false} side="right" sideOffset={0} keepParentMenuOpen onMouseEnter={cancelSubmenuClose} onMouseLeave={scheduleSubmenuClose} className="table-style-menu min-w-[190px] rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+          <PopupScrollArea className="table-style-menu-scroll-frame" scrollerClassName="table-style-menu-scroller max-h-[min(360px,55vh)] space-y-0.5">
             {row ? <TableBorderMenuSections editor={editor} selected={selected} /> : <TableColumnAlignmentOptions editor={editor} value={selected.column} />}
-          </OverlayScrollbar>
+          </PopupScrollArea>
         </DropdownMenuContent>
       </DropdownMenu>
       <DropdownMenu open={submenu === 'background'} onOpenChange={open => setSubmenu(open ? 'background' : null)}>

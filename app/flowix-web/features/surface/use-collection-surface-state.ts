@@ -58,17 +58,21 @@ function fallbackHostTab(loaded: FolderCollectionSummary): HostTabKey | null {
 }
 
 export interface CollectionSurfaceStateInput {
-  /** 集合体地址（文件夹入口是 `<folder>/.index.yaml`，文件入口是给定路径）。 */
+  /** 集合体地址（只有直接打开集合文件时才有；文件夹表面恒为 `''`）。 */
   sourceIndexPath: string;
-  /** 文件夹类型集合的根目录；直接打开集合文件时为 null。 */
+  /** 文件夹表面的根目录；直接打开集合文件时为 null。 */
   folderPath: string | null;
   /** 改名后的集合体地址（改名不动数据域与视图，所以只覆盖路径、不重读）。 */
   indexPath: string;
   currentFolderPath: string | null;
-  folderName: string;
   notebookPath: string | null;
   notebookId: string | null;
   editable?: boolean;
+  /**
+   * 文件夹表面：不再读任何集合体，恒定只有「文件」一个 tab，外观来自
+   * `folder_index` 表。集合文件入口不走这里。
+   */
+  folderOnly?: boolean;
 }
 
 export interface CollectionBannerState {
@@ -135,18 +139,20 @@ export interface CollectionSurfaceState {
 }
 
 export function useCollectionSurfaceState({
-  sourceIndexPath, folderPath, indexPath, currentFolderPath, folderName, notebookPath, notebookId, editable = true,
+  sourceIndexPath, folderPath, indexPath, currentFolderPath, notebookPath, notebookId, editable = true, folderOnly = false,
 }: CollectionSurfaceStateInput): CollectionSurfaceState {
   const { t } = useI18n();
   const isFolderCollection = folderPath !== null;
-  /** null = 加载中；'missing' = 尚无 .index.yaml（文件夹入口可在点击域 tab 时就地建齐） */
-  const [summary, setSummary] = useCollectionSummary(indexPath, notebookPath, notebookId);
+  /** null = 加载中；'missing' = 尚无集合体。文件夹表面恒定 'missing'（它没有集合体）。 */
+  const [summary, setSummary] = useCollectionSummary(folderOnly ? '' : indexPath, notebookPath, notebookId);
   /** null = 某个表格视图激活；否则是宿主 tab。 */
   const [activeHostTab, setActiveHostTab] = useState<HostTabKey | null>(null);
   const [mountedDomains, setMountedDomains] = useState<CollectionDomain[]>([]);
 
   const existing = summary !== null && summary !== 'missing' ? summary : null;
-  const missing = summary === 'missing';
+  // 文件夹表面没有集合体：恒定按「缺失」处理，首帧就直接渲染单 tab 文件列表，
+  // 不经过一次 PANEL_FALLBACK 闪烁。
+  const missing = folderOnly || summary === 'missing';
   const domains = existing?.domains ?? NO_DOMAINS;
   /** 集合身份的稳定标识：优先用 id（改名 / 移动目录后不变）。 */
   const collectionId = existing?.collectionId ?? null;
@@ -183,11 +189,13 @@ export function useCollectionSurfaceState({
     const key = `${existing?.collectionId ?? sourceIndexPath}:${notebookPath}`;
     if (summary === null || initializedSourceRef.current === key) return;
     initializedSourceRef.current = key;
-    const tab = summary === 'missing' ? (folderPath ? FILES_TAB_KEY : null) : resolveHostTab(summary);
+    const tab = folderOnly
+      ? FILES_TAB_KEY
+      : summary === 'missing' ? (folderPath ? FILES_TAB_KEY : null) : resolveHostTab(summary);
     setActiveHostTab(tab);
     const parsed = tab ? parseAssetTabKey(tab) : null;
     setMountedDomains(parsed ? [parsed.domain] : []);
-  }, [existing?.collectionId, folderPath, notebookPath, resolveHostTab, sourceIndexPath, summary]);
+  }, [existing?.collectionId, folderOnly, folderPath, notebookPath, resolveHostTab, sourceIndexPath, summary]);
 
   /**
    * 切换宿主 tab，并把「当前 tab」记到本地偏好里（下次打开直接进入）。
@@ -208,7 +216,7 @@ export function useCollectionSurfaceState({
    * 直接打开集合文件时（包括 `.index.yaml`）即使 `payload.file_tree` 为真也不展示，
    * 因为此时它是一个有自己名字的集合文件，不是某个文件夹的首页。
    */
-  const showFilesTab = isFolderCollection && existing !== null && existing.fileTree;
+  const showFilesTab = folderOnly || (isFolderCollection && existing !== null && existing.fileTree);
   const tableReady = existing !== null && domains.includes('notes')
     && existing.views.some((view) => view.domain === 'notes');
 
@@ -258,7 +266,7 @@ export function useCollectionSurfaceState({
     applyHostTab(null, { preference: noteTabKey(viewId) });
   }, [applyHostTab]);
 
-  const commands = useCollectionViewCommands({ indexPath, notebookPath, currentFolderPath, folderName,
+  const commands = useCollectionViewCommands({ indexPath, notebookPath, currentFolderPath,
     editable, summary, onSummary: setSummary });
   const { addAssetView: createAssetView, addNoteView: createNoteView, renameView, reorderViews, removeView, busy } = commands;
   const addAssetView = useCallback((kind: 'media_library' | 'work_documents') => {
@@ -333,7 +341,7 @@ export function useCollectionSurfaceState({
   );
 
   const { banner, subtitle, icon } = useCollectionAppearance({ existing, indexPath, notebookPath, notebookId,
-    isFolderCollection, currentFolderPath, folderName, editable, setSummary });
+    isFolderCollection, currentFolderPath, editable, setSummary, folderOnly });
 
   return useMemo<CollectionSurfaceState>(() => ({
     summary, existing, missing, domains, tableReady,

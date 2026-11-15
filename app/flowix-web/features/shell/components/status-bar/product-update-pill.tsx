@@ -1,5 +1,7 @@
 'use client';
 
+import { PopupScrollArea } from '@shared/ui/popup-scroll-area';
+
 import { ArrowCircleUpIcon } from '@phosphor-icons/react';
 import type { AppUpdaterState } from '@features/shell/hooks/use-app-updater';
 import { useI18n } from '@/lib/i18n';
@@ -27,14 +29,14 @@ export function ProductUpdatePill({
   });
   const statusBarLabel = t('appUpdates.statusBarLabel');
   const updateDescription = (
-    <span className="block w-72 max-w-[calc(100vw-2rem)] space-y-1.5">
+    <div className="block w-72 max-w-[calc(100vw-2rem)] space-y-1.5">
       <span className="block font-medium">{versionLabel}</span>
       {update.body && (
-        <span className="block max-h-52 overflow-y-auto whitespace-pre-line text-[var(--muted-foreground)]">
+        <PopupScrollArea className="max-h-52" scrollerClassName="whitespace-pre-line text-[var(--muted-foreground)]">
           {update.body}
-        </span>
+        </PopupScrollArea>
       )}
-    </span>
+    </div>
   );
   const rightEdgeAnchor = anchor
     ? () => ({

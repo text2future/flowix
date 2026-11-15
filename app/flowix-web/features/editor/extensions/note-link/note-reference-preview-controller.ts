@@ -5,9 +5,7 @@ export interface NoteReferencePreviewData {
   title: string;
   preview: string;
   thumbnail: string | null;
-  notebookId: string;
-  relativePath: string;
-  notebookPath: string;
+  heading: string | null;
   filePath: string;
 }
 
@@ -167,8 +165,11 @@ export class NoteReferencePreviewController {
     const key = this.options.getLocatorKey();
     if (this.cache?.key === key) return this.cache.promise;
 
-    const promise = this.options.loadData().catch((error: unknown) => {
-      if (this.cache?.key === key) this.cache = null;
+    const promise: Promise<NoteReferencePreviewData | null> = this.options.loadData().then((data) => {
+      if (!data && this.cache?.promise === promise) this.cache = null;
+      return data;
+    }).catch((error: unknown) => {
+      if (this.cache?.promise === promise) this.cache = null;
       throw error;
     });
     this.cache = { key, promise };

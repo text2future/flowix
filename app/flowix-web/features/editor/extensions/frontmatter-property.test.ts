@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Editor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from '@tiptap/markdown';
@@ -16,6 +16,14 @@ import {
 } from '@features/document/properties/frontmatter-model';
 import { generatePropertyKey } from '@features/properties/property-key';
 import { resolvePropertyType } from '@features/document/properties/property-type';
+import { useSettingsStore } from '@/lib/store/settings-store';
+
+let previousPropertiesVisible: boolean;
+beforeEach(() => {
+  previousPropertiesVisible = useSettingsStore.getState().propertiesVisible;
+  useSettingsStore.setState({ propertiesVisible: true });
+});
+afterEach(() => useSettingsStore.setState({ propertiesVisible: previousPropertiesVisible }));
 
 describe('frontmatter property helpers', () => {
   it('resolves fixed, preset, and inferred property types from one source', () => {
@@ -411,7 +419,7 @@ describe('frontmatter property helpers', () => {
         expect(popover?.querySelector('.frontmatter-property__edit-icon-box--empty')).not.toBeNull();
         expect(popover?.querySelector('.frontmatter-property__edit-icon-placeholder')).not.toBeNull();
         const clear = popover?.querySelector<HTMLElement>('.frontmatter-property__edit-icon-clear');
-        expect(clear?.getAttribute('aria-label')).toBe('清空图标');
+        expect(clear?.getAttribute('aria-label')).toBe('清除图标');
         clear?.click();
         expect(popover?.querySelector('.frontmatter-property__edit-icon-menu')?.getAttribute('hidden'))
           .not.toBeNull();

@@ -1,9 +1,10 @@
 'use client';
 
+import { TREE_ICON_COLOR_CLASS } from '@shared/ui/tree-icon-color';
+
 import { DialogFooter } from '@shared/ui/dialog-footer';
 import { Button } from '@shared/ui/button';
 
-import { collectionIndexPathForFolder } from '@features/collection/public/folder-api';
 import { CollectionResourceIcon } from '@features/collection/public/appearance-api';
 
 import {
@@ -15,19 +16,10 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
-import {
-  CopyIcon,
-  FolderOpenIcon,
-  MapPinSimpleAreaIcon,
-  PencilSimpleIcon,
-  PushPin,
-  SquareSplitHorizontalIcon,
-  TrashSimpleIcon,
-} from '@phosphor-icons/react';
-import { ChevronRight, Loader2, MoreHorizontal } from 'lucide-react';
+import { ChevronRight, Columns2, Copy, FolderOpen, Loader2, MapPin, MoreHorizontal, Pencil, Pin, Trash2 } from 'lucide-react';
 
 import { toast } from '@/lib/toast';
-import { cn, displayTitleFromFilename, isCollectionIndexFilename } from '@/lib/utils';
+import { cn, displayTitleFromFilename } from '@/lib/utils';
 import { canonicalPath, joinNotebookMemoPath } from '@/lib/path';
 import { useI18n } from '@/lib/i18n';
 import { MemoCardActions } from '@features/memo/components/memo-card-actions';
@@ -35,7 +27,7 @@ import { NotebookCreateContextMenuItems } from '@features/memo/components/notebo
 import { NotebookCopyContextMenu } from '@features/memo/components/notebook-copy-context-menu';
 import { noteRepository } from '@features/memo/services/note-repository';
 import { NOTE_COLOR_HEX, noteIndexFor, noteLookupKey, useNoteStore } from '@features/memo/store/note-store';
-import type { NoteColor, NoteListItem } from '@/types/note-item';
+import type { NoteListItem } from '@/types/note-item';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSubmenu, ContextMenuTrigger, useContextMenuContext } from '@shared/ui/context-menu';
 import { POPUP_SEPARATOR_CLASS } from '@shared/ui/popup-separator';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@shared/ui/dialog';
@@ -43,9 +35,8 @@ import folderIcon from '@/assets/folder-outline.svg?raw';
 import folderIconDefault from '@/assets/folder-outline-default.svg?raw';
 import { useNoteMetadata } from '../hooks/use-note-metadata';
 import { noteMetadata } from '../services/note-metadata-service';
-import { resourceKindFromPath } from '@features/editor/code-file';
-import { ContentIcon, getFileIconKind, HtmlFileIcon } from '@features/content/public/content-api';
-import { resolveRowCollectionType } from './collection-row-icon';
+import { ContentIcon, HtmlFileIcon } from '@features/content/public/content-api';
+import { treeEntryPresentation } from '@features/content/public/tree-entry-api';
 import type { PinnedTreeItem } from './use-notebook-pinned-notes';
 import { TreeIconPicker } from './tree-icon-picker';
 import { setDocumentProperties } from '@features/document/public/path-properties';
@@ -54,10 +45,10 @@ import { logNativeContextMenuError } from '@platform/tauri/native-context-menu';
 import type { TableViewType } from '@features/multidimensional-table/public/create-api';
 
 const TREE_MENU_CLASS =
-  'w-[180px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]';
+  'w-[180px] rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]';
 
 const TREE_MENU_ITEM_CLASS =
-  'h-7 items-center justify-start rounded-lg px-2 py-0 text-left transition-colors hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]';
+  'h-7 items-center justify-start rounded-lg px-2 py-0 text-left transition-colors hover:bg-[var(--hover-bg)]';
 
 const TREE_EDGE_GUTTER = 6;
 const INDENT_PER_LEVEL = 20;
@@ -103,6 +94,7 @@ const HIDDEN_FOLDER_LABEL_OPACITY = 0.8;
 export const NotebookTreeRow = memo(function NotebookTreeRow({
   item,
   notebookPath,
+  notebookId,
   parentPath,
   posInSet,
   setSize,
@@ -149,6 +141,8 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
 }: {
   item: DocTreeItem;
   notebookPath: string;
+  /** 文件夹图标从 `folder_index` 表读；没有 id 时退化为默认文件夹图标。 */
+  notebookId?: string;
   parentPath: string;
   posInSet?: number;
   setSize?: number;
@@ -222,14 +216,16 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
     cancelPendingFolderClick();
     onToggle(item.fullPath);
   };
-  const sourceFolderName = item.fullPath.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? item.name;
-  const isHiddenFolder = isFolder
-    && sourceFolderName.startsWith('.')
-    && sourceFolderName !== '.'
-    && sourceFolderName !== '..';
   const actionParentPath = isFolder ? item.fullPath : parentPath;
-  const resourceKind = isFolder ? null : item.resourceKind ?? resourceKindFromPath(item.name);
-  const isNote = resourceKind === 'note';
+  const isPinnedCollection = (item as Partial<PinnedTreeItem>).pinnedEntryKind === 'collection';
+  const { resourceKind, isNote, isHiddenFolder, isHtmlFile, iconKind, collectionType: collectionRowType,
+    isExtensionlessDocument, displayName } = treeEntryPresentation(item, {
+    collectionType: (item as Partial<PinnedTreeItem>).pinnedCollectionType,
+    hasTableIdentity: Boolean(tableDocumentIdentity),
+    hasMediaLibraryIdentity: Boolean(mediaLibraryIdentity),
+    workDocumentsCollection,
+    isPinnedCollection,
+  });
   // The backend is the only source of pin state; callers may override it for
   // synthesized rows, but normally the row reads the item's own flag.
   const isPinnedItem = pinned ?? item.pinned ?? false;
@@ -241,35 +237,19 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
     : onTogglePinned
       ? () => { void onTogglePinned(!isPinnedFolderItem); }
       : null;
-  const isHtmlFile = !isFolder && getFileIconKind(item.fullPath) === 'html';
-  // Pinned titles omit extensions; their entry kind still identifies a collection
-  // even when its indexed type is unknown or stale.
-  const isPinnedCollection = (item as Partial<PinnedTreeItem>).pinnedEntryKind === 'collection';
-  const collectionRowType = isFolder ? undefined : resolveRowCollectionType({
-    collectionType: (item as Partial<PinnedTreeItem>).pinnedCollectionType,
-    fileName: item.name,
-    hasTableIdentity: Boolean(tableDocumentIdentity),
-    hasMediaLibraryIdentity: Boolean(mediaLibraryIdentity),
-    workDocumentsCollection,
-  });
   const isTableDocument = collectionRowType === 'table';
   const isMediaLibrary = collectionRowType === 'media_library';
-  const isCollectionIndex = !isFolder && isCollectionIndexFilename(item.name);
   const sidebarFolderDefault = <span className="flex h-[18px] w-[18px] items-center justify-center"
     dangerouslySetInnerHTML={{ __html: isDefaultFolder ? folderIconDefault : folderIcon }} />;
   const folderResourceIcon = isFolder ? <CollectionResourceIcon
-    filePath={collectionIndexPathForFolder(item.fullPath)} notebookPath={notebookPath}
+    folderPath={item.fullPath} notebookPath={notebookPath} notebookId={notebookId}
     className="h-[18px] w-[18px] object-contain"
     fallback={sidebarFolderDefault} folderDefault={sidebarFolderDefault}
   /> : null;
-  const collectionResourceIcon = collectionRowType || isCollectionIndex || isPinnedCollection
+  const collectionResourceIcon = iconKind === 'collection'
     ? <CollectionResourceIcon filePath={item.fullPath} notebookPath={notebookPath} fallbackType={collectionRowType}
       folderDefault={/^\.index\.ya?ml$/i.test(item.fullPath.split(/[\\/]/).pop() ?? '') ? sidebarFolderDefault : undefined}
       className="h-[18px] w-[18px] object-contain" /> : null;
-  const isExtensionlessDocument = isNote || isTableDocument || isMediaLibrary || isCollectionIndex || isPinnedCollection;
-  // 树行标题不带后缀的范围：笔记 / 表格 / 媒体库 / 集合索引，外加已按网页图标渲染的
-  // html。重命名输入框仍只认 isExtensionlessDocument —— 网页文件改名要保留后缀。
-  const showsTitleWithoutExtension = isExtensionlessDocument || isHtmlFile;
   const [pathNote, setPathNote] = useState<NoteListItem | null>(null);
   const storeNote = useNoteStore((state) => {
     const notebook = state.notebooks.find((candidate) => item.fullPath.toLowerCase().startsWith(`${candidate.path.replace(/[\\/]+$/, '').toLowerCase()}\\`)
@@ -394,13 +374,6 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
       toast.error(error instanceof Error ? error.message : String(error));
     }
   }, [favoritePath, item.fullPath, item.id, onFavoriteChanged, t]);
-
-  const changeColors = useCallback(async (nextMemo: NoteListItem, colors: NoteColor[]) => {
-    if (!await noteRepository.setColors(item.fullPath, colors)) return;
-    setPathNote((current) => current?.relativePath === nextMemo.relativePath
-      ? { ...current, colors }
-      : current);
-  }, [item.fullPath]);
 
   const requestDelete = useCallback((nextMemo: NoteListItem) => {
     window.dispatchEvent(new CustomEvent<NoteListItem>('flowix:request-delete-memo', {
@@ -553,11 +526,14 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
         >
       {renaming ? (
         <>
+          {/* 文件夹的普通态图标住在 20px 的展开按钮里 (18px 图标居中, 左右各 1px)。
+              重命名态没有那个按钮, 槽位必须自己保持 20px, 否则图标和输入框会整体左移。 */}
           <span
             aria-hidden="true"
             className={cn(
-              'relative flex h-[18px] w-[18px] shrink-0 items-center justify-center',
-              'text-[color-mix(in_oklch,var(--foreground)_70%,black_30%)] [[data-theme="dark"]_&]:text-[var(--foreground)] [[data-theme="mist"]_&]:text-[var(--foreground)]',
+              'relative flex shrink-0 items-center justify-center',
+              isFolder ? 'h-5 w-5' : 'h-[18px] w-[18px]',
+              TREE_ICON_COLOR_CLASS,
               isHiddenFolder && HIDDEN_FOLDER_ICON_OPACITY_CLASS,
             )}
           >
@@ -609,7 +585,7 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
               onKeyDown={(event) => event.stopPropagation()}
               className={cn(
               'relative h-5 w-5 shrink-0 rounded-md transition-colors group-hover:bg-[color-mix(in_oklch,var(--muted)_90%,var(--foreground)_10%)] group-focus-visible:bg-[color-mix(in_oklch,var(--muted)_90%,var(--foreground)_10%)] hover:bg-[color-mix(in_oklch,var(--muted)_90%,var(--foreground)_10%)] focus-visible:bg-[color-mix(in_oklch,var(--muted)_90%,var(--foreground)_10%)]',
-              'text-[color-mix(in_oklch,var(--foreground)_70%,black_30%)] [[data-theme="dark"]_&]:text-[var(--foreground)] [[data-theme="mist"]_&]:text-[var(--foreground)]',
+              TREE_ICON_COLOR_CLASS,
             )}>
               <span className={cn(
                 'absolute left-1/2 top-1/2 h-[18px] w-[18px] -translate-x-1/2 -translate-y-1/2',
@@ -639,7 +615,7 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
               )}
             </TreeIconPicker>
           ) : (
-            <span className={'relative flex h-[18px] w-[18px] shrink-0 items-center justify-center text-[color-mix(in_oklch,var(--foreground)_70%,black_30%)] [[data-theme="dark"]_&]:text-[var(--foreground)] [[data-theme="mist"]_&]:text-[var(--foreground)]'}>
+            <span className={`relative flex h-[18px] w-[18px] shrink-0 items-center justify-center ${TREE_ICON_COLOR_CLASS}`}>
               {isHtmlFile
                 ? <HtmlFileIcon className="h-[18px] w-[18px]" />
                 : collectionResourceIcon ? collectionResourceIcon
@@ -671,9 +647,7 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
               ? { opacity: (active || selected ? 1 : 0.82) * HIDDEN_FOLDER_LABEL_OPACITY }
               : undefined}
           >
-            {optimisticName ?? (isFolder || !showsTitleWithoutExtension
-              ? item.name
-              : displayTitleFromFilename(item.name))}
+            {optimisticName ?? displayName}
           </span>
           {isFolder && isDefaultFolder && !renaming && (
             <span className="ml-2 shrink-0 text-xs text-[var(--muted-foreground)] opacity-50 transition-opacity duration-150 group-hover:opacity-0">
@@ -723,16 +697,16 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
       )}
         </div>
       </ContextMenuTrigger>
-      <ContextMenuContent className={TREE_MENU_CLASS}>
+      <ContextMenuContent scrollerClassName="space-y-0.5" className={TREE_MENU_CLASS}>
         {onDeleteSelected ? (
-          <ContextMenuItem className={TREE_MENU_ITEM_CLASS} onClick={() => setConfirmFileDelete(true)}>
-            <TrashSimpleIcon className="mr-2 h-4 w-4" />
+          <ContextMenuItem className={cn(TREE_MENU_ITEM_CLASS, 'hover:text-[var(--destructive)]')} onClick={() => setConfirmFileDelete(true)}>
+            <Trash2 className="mr-2 h-4 w-4" />
             {t('memo.fileTree.delete')}
           </ContextMenuItem>
         ) : <>
         {!isFolder && onOpenInNewTab && (
           <ContextMenuItem onClick={() => onOpenInNewTab(item.fullPath)} className={TREE_MENU_ITEM_CLASS}>
-            <SquareSplitHorizontalIcon className="mr-2 h-4 w-4" aria-hidden="true" />
+            <Columns2 className="mr-2 h-4 w-4" aria-hidden="true" />
             {t('memo.fileTree.openInRight')}
           </ContextMenuItem>
         )}
@@ -754,12 +728,12 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
           }}
           className={TREE_MENU_ITEM_CLASS}
         >
-          <PencilSimpleIcon className="mr-2 h-4 w-4" />
+          <Pencil className="mr-2 h-4 w-4" />
           {t('memo.fileTree.rename')}
         </ContextMenuItem>
         {isFolder && item.indexExcluded !== true && toggleFolderPin && (
           <ContextMenuItem onClick={toggleFolderPin} className={TREE_MENU_ITEM_CLASS}>
-            <PushPin weight={isPinnedFolderItem ? 'fill' : 'regular'} className="mr-2 h-4 w-4" aria-hidden="true" />
+            <Pin className={`mr-2 h-4 w-4${isPinnedFolderItem ? ' fill-current' : ''}`} aria-hidden="true" />
             {t(isPinnedFolderItem ? 'memo.action.unpin' : 'memo.action.pin')}
           </ContextMenuItem>
         )}
@@ -768,11 +742,11 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
             className={TREE_MENU_ITEM_CLASS}
             onClick={() => { void onTogglePinned(!isPinnedItem); }}
           >
-            <PushPin weight={isPinnedItem ? 'fill' : 'regular'} className="mr-2 h-4 w-4" aria-hidden="true" />
+            <Pin className={`mr-2 h-4 w-4${isPinnedItem ? ' fill-current' : ''}`} aria-hidden="true" />
             {t(isPinnedItem ? 'memo.action.unpin' : 'memo.action.pin')}
           </ContextMenuItem>
         )}
-        {!isFolder && (!isNote || !displayedMemo) && <NotebookCopyContextMenu path={item.fullPath} isNote={isNote} />}
+        {!isFolder && (!isNote || !displayedMemo) && <NotebookCopyContextMenu path={item.fullPath} />}
         {isFolder && onDeleteFolder && (
           <ContextMenuItem
             onClick={async () => {
@@ -785,20 +759,20 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
             }}
             className={TREE_MENU_ITEM_CLASS}
           >
-            <CopyIcon className="mr-2 h-4 w-4" aria-hidden="true" />
+            <Copy className="mr-2 h-4 w-4" aria-hidden="true" />
             {t('memo.fileTree.copyPath')}
           </ContextMenuItem>
         )}
         {(isFolder || !isNote || !displayedMemo) && (
           <ContextMenuItem onClick={revealInFileManager} className={TREE_MENU_ITEM_CLASS}>
-          <FolderOpenIcon className="mr-2 h-4 w-4" aria-hidden="true" />
+          <FolderOpen className="mr-2 h-4 w-4" aria-hidden="true" />
             {t('memo.fileTree.reveal')}
           </ContextMenuItem>
         )}
         {isFolder && item.indexExcluded !== true && onSetDefaultFolder && (
           <ContextMenuSubmenu
             label={t('memo.fileTree.folderUsageSubmenu')}
-            icon={<MapPinSimpleAreaIcon className="h-4 w-4" aria-hidden="true" />}
+            icon={<MapPin className="h-4 w-4" aria-hidden="true" />}
           >
             <ContextMenuItem onClick={() => onSetDefaultFolder(item.fullPath)} className={TREE_MENU_ITEM_CLASS}>
               {t(isDefaultFolder ? 'memo.fileTree.unsetAsNotesFolder' : 'memo.fileTree.setAsNotesFolder')}
@@ -820,9 +794,9 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
             <div role="separator" aria-hidden="true" className={POPUP_SEPARATOR_CLASS} />
             <ContextMenuItem
               onClick={() => setConfirmDelete(true)}
-              className={cn(TREE_MENU_ITEM_CLASS, 'hover:bg-transparent hover:text-[var(--destructive)]')}
+              className={cn(TREE_MENU_ITEM_CLASS, 'hover:bg-[var(--hover-bg)] hover:text-[var(--destructive)]')}
             >
-              <TrashSimpleIcon className="mr-2 h-4 w-4" />
+              <Trash2 className="mr-2 h-4 w-4" />
               {t('memo.fileTree.delete')}
             </ContextMenuItem>
           </>
@@ -833,9 +807,9 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
         {!isFolder && !isNote && onDeleteFile && (
           <ContextMenuItem
             onClick={() => setConfirmFileDelete(true)}
-            className={cn(TREE_MENU_ITEM_CLASS, 'hover:bg-transparent hover:text-[var(--destructive)]')}
+            className={cn(TREE_MENU_ITEM_CLASS, 'hover:bg-[var(--hover-bg)] hover:text-[var(--destructive)]')}
           >
-            <TrashSimpleIcon className="mr-2 h-4 w-4" />
+            <Trash2 className="mr-2 h-4 w-4" />
             {t('memo.fileTree.delete')}
           </ContextMenuItem>
         )}
@@ -844,20 +818,20 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
             memo={displayedMemo}
             filePath={item.fullPath}
             hideCopyActions
-            copyMenuBeforeReveal={<NotebookCopyContextMenu path={item.fullPath} isNote />}
+            copyMenuBeforeReveal={<NotebookCopyContextMenu path={item.fullPath} />}
             onFavoriteToggle={(nextMemo) => { void toggleFavorite(nextMemo.favorited, nextMemo.relativePath); }}
             onDelete={requestDelete}
-            onColorsChange={(nextMemo, colors) => { void changeColors(nextMemo, colors); }}
             Item={ContextMenuItem}
           />
         )}
         {!isFolder && isNote && !displayedMemo && (
           <>
             <ContextMenuItem className={TREE_MENU_ITEM_CLASS} onClick={() => { void toggleFavorite(item.memoMeta?.favorited ?? false); }}>
+              <Pin className={cn('mr-2 h-4 w-4', item.memoMeta?.favorited && 'fill-current')} aria-hidden="true" />
               {t(item.memoMeta?.favorited ? 'memo.action.unpin' : 'memo.action.pin')}
             </ContextMenuItem>
-            <ContextMenuItem className={cn(TREE_MENU_ITEM_CLASS, 'hover:bg-transparent hover:text-[var(--destructive)]')} onClick={deleteNoteFromTree}>
-              <TrashSimpleIcon className="mr-2 h-4 w-4" />
+            <ContextMenuItem className={cn(TREE_MENU_ITEM_CLASS, 'hover:bg-[var(--hover-bg)] hover:text-[var(--destructive)]')} onClick={deleteNoteFromTree}>
+              <Trash2 className="mr-2 h-4 w-4" />
               {t('memo.action.delete')}
             </ContextMenuItem>
           </>

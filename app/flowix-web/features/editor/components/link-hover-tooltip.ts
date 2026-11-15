@@ -232,7 +232,9 @@ export function attachLinkHoverTooltip(
 
   const scheduleHide = () => {
     cancelShow();
-    cancelHide();
+    // Pointer movement outside the safe area can keep reporting the same exit;
+    // preserve the original deadline instead of restarting the delay each time.
+    if (hideTimer !== null) return;
     hideTimer = setTimeout(hide, HIDE_DELAY_MS);
   };
 
@@ -346,11 +348,11 @@ export function attachLinkHoverTooltip(
     // (editor-bubble-menus.css); editor-link-tooltip.css 只覆盖定位与动画。
     tooltipEl.className = 'editor-link-hover-tooltip';
     tooltipEl.addEventListener('mouseenter', cancelHide);
-    tooltipEl.addEventListener('mouseleave', (event) => {
-      const pointer = event as MouseEvent;
-      // 从气泡走回链接 (或反过来) 会先踩到 8px 留白: 指针还在安全区里就
-      // 不启动隐藏倒计时, 否则在中间稍停一下气泡就消失了。
-      if (isPointerInSafeArea(pointer.clientX, pointer.clientY)) return;
+    tooltipEl.addEventListener('mouseleave', () => {
+      // Start a hide countdown as soon as the pointer leaves the bubble. If it
+      // is heading back to the link, document mousemove cancels the countdown
+      // while the pointer crosses the safe corridor; pausing just outside the
+      // bubble still lets it close.
       scheduleHide();
     });
     document.body.appendChild(tooltipEl);
@@ -544,6 +546,7 @@ export function attachLinkHoverTooltip(
     if (event.type === 'click' && href.startsWith('#')) {
       event.preventDefault();
       hide();
+      toast.info(translate(getCurrentAppLanguage(), 'editor.link.currentDocument'));
       navigateToHeadingAnchor(editor.view.dom, href);
       return;
     }
@@ -556,6 +559,7 @@ export function attachLinkHoverTooltip(
         if (context?.openLocalPath) {
           void Promise.resolve(context.openLocalPath(resolvedPath)).catch((error) => {
             console.error('Failed to open local document link:', error);
+            toast.error(translate(getCurrentAppLanguage(), 'errors.friendly.linkOpen'));
           });
           return;
         }
@@ -617,13 +621,17 @@ export function attachLinkHoverTooltip(
   };
 
   /**
-   * 兜底: 气泡 mouseleave 与链接 mouseout 交错时, 只要指针还在走廊里,
-   * 每次移动都撤掉尚未触发的隐藏倒计时。这里只撤销、不主动启动隐藏,
-   * 否则每次 mousemove 都会把 140ms 计时器重置成永不收起。
+   * Track the full link ↔ bubble corridor. Cancel a pending hide while the
+   * pointer crosses it; once outside, start one hide timer. The original
+   * mouseout/mouseleave may already have been ignored inside the corridor.
    */
   const handlePointerMove = (event: MouseEvent) => {
     if (!activeLink || !tooltipEl || tooltipEl.classList.contains('is-hiding')) return;
-    if (isPointerInSafeArea(event.clientX, event.clientY)) cancelHide();
+    if (isPointerInSafeArea(event.clientX, event.clientY)) {
+      cancelHide();
+      return;
+    }
+    scheduleHide();
   };
 
   root.addEventListener('click', handleEvent);

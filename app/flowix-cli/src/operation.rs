@@ -45,6 +45,13 @@ pub(crate) enum FlowixOperation {
         collection_id: Option<String>,
         path: Option<String>,
     },
+    CollectionAddNote {
+        notebook: String,
+        collection_id: Option<String>,
+        path: Option<String>,
+        title: String,
+        content: String,
+    },
     CollectionList {
         notebook: Option<String>,
         collection_type: Option<String>,
@@ -150,6 +157,37 @@ pub(crate) fn execute(operation: FlowixOperation) -> Result<Value, CliError> {
             collection_id,
             path,
         } => collection_store::read(&notebook, collection_id.as_deref(), path.as_deref()),
+        FlowixOperation::CollectionAddNote {
+            notebook,
+            collection_id,
+            path,
+            title,
+            content,
+        } => {
+            let memo = store::open()?;
+            let notebook = store::resolve_notebook_config(&memo, &notebook)?;
+            let result = flowix_core::collection_store::add_note(
+                &memo,
+                &notebook.id,
+                collection_id.as_deref(),
+                path.as_deref(),
+                &title,
+                &content,
+            )
+            .map_err(CliError::Other)?;
+            Ok(serde_json::json!({
+                "ok": true,
+                "action": "collection.add-note",
+                "notebookId": result.notebook_id,
+                "collectionId": result.collection_id,
+                "collectionPath": result.collection_path,
+                "collectionRevision": result.collection_revision,
+                "note": {
+                    "address": result.address,
+                    "relativePath": result.note_path,
+                },
+            }))
+        }
         FlowixOperation::CollectionList {
             notebook,
             collection_type,

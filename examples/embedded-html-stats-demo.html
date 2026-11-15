@@ -1,7 +1,13 @@
 <!--
   Flowix 嵌入 HTML 数据框架示例
   =====================================================
-  框架已实装（数据桥），用法分两种：
+  完整契约见 docs/EMBEDDED-HTML-API.md（协议 flowix.embed v1）。
+  本文件只演示用法；能力名与错误码以该文档为准。
+
+  前提：文件必须在当前笔记本目录内，放到目录外会按外部文件打开，
+  读不到数据（所有请求返回 E_SCOPE）。
+
+  用法分两种：
 
   1) 声明式（推荐，零 JS）：
      <meta name="flowix-data" content="stats views">
@@ -19,12 +25,16 @@
             表格/媒体库 => 行含 title/tags/properties（frontmatter 字段值，
                            fields[].propertyKey 指明列到属性的映射）
             文件夹集合  => 目录内文档列表
+       失败时 error.code 为 E_UNSUPPORTED / E_SCOPE / E_BUSY / E_INTERNAL。
        window.flowix.render(root) 手动渲染，onData(cb) 订阅更新
 
   模板语法：
     data-fx-text="stats.totalMemos"             文本插值
-    data-fx-attr="style:item.barWidth"          属性绑定
-    <template data-fx-each="views.collections"> 列表循环（可嵌套）
+    data-fx-attr="title:item.name"              整个属性绑定
+    data-fx-attr="href:item.href"               让集合 / 行可点（href 由宿主给出，别自己拼地址）
+    data-fx-style="width:item.barWidth"         单个 CSS 属性（style 不能走 data-fx-attr）
+    <template data-fx-each="views.collections"> 列表循环（可嵌套，默认作用域 item）
+    <template ... data-fx-as="view">            嵌套循环给内层改名，否则会遮蔽外层 item
     data-fx-if="views.collections.length > 0"   条件显示（==/!=/>/</>=/<=）
 
   本文件在 Flowix 中预览时走真实数据；直接用浏览器打开时
@@ -58,6 +68,8 @@
   .bar-bg { flex: 1; height: 8px; background: #ececec; border-radius: 4px; }
   .bar { height: 8px; border-radius: 4px; background: var(--fx-accent); }
   .view { background: var(--fx-accent-soft); border-radius: 8px; padding: 8px 12px; margin: 6px 0; font-size: 13px; }
+  .view a { color: inherit; font-weight: 600; text-decoration: none; }
+  .view a[href=""] { pointer-events: none; }
   .tag { display: inline-block; background: var(--fx-chip-bg); color: var(--fx-chip-fg); border-radius: 4px; padding: 1px 8px; margin-right: 6px; font-size: 12px; }
   .pill { display: inline-block; background: #ececec; border-radius: 4px; padding: 1px 8px; margin-right: 6px; font-size: 12px; color: var(--fx-muted); }
   #rows .line { display: flex; gap: 8px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid #f0efeb; font-size: 13px; }
@@ -78,7 +90,7 @@
 <template data-fx-each="stats.topTags">
   <div class="row">
     <span class="tag" data-fx-text="item.name">tag</span>
-    <div class="bar-bg"><div class="bar" data-fx-attr="style:item.barWidth"></div></div>
+    <div class="bar-bg"><div class="bar" data-fx-style="width:item.barWidth"></div></div>
     <span data-fx-text="item.count">0</span>
   </div>
 </template>
@@ -86,9 +98,10 @@
 <h2>集合视图</h2>
 <template data-fx-each="views.collections">
   <div class="view">
-    <b data-fx-text="item.name">视图</b>
+    <!-- 集合名字挂 collections[].href：宿主给的 flowix://open 深链，点一下就打开这个集合 -->
+    <a data-fx-attr="href:item.href" data-fx-text="item.name">视图</a>
     <span class="pill" data-fx-text="item.type">table</span>
-    <template data-fx-each="item.views">
+    <template data-fx-each="item.views" data-fx-as="view">
       <span class="pill" data-fx-text="view.name">视图</span>
       <span class="pill" data-fx-text="view.layout">layout</span>
     </template>
@@ -115,11 +128,11 @@ const MOCK = {
   },
   'notebook-views': {
     collections: [
-      { name: '产品文档', type: 'table', relativePath: 'docs.index.yaml', inViews: true, defaultViewId: 'v1',
+      { name: '产品文档', type: 'table', relativePath: 'docs.index.yaml', href: 'flowix://open?notebookId=demo&f=docs.index.yaml', inViews: true, defaultViewId: 'v1',
         views: [ { id: 'v1', name: '全部', layout: 'table' }, { id: 'v2', name: '按状态', layout: 'board' } ] },
-      { name: '设计素材', type: 'media_library', relativePath: 'assets.lib.yaml', inViews: true, defaultViewId: 'w1',
+      { name: '设计素材', type: 'media_library', relativePath: 'assets.lib.yaml', href: 'flowix://open?notebookId=demo&f=assets.lib.yaml', inViews: true, defaultViewId: 'w1',
         views: [ { id: 'w1', name: '瀑布流', layout: 'waterfall' } ] },
-      { name: '工作文档', type: 'work_documents', relativePath: 'work.index.yaml', inViews: false, views: [] }
+      { name: '工作文档', type: 'work_documents', relativePath: 'work.index.yaml', href: 'flowix://open?notebookId=demo&f=work.index.yaml', inViews: false, views: [] }
     ]
   },
   'view-data': {
@@ -162,13 +175,14 @@ if (!window.flowix) {
     const lookup = (path) => { const v = getPath(local, path); return v === undefined ? getPath(root, path) : v; };
     fragment.querySelectorAll('template[data-fx-each]').forEach((tpl) => {
       const list = lookup(tpl.getAttribute('data-fx-each'));
+      const alias = (tpl.getAttribute('data-fx-as') ?? '').trim() || 'item';
       let node = tpl.nextElementSibling;
       while (node && node.hasAttribute('data-fx-rendered')) { const n = node.nextElementSibling; node.remove(); node = n; }
       if (!Array.isArray(list)) return;
       let cursor = tpl;
       for (const item of list) {
         const clone = tpl.content.cloneNode(true);
-        bind(clone, { ...local, item }, root);
+        bind(clone, { ...local, [alias]: item }, root);
         let child = clone.firstElementChild;
         while (child) { child.setAttribute('data-fx-rendered', ''); child = child.nextElementSibling; }
         const last = clone.lastElementChild;
@@ -186,6 +200,12 @@ if (!window.flowix) {
       const d = String(el.getAttribute('data-fx-attr') ?? ''); const i = d.indexOf(':');
       if (i <= 0) return;
       el.setAttribute(d.slice(0, i).trim(), lookup(d.slice(i + 1)) ?? '');
+    });
+    fragment.querySelectorAll('[data-fx-style]').forEach((el) => {
+      if (el.closest('[data-fx-rendered]')) return;
+      const d = String(el.getAttribute('data-fx-style') ?? ''); const i = d.indexOf(':');
+      if (i <= 0) return;
+      el.style.setProperty(d.slice(0, i).trim(), lookup(d.slice(i + 1)) ?? '');
     });
     fragment.querySelectorAll('[data-fx-if]').forEach((el) => {
       if (el.closest('[data-fx-rendered]')) return;
@@ -208,7 +228,10 @@ if (!window.flowix) {
     for (const row of data.rows) {
       const line = document.createElement('div');
       line.className = 'line';
-      const title = document.createElement('b');
+      // `href` is a ready `flowix://open` link; the preview's link bridge turns
+      // a click on it into "open this note", so the demo needs no extra wiring.
+      const title = document.createElement(row.href ? 'a' : 'b');
+      if (row.href) title.setAttribute('href', row.href);
       title.textContent = row.title || row.notePath;
       line.appendChild(title);
       for (const tag of row.tags.slice(0, 3)) {
@@ -229,7 +252,8 @@ if (!window.flowix) {
     if (data.truncated) {
       const more = document.createElement('div');
       more.style.color = 'var(--fx-muted)';
-      more.textContent = '…仅显示前一部分数据行';
+      // `total` is the count before `limit`; null when the host cannot know it.
+      more.textContent = `…显示 ${data.rows.length} / ${data.total ?? '更多'} 行`;
       container.appendChild(more);
     }
     if (!data.rows.length) container.textContent = '该视图暂无数据行。';

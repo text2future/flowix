@@ -1,0 +1,198 @@
+<!doctype html>
+<!--
+  模板 table：把任意集合的默认视图渲染成表格，命令式取数。
+
+  和 workbench 的区别：这一页自己 request('view-data') 拿行，因为「取哪一行集合」
+  是用户选的，改不了 <meta> 里的固定清单。代价是笔记本数据变更后不会自动刷新，
+  必须在 onInvalidate 里自己重取 —— 注释里标了那一行。
+
+  三条规则：
+  1. 不用写 <meta name="flowix-data">：本页手动 request，不需要自动拉取。
+  2. 参数 relativePath 来自 notebook-views 的 collections[].relativePath，
+     它是笔记本内相对路径，直接喂给 view-data。
+  3. 普通列读 field.propertyKey；propertyKey 为 null 的列不是 frontmatter 属性，
+     页面拿不到值，渲染成空格子比猜字段名靠谱。主字段例外：type === 'primary'
+     是表格的笔记列，值在 row.title（不要读 properties.note）。
+     文件夹集合不声明任何列（fields 为空），这时兜一列「名称」。
+  为了让这一页不至于两处都错，limit 用的是目录里公布的 200；改上限要同步改这里
+  （`npm run check:embed-catalog` 会比对）。
+
+  想改成看板 / 列表，只换 paint() 里的 DOM 结构，取数和错误处理不用动。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>集合表格</title>
+<style>
+  :root {
+    --background: #fbfaf7; --foreground: #24211c; --muted-foreground: #8a8177;
+    --card: #ffffff; --brand: #c2603a; --border: #e7e1d8;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body {
+    margin: 0; padding: 24px; background: var(--background); color: var(--foreground);
+    font: 13px/1.55 -apple-system, "Segoe UI", "PingFang SC", sans-serif;
+  }
+  header { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 14px; }
+  select {
+    padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--card); color: inherit; font: inherit; max-width: 60vw;
+  }
+  #status { color: var(--muted-foreground); font-size: 12px; font-variant-numeric: tabular-nums; }
+  table { width: 100%; border-collapse: collapse; background: var(--card);
+          border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  th, td { padding: 7px 11px; text-align: left; border-bottom: 1px solid var(--border);
+           vertical-align: top; }
+  th { position: sticky; top: 0; background: var(--card); font-weight: 600; white-space: nowrap; }
+  tbody tr:last-child td { border-bottom: 0; }
+  td { max-width: 26em; overflow-wrap: anywhere; }
+  a { color: var(--brand); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<header>
+  <select id="collection" hidden aria-label="选择集合"></select>
+  <span id="status">读取中…</span>
+</header>
+<table>
+  <thead id="head"></thead>
+  <tbody id="rows"></tbody>
+</table>
+<script>
+(() => {
+  const bridge = window.flowix;
+  const picker = document.getElementById('collection');
+  const status = document.getElementById('status');
+  const head = document.getElementById('head');
+  const body = document.getElementById('rows');
+
+  // 页面被当成外部文件打开时没有桥：一句明话，比满屏 undefined 有用
+  if (!bridge) {
+    status.textContent = '没有数据桥：把页面放进笔记本目录里再打开。';
+    return;
+  }
+
+  // 主题 token 是 camelCase（secondaryForeground），CSS 变量要 kebab-case
+  const kebab = (key) => key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+  // properties 的值只可能是 string / number / boolean / string[]
+  const text = (value) => {
+    if (value == null) return '';
+    if (Array.isArray(value)) return value.map(text).join(' · ');
+    if (typeof value === 'boolean') return value ? '是' : '否';
+    return String(value);
+  };
+
+  async function applyTheme() {
+    try {
+      const { tokens } = await bridge.request('product-theme');
+      for (const [key, value] of Object.entries(tokens ?? {})) {
+        document.documentElement.style.setProperty(`--${kebab(key)}`, value);
+      }
+    } catch { /* 拿不到就留在样式表里的兜底色 */ }
+  }
+
+  function paint({ fields, rows, total, truncated }) {
+    // 文件夹集合不声明列（fields 为空），这时至少要有一列名字，否则每行都是空 <tr>
+    const columns = fields.length ? fields : [{ name: '名称', type: 'primary', propertyKey: null }];
+
+    const titleRow = document.createElement('tr');
+    for (const field of columns) {
+      const cell = document.createElement('th');
+      cell.textContent = field.name;
+      titleRow.append(cell);
+    }
+    head.replaceChildren(titleRow);
+
+    const fragment = document.createDocumentFragment();
+    for (const row of rows) {
+      const tr = document.createElement('tr');
+      for (const field of columns) {
+        const td = document.createElement('td');
+        if (field.type === 'primary') {
+          // title 已回退文件名；href 为空表示这不是笔记行（图片 / 文档）
+          if (row.href) {
+            const link = document.createElement('a');
+            link.href = row.href;
+            link.textContent = row.title || '（未命名）';
+            td.append(link);
+          } else {
+            td.textContent = row.title || '（未命名）';
+          }
+        } else if (field.propertyKey) {
+          td.textContent = text(row.properties?.[field.propertyKey]);
+        }
+        tr.append(td);
+      }
+      fragment.append(tr);
+    }
+    body.replaceChildren(fragment);
+
+    if (!rows.length) {
+      status.textContent = '这个视图没有行。';
+      return;
+    }
+    // total 为 null 是分页集合（工作文档 / 媒体库 / 文件夹），说明「还有更多」而不是 0。
+    // 本页已经把 limit 顶到上限，再调大没有意义，所以这里不劝人调 limit。
+    status.textContent = total == null
+      ? `${rows.length} 行，还有更多（分页集合，单页上限 200）`
+      : truncated
+        ? `${rows.length} / ${total} 行（已截断）`
+        : `${rows.length} 行`;
+  }
+
+  async function load() {
+    const option = picker.selectedOptions[0];
+    if (!option) return;
+    status.textContent = '读取中…';
+    try {
+      paint(await bridge.request('view-data', {
+        relativePath: option.value,
+        viewId: option.dataset.view || undefined,
+        limit: 200,
+      }));
+    } catch (error) {
+      // 宿主错误带 code（E_SCOPE 等）；SDK 自己的超时 / 队列拒绝只有 message
+      status.textContent = `读取失败：${error.code ? `${error.code} ` : ''}${error.message || error}`;
+    }
+  }
+
+  async function boot() {
+    await applyTheme();
+    try {
+      const { collections } = await bridge.request('notebook-views');
+      if (!collections.length) {
+        status.textContent = '这个笔记本还没有集合。';
+        return;
+      }
+      for (const collection of collections) {
+        const option = document.createElement('option');
+        option.value = collection.relativePath;
+        // defaultViewId 是集合的默认视图；为空时宿主会退到第一个视图
+        option.dataset.view = collection.defaultViewId || '';
+        option.textContent = `${collection.name}（${collection.views.length} 视图）`;
+        picker.append(option);
+      }
+      picker.hidden = false;
+      await load();
+    } catch (error) {
+      status.textContent = `读取集合失败：${error.code ? `${error.code} ` : ''}${error.message || error}`;
+    }
+  }
+
+  picker.addEventListener('change', load);
+  // 本页是手动 request，自动拉取不会替它重取，所以笔记本一变必须自己重来。
+  // kinds 为 null 表示宿主没说变了什么 —— 那就全部重来；只说主题变了就不必重取行。
+  bridge.onInvalidate((event) => {
+    const kinds = event.kinds;
+    if (!kinds || kinds.includes('product-theme')) void applyTheme();
+    if (kinds && kinds.every((kind) => kind === 'product-theme')) return;
+    void load();
+  });
+  void boot();
+})();
+</script>
+</body>
+</html>

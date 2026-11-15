@@ -22,6 +22,12 @@ export function DocumentTitlebar({ platform, ...props }: DocumentTitlebarProps &
         showEditorFontSwitcher: Boolean(props.showEditorFontSwitcher), showEditorModeToggle: Boolean(props.showEditorModeToggle) }}
     /> : <WorkspaceHeaderContentActions iconButtonClass={iconButtonClass}
       collection={collectionDisplay}
+      collectionHost={target || collectionDisplay ? 'column-1' : undefined}
+      notebookId={target?.notebookId}
+      mediaReference={surfaceChrome === 'media' && target ? {
+        path: target.fileIdentity.path,
+        notebookId: target.notebookId,
+      } : null}
       media={surfaceChrome === 'media' ? props.mediaActions : undefined}
       document={target && surfaceChrome !== 'media' ? {
         target, capabilities: props.contentCapabilities, actions: props.actions,

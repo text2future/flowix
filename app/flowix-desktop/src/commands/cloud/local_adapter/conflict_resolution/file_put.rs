@@ -42,7 +42,7 @@ pub(crate) fn resolve_v2_file_put_conflict(
             state.cloud_sync.v2_rebase_after_conflict(&material.remote).map_err(sync_error)?;
         }
         drop(_guard);
-        crate::commands::collection::refresh_path(&memo_file, &path);
+        flowix_core::collection_store::refresh_path(&memo_file, &path);
         let _ = app.emit("file-management-changed", serde_json::json!({"notebookId": material.notebook_id, "notebookPath": notebook.path}));
         let _ = app.emit("collection-changed", serde_json::json!({"notebookId": material.notebook_id, "notebookPath": notebook.path, "relativePath": material.remote.filename}));
         return Ok(());
@@ -164,7 +164,7 @@ pub(crate) fn resolve_v2_file_put_conflict(
                     let _ = flowix_core::memo_file::rename_file_noclobber(&destination, &path);
                     return Err(sync_error(error));
                 }
-                crate::commands::document_list::rebase_collection_paths(
+                flowix_core::collection_store::rebase_collection_paths(
                     &memo_file,
                     &material.notebook_id,
                     &material.remote.filename,
@@ -221,7 +221,7 @@ pub(crate) fn resolve_v2_file_put_conflict(
                         &material.remote.filename,
                     );
                     if restored.is_ok() {
-                        crate::commands::document_list::rebase_collection_paths(
+                        flowix_core::collection_store::rebase_collection_paths(
                             &memo_file,
                             &material.notebook_id,
                             material.relocated.as_ref().map_or(material.remote.filename.as_str(), |item| item.filename.as_str()),
@@ -432,7 +432,7 @@ pub(crate) fn resolve_v2_file_put_conflict(
     memo_file
         .refresh_note_path(&material.notebook_id, &relative_path)
         .map_err(sync_error)?;
-    crate::commands::path_change::NotebookPathInvalidated::new(
+    crate::events::path_change::NotebookPathInvalidated::new(
         material.notebook_id.clone(),
         relative_path,
     )

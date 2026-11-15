@@ -1,5 +1,11 @@
 import { translate, type AppLanguage } from '@/lib/i18n';
 import { getCurrentAppLanguage } from '@features/preferences/public/runtime-api';
+import type { DocumentResourceContext } from '@/lib/document-resource-context';
+
+export interface AttachmentUploadRequest extends DocumentResourceContext {
+    signal?: AbortSignal;
+    deduplicate?: boolean;
+}
 
 export type StoredAsset = {
     kind: 'image' | 'video' | 'file';
@@ -10,6 +16,8 @@ export type StoredAsset = {
     fileName?: string | null;
     storageMode?: 'attachment';
     storageKey?: string | null;
+    /** Standard Markdown destination for this document, without runtime asset schemes. */
+    markdownHref?: string;
     /** False when the backend reused an existing file or returned a notebook-local source path. */
     created?: boolean;
     revokeObjectURL?: boolean;
@@ -22,8 +30,7 @@ export type AttachmentSaveResult = {
 
 export type AttachmentUploadOptions = {
     ownerPath?: string;
-    getOwnerPath?: () => string | undefined;
-    getNotebookId?: () => string | undefined;
+    getContext?: () => DocumentResourceContext;
     storage: { mode: 'attachment' };
     picker: { accept: string | undefined; multiple: boolean };
     ingest: {

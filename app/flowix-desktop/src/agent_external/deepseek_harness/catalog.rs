@@ -1,12 +1,8 @@
 use std::collections::HashSet;
-use std::path::PathBuf;
 
-use super::config::{
-    normalize_agent_preset, normalize_permission, resolve_runtime_config, select_harness_config,
-    PersistedRuntimeConfig,
-};
+use super::config::resolve_runtime_config;
 use super::discovery::timed_host_request;
-use super::error::{resolved_session_id, validate_plugin_key};
+use super::error::validate_plugin_key;
 use super::manager::{DeepSeekHarnessManager, DeepSeekHarnessSessionUsage};
 use super::protocol;
 use super::AGENT_TYPE;

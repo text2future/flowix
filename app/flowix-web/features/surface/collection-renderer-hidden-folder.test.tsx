@@ -11,7 +11,13 @@ const calls = vi.hoisted(() => ({
 }));
 vi.mock('@platform/tauri/event-bus', () => ({ subscribe: () => () => {} }));
 vi.mock('@platform/tauri/client', () => ({
-  files: { isIndexExcluded: (path: string) => calls.isIndexExcluded(path), getDirChildren: calls.getDirChildren, read: (path: string, scope: string) => calls.read(path, scope) },
+  files: { isIndexExcluded: (path: string) => calls.isIndexExcluded(path), getDirChildren: calls.getDirChildren, read: (path: string, scope: string) => calls.read(path, scope),
+    // 文件树行要扫三张集合清单来标注行图标；这里给空清单。
+    listTableDocuments: async () => [], listMediaLibraries: async () => [],
+    getNotebookViewPreferences: async () => ({ defaultCreateFolder: null }),
+    // 目录监听：测试不模拟文件系统事件，给了就够（外壳只为「实时刷新」订阅）。
+    watchRoot: async () => 1, unwatchRoot: async () => {} },
+  collections: { list: async () => [] },
   notes: {},
 }));
 vi.mock('@features/workspace/public/main-window-api', () => ({ openFolderCollection: vi.fn(), openFolderCollectionFromFolder: vi.fn() }));
@@ -35,7 +41,7 @@ vi.mock('@features/media-library/public/surface-api', () => ({
 vi.mock('./work-documents-collection-view', () => ({ WorkDocumentsCollectionView: () => <div data-testid="work-panel" /> }));
 
 import { CollectionRenderer, WorkDocumentsCollectionRenderer, MediaLibraryRenderer } from './workspace-surface-renderers';
-import { createWorkDocumentsCollection, serializeWorkDocumentsCollection } from '@features/work-documents/model';
+import { createWorkDocumentsCollection, serializeWorkDocumentsCollection } from '@features/collection/public/work-documents-model-api';
 import { createMediaLibrary, serializeMediaLibrary } from '@features/media-library/model';
 import type { WorkspaceSurfaceRenderContext, WorkspaceSurfaceRendererData } from './workspace-surface-renderer-contract';
 import { createFolderHybridCollectionContent } from '@features/collection/public/folder-api';
@@ -95,7 +101,6 @@ describe('folder home inside index-excluded folders', () => {
     await act(async () => root?.render(<CollectionRenderer surface={surface} context={{ ...context, readOnly: true }} />));
     expect(node.querySelector('[aria-current="page"]')?.textContent).toBe('文件夹');
     expect(node.querySelector<HTMLButtonElement>('button[aria-label="显示设置"]')?.disabled).toBe(true);
-    expect(calls.tableProps.current?.editable).toBe(false);
   });
 
   it('旧 work-documents 文件夹入口也使用统一集合外壳', async () => {
@@ -141,9 +146,10 @@ describe('folder home inside index-excluded folders', () => {
     expect(text()).not.toContain('idea.md');
   });
 
-  it('外壳独立展示文件树与资料 tab，表格不再持有其他面板', async () => {
+  it('外壳只给文件树一个 tab：目录里的 .index.yaml 不再变成图墙 / 列表 / 表格', async () => {
     calls.isIndexExcluded.mockResolvedValue(false);
     calls.getDirChildren.mockResolvedValue([]);
+    // 目录里放一份「三域齐全」的旧集合文件：文件夹表面必须完全忽略它。
     calls.read.mockResolvedValue(createFolderHybridCollectionContent('skills', ''));
     const node = await render();
     const text = () => node.textContent ?? '';
@@ -151,28 +157,18 @@ describe('folder home inside index-excluded folders', () => {
       await act(async () => { await Promise.resolve(); });
     }
 
-    // 集合外壳独立持有唯一 tab 条，表格只提供笔记内容。
-    const host = node.querySelector('[data-testid="table-host"]');
-    expect(host).not.toBeNull();
+    // 文件夹不再是集合：没有表格、没有资料面板，tab 条只有「文件」。
+    expect(node.querySelector('[data-testid="table-host"]')).toBeNull();
+    expect(node.querySelector('[data-testid="media-panel"]')).toBeNull();
     const navigation = node.querySelector('[aria-label="集合视图"]');
     expect(navigation).not.toBeNull();
-    expect(host!.contains(navigation)).toBe(false);
     const labels = [...navigation!.querySelectorAll('button')].map((button) => button.textContent?.trim());
     expect(labels).toContain('文件夹');
-    expect(labels).toContain('图墙');
-    expect(labels).toContain('列表');
-    // 文件夹类型的集合默认落在「文件树」（集合就是这个文件夹本身）。
+    expect(labels).not.toContain('图墙');
+    expect(labels).not.toContain('列表');
     expect(node.querySelector('[aria-current="page"]')?.textContent).toBe('文件夹');
-    // 直接打开：名字在大标题里，表格 nav 的小标题关掉（一个集合只出现一处名字）。
-    expect(calls.tableProps.current?.showNavTitle).toBe(false);
-
-    // 点击「图墙」tab：activeHostTab 落在该域的默认视图 tab（视图实例键），
-    // 媒体面板挂载显示。
-    const mediaTab = [...navigation!.querySelectorAll('button')].find((button) => button.textContent?.trim() === '图墙');
-    await act(async () => mediaTab?.dispatchEvent(new MouseEvent('click', { bubbles: true })));
-    await act(async () => { await Promise.resolve(); });
-    expect(node.querySelector('[aria-current="page"]')?.textContent).toBe('图墙');
-    expect(node.querySelector('[data-testid="media-panel"]')).not.toBeNull();
+    // 视图只能来自集合文件，「···」因此只留显示标题 / 显示头图。
+    expect(node.querySelector('button[aria-label="显示设置"]')).not.toBeNull();
   });
 });
 

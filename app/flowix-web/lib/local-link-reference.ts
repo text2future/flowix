@@ -1,11 +1,14 @@
-import { canonicalPath, notebookForPath, isPathInDirectory } from './path';
-import { documentRelativeHref, resolveDocumentRelativeHref, resolvePhysicalDocumentPath, type ResolvedDocumentPath } from './document-relative-path';
+import { canonicalPath, notebookForPath } from './path';
+import { documentResourceRoots, formatDocumentPathReference } from './document-resource-context';
+import { resolveDocumentRelativeHref, resolvePhysicalDocumentPath, type ResolvedDocumentPath } from './document-relative-path';
 
 export interface LinkNotebook { id: string; name: string; path: string }
+export interface LinkRepository { notebookId: string; path: string }
 export interface LocalLinkContext {
   documentPath: string;
   notebookId?: string;
   notebooks: readonly LinkNotebook[];
+  repositories?: readonly LinkRepository[];
 }
 
 function hasControls(value: string): boolean {
@@ -16,10 +19,21 @@ function hasControls(value: string): boolean {
 export function localLinkReference(raw: string, context: LocalLinkContext): (ResolvedDocumentPath & { href: string; label: string }) | null {
   const text = raw.trim();
   if (!text || hasControls(text)) return null;
-  const current = context.notebookId
+  const allowedRoots = documentResourceRoots(context.notebooks, context.repositories);
+  const currentOwner = notebookForPath(context.documentPath, allowedRoots);
+  const notebook = context.notebookId
     ? context.notebooks.find(book => book.id === context.notebookId)
-    : notebookForPath(context.documentPath, context.notebooks);
-  if (!current || !isPathInDirectory(context.documentPath, current.path)) return null;
+    : context.notebooks.find(book => book.id === currentOwner?.id);
+  if (!notebook) {
+    let target: ResolvedDocumentPath | null = null;
+    if (/^(?:[\\/]|[a-z]:[\\/])/i.test(text)) target = resolvePhysicalDocumentPath(text);
+    else if (/^file:/i.test(text)) target = resolveDocumentRelativeHref(text, context.documentPath);
+    if (!target || (!target.path.startsWith('/') && !/^[a-z]:\//i.test(target.path) && !target.path.startsWith('//'))) return null;
+    const href = formatDocumentPathReference(target, undefined, allowedRoots);
+    const name = canonicalPath(target.path).split('/').pop()!;
+    return { ...target, href, label: name.replace(/\.md$/i, '') };
+  }
+  if (currentOwner?.id !== notebook.id) return null;
   let path: string;
   let anchor: string | null = null;
   let search: string | undefined;
@@ -37,11 +51,11 @@ export function localLinkReference(raw: string, context: LocalLinkContext): (Res
         ? context.notebooks.filter(book => book.id === id)
         : named
           ? context.notebooks.filter(book => book.name === named)
-          : [current];
-      if (notebooks.length !== 1 || notebooks[0].id !== current.id || !file
+          : [notebook];
+      if (notebooks.length !== 1 || notebooks[0].id !== notebook.id || !file
         || file.startsWith('/') || file.includes('\\') || file.split('/').some(part => !part || part === '.' || part === '..')
         || hasControls(file)) return null;
-      path = `${canonicalPath(current.path).replace(/\/+$/, '')}/${file}`;
+      path = `${canonicalPath(notebook.path).replace(/\/+$/, '')}/${file}`;
       anchor = params.get('heading') ?? (url.hash ? decodeURIComponent(url.hash.slice(1)) : null);
     } catch { return null; }
   } else {
@@ -58,10 +72,9 @@ export function localLinkReference(raw: string, context: LocalLinkContext): (Res
       search = target.search;
     } else return null;
   }
-  if (!isPathInDirectory(path, current.path) || notebookForPath(path, context.notebooks)?.id !== current.id) return null;
+  if (notebookForPath(path, allowedRoots)?.id !== notebook.id) return null;
   const target = { path, anchor, ...(search ? { search } : {}) };
-  const href = documentRelativeHref(target, context.documentPath);
-  if (!href) return null;
+  const href = formatDocumentPathReference(target, context.documentPath, allowedRoots);
   const name = canonicalPath(path).split('/').pop()!;
   return { ...target, href, label: name.replace(/\.md$/i, '') };
 }

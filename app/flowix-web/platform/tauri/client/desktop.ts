@@ -194,13 +194,32 @@ export const collections = {
     invoke<string>('make_collection_identity_unique', { notebookId, relativePath }),
 };
 
+/**
+ * 文件夹外观（图标 / 头图 / 副标题）。键是笔记本相对路径，不是集合 id：
+ * 文件夹在磁盘上没有别的东西可当身份，所以后端在每次改名 / 移动时重定位整棵子树。
+ */
+export interface FolderIndexEntry {
+  relativePath: string;
+  properties: Record<string, CollectionIndexItem['properties'][string]>;
+  updatedAt: number;
+}
+
+export const folderIndex = {
+  list: (notebookPath: string) =>
+    invoke<FolderIndexEntry[]>('list_folder_index', { notebookPath }),
+  set: (
+    notebookPath: string,
+    relativePath: string,
+    properties: Record<string, CollectionIndexItem['properties'][string] | null>,
+  ) => invoke<FolderIndexEntry>('set_folder_index', { notebookPath, relativePath, properties }),
+};
+
 export interface DocxMarkdownImage {
   marker: string;
   contentType: string;
   contentBase64: string;
-}
-
-export const files = {
+}export const files = {
+  retainReference: (sourcePath: string) => invoke<string>('retain_external_file_reference', { sourcePath }),
   listDocumentPage: (request: {
     notebookId: string;
     folderPath: string;
@@ -246,6 +265,8 @@ export const files = {
     invoke<NotebookViewPreferences>('get_notebook_view_preferences', { notebookPath }),
   getNotebookFolderOptions: (notebookPath: string) =>
     invoke<NotebookFolderOption[]>('get_notebook_folder_options', { notebookPath }),
+  getHtmlNotebookFolders: (notebookPath: string) =>
+    invoke<{ folders: NotebookFolderOption[]; defaultRelativePath: string; truncated: boolean }>('get_html_notebook_folders', { notebookPath }),
   // Authoritative answer for "indexes and watcher skip this path", including
   // ancestors. Folder surfaces must never re-derive it from folder names.
   isIndexExcluded: (filePath: string) =>
@@ -296,6 +317,8 @@ export const files = {
     invoke<string>('import_folder', { sourceDirectoryPath, targetDirectoryPath, spacePath }),
   renameFolder: (folderPath: string, name: string, spacePath: string) =>
     invokeDocumentMutation<PathMutationResult>('rename_folder', { folderPath, name, spacePath }).then(acceptPathMutationResult),
+  ensureNotebookFolder: (notebookPath: string, relativeFolder: string) =>
+    invoke<void>('ensure_notebook_folder', { notebookPath, relativeFolder }),
   createFolder: (spacePath: string, name: string, parentId?: string) =>
     invoke<DocTreeItem>('create_folder', { spacePath, name, parentId }),
   createDocument: (spacePath: string, name: string, parentId?: string) =>
@@ -364,6 +387,7 @@ export type NotebookAssetSaveResult = { path: string; created: boolean };
 export type NotebookAssetSaveOptions = {
   notebookId?: string;
   notePath?: string;
+  repositoryPath?: string;
   targetDirectoryPath?: string;
   deduplicate?: boolean;
   reuseNotebookFile?: boolean;
@@ -377,6 +401,7 @@ export const notebookAssets = {
       sourcePath,
       ...(options.notebookId ? { notebookId: options.notebookId } : {}),
       ...(options.notePath ? { notePath: options.notePath } : {}),
+      ...(options.repositoryPath ? { repositoryPath: options.repositoryPath } : {}),
       deduplicate: options.deduplicate ?? true,
       reuseNotebookFile: options.reuseNotebookFile ?? false,
       reuseExistingAttachment: options.reuseExistingAttachment ?? true,

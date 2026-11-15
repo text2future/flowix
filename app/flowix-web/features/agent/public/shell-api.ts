@@ -12,6 +12,7 @@ export { isAgentRuntimeInstalledState, normalizeAgentRuntimeStatus } from '@feat
 export {
   createAndOpenAgentConversation,
   createAndOpenAgentConversationWithPrompt,
+  createAndOpenAgentConversationWithReference,
   createAndOpenPiConversation,
   createBrowserColumnAgentConversation,
   discardUnopenedBrowserColumnAgentConversation,

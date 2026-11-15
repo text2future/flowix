@@ -1,8 +1,11 @@
+import { subscribeFrameInteraction } from "./frame-interaction";
 import * as React from "react";
 import { createPortal } from "react-dom";
 import { ChevronRight } from "lucide-react";
+import { PopupSurface, limitPopupHeight } from "./popup-scroll-area";
 import { cn } from "@/lib/utils";
 import { POPUP_SEPARATOR_CLASS } from "@shared/ui/popup-separator";
+import { POPUP_MENU_SURFACE_CLASS } from "@shared/ui/popup-menu-styles";
 
 interface ContextMenuTriggerChildProps extends React.HTMLAttributes<HTMLElement> {}
 
@@ -138,6 +141,7 @@ function ContextMenuTrigger({ children, className, onContextMenu, asChild, ...pr
 }
 
 interface ContextMenuContentProps {
+	scrollerClassName?: string;
 	children: React.ReactNode;
 	className?: string;
 	style?: React.CSSProperties;
@@ -165,7 +169,7 @@ function navigateMenu(event: React.KeyboardEvent<HTMLDivElement>) {
 	items[index].focus({ preventScroll: true });
 }
 
-function ContextMenuContent({ children, className, style }: ContextMenuContentProps) {
+function ContextMenuContent({ children, className, style, scrollerClassName }: ContextMenuContentProps) {
 	const { open, position, triggerRef, menuId, focusOrigin, close } = useContextMenuContext();
 	const contentRef = React.useRef<HTMLDivElement>(null);
 	React.useLayoutEffect(() => {
@@ -187,8 +191,7 @@ function ContextMenuContent({ children, className, style }: ContextMenuContentPr
 		// larger than the viewport has no valid top coordinate that can keep it
 		// inside the window.
 		el.style.maxWidth = `${Math.max(0, viewportWidth - margin * 2)}px`;
-		el.style.maxHeight = `${Math.max(0, viewportHeight - margin * 2)}px`;
-		el.style.overflowY = 'auto';
+		limitPopupHeight(el, viewportHeight - margin * 2, style?.maxHeight);
 
 		const rect = el.getBoundingClientRect();
 		const maxX = Math.max(margin, viewportWidth - rect.width - margin);
@@ -197,7 +200,7 @@ function ContextMenuContent({ children, className, style }: ContextMenuContentPr
 		const y = Math.max(margin, Math.min(position.y, maxY));
 		el.style.left = `${x}px`;
 		el.style.top = `${y}px`;
-	}, [open, position]);
+	}, [open, position, style?.maxHeight]);
 
 	// ResizeObserver keeps the menu aligned when asynchronous content changes
 	// its height, while the layout effect handles the initial open before paint.
@@ -219,16 +222,20 @@ function ContextMenuContent({ children, className, style }: ContextMenuContentPr
 	React.useEffect(() => {
 		if (!open) return;
 
-		const handlePointerDown = (e: PointerEvent) => {
-			const target = e.target as Node;
+		const handleOutside = (target: Node) => {
 			if (contentRef.current?.contains(target)) return;
 			if (target instanceof Element && target.closest("[data-flowix-menu-child]")) return;
 			if (target instanceof Element && target.closest("[data-context-menu-submenu]")) return;
 			close('outside');
 		};
 
+		const handlePointerDown = (e: PointerEvent) => handleOutside(e.target as Node);
+		const unsubscribe = subscribeFrameInteraction(document, handleOutside);
 		document.addEventListener("pointerdown", handlePointerDown, true);
-		return () => document.removeEventListener("pointerdown", handlePointerDown, true);
+		return () => {
+			unsubscribe();
+			document.removeEventListener("pointerdown", handlePointerDown, true);
+		};
 	}, [open, close]);
 
 	// Close on Escape, scroll, or resize.
@@ -268,7 +275,9 @@ function ContextMenuContent({ children, className, style }: ContextMenuContentPr
 	if (typeof document === "undefined") return null;
 
 	return createPortal(
-		<div
+		<PopupSurface
+			scrollable
+			scrollerClassName={scrollerClassName}
 			ref={contentRef}
 			role="menu"
 			tabIndex={-1}
@@ -286,12 +295,12 @@ function ContextMenuContent({ children, className, style }: ContextMenuContentPr
 			// 的死类 (Tailwind v3 不生成), 换成共享关键帧类。
 			style={{ transformOrigin: "top left", left: position?.x ?? 0, top: position?.y ?? 0, ...style }}
 			className={cn(
-				"fixed z-[150] min-w-[160px] bg-[var(--card)] border border-[var(--border-popup)] rounded-lg shadow-lg py-1 flowix-popover-enter",
+				POPUP_MENU_SURFACE_CLASS,
 				className
 			)}
 		>
 			{children}
-		</div>,
+		</PopupSurface>,
 		document.body
 	);
 }
@@ -404,7 +413,6 @@ function ContextMenuSubmenu({
 			submenu.style.width = `${width}px`;
 			submenu.style.maxWidth = `${width}px`;
 			submenu.style.maxHeight = `${maxHeight}px`;
-			submenu.style.overflowY = 'auto';
 		}
 		const height = Math.min(submenu?.scrollHeight ?? 220, maxHeight);
 		const left = window.innerWidth - rect.right < width + 4
@@ -468,13 +476,15 @@ function ContextMenuSubmenu({
 					}
 				}}
 				onMouseDown={(event) => event.stopPropagation()}
-				className="flex h-7 w-full items-center justify-between rounded-lg px-2 text-left text-sm text-[var(--foreground)] outline-none hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)] focus-visible:bg-[var(--brand)] focus-visible:text-[var(--primary-foreground)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-[var(--foreground)]"
+				className="flex h-7 w-full items-center justify-between rounded-lg px-2 text-left text-sm text-[var(--foreground)] outline-none hover:bg-[var(--hover-bg)] focus-visible:bg-[var(--hover-bg)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-[var(--foreground)]"
 			>
 				<span className="flex min-w-0 items-center gap-2">{icon}{label}</span>
 				<ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
 			</button>
 			{open && position && !disabled && createPortal(
-				<div
+				<PopupSurface
+					scrollable
+					scrollerClassName="space-y-0.5"
 					ref={submenuRef}
 					data-context-menu-submenu="true"
 					data-context-menu-owner={menuId}
@@ -496,11 +506,11 @@ function ContextMenuSubmenu({
 					}}
 					onMouseEnter={cancelClose}
 					onMouseLeave={scheduleClose}
-					className="fixed z-[151] w-[176px] space-y-0.5 rounded-xl border border-[var(--border-popup)] bg-[var(--card)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]"
+					className="fixed z-[151] w-[176px] rounded-xl border border-[var(--border-popup)] bg-[var(--card)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]"
 					style={position}
 				>
 					{children}
-				</div>,
+				</PopupSurface>,
 				document.body,
 			)}
 		</div>

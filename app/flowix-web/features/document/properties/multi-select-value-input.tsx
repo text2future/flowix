@@ -106,10 +106,10 @@ export function MultiSelectValueInput({
             <ChevronDown className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)]" />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent
+        <DropdownMenuContent scrollerClassName="space-y-0.5"
           align="start"
           style={typography}
-          className={cn('min-w-[200px] space-y-0.5 border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]', variant === 'table' ? 'multidimensional-table__field-options-popover !z-[170]' : 'rounded-xl')}
+          className={cn('min-w-[200px] border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]', variant === 'table' ? 'multidimensional-table__field-options-popover !z-[170]' : 'rounded-xl')}
           matchAnchorWidth={variant === 'table' ? 2 : false}
           autoFocusInput={variant === 'table'}
         >

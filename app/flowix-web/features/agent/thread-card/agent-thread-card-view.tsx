@@ -10,6 +10,7 @@ import {
   type ThreadState,
 } from "@features/agent/store/thread-runtime-state";
 import type { AgentConversationInstance } from "@features/agent/store/agent-conversation-types";
+import { getConversationNotebookId } from "@features/agent/runtime/conversation-notebook";
 import { useAgentSessionStore } from "@features/agent/store/agent-session-store";
 import { acquireThreadInterest } from "@features/agent/store/thread-interest";
 import type { ThreadProjection } from "@features/agent/store/session-reducer";
@@ -34,13 +35,7 @@ import { createFreshExternalAgentThreadId } from "@features/agent/services/exter
 import {
   ensureAgentThreadCardConversation,
 } from "@features/agent/thread-card/agent-thread-card-submit-controller";
-import {
-  listDshSkills,
-} from "@features/agent/services/dsh-command-service";
-import {
-  listCodexSkills,
-} from "@features/agent/services/codex-slash-command-service";
-import { listPiSkills } from "@features/agent/services/pi-slash-command-service";
+import { composerSkillLoaders } from "@features/agent/thread-card/composer-skill-loaders";
 import { createFullscreenIcon } from "@features/agent/thread-card/agent-thread-card-icons";
 import { createAgentThreadCardDom } from "@features/agent/thread-card/view/agent-thread-card-dom-factory";
 import { AgentThreadCardChromeController } from "@features/agent/thread-card/chrome";
@@ -680,6 +675,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
       getRuntimeState: () => this.composerRuntimeState(),
       getHasAttachments: () => this.composerAttachments.hasAttachments,
       getHasPendingAttachments: () => this.composerAttachments.hasPending,
+      getNoteNotebookId: () => getConversationNotebookId(this.instance),
       agentType: this.typeKey,
       getSkillsScopeId: () => {
         const instance = this.instance;
@@ -691,25 +687,16 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
           ?? runtime?.cwd
           ?? undefined;
       },
-      listDshSkills: async () => {
-        if (this.typeKey !== "dsh") return [];
-        const ensured = await this.ensureDshCommandConversation("/skill");
-        return listDshSkills({
-          threadId: ensured.threadId,
-          runtimeConfig: ensured.runtimeConfig,
-        });
-      },
-      listCodexSkills: async () => {
-        if (this.typeKey !== "codex") return [];
-        return listCodexSkills(this.notebookPath ?? "");
-      },
-      listPiSkills: async () => {
-        if (this.typeKey !== "pi") return [];
-        return listPiSkills(this.notebookPath ?? "");
-      },
-      listFolders: () => getCurrentNotebookComposerFolders(),
+      ...composerSkillLoaders({
+        typeKey: this.typeKey,
+        notebookPath: this.notebookPath,
+        ensureDshCommandConversation: (command) => this.ensureDshCommandConversation(command),
+      }),
+      listFolders: () => getCurrentNotebookComposerFolders(getConversationNotebookId(this.instance)),
       folderGroupLabel: this.t("agent.files.referenceLocal"),
       noteGroupLabel: this.t("agent.files.projectNotes"),
+      noteEmptyLabel: this.t("editor.noteMention.empty"),
+      noteErrorLabel: this.t("editor.noteMention.error"),
       onModelSelect: () => {
         this.clearComposerAfterSettingsCommand();
         this.externalAgentSettings.openComposerModelPicker();

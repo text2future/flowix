@@ -53,3 +53,55 @@ describe('relative reference move maintenance', () => {
   });
 
 });
+
+it('maintains wiki note paths on source and target moves without touching code or escaped examples', async () => {
+  const source = '[[./目标.md]] [[../资料/旧.md#标题|别名]] `[[./目标.md]]` \\[[./目标.md]]';
+  await expect(rewriteDocumentPathLinks(source, '/book/sub/source.md', '/book/source.md', [
+    { oldPath: '/book/资料/旧.md', newPath: '/book/资料/新.md' },
+  ], [{ id: 'book', path: '/book' }])).resolves.toBe('[[./sub/目标.md]] [[./资料/新.md#%E6%A0%87%E9%A2%98|别名]] `[[./目标.md]]` \\[[./目标.md]]');
+});
+
+it('maintains absolute Windows and UNC wiki targets', async () => {
+  await expect(rewriteDocumentPathLinks('[[C:/Notes/old.md]] [[file://server/share/old.md]]', 'D:/source.md', 'D:/source.md', [
+    { oldPath: 'C:/Notes/old.md', newPath: 'C:/Notes/new.md' },
+    { oldPath: '//server/share/old.md', newPath: '//server/share/new.md' },
+  ])).resolves.toBe('[old](C:/Notes/new.md) [old](file://server/share/new.md)');
+});
+
+it('keeps filename delimiters escaped after renaming a wiki target', async () => {
+  await expect(rewriteDocumentPathLinks('[[./a%23b%25c.md#section]]', '/book/n.md', '/book/n.md', [
+    { oldPath: '/book/a#b%c.md', newPath: '/book/新#%.md' },
+  ], [{ id: 'book', path: '/book' }])).resolves.toBe('[[./新%23%25.md#section]]');
+});
+
+it.each(['[[./_folder_/target.md]]', '[[./a`b`c.md]]', '[[./target.md|**Name**]]'])(
+  'maintains a whole wiki span containing Markdown decorations: %s', async source => {
+    const target = source.includes('_folder_') ? '/book/_folder_/target.md'
+      : source.includes('`') ? '/book/a`b`c.md' : '/book/target.md';
+    const rewritten = await rewriteDocumentPathLinks(source, '/book/source.md', '/book/source.md', [
+      { oldPath: target, newPath: '/book/new.md' },
+    ], [{ id: 'book', path: '/book' }]);
+    expect(rewritten).toBe(source.includes('|') ? '[[./new.md|**Name**]]' : '[[./new.md]]');
+  },
+);
+
+it('uses Markdown links after a source crosses notebook roots on the same Windows drive', async () => {
+  await expect(rewriteDocumentPathLinks('[[./target.md]]', 'C:/Book/sub/source.md', 'C:/Other/source.md', [], [
+    { id: 'book', path: 'C:/Book' }, { id: 'other', path: 'C:/Other' },
+  ])).resolves.toBe('[target](C:/Book/sub/target.md)');
+});
+
+it('keeps frontmatter, fenced code and comments untouched while maintaining real wiki references', async () => {
+  const source = '---\nexample: "[[./old.md]]"\n---\n```md\n[[./old.md]]\n```\n<!-- [[./old.md]] -->\n[[./old.md]]';
+  await expect(rewriteDocumentPathLinks(source, '/book/source.md', '/book/source.md', [
+    { oldPath: '/book/old.md', newPath: '/book/new.md' },
+  ], [{ id: 'book', path: '/book' }])).resolves.toBe(source.replace(/\[\[\.\/old.md\]\]$/, '[[./new.md]]'));
+});
+
+it('keeps extensionless Wiki references pointed at the Markdown note during moves', async () => {
+  const roots = [{ id: 'book', path: '/book' }];
+  expect(await rewriteDocumentPathLinks('[[target]] [[./target]] [[folder/target]]', '/book/sub/source.md', '/book/other/source.md', [], roots))
+    .toBe('[[../sub/target.md]] [[../sub/target.md]] [[../sub/folder/target.md]]');
+  expect(await rewriteDocumentPathLinks('[[target]]', '/book/sub/source.md', '/book/sub/source.md',
+    [{ oldPath: '/book/sub/target.md', newPath: '/book/sub/renamed.md', folder: false }], roots)).toBe('[[./renamed.md]]');
+});

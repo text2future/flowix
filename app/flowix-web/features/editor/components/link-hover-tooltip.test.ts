@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const openerMocks = vi.hoisted(() => ({
   openUrl: vi.fn(async () => undefined),
 }));
-const toastMocks = vi.hoisted(() => ({ error: vi.fn() }));
+const toastMocks = vi.hoisted(() => ({ error: vi.fn(), info: vi.fn() }));
 
 vi.mock('@platform/tauri/opener', () => openerMocks);
 vi.mock('@/lib/toast', () => ({ toast: toastMocks }));
@@ -369,6 +369,22 @@ describe('link hover tooltip navigation', () => {
       expect(document.querySelector('.editor-link-hover-tooltip')).toBeNull();
     } finally {
       detach();
+    }
+  });
+
+  it('reports failed local link resolution to the user', async () => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { anchor, detach } = createEditorFixture('./missing', {
+      documentPath: '/nb/note.md',
+      openLocalPath: () => Promise.reject(new Error('resolution failed')),
+    });
+    try {
+      anchor.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      await Promise.resolve();
+      expect(toastMocks.error).toHaveBeenCalledOnce();
+    } finally {
+      detach();
+      errorLog.mockRestore();
     }
   });
 

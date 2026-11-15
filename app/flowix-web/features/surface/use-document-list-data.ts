@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { files, mediaResources, type DocumentPage, type DocumentPageItem, type FileBrowserDirectoriesChangedEvent, type MediaResourcePage } from '@platform/tauri/client';
 import { subscribe } from '@platform/tauri/event-bus';
-import { canonicalPath, joinNotebookMemoPath } from '@/lib/path';
+import { canonicalPath, isPathInDirectory, joinNotebookMemoPath } from '@/lib/path';
 import { createLogger } from '@/lib/logger';
+import { subscribeNotebookChanges } from '@platform/tauri/notebook-change-events';
 import type { MediaLibraryRecord } from '@features/media-library/model';
-import { workDocumentsResourceKindsChanged } from '@features/work-documents/model';
+import { workDocumentsResourceKindsChanged } from '@features/collection/public/work-documents-model-api';
 import type { DocumentListViewContext } from './document-list-view-model';
 
 const logger = createLogger('document-list-data');
 const MEDIA_LIBRARY_PAGE_SIZE = 30;
+const WORK_DOCUMENTS_PAGE_SIZE = 30;
 
 async function loadLinkedMediaItems(
   records: MediaLibraryRecord[],
@@ -48,10 +50,11 @@ function mediaResourceListItem(resource: { relativePath: string; kind: 'image' |
 }
 
 /** Owns paging, cancellation and coalesced refreshes; UI action permissions are separate. */
-export function useDocumentListData({ listContext, mediaLibrary, workDocuments = false, mediaLibraryRecords, refreshPaused }: {
+export function useDocumentListData({ listContext, mediaLibrary, workDocuments = false, workDocumentsPageSize = WORK_DOCUMENTS_PAGE_SIZE, mediaLibraryRecords, refreshPaused }: {
   listContext: DocumentListViewContext;
   mediaLibrary: boolean;
   workDocuments?: boolean;
+  workDocumentsPageSize?: number;
   mediaLibraryRecords: MediaLibraryRecord[];
   refreshPaused: boolean;
 }) {
@@ -90,6 +93,23 @@ export function useDocumentListData({ listContext, mediaLibrary, workDocuments =
     if (mediaLibrary && resourceKinds && !resourceKinds.some((kind) => kind === 'image' || kind === 'video')) return;
     requestRefresh();
   }), [requestRefresh, listContext.notebookId, mediaLibrary, workDocuments]);
+  useEffect(() => {
+    if (mediaLibrary || workDocuments || !listContext.notebookId) return;
+    const folder = canonicalPath(listContext.folderPath);
+    return subscribeNotebookChanges((event) => {
+      if (event.notebookId !== listContext.notebookId) return;
+      if (event.kind === 'query-invalidated' && !event.relativePath) {
+        requestRefresh();
+        return;
+      }
+      const paths = event.kind === 'path-moved'
+        ? [event.previousRelativePath, event.relativePath]
+        : [event.relativePath];
+      if (paths.some((relativePath) => isPathInDirectory(
+        canonicalPath(`${listContext.notebookPath}/${relativePath}`), folder,
+      ))) requestRefresh();
+    });
+  }, [listContext.folderPath, listContext.notebookId, listContext.notebookPath, mediaLibrary, requestRefresh, workDocuments]);
   useEffect(() => subscribe<{ notebookId: string }>('media-properties-changed', ({ notebookId }) => {
     if (!workDocuments && notebookId === listContext.notebookId) requestRefresh();
   }), [requestRefresh, listContext.notebookId, workDocuments]);
@@ -173,7 +193,7 @@ export function useDocumentListData({ listContext, mediaLibrary, workDocuments =
     setLoadingMore(false);
     setMoreError(false);
     setError(false);
-    const listIdentity = JSON.stringify([listContext.displayId, listContext.notebookPath, mediaLibrary, workDocuments]);
+    const listIdentity = JSON.stringify([listContext.displayId, listContext.notebookPath, mediaLibrary, workDocuments, workDocuments ? workDocumentsPageSize : null]);
     if (loadedListIdentityRef.current !== listIdentity) {
       setItems([]);
       setLinkedItems([]);
@@ -185,7 +205,7 @@ export function useDocumentListData({ listContext, mediaLibrary, workDocuments =
     const pageRequest = workDocuments
       ? (workKindsEmpty
         ? Promise.resolve(emptyDocumentPage)
-        : files.listWorkDocumentsPage(listContext.notebookId, null, MEDIA_LIBRARY_PAGE_SIZE, {
+        : files.listWorkDocumentsPage(listContext.notebookId, null, workDocumentsPageSize, {
           fileNameContains: listContext.workDocumentsFilter?.file_name_contains,
           resourceKinds: listContext.workDocumentsFilter?.file_types,
           path: listContext.workDocumentsFilter?.path_scope === 'all' ? '' : listContext.workDocumentsFilter?.path_contains,
@@ -251,14 +271,14 @@ export function useDocumentListData({ listContext, mediaLibrary, workDocuments =
       }
     });
     return () => { cancelled = true; requestGenerationRef.current += 1; };
-  }, [hasMediaDataset, hasLinkedMedia, hasWorkDocumentsDataset, refreshPaused, mediaLibrary, workDocuments, mediaLibraryRecords, revision, listContext.displayId, listContext.folderPath, listContext.mediaScope?.relativePath, listContext.mediaScope?.depth, listContext.mediaDatasetActive, listContext.notebookId, listContext.notebookPath, listContext.workDocumentsFilter?.file_name_contains, listContext.workDocumentsFilter?.file_types?.join(' '), listContext.workDocumentsFilter?.path_contains, listContext.workDocumentsFilter?.path_scope, resourceKindsKey]);
+  }, [hasMediaDataset, hasLinkedMedia, hasWorkDocumentsDataset, refreshPaused, mediaLibrary, workDocuments, workDocumentsPageSize, mediaLibraryRecords, revision, listContext.displayId, listContext.folderPath, listContext.mediaScope?.relativePath, listContext.mediaScope?.depth, listContext.mediaDatasetActive, listContext.notebookId, listContext.notebookPath, listContext.workDocumentsFilter?.file_name_contains, listContext.workDocumentsFilter?.file_types?.join(' '), listContext.workDocumentsFilter?.path_contains, listContext.workDocumentsFilter?.path_scope, resourceKindsKey]);
   const loadMore = useCallback(() => {
     if (!listContext.notebookId || refreshPausedRef.current || (mediaLibrary && !hasMediaDataset) || (workDocuments && !hasWorkDocumentsDataset) || !nextCursor || loading || loadingMore || !hasMore) return;
     const generation = requestGenerationRef.current;
     setLoadingMore(true);
     setMoreError(false);
     const pageRequest = workDocuments
-      ? files.listWorkDocumentsPage(listContext.notebookId, nextCursor, MEDIA_LIBRARY_PAGE_SIZE, {
+      ? files.listWorkDocumentsPage(listContext.notebookId, nextCursor, workDocumentsPageSize, {
         fileNameContains: listContext.workDocumentsFilter?.file_name_contains,
         resourceKinds: listContext.workDocumentsFilter?.file_types,
         path: listContext.workDocumentsFilter?.path_scope === 'all' ? '' : listContext.workDocumentsFilter?.path_contains,
@@ -280,7 +300,7 @@ export function useDocumentListData({ listContext, mediaLibrary, workDocuments =
     }).finally(() => {
       if (generation === requestGenerationRef.current) setLoadingMore(false);
     });
-  }, [hasMediaDataset, hasWorkDocumentsDataset, hasMore, loading, loadingMore, mediaLibrary, workDocuments, nextCursor, resourceKindsKey, listContext.filters.resourceKinds, listContext.folderPath, listContext.mediaScope?.relativePath, listContext.mediaScope?.depth, listContext.mediaDatasetActive, listContext.notebookId, listContext.notebookPath, listContext.workDocumentsFilter?.file_name_contains, listContext.workDocumentsFilter?.file_types?.join(' '), listContext.workDocumentsFilter?.path_contains, listContext.workDocumentsFilter?.path_scope]);
+  }, [hasMediaDataset, hasWorkDocumentsDataset, hasMore, loading, loadingMore, mediaLibrary, workDocuments, workDocumentsPageSize, nextCursor, resourceKindsKey, listContext.filters.resourceKinds, listContext.folderPath, listContext.mediaScope?.relativePath, listContext.mediaScope?.depth, listContext.mediaDatasetActive, listContext.notebookId, listContext.notebookPath, listContext.workDocumentsFilter?.file_name_contains, listContext.workDocumentsFilter?.file_types?.join(' '), listContext.workDocumentsFilter?.path_contains, listContext.workDocumentsFilter?.path_scope]);
   return { items, linkedItems, folders, loading, loadingLinkedItems, loadingMore, moreError, hasMore,
     hasMediaDataset, hasLinkedMedia, error, loadMore, refresh: requestRefresh };
 }

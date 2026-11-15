@@ -321,18 +321,7 @@ html:not([data-theme="dark"]):not([data-theme="mist"])
   opacity: 0.72;
 }
 
-.agent-conversation-surface .agent-thread-card__message-dsh-badge {
-  display: inline-flex;
-  align-items: center;
-  width: fit-content;
-  margin-bottom: 2px;
-  color: var(--muted-foreground);
-  font-size: 0.78em;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  line-height: 1.2;
-}
-
+.agent-conversation-surface .agent-thread-card__message-dsh-badge,
 .agent-conversation-surface .agent-thread-card__message-codex-badge {
   display: inline-flex;
   align-items: center;

@@ -35,19 +35,9 @@ pub(crate) fn validate_plugin_key(plugin_key: &str) -> Result<(), String> {
     Err("DeepSeek Harness plugin key is invalid".into())
 }
 
-pub(crate) fn resolved_session_id(value: serde_json::Value) -> Result<String, String> {
-    value
-        .get("sessionId")
-        .and_then(serde_json::Value::as_str)
-        .filter(|v| !v.is_empty())
-        .map(ToOwned::to_owned)
-        .ok_or_else(|| "DeepSeek Harness did not return a session id".into())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
 
     #[test]
     fn accepts_only_preset_scoped_plugin_keys() {
@@ -56,15 +46,5 @@ mod tests {
         assert!(validate_plugin_key("host:memory").is_err());
         assert!(validate_plugin_key("preset:unknown:memory").is_err());
         assert!(validate_plugin_key("preset::memory").is_err());
-    }
-
-    #[test]
-    fn requires_a_non_empty_session_id() {
-        assert_eq!(
-            resolved_session_id(json!({"sessionId":"s-1"})).unwrap(),
-            "s-1"
-        );
-        assert!(resolved_session_id(json!({"sessionId":""})).is_err());
-        assert!(resolved_session_id(json!({})).is_err());
     }
 }

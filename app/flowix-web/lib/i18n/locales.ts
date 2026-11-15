@@ -14,6 +14,7 @@ import editorBubbleZhCN from './messages.editor-bubble.zh-CN';
 import breadcrumbZhCN from './messages.breadcrumb.zh-CN';
 import memoNavigationZhCN from './messages.memo-navigation.zh-CN';
 import editorLinkZhCN from './messages.editor-link.zh-CN';
+import documentZhCN from './messages.document.zh-CN';
 
 export const APP_LANGUAGES = ["zh-CN", "en-US"] as const;
 
@@ -40,7 +41,7 @@ export function sanitizeAppLanguage(value: unknown): AppLanguage {
 // 主表 (messages.zh-CN / messages.en-US) 被千行闸门冻结, 新增文案放分片 (如
 // messages.file-tree.*) 后与主表合并。I18nKey 从合并结果派生; 主表与分片各自用
 // Record<...> 约束 key 集合一致, en-US 合并后再按 MessageMap 校验一次完整性。
-const zhCN = { ...zhCNMessages, ...fileTreeZhCN, ...piSettingsZhCN, ...preferencesNoteZhCN, ...collectionZhCN, ...propertyIconsZhCN, ...editorTablesZhCN, ...editorSearchZhCN, ...agentCloudZhCN, ...accountLifecycleZhCN, ...memoListTabsZhCN, ...notebookCreateZhCN, ...editorBubbleZhCN, ...breadcrumbZhCN, ...memoNavigationZhCN, ...editorLinkZhCN };
+const zhCN = { ...zhCNMessages, ...fileTreeZhCN, ...piSettingsZhCN, ...preferencesNoteZhCN, ...collectionZhCN, ...propertyIconsZhCN, ...editorTablesZhCN, ...editorSearchZhCN, ...agentCloudZhCN, ...accountLifecycleZhCN, ...memoListTabsZhCN, ...notebookCreateZhCN, ...editorBubbleZhCN, ...breadcrumbZhCN, ...memoNavigationZhCN, ...editorLinkZhCN, ...documentZhCN };
 
 export type I18nKey = keyof typeof zhCN;
 export type MessageMap = Record<I18nKey, string>;
@@ -87,8 +88,9 @@ export function loadLanguage(lang: AppLanguage): Promise<MessageMap> {
         import('./messages.breadcrumb.en-US'),
         import('./messages.memo-navigation.en-US'),
         import('./messages.editor-link.en-US'),
-      ]).then(([module, fileTree, piSettings, preferencesNote, collection, propertyIcons, editorTables, editorSearch, agentCloud, accountLifecycle, memoListTabs, notebookCreate, editorBubble, breadcrumb, memoNavigation, editorLink]) => {
-        const msgs: MessageMap = { ...module.default, ...fileTree.default, ...piSettings.default, ...preferencesNote.default, ...collection.default, ...propertyIcons.default, ...editorTables.default, ...editorSearch.default, ...agentCloud.default, ...accountLifecycle.default, ...memoListTabs.default, ...notebookCreate.default, ...editorBubble.default, ...breadcrumb.default, ...memoNavigation.default, ...editorLink.default };
+        import('./messages.document.en-US'),
+      ]).then(([module, fileTree, piSettings, preferencesNote, collection, propertyIcons, editorTables, editorSearch, agentCloud, accountLifecycle, memoListTabs, notebookCreate, editorBubble, breadcrumb, memoNavigation, editorLink, document]) => {
+        const msgs: MessageMap = { ...module.default, ...fileTree.default, ...piSettings.default, ...preferencesNote.default, ...collection.default, ...propertyIcons.default, ...editorTables.default, ...editorSearch.default, ...agentCloud.default, ...accountLifecycle.default, ...memoListTabs.default, ...notebookCreate.default, ...editorBubble.default, ...breadcrumb.default, ...memoNavigation.default, ...editorLink.default, ...document.default };
         loadedMessages["en-US"] = msgs;
         return msgs;
       });

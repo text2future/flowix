@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use chrono::Utc;
-use flowix_core::memo_file::{notebook_path_from_relative, notebook_relative_path, IsMd};
+use flowix_core::memo_file::{notebook_path_from_relative, IsMd};
 use flowix_sync::{
     v2_content_hash, v2_local_content_diverged, AccountDeletionOutcome, AccountDeletionState,
     CloudAiCreditBalance, CloudCheckout, CloudMembership, CloudNotebook, CloudOrder,
@@ -728,7 +728,7 @@ pub fn restore_local_path_version(
     schedule_notebook_sync_observation(app.clone(), notebook_id.clone(), true);
     if collection {
         drop(_guard);
-        crate::commands::collection::refresh_path(&memo_file, &path);
+        flowix_core::collection_store::refresh_path(&memo_file, &path);
         let _ = app.emit("file-management-changed", serde_json::json!({"notebookId": notebook_id, "notebookPath": notebook.path}));
         let _ = app.emit("collection-changed", serde_json::json!({"notebookId": notebook_id, "notebookPath": notebook.path, "relativePath": relative_path}));
     } else if attachment {
@@ -743,7 +743,7 @@ pub fn restore_local_path_version(
         memo_file
             .refresh_note_path(&notebook_id, &relative_path)
             .map_err(sync_error)?;
-        crate::commands::path_change::NotebookPathInvalidated::new(
+        crate::events::path_change::NotebookPathInvalidated::new(
             notebook_id.clone(),
             relative_path.clone(),
         )
@@ -916,7 +916,7 @@ pub fn cloud_resolve_markdown_conflict(
         memo_file
             .refresh_note_path(&notebook_id, &relative_path)
             .map_err(sync_error)?;
-        crate::commands::path_change::NotebookPathInvalidated::new(
+        crate::events::path_change::NotebookPathInvalidated::new(
             notebook_id.clone(),
             relative_path.clone(),
         )

@@ -2,7 +2,7 @@
 //!
 //! `cli` 模块只负责把 argv 解析成结构化命令；这里负责把命令转给执行层。
 
-use crate::{cli, errors::CliError, mcp, operation, path_store, plugin, store};
+use crate::{cli, errors::CliError, html, mcp, operation, path_store, plugin, store};
 
 /// 跑 CLI 主入口。
 pub fn run_cli(args: &[String]) -> Result<(), CliError> {
@@ -51,6 +51,25 @@ pub fn run_cli(args: &[String]) -> Result<(), CliError> {
                 notebook,
                 collection_id,
                 path,
+            })?;
+            path_store::print(data, json)
+        }
+        cli::Cli::CollectionAddNote {
+            notebook,
+            collection_id,
+            path,
+            title,
+            file,
+            stdin,
+            json,
+        } => {
+            let content = path_store::read_input(file.as_deref(), stdin, "collection add-note")?;
+            let data = operation::execute(operation::FlowixOperation::CollectionAddNote {
+                notebook,
+                collection_id,
+                path,
+                title,
+                content,
             })?;
             path_store::print(data, json)
         }
@@ -173,6 +192,12 @@ pub fn run_cli(args: &[String]) -> Result<(), CliError> {
             json,
         ),
         cli::Cli::Completion { shell } => store::cmd_completion(&shell),
+        cli::Cli::Html {
+            template,
+            out,
+            force,
+            json,
+        } => html::cmd(template.as_deref(), out.as_deref(), force, json),
         cli::Cli::Mcp => {
             use std::io::{stdin, stdout};
             mcp::run_mcp(stdin().lock(), stdout().lock())

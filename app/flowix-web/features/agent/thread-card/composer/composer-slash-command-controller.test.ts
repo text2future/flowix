@@ -585,7 +585,7 @@ describe('slash picker asynchronous catalog lifecycle', () => {
     try {
       controller.openSlashMenu();
       expect(document.querySelector('.agent-composer-slash-menu')?.textContent).toContain('cached-review');
-      expect(document.querySelector('.agent-composer-slash-menu')?.firstElementChild?.getAttribute('role')).toBe('status');
+      expect(document.querySelector('.agent-composer-slash-menu [role="listbox"]')?.firstElementChild?.getAttribute('role')).toBe('status');
       expect(document.querySelector('.agent-composer-slash-menu')?.textContent).toContain('正在加载 Skill');
       expect(document.querySelector('.agent-composer-slash-menu')?.getAttribute('aria-busy')).toBe('true');
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));

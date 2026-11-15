@@ -7,10 +7,7 @@ import type { TableViewType } from '@features/multidimensional-table/public/crea
 import type { FolderTreeSort } from './use-folder-tree';
 import type { PinnedTreeItem } from './use-notebook-pinned-notes';
 import type { NotebookTreeRenderRow } from './notebook-tree-render-rows';
-import type {
-  NotebookTreeHiddenSection,
-  NotebookTreeSection,
-} from './use-notebook-tree-sections';
+import type { NotebookTreeSection } from './use-notebook-tree-sections';
 import type { NotebookTreeSectionMenuProps } from './notebook-tree-section-menu';
 import { AgentTasksSection } from '@features/agent/public/shell-api';
 import { NotebookPinnedSection } from './notebook-file-tree-sections';
@@ -23,7 +20,9 @@ import { TREE_EDGE_GUTTER } from './notebook-tree-layout';
 interface NotebookTreeSectionsViewProps {
   layout: {
     order: NotebookTreeSection[];
-    hidden: NotebookTreeHiddenSection[];
+    /** Sections that may mount (agents included before they measure a height). */
+    renderable: NotebookTreeSection[];
+    /** Renderable sections that currently occupy space; drives ordering only. */
     visible: NotebookTreeSection[];
     onMove: (section: NotebookTreeSection, direction: -1 | 1) => void;
     onHide: (section: NotebookTreeSection) => void;
@@ -84,11 +83,10 @@ interface NotebookTreeSectionsViewProps {
     canAdd: boolean;
     onOpenFile: (path: string, scopePath: string) => void;
     onOpenFileInBrowserColumn: (path: string, scopePath: string) => void;
-    onOpenList: () => void;
+    onOpenList: (repositoryPath?: string) => void;
   };
   more: {
     onHeightChange: (height: number) => void;
-    compactTopSpacing: boolean;
   };
 }
 
@@ -111,7 +109,7 @@ export function NotebookTreeSectionsView({
       <NotebookTreeSectionMenu
         onHideSection={() => layout.onHide(section)}
         canMoveUp={visibleIndex > 0}
-        canMoveDown={visibleIndex < layout.visible.length - 1}
+        canMoveDown={visibleIndex >= 0 && visibleIndex < layout.visible.length - 1}
         onMoveUp={() => layout.onMove(section, -1)}
         onMoveDown={() => layout.onMove(section, 1)}
         onCustomizeDisplay={layout.onCustomize}
@@ -122,7 +120,9 @@ export function NotebookTreeSectionsView({
 
   return (
     <>
-      {agents.notebookId && !layout.hidden.includes('agents') && (
+      {/* `renderable` already encodes "has a notebook"; the explicit
+          `agents.notebookId` check is what narrows it to a string for the child. */}
+      {agents.notebookId && layout.renderable.includes('agents') && (
         <AgentTasksSection
           key={agents.notebookId}
           notebookId={agents.notebookId}
@@ -136,7 +136,7 @@ export function NotebookTreeSectionsView({
           sectionActions={sectionMenu('agents', { onConfigureAgentConversationCount: agents.onConfigureCount })}
         />
       )}
-      {(pinned.items.length > 0 || pinned.hasPrevious || pinned.hasMore) && !layout.hidden.includes('pinned') && (
+      {layout.renderable.includes('pinned') && (
         <NotebookPinnedSection
           order={layout.order.indexOf('pinned') + 1}
           items={pinned.items}
@@ -151,7 +151,7 @@ export function NotebookTreeSectionsView({
           renderItem={pinned.renderItem}
         />
       )}
-      {!layout.hidden.includes('files') && (
+      {layout.renderable.includes('files') && (
         <NotebookFilesSection
           order={layout.order.indexOf('files') + 1}
           fillsRemainingSpace={layout.visible[layout.visible.length - 1] === 'files'}
@@ -184,7 +184,7 @@ export function NotebookTreeSectionsView({
           renderRow={files.renderRow}
         />
       )}
-      {!layout.hidden.includes('repositories') && (
+      {layout.renderable.includes('repositories') && (
         <AgentRepositoriesSection
           repositories={repositories.items}
           introEnabled={repositories.introEnabled}
@@ -202,11 +202,10 @@ export function NotebookTreeSectionsView({
           onOpenRepositoryList={repositories.onOpenList}
         />
       )}
-      {!layout.hidden.includes('more') && (
+      {layout.renderable.includes('more') && (
         <NotebookMoreSection
           order={layout.order.indexOf('more') + 1}
           onHeightChange={more.onHeightChange}
-          compactTopSpacing={more.compactTopSpacing}
           sectionActions={sectionMenu('more')}
         />
       )}

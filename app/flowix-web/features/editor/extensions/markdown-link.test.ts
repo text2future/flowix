@@ -25,3 +25,10 @@ describe('markdown link destinations', () => {
     expect(normalizePlainLinkHref('example.com')).toBe('http://example.com');
   });
 });
+
+it('keeps balanced parentheses and escaped labels intact when pasting links', () => {
+  const matches = findMarkdownLinkPasteMatches('[报告\\[最终\\]](./报告(最终).md) [网页](https://example.com/a_(b))');
+  expect(matches).toHaveLength(2);
+  expect(matches[0]).toMatchObject({ replaceWith: '报告[最终]', data: { href: './报告(最终).md' } });
+  expect(matches[1].data?.href).toBe('https://example.com/a_(b)');
+});

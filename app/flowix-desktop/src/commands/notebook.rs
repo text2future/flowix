@@ -297,8 +297,7 @@ fn set_current_notebook_inner(
     state.startup.wait_until_ready()?;
     let _transition = state
         .notebook_transition
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+        .lock();
     let previous_id = read_lock(&state.memo_file, "memo_file").current_notebook_id_value();
 
     // Fast path for ordinary switching: trust memo index and avoid synchronous
@@ -775,8 +774,7 @@ pub fn set_notebook_primary_directory(
     let updated = {
         let _transition = state
             .notebook_transition
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .lock();
         let memo_file = write_lock(&state.memo_file, "memo_file");
         let _change_guard = memo_file
             .operation_locks()
@@ -822,8 +820,7 @@ pub fn save_notebook_settings(
     let (updated, workspace, path_changed) = {
         let _transition = state
             .notebook_transition
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .lock();
         let memo_file = write_lock(&state.memo_file, "memo_file");
         let _change_guard = memo_file
             .operation_locks()

@@ -22,14 +22,13 @@ import {
 } from '@phosphor-icons/react';
 import { getAgentType } from '@/lib/agent-types';
 import {
-  OverlayScrollbar,
-  type OverlayScrollbarHandle,
-} from '@shared/ui/overlay-scrollbar';
+  PopupScrollArea,
+  type PopupScrollAreaHandle,
+} from '@shared/ui/popup-scroll-area';
 import { translate, type AppLanguage, type I18nKey } from '@/lib/i18n';
 import type { AgentTypeKey } from '@/types/agent';
 import { AgentIcon } from '@features/agent/public/icon-api';
 import { Kbd } from '@shared/ui/shortcut-kbd';
-import { MediaLibraryIcon, TableDocumentIcon } from '@features/memo/components/file-type-icon';
 import { POPUP_SEPARATOR_CLASS } from '@shared/ui/popup-separator';
 
 export type SlashMenuItemId =
@@ -46,6 +45,7 @@ export type SlashMenuItemId =
   | 'table-calendar-view'
   | 'table-gallery-view'
   | 'media-library-reference'
+  | 'work-documents-list'
   | 'math-block'
   | 'web-card'
   | 'horizontal-rule'
@@ -78,8 +78,9 @@ export interface SlashMenuItem {
   /** i18n key ── 渲染 / 过滤时按当前语言翻译。 */
   labelKey?: I18nKey;
   description?: string;
+  descriptionKey?: I18nKey;
   keywords: string[];
-  icon: SlashMenuIcon;
+  icon?: SlashMenuIcon;
   /** 分组标题: 优先用 i18n key 翻译; 没有 key 时回退到 section 原始字串。 */
   section?: string;
   /** i18n key ── 渲染时按当前语言翻译。 */
@@ -275,38 +276,43 @@ export const SLASH_MENU_ITEMS: SlashMenuItem[] = [
   {
     id: 'table-reference',
     labelKey: 'editor.slash.label.multidimensionalTable',
-    description: '插入多维表格引用视图',
+    descriptionKey: 'editor.slash.description.notes',
     keywords: ['data table', 'multidimensional table', 'table view', 'biaoge', 'duowei', '数据表', '多维表', '引用'],
-    icon: TableDocumentIcon,
     sectionKey: 'editor.slash.section.view',
   },
   {
     id: 'table-kanban-view',
     labelKey: 'editor.slash.label.kanbanView',
+    descriptionKey: 'editor.slash.description.notes',
     keywords: ['kanban', 'board', '看板', '多维表格'],
-    icon: TableDocumentIcon,
     sectionKey: 'editor.slash.section.view',
   },
   {
     id: 'table-calendar-view',
     labelKey: 'editor.slash.label.calendarView',
+    descriptionKey: 'editor.slash.description.notes',
     keywords: ['calendar', '日历', '多维表格'],
-    icon: TableDocumentIcon,
     sectionKey: 'editor.slash.section.view',
   },
   {
     id: 'table-gallery-view',
     labelKey: 'editor.slash.label.galleryView',
+    descriptionKey: 'editor.slash.description.notes',
     keywords: ['gallery', 'gallery list', '画廊', '画廊列表', '多维表格'],
-    icon: TableDocumentIcon,
     sectionKey: 'editor.slash.section.view',
   },
   {
     id: 'media-library-reference',
     labelKey: 'editor.slash.label.mediaLibrary',
-    description: '插入媒体库资源视图',
+    descriptionKey: 'editor.slash.description.resources',
     keywords: ['media library', 'media view', 'gallery', '媒体库', '资源视图', '图片视频'],
-    icon: MediaLibraryIcon,
+    sectionKey: 'editor.slash.section.view',
+  },
+  {
+    id: 'work-documents-list',
+    labelKey: 'editor.slash.label.listView',
+    descriptionKey: 'editor.slash.description.resources',
+    keywords: ['list', '列表', '资料', '媒体库', '资源'],
     sectionKey: 'editor.slash.section.view',
   },
   {
@@ -358,7 +364,7 @@ export const SlashMenuDropdown = ({
 }: SlashMenuProps) => {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const overlayScrollbarRef = useRef<OverlayScrollbarHandle | null>(null);
+  const overlayScrollbarRef = useRef<PopupScrollAreaHandle | null>(null);
 
   const handleItemMouseMove = (
     event: MouseEvent<HTMLButtonElement>,
@@ -412,7 +418,7 @@ export const SlashMenuDropdown = ({
       role="listbox"
       aria-label={translate(language, 'editor.slash.ariaLabel')}
     >
-      <OverlayScrollbar
+      <PopupScrollArea
         ref={overlayScrollbarRef}
         className="slash-menu-items-frame"
         scrollerClassName="slash-menu-items"
@@ -442,12 +448,7 @@ export const SlashMenuDropdown = ({
               const showSectionHeader = !prevItem || prevSectionLabel !== sectionLabel;
               const displayLabel = getSlashMenuItemLabel(item, language);
               const agentTypeKey = item.id.slice('agent-thread-'.length) as AgentTypeKey;
-              const hideTableViewIcon = item.id === 'table-kanban-view'
-                || item.id === 'table-calendar-view'
-                || item.id === 'table-gallery-view';
-              const renderIcon = hideTableViewIcon
-                ? <span className="h-4 w-4 shrink-0" aria-hidden="true" />
-                : typeof Icon === 'string'
+              const renderIcon = !Icon ? null : typeof Icon === 'string'
                 ? isAgentThreadItem ? (
                     <span className="slash-menu-agent-icon flex h-5 w-5 shrink-0 items-center justify-center rounded-full p-0.5">
                       <AgentIcon typeKey={agentTypeKey} alt="" className="h-[15px] w-[15px] object-contain" />
@@ -489,6 +490,11 @@ export const SlashMenuDropdown = ({
                   >
                     {renderIcon}
                     <span className="slash-menu-item-label min-w-0 flex-1">{displayLabel}</span>
+                    {(item.descriptionKey || item.description) && (
+                      <span className="slash-menu-item-description max-w-[42%]">
+                        {item.descriptionKey ? translate(language, item.descriptionKey) : item.description}
+                      </span>
+                    )}
                     {item.shortcut && (
                       // 快捷键提示始终保持 muted-foreground ── hover / 选中态的
                       // 底色是浅色 --hover-bg, 不再反色为 primary-foreground 的白,
@@ -532,7 +538,7 @@ export const SlashMenuDropdown = ({
             </>
           );
         })()}
-      </OverlayScrollbar>
+      </PopupScrollArea>
     </div>
   );
 };

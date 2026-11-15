@@ -55,7 +55,7 @@ export const AttachmentLink = Extension.create<AttachmentLinkOptions>({
 
     addStorage() {
         return {
-            getNotebookId: () => this.options.getNotebookId?.(),
+            getNotebookId: () => this.options.getContext?.().notebookId,
         };
     },
 
@@ -64,7 +64,7 @@ export const AttachmentLink = Extension.create<AttachmentLinkOptions>({
         return [
             createFileUploadPlugin({
                 ownerPath: this.options.ownerPath,
-                getOwnerPath: this.options.getOwnerPath,
+                getContext: this.options.getContext,
                 ingest: {
                     drop: opts.ingest.drop,
                     paste: false,
@@ -75,15 +75,15 @@ export const AttachmentLink = Extension.create<AttachmentLinkOptions>({
     },
 
     addExtensions() {
-        return [ImageAttachment.configure({ getImageContext: this.options.getImageContext }), VideoAttachment, FileAttachment];
+        return [
+            ImageAttachment.configure({ getImageContext: this.options.getImageContext }),
+            VideoAttachment.configure({ getImageContext: this.options.getImageContext }),
+            FileAttachment.configure({ getImageContext: this.options.getImageContext }),
+        ];
     },
 
     addCommands() {
-        return createAttachmentCommands(
-            this.options.ownerPath,
-            this.options.getNotebookId,
-            this.options.getOwnerPath,
-        );
+        return createAttachmentCommands(this.options);
     },
 });
 

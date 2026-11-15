@@ -1,0 +1,11 @@
+{
+  "crateDeps": {},
+  "edges": {
+    "flowix-desktop:watcher->commands": 0,
+    "flowix-desktop:agent_external->commands": 0,
+    "flowix-desktop:watcher->app": 0,
+    "flowix-desktop:agent_external->app": 0
+  },
+  "fileLines": {},
+  "gravity": 3.29
+}

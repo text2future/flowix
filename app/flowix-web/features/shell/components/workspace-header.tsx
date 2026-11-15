@@ -37,7 +37,7 @@ export interface WorkspaceHeaderProps {
    * Column-local opener for a file picked inside a folder breadcrumb popover.
    * Omitted = the breadcrumb stays display-only (nothing owns the destination).
    */
-  onBreadcrumbFileOpen?: (filePath: string, scopePath: string) => void;
+  onBreadcrumbFileOpen?: (filePath: string, rootPath: string) => void;
   actions?: (header: WorkspaceHeaderModel, iconButtonClass: string) => ReactNode;
   onCloseColumn?: () => void;
   onCreateNote?: (templateId?: string) => void;

@@ -1,7 +1,7 @@
 'use client';
 
 import { cloneElement, isValidElement, useState, type ReactElement, type ReactNode } from 'react';
-import { ArrowLeft, ChevronRight } from 'lucide-react';
+import { ArrowLeft, ChevronRight, Package } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@shared/ui/popover';
 import { ResourceFolderIcon } from '@features/surface/public/resource-icon-api';
 import { useI18n } from '@/lib/i18n';
@@ -18,6 +18,8 @@ export interface DocumentBreadcrumbFolderPopoverProps {
   folderPath: string;
   /** 树头显示的目录名（面包屑段文案）。 */
   folderName: string;
+  /** 当前目录是已登记的仓库根目录。 */
+  isRepository?: boolean;
   /** 当前打开的文档，用于树里高亮。 */
   activeFilePath?: string | null;
   onFileSelect: (filePath: string) => void;
@@ -29,6 +31,7 @@ export interface DocumentBreadcrumbFolderPopoverProps {
 function FolderTreeBody({
   folderPath,
   folderName,
+  isRepository = false,
   activeFilePath,
   onFileSelect,
   onBack,
@@ -54,16 +57,21 @@ function FolderTreeBody({
         folderIcon={ResourceFolderIcon}
         /* 下拉窗只用来切换目标，行尾「…」菜单去掉；右键菜单仍保留同一批操作。 */
         showRowMenu={false}
-        headerLeading={onBack ? (
-          <button
-            type="button"
-            aria-label={t('breadcrumb.backToCollapsedFolders')}
-            title={t('breadcrumb.backToCollapsedFolders')}
-            onClick={onBack}
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
-          </button>
+        headerLeading={onBack || isRepository ? (
+          <div className="flex shrink-0 items-center">
+            {onBack && (
+              <button
+                type="button"
+                aria-label={t('breadcrumb.backToCollapsedFolders')}
+                title={t('breadcrumb.backToCollapsedFolders')}
+                onClick={onBack}
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+            )}
+            {isRepository && <Package className="mr-1.5 h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)]" aria-hidden="true" />}
+          </div>
         ) : undefined}
         onFileSelect={onFileSelect}
       />
@@ -89,6 +97,7 @@ function withExpanded(children: ReactNode, open: boolean): ReactNode {
 export function DocumentBreadcrumbFolderPopover({
   folderPath,
   folderName,
+  isRepository = false,
   activeFilePath = null,
   onFileSelect,
   children,
@@ -108,6 +117,7 @@ export function DocumentBreadcrumbFolderPopover({
           <FolderTreeBody
             folderPath={folderPath}
             folderName={folderName}
+            isRepository={isRepository}
             activeFilePath={activeFilePath}
             onFileSelect={(filePath) => {
               setOpen(false);
@@ -123,6 +133,7 @@ export function DocumentBreadcrumbFolderPopover({
 export interface DocumentBreadcrumbCollapsedItem {
   label: string;
   path: string;
+  isRepository?: boolean;
 }
 
 export interface DocumentBreadcrumbCollapsedPopoverProps {
@@ -180,6 +191,7 @@ export function DocumentBreadcrumbCollapsedPopover({
           <FolderTreeBody
             folderPath={selectedFolder.path}
             folderName={selectedFolder.label}
+            isRepository={selectedFolder.isRepository}
             activeFilePath={activeFilePath}
             onFileSelect={closeAndOpen}
             onBack={() => setSelectedFolder(null)}
@@ -194,7 +206,9 @@ export function DocumentBreadcrumbCollapsedPopover({
                 onClick={() => setSelectedFolder(item)}
                 className="flex h-7 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-left text-sm transition-colors hover:bg-[var(--muted)]"
               >
-                <ResourceFolderIcon expanded={false} className="h-4 w-4 shrink-0" />
+                {item.isRepository
+                  ? <Package className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)]" aria-hidden="true" />
+                  : <ResourceFolderIcon expanded={false} className="h-4 w-4 shrink-0" />}
                 <span className="min-w-0 flex-1 truncate">{item.label}</span>
                 <ChevronRight className="h-3 w-3 shrink-0 opacity-60" aria-hidden="true" />
               </button>

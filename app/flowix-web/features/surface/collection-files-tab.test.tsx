@@ -7,12 +7,42 @@ const calls = vi.hoisted(() => ({
   summaries: new Map<string, unknown>(),
   openFolderCollection: vi.fn(),
   openWorkspaceSurface: vi.fn(),
+  watchRoot: vi.fn(async () => 'lease-1'),
+  unwatchRoot: vi.fn(async () => {}),
+  listTables: vi.fn(async () => []),
+  listeners: new Map<string, Set<(event: unknown) => void>>(),
+}));
+vi.mock('@platform/tauri/event-bus', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@platform/tauri/event-bus')>(),
+  subscribe: (name: string, handler: (event: unknown) => void) => {
+    const listeners = calls.listeners.get(name) ?? new Set();
+    listeners.add(handler);
+    calls.listeners.set(name, listeners);
+    return () => { listeners.delete(handler); };
+  },
+}));
+/** 文件夹行的图标来自 `folder_index`；用例按绝对路径登记自定义图标。 */
+const folderAppearance = vi.hoisted(() => ({ icons: new Map<string, string>() }));
+vi.mock('@features/collection/folder-appearance', () => ({
+  useFolderAppearance: (_notebookPath: string | null, folderPath: string | null) => {
+    const value = folderPath ? folderAppearance.icons.get(folderPath) : undefined;
+    return value ? { icon: { type: 'Text', value } } : undefined;
+  },
 }));
 
 vi.mock('@features/collection/use-collection-summary', () => ({ useCollectionSummary: (path: string) => [calls.summaries.get(path) ?? 'missing'] }));
 
 vi.mock('@platform/tauri/client', () => ({
-  files: { getDirChildren: calls.getDirChildren },
+  files: {
+    getDirChildren: calls.getDirChildren,
+    // 行上的「这是哪种集合」标识要扫三张清单；本文件只关心文件夹行，给空清单。
+    listTableDocuments: calls.listTables,
+    listMediaLibraries: async () => [],
+    getNotebookViewPreferences: async () => ({ defaultCreateFolder: null }),
+    watchRoot: calls.watchRoot,
+    unwatchRoot: calls.unwatchRoot,
+  },
+  collections: { list: async () => [] },
 }));
 vi.mock('@features/workspace/public/main-window-api', () => ({
   openFolderCollectionFromFolder: calls.openFolderCollection,
@@ -28,6 +58,8 @@ vi.mock('@features/content/public/content-api', () => ({
 }));
 
 import { PROPERTY_ICON_OPTIONS } from '@features/document/properties/property-icons';
+import { noteMetadata } from '@features/memo/public/tree-metadata-api';
+import { publishNotebookPathCreated } from '@platform/tauri/notebook-change-events';
 import { CollectionFilesTab } from './collection-files-tab';
 
 let root: Root | undefined;
@@ -36,6 +68,10 @@ afterEach(async () => {
   if (root) await act(async () => root?.unmount());
   root = undefined;
   calls.summaries.clear();
+  noteMetadata.clear();
+  vi.useRealTimers();
+  calls.listeners.clear();
+  calls.watchRoot.mockReset().mockResolvedValue('lease-1');
   vi.clearAllMocks();
 });
 
@@ -54,6 +90,123 @@ async function renderTab(props = baseProps): Promise<HTMLDivElement> {
 }
 
 describe('collection files tab', () => {
+  it('shares the notebook watch root and refreshes only affected visible directories', async () => {
+    calls.getDirChildren.mockResolvedValue([]);
+    vi.useFakeTimers();
+    await renderTab();
+    expect(calls.watchRoot).toHaveBeenCalledWith('/book');
+    await act(async () => { vi.advanceTimersByTime(200); });
+    calls.getDirChildren.mockClear();
+    const emit = (directories: string[], paths: string[] = [], leaseId = 'lease-1') => {
+      for (const handler of calls.listeners.get('file-browser-directories-changed') ?? []) {
+        handler({ leaseId, rootPath: '/book', directories, paths });
+      }
+    };
+    await act(async () => {
+      emit(['/book/客户周报/子目录/更深']);
+      emit(['/book/客户周报'], [], 'another-lease');
+      vi.advanceTimersByTime(200);
+    });
+    expect(calls.getDirChildren).not.toHaveBeenCalled();
+    await act(async () => {
+      emit(['/book/客户周报'], ['/book/客户周报/新文件.pdf']);
+      emit(['/book/客户周报/子目录'], ['/book/客户周报/子目录/新笔记.md']);
+      vi.advanceTimersByTime(200);
+    });
+    expect(calls.getDirChildren).toHaveBeenCalledTimes(1);
+    await act(async () => root?.unmount());
+    root = undefined;
+    expect(calls.unwatchRoot).toHaveBeenCalledWith('lease-1');
+  });
+
+  it('releases a lease that arrives after the tab closes', async () => {
+    let finish!: (lease: string) => void;
+    calls.watchRoot.mockReturnValueOnce(new Promise((resolve) => { finish = resolve; }));
+    calls.getDirChildren.mockResolvedValue([]);
+    await renderTab();
+    await act(async () => root?.unmount());
+    root = undefined;
+    await act(async () => finish('late-lease'));
+    expect(calls.unwatchRoot).toHaveBeenCalledWith('late-lease');
+  });
+
+  it('releases a hidden panel watch and reconciles when shown again', async () => {
+    calls.getDirChildren.mockResolvedValue([]);
+    await renderTab();
+    await act(async () => root?.render(<CollectionFilesTab {...baseProps} active={false} />));
+    expect(calls.unwatchRoot).toHaveBeenCalledWith('lease-1');
+    calls.getDirChildren.mockClear();
+    calls.listTables.mockClear();
+    await act(async () => root?.render(<CollectionFilesTab {...baseProps} active />));
+    expect(calls.watchRoot).toHaveBeenCalledTimes(2);
+    expect(calls.getDirChildren).toHaveBeenCalled();
+    expect(calls.listTables).toHaveBeenCalled();
+  });
+
+  it('refreshes the list and identities for a collection in the visible directory', async () => {
+    calls.getDirChildren.mockResolvedValue([]);
+    vi.useFakeTimers();
+    await renderTab();
+    await act(async () => { vi.advanceTimersByTime(200); });
+    calls.getDirChildren.mockClear();
+    calls.listTables.mockClear();
+    const emit = (relativePath: string) => {
+      for (const handler of calls.listeners.get('collection-changed') ?? []) {
+        handler({ notebookId: 'book-1', relativePath, previousRelativePath: relativePath });
+      }
+    };
+    await act(async () => { emit('其他/集合.index.yaml'); vi.advanceTimersByTime(200); });
+    expect(calls.getDirChildren).not.toHaveBeenCalled();
+    expect(calls.listTables).not.toHaveBeenCalled();
+    await act(async () => { emit('客户周报/集合.index.yaml'); vi.advanceTimersByTime(200); });
+    expect(calls.getDirChildren).toHaveBeenCalledTimes(1);
+    expect(calls.listTables).toHaveBeenCalledTimes(1);
+  });
+
+  it('seeds listed metadata without overwriting a newer update', async () => {
+    const path = '/book/客户周报/同步.md';
+    const oldMeta = { icon: null, colors: [], favorited: false };
+    const newMeta = { icon: 'star', colors: [], favorited: true };
+    let finish!: (items: ReturnType<typeof item>[]) => void;
+    calls.getDirChildren.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    await renderTab();
+    noteMetadata.update(path, newMeta);
+    await act(async () => finish([item({ type: 'document', name: '同步.md', fullPath: path, memoMeta: oldMeta })]));
+    expect(noteMetadata.get(path)).toMatchObject({ status: 'ready', value: newMeta });
+  });
+
+  it('merges directory metadata before mounting note rows', async () => {
+    const path = '/book/客户周报/元数据.md';
+    const metadata = { icon: null, colors: [], favorited: false };
+    calls.getDirChildren.mockResolvedValue([item({ type: 'document', name: '元数据.md', fullPath: path, memoMeta: metadata })]);
+    await renderTab();
+    expect(noteMetadata.get(path)).toMatchObject({ status: 'ready', value: metadata });
+  });
+
+  it('ignores descendant changes and batches direct-child refreshes', async () => {
+    calls.getDirChildren.mockResolvedValue([]);
+    vi.useFakeTimers();
+    await renderTab();
+    await act(async () => { vi.advanceTimersByTime(200); });
+    calls.getDirChildren.mockClear();
+    await act(async () => {
+      publishNotebookPathCreated({ notebookId: 'book-1', relativePath: '客户周报/子目录/更深/深层.md' });
+      vi.advanceTimersByTime(200);
+    });
+    expect(calls.getDirChildren).not.toHaveBeenCalled();
+    await act(async () => {
+      publishNotebookPathCreated({ notebookId: 'book-1', relativePath: '客户周报/a.md' });
+      publishNotebookPathCreated({ notebookId: 'book-1', relativePath: '客户周报/b.md' });
+      vi.advanceTimersByTime(200);
+    });
+    expect(calls.getDirChildren).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      publishNotebookPathCreated({ notebookId: 'book-1', relativePath: '客户周报/子目录/新笔记.md' });
+      vi.advanceTimersByTime(200);
+    });
+    expect(calls.getDirChildren).toHaveBeenCalledTimes(2);
+  });
+
   it('retains rows and sorting on a collection rename and opens files at the new path', async () => {
     calls.getDirChildren.mockResolvedValue([
       item({ id: 'b', name: 'b.md', fullPath: '/book/客户周报/b.md', type: 'file' }),
@@ -119,11 +272,10 @@ describe('collection files tab', () => {
     expect(reportPresentation.mock.lastCall?.[0].state.status).toBe('ready');
   });
 
-  it('全部列表中的文件夹集合和集合文件共享默认图标，并优先使用集合保存的图标', async () => {
+  it('文件夹行按自己的外观显示（folder_index 优先），集合文件仍按类型显示', async () => {
     const custom = PROPERTY_ICON_OPTIONS[0]!;
-    calls.summaries.set('/book/日历/.index.yaml', { views: [{ domain: 'notes' }], properties: {} });
+    folderAppearance.icons.set('/book/自定义', custom.value);
     calls.summaries.set('/book/列表.index.yaml', { views: [{ domain: 'work_documents' }], properties: {} });
-    calls.summaries.set('/book/自定义/.index.yaml', { views: [{ domain: 'media' }], properties: { icon: { type: 'Text', value: custom.value } } });
     calls.getDirChildren.mockResolvedValue([
       item({ id: 'calendar', name: '日历', fullPath: '/book/日历', type: 'folder', resourceKind: undefined }),
       item({ id: 'list', name: '列表.index.yaml', fullPath: '/book/列表.index.yaml', type: 'file', resourceKind: undefined }),
@@ -132,8 +284,12 @@ describe('collection files tab', () => {
     const node = await renderTab();
     const rows = [...node.querySelectorAll('button[data-file-row]')];
     const row = (title: string) => rows.find((item) => item.textContent?.includes(title))!;
-    expect(row('日历').querySelector('[data-icon-kind]')?.getAttribute('data-icon-kind')).toBe('multidimensional-table');
-    expect(row('列表').querySelector('[data-icon-kind]')?.getAttribute('data-icon-kind')).toBe('media-library');
+    // 文件夹不是集合：不再借用「表格 / 媒体库」图标，恒用文件夹图标。
+    expect(row('日历').querySelector('[data-icon-kind]')).toBeNull();
+    expect(row('日历').querySelector('img, svg')).not.toBeNull();
+    // 集合文件的类型图标与文件夹无关，照旧有图标。
+    expect(row('列表').querySelector('img, svg')).not.toBeNull();
+    // 文件夹保存的图标来自文件夹索引表（不是同名的 .index.yaml）。
     expect(row('自定义').querySelector('img')?.getAttribute('src')).toBe(custom.src);
   });
 

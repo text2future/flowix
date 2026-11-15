@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactElement } from 'react';
-import { ChevronDown, ChevronUp, ChevronsLeftRightEllipsis, Columns2, GalleryHorizontalEnd, SquarePen, SwatchBook, Table2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, ChevronsLeftRightEllipsis, Columns2, SquarePen, SwatchBook } from 'lucide-react';
 import type { AgentTypeKey } from '@/types/agent';
 import { useI18n } from '@/lib/i18n';
 import { toast } from '@/lib/toast';
@@ -61,7 +61,7 @@ export function WorkspaceColumnContextMenu({ children, isWindows, onCreateNote, 
       >
         {children}
       </ContextMenuTrigger>
-      <ContextMenuContent className="w-[200px] space-y-0.5 rounded-xl p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+      <ContextMenuContent scrollerClassName="space-y-0.5" className="w-[200px] rounded-xl p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
         <ContextMenuItem onClick={toggleBrowserColumn} className={itemClass}>
           <Columns2 className="mr-2 h-4 w-4" aria-hidden="true" />
           <span className="leading-5">{t(browserColumnVisible ? 'tabWindow.closeColumn' : 'tabWindow.expandColumn')}</span>
@@ -110,7 +110,6 @@ export function WorkspaceColumnContextMenu({ children, isWindows, onCreateNote, 
             onClick={() => openViewCreateDialog('table', type)}
             className={`${itemClass} group`}
           >
-            {type === 'table' ? <Table2 className="mr-2 h-4 w-4 shrink-0" aria-hidden="true" /> : <span className="mr-2 h-4 w-4 shrink-0" aria-hidden="true" />}
             <span className="min-w-0 flex-1 truncate leading-5">{t(labelKey)}</span>
             <span className="ml-auto shrink-0 text-xs text-[var(--muted-foreground)] opacity-50 group-hover:text-[var(--primary-foreground)] group-focus-visible:text-[var(--primary-foreground)] group-data-[highlighted]:text-[var(--primary-foreground)]">
               {t('memo.create.note')}
@@ -119,14 +118,12 @@ export function WorkspaceColumnContextMenu({ children, isWindows, onCreateNote, 
         ))}
         {viewsExpanded && <>
           <ContextMenuItem disabled={!canCreate} onClick={() => openViewCreateDialog('media-library')} className={`${itemClass} group`}>
-            <GalleryHorizontalEnd className="mr-2 h-4 w-4 shrink-0" aria-hidden="true" />
             <span className="min-w-0 flex-1 truncate leading-5">{t('memo.create.mediaLibraryMenuLabel')}</span>
             <span className="ml-auto shrink-0 text-xs text-[var(--muted-foreground)] opacity-50 group-hover:text-[var(--primary-foreground)] group-focus-visible:text-[var(--primary-foreground)] group-data-[highlighted]:text-[var(--primary-foreground)]">
               {t('memo.create.assetShort')}
             </span>
           </ContextMenuItem>
           <ContextMenuItem disabled={!notebook || Boolean(notebook.missing)} onClick={() => openViewCreateDialog('work-documents')} className={`${itemClass} group`}>
-            <span className="mr-2 h-4 w-4 shrink-0" aria-hidden="true" />
             <span className="min-w-0 flex-1 truncate leading-5">{t('memo.create.workDocumentsMenuLabel')}</span>
             <span className="ml-auto shrink-0 text-xs text-[var(--muted-foreground)] opacity-50 group-hover:text-[var(--primary-foreground)] group-focus-visible:text-[var(--primary-foreground)] group-data-[highlighted]:text-[var(--primary-foreground)]">
               {t('memo.create.assetShort')}

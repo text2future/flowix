@@ -3,8 +3,8 @@ import type { ThemeId } from './types';
 /**
  * 合法主题白名单 — 单一真源。
  *
- * useApplyTheme / user-settings-store / 后端 Rust Theme enum 都参考这份数组;
- * 加新主题时只改这里 + css/theme/<id>.css + options.ts 即可, 不再散落 3 处。
+ * 前端运行时使用这份数组；新增主题还需同步首屏脚本、原生窗口、
+ * 快捷键和设置面板等入口。详见 styles/theme/README.md。
  */
 export const THEME_IDS = ['system', 'light', 'dark', 'mist', 'rock', 'ember'] as const satisfies readonly ThemeId[];
 

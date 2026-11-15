@@ -12,7 +12,7 @@ const publish = vi.fn();
 const summary = { collectionId: 'c1', domains: ['notes'], views: [] } as unknown as FolderCollectionSummary;
 function Probe({ path = '/book/a.index.yaml', editable = true }: { path?: string; editable?: boolean }) {
   api = useCollectionViewCommands({ indexPath: path, notebookPath: '/book', currentFolderPath: null,
-    folderName: '', editable, summary, onSummary: publish });
+    editable, summary, onSummary: publish });
   return null;
 }
 afterEach(async () => { await act(async () => root?.unmount()); vi.clearAllMocks(); });

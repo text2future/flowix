@@ -6,7 +6,7 @@ use crate::agent_wire::{AgentChatResponse, AgentUserMessage, RunInfo};
 use crate::app::state::AppState;
 
 use super::flowix_instructions::sync_native_agent_instructions;
-use super::image_cache::{
+use crate::agent_image_cache::{
     resolve_cached_agent_image, MAX_AGENT_IMAGE_BYTES, MAX_AGENT_IMAGE_COUNT,
 };
 use super::runtime::{

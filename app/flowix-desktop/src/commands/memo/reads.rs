@@ -7,9 +7,8 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::lock_utils::read_lock;
 use flowix_core::memo_file::{
-    normalize_markdown_encoding_boundaries,
-    notebook_path_from_relative, notebook_relative_path, Memo, MemoFile,
-    NoteEntry, NoteSummary, NoteTitleFilter,
+    normalize_markdown_encoding_boundaries, notebook_relative_path, NoteEntry, NoteSummary,
+    NoteTitleFilter,
 };
 use flowix_core::service::{NoteSaveOutcome, NotePageQuery};
 use flowix_core::{FlowixError, NoteService};
@@ -28,6 +27,7 @@ pub struct MarkdownLocation {
     relative_path: Option<String>,
     notebook_path: Option<String>,
     indexable: bool,
+    is_directory: Option<bool>,
 }
 
 #[derive(serde::Serialize)]
@@ -71,13 +71,19 @@ pub async fn resolve_markdown_location(
             return Err("absolute document path required".to_string());
         }
         let path = dunce::canonicalize(requested).unwrap_or_else(|_| requested.to_path_buf());
+        let is_directory = fs::metadata(&path).ok().map(|metadata| metadata.is_dir());
         let mut notebooks = memo_file.read_notebook_configs().map_err(|error| error.to_string())?;
         notebooks.sort_by_key(|notebook| std::cmp::Reverse(notebook.path.len()));
         for notebook in notebooks {
             let root = Path::new(&notebook.path);
             let canonical_root = dunce::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
-            let Ok(relative_path) = notebook_relative_path(&canonical_root, &path) else {
-                continue;
+            let relative_path = if is_directory == Some(true) && path == canonical_root {
+                String::new()
+            } else {
+                let Ok(relative_path) = notebook_relative_path(&canonical_root, &path) else {
+                    continue;
+                };
+                relative_path
             };
             let relative = Path::new(&relative_path);
             let markdown = relative.extension().and_then(|ext| ext.to_str())
@@ -90,6 +96,7 @@ pub async fn resolve_markdown_location(
                 relative_path: Some(relative_path),
                 notebook_path: Some(notebook.path),
                 indexable,
+                is_directory,
             });
         }
         Ok(MarkdownLocation {
@@ -98,6 +105,7 @@ pub async fn resolve_markdown_location(
             relative_path: None,
             notebook_path: None,
             indexable: false,
+            is_directory,
         })
     }).await.map_err(|error| format!("Markdown location task failed: {error}"))?
 }

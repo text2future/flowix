@@ -736,14 +736,7 @@ button.multidimensional-table__primary-title--placeholder {
   transition: opacity 120ms ease;
 }
 
-.multidimensional-table__view-nav-actions-separator {
-  width: 1px;
-  height: 1rem;
-  flex: none;
-  margin-inline: 0.25rem;
-  background: var(--border);
-}
-
+.multidimensional-table__view-nav-actions-separator,
 .multidimensional-table__view-nav-separator {
   width: 1px;
   height: 1rem;
@@ -799,6 +792,15 @@ button.multidimensional-table__primary-title--placeholder {
   max-height: min(320px, calc(100vh - 16px));
 }
 
+.table-reference-picker__title {
+  flex: 0 0 auto;
+  padding: 0.375rem 0.5rem 0.25rem;
+  color: var(--foreground);
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.25rem;
+}
+
 .agent-thread-card__featured-notes-view-picker {
   position: fixed;
   z-index: 2147483647;
@@ -808,12 +810,7 @@ button.multidimensional-table__primary-title--placeholder {
   max-height: min(320px, calc(100vh - 16px));
   flex-direction: column;
   overflow: hidden;
-  padding: 0.25rem;
-  border: 1px solid var(--border-popup);
-  border-radius: 0.75rem;
-  background: var(--card);
   color: var(--foreground);
-  box-shadow: 0 4px 24px -3px rgb(0 0 0 / 24%);
 }
 
 .agent-thread-card__featured-notes-view-picker[hidden] {
@@ -827,25 +824,6 @@ button.multidimensional-table__primary-title--placeholder {
   font-size: 0.75rem;
 }
 
-.agent-thread-card__featured-notes-view-list {
-  position: relative;
-  display: flex;
-  min-height: 0;
-  flex: 1 1 auto;
-  overflow: hidden;
-  margin-right: -0.25rem;
-}
-
-.agent-thread-card__featured-notes-view-items {
-  display: flex;
-  min-height: 0;
-  flex: 1 1 auto;
-  flex-direction: column;
-  gap: 0.125rem;
-  overflow-y: auto;
-  padding-right: 0.25rem;
-}
-
 .agent-thread-card__featured-notes-view-status {
   padding: 1rem;
   color: var(--muted-foreground);
@@ -855,18 +833,11 @@ button.multidimensional-table__primary-title--placeholder {
 
 .agent-thread-card__featured-notes-view-option {
   display: flex;
-  width: 100%;
   height: 2rem;
   min-height: 2rem;
-  align-items: center;
   gap: 0.75rem;
   padding: 0 0.5rem;
-  border: 0;
-  border-radius: 0.5rem;
-  background: transparent;
   color: inherit;
-  cursor: pointer;
-  text-align: left;
 }
 
 .agent-thread-card__featured-notes-view-option:hover,
@@ -896,9 +867,6 @@ button.multidimensional-table__primary-title--placeholder {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.agent-thread-card__featured-notes-view-option-title {
   font-size: 0.875rem;
 }
 
@@ -931,11 +899,11 @@ button.multidimensional-table__primary-title--placeholder {
 }
 
 .table-reference-picker .slash-menu-item {
-  height: 1.75rem;
-  min-height: 1.75rem;
+  height: auto;
+  min-height: 2.75rem;
   align-items: center;
-  gap: 0.375rem;
-  padding-block: 0;
+  gap: 0.5rem;
+  padding-block: 0.375rem;
 }
 
 .table-reference-picker .slash-menu-item.table-reference-picker__view-action {
@@ -948,6 +916,22 @@ button.multidimensional-table__primary-title--placeholder {
 
 .table-reference-picker .slash-menu-item-label {
   line-height: 1.15rem;
+}
+
+.table-reference-picker__candidate-label {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.table-reference-picker__candidate-folder {
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .table-reference-picker.slash-menu-dropdown:not(.is-keyboard-navigation) .slash-menu-item:hover,
@@ -1070,22 +1054,7 @@ html[data-platform] .table-reference-node__content .overlay-scrollbar-frame .ove
   outline: 2px solid var(--border);
   outline-offset: -2px;
 }
-.multidimensional-table__column-drag-floating {
-  position: fixed;
-  top: 0;
-  left: 0;
-  z-index: 1000;
-  pointer-events: none;
-  user-select: none;
-  cursor: grabbing;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--document-bg);
-  color: var(--foreground);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
-}
-
+.multidimensional-table__column-drag-floating,
 .multidimensional-table__row-drag-floating {
   position: fixed;
   top: 0;
@@ -1135,10 +1104,14 @@ html[data-platform] .table-reference-node__content .overlay-scrollbar-frame .ove
 }
 
 /* The folder file list scrolls horizontally inside its own rows viewport.
- * Let vertical wheel input continue to the collection page. */
+ * Let vertical wheel input continue to the collection page. Set the policy on
+ * the frame so OverlayScrollbar's platform-scoped defaults inherit this value. */
+.collection-files-tab__scrollbar {
+  --overlay-scrollbar-overscroll-y: auto;
+}
+
 .collection-files-tab__scroller {
   overflow-x: auto !important;
   overflow-y: hidden !important;
   overscroll-behavior-x: contain;
-  overscroll-behavior-y: auto;
 }

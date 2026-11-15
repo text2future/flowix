@@ -26,8 +26,9 @@ struct OnboardingPage {
 // The array order is the reverse of the final display order. The path index
 // records creation time and the UI sorts createdAt descending.
 // Expected display order (top to bottom):
-//   1. 快速开始指南.html (plain file, created last)
-//   2. One welcome note, selected by the app language.
+//   1. 笔记本工作台.html (plain file, created last)
+//   2. 快速开始指南.html
+//   3. One welcome note, selected by the app language.
 const ONBOARDING_DOCS: &[OnboardingDoc] = &[
     OnboardingDoc {
         title: "Welcome",
@@ -52,6 +53,12 @@ fn onboarding_doc_for_language(language: &str) -> &'static OnboardingDoc {
 const ONBOARDING_INTRO_PAGE: OnboardingPage = OnboardingPage {
     filename: "快速开始指南.html",
     body: include_str!("../../resources/welcome/快速开始指南.html"),
+};
+
+/// The editable dashboard is copied into each new notebook as a standalone page.
+const ONBOARDING_WORKBENCH_PAGE: OnboardingPage = OnboardingPage {
+    filename: "笔记本工作台.html",
+    body: include_str!("../../resources/welcome/笔记本工作台.html"),
 };
 
 impl MemoFile {
@@ -110,9 +117,9 @@ fn seed_onboarding_docs_if_empty(
         .ok_or_else(|| std::io::Error::other("no notebook selected for onboarding"))?;
     let doc = onboarding_doc_for_language(language);
     memo_file.create_note_by_path(&target_notebook, None, doc.title, doc.body)?;
-    // Created last so the newest file sorts to the top of the folder tree, right
-    // above the welcome notes.
-    seed_onboarding_intro_page(memo_file, &target_notebook, &base);
+    seed_onboarding_page(memo_file, &target_notebook, &base, &ONBOARDING_INTRO_PAGE);
+    // The dashboard is created last so it appears at the top of the file tree.
+    seed_onboarding_page(memo_file, &target_notebook, &base, &ONBOARDING_WORKBENCH_PAGE);
 
     Ok(true)
 }
@@ -122,15 +129,15 @@ fn seed_onboarding_docs_if_empty(
 /// The page is decorative: an existing file with the same name (user edits) or a
 /// failed write must never roll back a notebook that was created successfully,
 /// so both cases are swallowed instead of surfacing as an import failure.
-fn seed_onboarding_intro_page(memo_file: &MemoFile, notebook_id: &str, base: &Path) {
-    let path = base.join(ONBOARDING_INTRO_PAGE.filename);
-    match memo_file.create_file_for_notebook(notebook_id, &path, ONBOARDING_INTRO_PAGE.body.as_bytes()) {
+fn seed_onboarding_page(memo_file: &MemoFile, notebook_id: &str, base: &Path, page: &OnboardingPage) {
+    let path = base.join(page.filename);
+    match memo_file.create_file_for_notebook(notebook_id, &path, page.body.as_bytes()) {
         Ok(()) => {}
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
         Err(error) => tracing::warn!(
             notebook_id,
             path = %path.display(),
-            "onboarding intro page not seeded: {error}"
+            "onboarding page not seeded: {error}"
         ),
     }
 }
@@ -256,7 +263,7 @@ mod tests {
         assert!(!intro_html.contains("rel=\"stylesheet\""));
         assert!(!filenames.contains(&ONBOARDING_INTRO_PAGE.filename.to_string()));
 
-        // 新笔记本根目录只有一份当前语言的欢迎笔记和一个介绍网页。
+        // 新笔记本根目录包含欢迎笔记、介绍网页和工作台。
         // 介绍页必须落在根目录（不是子文件夹），否则文件树里看不到它。
         let mut root_entries: Vec<String> = fs::read_dir(mf.get_memo_base())
             .unwrap()
@@ -270,6 +277,7 @@ mod tests {
             vec![
                 ONBOARDING_INTRO_PAGE.filename.to_string(),
                 "欢迎文档.md".to_string(),
+                ONBOARDING_WORKBENCH_PAGE.filename.to_string(),
             ]
         );
 

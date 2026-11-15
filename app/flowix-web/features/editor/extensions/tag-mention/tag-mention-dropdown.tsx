@@ -1,7 +1,7 @@
 import { type MouseEvent } from 'react';
 import { LoaderCircle } from 'lucide-react';
 import { useSelectedItemScroll } from '@features/editor/extensions/shared/use-selected-item-scroll';
-import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
+import { PopupScrollArea } from '@shared/ui/popup-scroll-area';
 import type { MentionTagItem } from '@features/editor/extensions/tag-mention/tag-mention-data';
 import { TagMentionName } from '@features/editor/extensions/tag-mention/tag-mention-label';
 import { useI18n } from '@/lib/i18n';
@@ -57,7 +57,7 @@ export function TagMentionDropdown({
           />
         )}
       </div>
-      <OverlayScrollbar
+      <PopupScrollArea
         className="mention-note-items-frame"
         scrollerClassName="mention-note-items"
         scrollerRef={scrollerRef}
@@ -113,7 +113,7 @@ export function TagMentionDropdown({
             {t('editor.tagMention.loadMore')}
           </button>
         )}
-      </OverlayScrollbar>
+      </PopupScrollArea>
     </div>
   );
 }

@@ -11,7 +11,7 @@ export interface CollectionActionsHost {
 /** Mounted but inactive panels must never publish actions into the active tab. */
 export const INACTIVE_COLLECTION_ACTIONS_HOST: CollectionActionsHost = { target: null };
 
-/** The shell owns the slot; React reports its mount, replacement and removal. */
+/** The containing header owns the slot; React reports its mount, replacement and removal. */
 export function CollectionActionsSlot({ onTargetChange, children }: {
   onTargetChange: RefCallback<HTMLDivElement>;
   children?: ReactNode;

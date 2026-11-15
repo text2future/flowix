@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { ArrowLeft, ChevronRight, MoreHorizontal, Trash2 } from 'lucide-react';
+import { ArrowLeft, ChevronRight, MoreHorizontal, Package, Trash2 } from 'lucide-react';
 import { CaretDownIcon, FolderSimpleIcon, PlusIcon } from '@phosphor-icons/react';
 import { FolderFileTree } from '@features/memo/components/folder-file-tree';
 import { useFolderTree } from '@features/memo/components/use-folder-tree';
@@ -12,7 +12,7 @@ import { openPath } from '@platform/tauri/opener';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@shared/ui/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '@shared/ui/popover';
 import { breadcrumbSignature, useBreadcrumbCollapse } from '@shared/hooks/use-breadcrumb-collapse';
-import { resolveFileBrowserBreadcrumbItems, type FileBrowserBreadcrumbItem } from './file-browser-breadcrumb';
+import { markRepositoryBreadcrumbItems, resolveFileBrowserBreadcrumbItems, type FileBrowserBreadcrumbItem } from './file-browser-breadcrumb';
 import { files, type FileBrowserDirectoriesChangedEvent } from '@platform/tauri/client';
 import { subscribe } from '@platform/tauri/event-bus';
 import { canonicalPath } from '@/lib/path';
@@ -43,12 +43,14 @@ export interface FileBrowserViewSurface extends FileBrowserTarget {
 function BrowserBreadcrumbFolderTree({
   folderPath,
   folderName,
+  isRepository,
   activeFilePath,
   onFileSelect,
   onFileOpenInNewTab,
 }: {
   folderPath: string;
   folderName: string;
+  isRepository?: boolean;
   activeFilePath: string | null;
   onFileSelect: (filePath: string) => void;
   onFileOpenInNewTab: (filePath: string) => void;
@@ -67,6 +69,7 @@ function BrowserBreadcrumbFolderTree({
         layout="content"
         treeViewportClassName="max-h-[min(376px,calc(100vh-7rem))]"
         tree={tree}
+        headerLeading={isRepository ? <Package className="mr-1.5 h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)]" aria-hidden="true" /> : undefined}
         onFileSelect={onFileSelect}
         onFileOpenInNewTab={onFileOpenInNewTab}
       />
@@ -110,6 +113,7 @@ function BrowserBreadcrumbFolderPopover({
           <BrowserBreadcrumbFolderTree
             folderPath={item.path}
             folderName={item.label}
+            isRepository={item.isRepository}
             activeFilePath={activeFilePath}
             onFileOpenInNewTab={onFileOpenInNewTab}
             onFileSelect={(filePath) => {
@@ -175,6 +179,7 @@ function BrowserBreadcrumbCollapsedPopover({
             <BrowserBreadcrumbFolderTree
               folderPath={selectedFolder.path}
               folderName={selectedFolder.label}
+              isRepository={selectedFolder.isRepository}
               activeFilePath={activeFilePath}
               onFileOpenInNewTab={onFileOpenInNewTab}
               onFileSelect={(filePath) => {
@@ -193,7 +198,9 @@ function BrowserBreadcrumbCollapsedPopover({
                 onClick={() => setSelectedFolder(item)}
                 className="flex h-7 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-left text-sm transition-colors hover:bg-[var(--muted)]"
               >
-                <FolderSimpleIcon size={14} className="shrink-0" aria-hidden="true" />
+                {item.isRepository
+                  ? <Package size={14} className="shrink-0 text-[var(--muted-foreground)]" aria-hidden="true" />
+                  : <FolderSimpleIcon size={14} className="shrink-0" aria-hidden="true" />}
                 <span className="min-w-0 flex-1 truncate">{item.label}</span>
                 <ChevronRight className="h-3 w-3 shrink-0 opacity-60" aria-hidden="true" />
               </button>
@@ -310,7 +317,10 @@ export function FileBrowserView({ surface: input }: { surface: FileBrowserViewSu
     ? resolveFileBrowserRoot(input.activeFilePath, availableFolders)
     : input.folderPath;
   const surface = { ...input, folderPath: root ?? '' };
-  const breadcrumbs = root ? resolveFileBrowserBreadcrumbItems(root, input.activeFilePath) : [];
+  const breadcrumbs = markRepositoryBreadcrumbItems(
+    root ? resolveFileBrowserBreadcrumbItems(root, input.activeFilePath) : [],
+    availableFolders,
+  ) ?? [];
   const currentPath = input.activeFilePath ?? input.folderPath ?? '';
   const folderItems = (workspaceNotebook?.addDirs ?? [])
     .filter((directory) => directory.enabled && !directory.missing)
@@ -366,16 +376,16 @@ export function FileBrowserView({ surface: input }: { surface: FileBrowserViewSu
 
   return (
     <div className="flex h-full min-w-0 flex-col">
-      {root && <nav
+      {root && (!surface.activeFilePath || (surface.onSelectFolder && surface.sourceMenuEnabled !== false)) && <nav
         aria-label="文件路径"
         className="flex min-w-0 shrink-0 items-center gap-1 border-b border-[color-mix(in_oklch,var(--border)_68%,transparent)] pb-2 pl-4 pr-3 text-xs text-[var(--muted-foreground)]"
       >
-        <BrowserBreadcrumbs
+        {!surface.activeFilePath && <BrowserBreadcrumbs
           items={breadcrumbs}
           activeFilePath={surface.activeFilePath}
           onFileOpenInNewTab={surface.onOpenFileInNewTab}
           onFileSelect={surface.onSelectFile}
-        />
+        />}
         {surface.onSelectFolder && surface.sourceMenuEnabled !== false && <DropdownMenu className="shrink-0">
           <DropdownMenuTrigger asChild>
             <button

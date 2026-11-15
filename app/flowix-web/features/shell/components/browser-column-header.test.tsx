@@ -10,7 +10,7 @@ import { registerCollectionBannerControl } from '@/lib/collection-banner-visibil
 vi.mock('@/lib/i18n', async (original) => ({ ...await original<typeof import('@/lib/i18n')>(), useI18n: () => ({ t: (key: string) => key }) }));
 vi.mock('@features/document/public/shell-api', () => ({
   SurfaceHeaderIcon: () => null,
-  ExternalTitlebarBadge: () => null,
+  ExternalTitlebarBadge: ({ target }: { target: { relativePath: string | null } }) => <span data-titlebar-relative-path={target.relativePath ?? ''} />,
   resolveDocumentTitlebarTarget: (fileIdentity: unknown, session: object) => ({ fileIdentity, ...session, isOutsideCurrentNotebook: false }),
   documentIdentityFromFile: (identity: unknown) => identity,
   useDocumentEditorMode: () => 'rich',
@@ -142,7 +142,35 @@ it('shows the owning notebook path breadcrumb for a note opened in the browser c
   }
 });
 
+it('computes Browser note identity relative to the notebook root, not the narrower repository scope', async () => {
+  const { useNoteStore } = await import('@features/memo/store/note-store');
+  const previous = useNoteStore.getState().notebooks;
+  useNoteStore.setState({ notebooks: [{ id: 'book', path: '/book' }] as never });
+  const path = '/book/repo/note.md';
+  ensureFileDisplayIdentity(path);
+  const node = document.createElement('div');
+  document.body.append(node);
+  const root = createRoot(node);
+  try {
+    await act(async () => root.render(<BrowserColumnHeader current={{ id: 'repo-note', title: 'Note', icon: null, target: {
+      kind: 'file-browser', activeFilePath: path, folderPath: '/book/repo', scopePath: '/book/repo',
+      notebookId: 'book', fileTreeVisible: true, fileTreeWidth: 220,
+    } }} resolvedFileBrowserContext={{
+      notebookId: 'book', scopePath: '/book/repo', folderPath: '/book/repo', fileTreeVisible: true, fileTreeWidth: 220,
+    }} activeSurfaceChrome="document" onToggleMemoEditorMode={vi.fn()} onOpenInWorkColumn={vi.fn()}
+      isFocused canCreate={false} onCreateNote={vi.fn()} onCreateAgentConversation={vi.fn()} />));
+    expect(node.querySelector('[data-titlebar-relative-path]')?.getAttribute('data-titlebar-relative-path')).toBe('repo/note.md');
+  } finally {
+    await act(async () => root.unmount());
+    useNoteStore.setState({ notebooks: previous });
+    node.remove();
+  }
+});
+
 it('hides the underlying note controls only in the fullscreen host, restores them on exit, and follows plugin preview capabilities', async () => {
+  const { useNoteStore } = await import('@features/memo/store/note-store');
+  const previousNotebooks = useNoteStore.getState().notebooks;
+  useNoteStore.setState({ notebooks: [{ id: 'book', path: '/book' }] as never });
   const node = document.createElement('div');
   document.body.append(node);
   const root = createRoot(node);
@@ -185,6 +213,7 @@ it('hides the underlying note controls only in the fullscreen host, restores the
       clearWorkspaceHeaderFullscreen('column-2', browserOwner);
       root.unmount();
     });
+    useNoteStore.setState({ notebooks: previousNotebooks });
     node.remove();
   }
 });

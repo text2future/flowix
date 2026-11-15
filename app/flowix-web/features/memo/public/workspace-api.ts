@@ -47,18 +47,38 @@ export function getSelectedWorkspaceNotebookId(): string | null {
 // observe the same selection change. Keep the last successful native sync so
 // the effect does not start a second migration pass for the same notebook.
 let lastPersistedWorkspaceNotebookId: string | null | undefined;
+let requestedWorkspaceNotebookId: string | null | undefined;
+let workspaceNotebookRequestRevision = 0;
+let workspaceNotebookTransition: Promise<void> = Promise.resolve();
 
 export function getLastPersistedWorkspaceNotebookId(): string | null | undefined {
   return lastPersistedWorkspaceNotebookId;
 }
 
+/** Whether the selected notebook needs a native sync or would supersede one in flight. */
+export function needsWorkspaceNotebookPersistence(notebookId: string | null): boolean {
+  return (requestedWorkspaceNotebookId !== undefined && requestedWorkspaceNotebookId !== notebookId)
+    || (lastPersistedWorkspaceNotebookId !== undefined && lastPersistedWorkspaceNotebookId !== notebookId);
+}
+
 /** Persist the notebook selected by a workspace navigation transaction. */
-export async function setCurrentWorkspaceNotebook(
+export function setCurrentWorkspaceNotebook(
   notebook: Pick<Notebook, 'id'> | string | null,
 ): Promise<void> {
   const notebookId = typeof notebook === 'string' ? notebook : notebook?.id ?? null;
-  await notebooksClient.setCurrent(notebookId);
-  lastPersistedWorkspaceNotebookId = notebookId;
+  const revision = ++workspaceNotebookRequestRevision;
+  requestedWorkspaceNotebookId = notebookId;
+  const operation = workspaceNotebookTransition.then(async () => {
+    // Coalesce requests that have not reached native yet. An in-flight call
+    // still completes first; the newest request then restores the intended id.
+    if (revision !== workspaceNotebookRequestRevision || lastPersistedWorkspaceNotebookId === notebookId) return;
+    await notebooksClient.setCurrent(notebookId);
+    lastPersistedWorkspaceNotebookId = notebookId;
+  });
+  workspaceNotebookTransition = operation.then(() => undefined, () => undefined).finally(() => {
+    if (revision === workspaceNotebookRequestRevision) requestedWorkspaceNotebookId = undefined;
+  });
+  return operation;
 }
 
 export type { Notebook };

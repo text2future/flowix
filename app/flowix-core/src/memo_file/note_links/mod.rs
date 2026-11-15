@@ -9,7 +9,7 @@ mod tests;
 use serde::Serialize;
 pub(crate) use store::{foreground_save, initialize_schema, remember_snapshot};
 
-pub(crate) const PARSER_VERSION: i64 = 2;
+pub(crate) const PARSER_VERSION: i64 = 4;
 pub(crate) const SCHEMA_VERSION: &str = "2";
 pub(crate) const MAX_BODY_BYTES: usize = 4 * 1024 * 1024;
 const MAX_REFERENCES: usize = 50_000;

@@ -32,6 +32,35 @@ export function resolveFileBrowserContext(
   return { ...context, notebookId, scopePath };
 }
 
+/**
+ * Notebook that owns a path purely by location.
+ *
+ * Unlike `resolveFileBrowserContext`, the selected notebook is never a fallback:
+ * a file outside every notebook root has no owner. Callers use this for file
+ * kinds whose ownership the backend does not resolve (anything but Markdown).
+ */
+export function notebookOwnerOfPath(path: string | null): { id: string; path: string } | null {
+  if (!path) return null;
+  const notebooks = getWorkspaceMemoState().notebooks;
+  const root = resolveFileBrowserRoot(path, notebooks.map((notebook) => notebook.path));
+  if (!root) return null;
+  return notebooks.find((notebook) => canonicalDirectoryPath(notebook.path) === canonicalDirectoryPath(root)) ?? null;
+}
+
+/**
+ * Same as `notebookOwnerOfPath`, but tolerates a not-yet-loaded notebook
+ * registry — startup restoration can reach here before the registry IPC
+ * lands, and an empty registry would silently answer "no owner".
+ */
+export async function notebookOwnerOfPathResolved(path: string | null): Promise<{ id: string; path: string } | null> {
+  const owner = notebookOwnerOfPath(path);
+  if (owner || !path) return owner;
+  const state = getWorkspaceMemoState();
+  if (state.notebooks.length > 0) return null;
+  await state.loadNotebooks().catch(() => undefined);
+  return notebookOwnerOfPath(path);
+}
+
 /** Capture ownership once, independently of whichever notebook is selected later. */
 export function captureFileBrowserContext(
   filePath: string | null,

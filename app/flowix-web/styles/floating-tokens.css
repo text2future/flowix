@@ -19,6 +19,8 @@
   --floating-motion-standard: 400ms;
   --floating-motion-fast: 200ms;
 
+  --floating-shadow-popup: 0 4px 24px -3px rgb(0 0 0 / 24%);
+  --floating-shadow-bubble: 0 4px 24px -3px rgb(0 0 0 / 12%);
   --floating-shadow-toast: 0 16px 40px rgba(15,18,25,0.22), 0 3px 10px rgba(15,18,25,0.18);
   /* Document notices keep the toast geometry at half opacity. */
   --floating-shadow-document: 0 16px 40px rgba(15,18,25,0.11), 0 3px 10px rgba(15,18,25,0.09);

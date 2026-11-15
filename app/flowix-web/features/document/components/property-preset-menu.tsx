@@ -5,7 +5,7 @@ import { ChevronRight } from 'lucide-react';
 import { moveNameAndDescriptionPresetsToEnd, type PropertyPreset } from '@features/document/properties/presets';
 import { Popover, PopoverContent, PopoverTrigger } from '@shared/ui/popover';
 import { POPUP_SEPARATOR_CLASS } from '@shared/ui/popup-separator';
-import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
+import { PopupScrollArea } from '@shared/ui/popup-scroll-area';
 import { cn } from '@/lib/utils';
 import type { I18nKey } from '@/lib/i18n';
 
@@ -133,7 +133,7 @@ export function PropertyPresetMenu({
         className="agent-composer__note-search multidimensional-table__preset-search shrink-0"
       />
       <div role="separator" aria-hidden="true" className={`${POPUP_SEPARATOR_CLASS} shrink-0`} />
-      <OverlayScrollbar className="overlay-scrollbar-frame--edge-aligned min-h-0 max-h-[calc(60vh-60px)] flex-1" scrollerClassName="min-h-0 max-h-[calc(60vh-60px)] overflow-y-auto overflow-x-hidden">
+      <PopupScrollArea className="overlay-scrollbar-frame--edge-aligned min-h-0 max-h-[calc(60vh-60px)] flex-1" scrollerClassName="min-h-0 max-h-[calc(60vh-60px)] ">
         <div className="space-y-2">
           {renderGroup(t('preferences.documentProperties.group.presets'), visibleSystemPresets)}
           {renderGroup(customGroupLabel ?? t('preferences.documentProperties.group.mine'), visibleCustomPresets)}
@@ -145,7 +145,7 @@ export function PropertyPresetMenu({
             预设属性管理
           </button>
         </div>
-      </OverlayScrollbar>
+      </PopupScrollArea>
     </PopoverContent>
   </Popover>;
 }

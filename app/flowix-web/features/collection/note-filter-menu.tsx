@@ -6,7 +6,7 @@ import { ResourceFolderIcon } from '@features/surface/resource-file-icon';
 import { Popover, PopoverContent, PopoverTrigger } from '@shared/ui/popover';
 import { CollectionDatasetMenu } from '@shared/ui/collection-dataset-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@shared/ui/select';
-import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
+import { PopupScrollArea } from '@shared/ui/popup-scroll-area';
 import { FlowixCheckbox } from '@shared/ui/flowix-checkbox';
 import { DateValueInput } from '@features/document/components/note-properties/date-value-input';
 import { ColorValueInput } from '@features/document/properties/color-value-input';
@@ -282,7 +282,7 @@ export function NoteFilterMenu({ defaultFieldId = '', fields: autoCollectFields 
         className="max-h-[min(60vh,280px)] w-[260px] max-w-[calc(100vw-16px)] overflow-hidden rounded-xl p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]"
       >
         <div className="mention-note-header">{resolvedFolderPickerTitle}</div>
-        <OverlayScrollbar className="mention-note-items-frame max-h-[calc(min(60vh,280px)_-_36px)]" scrollerClassName="mention-note-items max-h-[calc(min(60vh,280px)_-_36px)] overflow-y-auto overflow-x-hidden">
+        <PopupScrollArea className="mention-note-items-frame max-h-[calc(min(60vh,280px)_-_36px)]" scrollerClassName="mention-note-items max-h-[calc(min(60vh,280px)_-_36px)] ">
           {folderOptionsLoading ? <p className="px-2 py-2 text-xs text-[var(--muted-foreground)]">{t('multidimensionalTable.autoCollect.loadingFolders')}</p>
             : <div className="space-y-0.5">
                 <button
@@ -336,7 +336,7 @@ export function NoteFilterMenu({ defaultFieldId = '', fields: autoCollectFields 
                   </div>;
                 })}
               </div>}
-        </OverlayScrollbar>
+        </PopupScrollArea>
       </PopoverContent>
     </Popover>;
 
@@ -500,7 +500,7 @@ export function NoteFilterMenu({ defaultFieldId = '', fields: autoCollectFields 
                       value={condition.value}
                       notebook={notebook}
                       disabled={saving}
-                      onChange={updateConditionValue}
+                      onChange={(paths) => updateConditionValue(paths[paths.length - 1] ?? '')}
                     /></div> : <input
                       value={condition.value}
                       disabled={saving}

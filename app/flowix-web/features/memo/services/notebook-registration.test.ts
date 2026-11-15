@@ -9,7 +9,7 @@ vi.mock('@features/memo/services/note-repository', () => ({ notebookRepository: 
 // the desktop files client; stub it so these repository-focused tests stay
 // isolated from Tauri IPC.
 const files = vi.hoisted(() => ({
-  createFolder: vi.fn(), getNotebookViewPreferences: vi.fn(), setNotebookViewPreferences: vi.fn(),
+  ensureNotebookFolder: vi.fn(), getNotebookViewPreferences: vi.fn(), setNotebookViewPreferences: vi.fn(),
 }));
 vi.mock('@platform/tauri/client/desktop', () => ({ files }));
 import { createNotebookRegistration } from './notebook-creation-service';

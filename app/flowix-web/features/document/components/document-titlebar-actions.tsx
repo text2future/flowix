@@ -3,8 +3,7 @@ import { DialogFooter } from '@shared/ui/dialog-footer';
 import { Button } from '@shared/ui/button';
 import { useState } from 'react';
 import { isHtmlFilePath } from '@features/content/public/content-api';
-import { Code2, Ellipsis } from 'lucide-react';
-import { LinkSimpleIcon, CopyIcon, FolderOpenIcon, FileMdIcon, FileDocIcon, FilePdfIcon, TrashSimpleIcon, SwatchesIcon } from '@phosphor-icons/react';
+import { Code2, Copy, Ellipsis, FolderOpen, Link, SwatchBook, Trash2 } from 'lucide-react';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@shared/ui/dropdown-menu';
 import { POPUP_SEPARATOR_CLASS } from '@shared/ui/popup-separator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@shared/ui/dialog';
@@ -14,6 +13,7 @@ import { useI18n, type I18nParams } from '@/lib/i18n';
 import { EditorFontSwitcher } from './editor-font-switcher';
 import { NoteColorPicker } from './document-titlebar-controls';
 import { VersionHistorySubmenu, formatVersionTime } from './document-version-history-menu';
+import { DocumentExportSubmenu } from './document-export-submenu';
 import { useDocumentTitlebarActions } from './use-document-titlebar-actions';
 import type { DocumentTitlebarProps, DocumentTitlebarTarget } from './document-titlebar-model';
 import type { DocumentEditorMode } from '@features/document/store/document-editor-view-store';
@@ -48,14 +48,14 @@ export function DocumentTitlebarActions({
     saveAsTemplate: canSaveAsTemplate, versionHistory: canViewVersionHistory,
   } = capabilities;
   const {
-    onCopyLink: onCopyPath, onCopyFullText, onExportMarkdown, onExportWord,
+    onCopyFullText, onExportMarkdown, onExportWord,
     onExportPdf, onSaveAsTemplate, onDeleteExternalFile,
   } = actions;
   const { t, language } = useI18n();
   const {
     colors, changeColors, fontSwitch, selectedFontSizeMode, setEditorFontSizeMode,
     confirmVersion, setConfirmVersion, restoringVersionId, versionRefreshKey,
-    restorePathVersion, copyFolderPath, revealFile,
+    restorePathVersion, copyFolderPath, copyDocumentPath, revealFile,
   } = useDocumentTitlebarActions(target);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const collectionDisplayIndexPath = collectionDisplay?.indexPath;
@@ -64,8 +64,7 @@ export function DocumentTitlebarActions({
   const folderCollection = Boolean(collectionDisplayIndexPath && /[\\/]\.index\.yaml$/i.test(collectionDisplayIndexPath));
   const hideDeleteAction = folderCollection || target.isOutsideCurrentNotebook;
   const itemClass = 'group h-7 items-center justify-start gap-2 rounded-lg px-2 py-0 text-left hover:bg-[var(--hover-bg)] hover:text-[var(--foreground)]';
-  const handleCopyPath = () => folderCollection || target.isOutsideCurrentNotebook
-    ? copyFolderPath() : onCopyPath();
+  const handleCopyPath = () => folderCollection ? copyFolderPath() : copyDocumentPath();
 
   if (!visible) return null;
 
@@ -86,7 +85,7 @@ export function DocumentTitlebarActions({
           <Ellipsis className="h-4 w-4" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-[200px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+      <DropdownMenuContent scrollerClassName="space-y-0.5" align="end" className="w-[200px] rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
         {collectionDisplay && <>
           <CollectionDisplayMenuItems {...collectionDisplay} />
           <div role="separator" aria-hidden="true" className={POPUP_SEPARATOR_CLASS} />
@@ -100,18 +99,18 @@ export function DocumentTitlebarActions({
           <FontSizeSwitcher sizeMode={selectedFontSizeMode} onSelect={setEditorFontSizeMode} />
         </> : null}
         <DropdownMenuItem onClick={() => void handleCopyPath()} className={itemClass}>
-          <LinkSimpleIcon className="h-4 w-4" /> {t('memo.fileTree.copyPath')}
+          <Link className="h-4 w-4" /> {t('memo.fileTree.copyPath')}
         </DropdownMenuItem>
         {canCopyFullText && (
           <DropdownMenuItem onClick={onCopyFullText} className={itemClass}>
-            <CopyIcon className="h-4 w-4" /> {t('document.action.copyFullText')}
+            <Copy className="h-4 w-4" /> {t('document.action.copyFullText')}
           </DropdownMenuItem>
         )}
         <DropdownMenuItem
           onClick={() => { void revealFile(); }}
           className={itemClass}
         >
-          <FolderOpenIcon className="h-4 w-4" /> {t('document.file.reveal')}
+          <FolderOpen className="h-4 w-4" /> {t('document.file.reveal')}
         </DropdownMenuItem>
         {showEditorModeToggle && (
           <DropdownMenuItem
@@ -129,27 +128,20 @@ export function DocumentTitlebarActions({
             <div role="separator" aria-hidden="true" className={POPUP_SEPARATOR_CLASS} />
             {canSaveAsTemplate && (
               <DropdownMenuItem onClick={onSaveAsTemplate} className={itemClass}>
-                <SwatchesIcon className="h-4 w-4" /> {t('document.action.saveAsTemplate')}
+                <SwatchBook className="h-4 w-4" /> {t('document.action.saveAsTemplate')}
               </DropdownMenuItem>
             )}
             {canExportContent && (
-              <>
-                <DropdownMenuItem onClick={onExportMarkdown} className={itemClass}>
-                  <FileMdIcon className="h-4 w-4" /> {t('document.action.exportMarkdown')}
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={onExportWord} className={itemClass}>
-                  <FileDocIcon className="h-4 w-4" /> {t('document.action.exportWord')}
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={onExportPdf} className={itemClass}>
-                  <FilePdfIcon className="h-4 w-4" /> {t('document.action.exportPdf')}
-                </DropdownMenuItem>
-              </>
+              <DocumentExportSubmenu
+                onExportMarkdown={onExportMarkdown}
+                onExportWord={onExportWord}
+                onExportPdf={onExportPdf}
+              />
             )}
           </>
         )}
         {canViewVersionHistory && target.notebookId && target.relativePath && (
           <>
-            <div role="separator" aria-hidden="true" className={POPUP_SEPARATOR_CLASS} />
             <VersionHistorySubmenu
               notebookId={target.notebookId}
               relativePath={target.relativePath}
@@ -157,13 +149,14 @@ export function DocumentTitlebarActions({
               restoringVersionId={restoringVersionId}
               onSelectVersion={setConfirmVersion}
             />
+            <div role="separator" aria-hidden="true" className={POPUP_SEPARATOR_CLASS} />
           </>
         )}
         {!hideDeleteAction && <DropdownMenuItem
           onClick={() => setConfirmDelete(true)}
-          className="group h-7 items-center justify-start gap-2 rounded-lg px-2 py-0 text-left hover:bg-transparent hover:text-[var(--destructive)]"
+          className="group h-7 items-center justify-start gap-2 rounded-lg px-2 py-0 text-left hover:bg-[var(--hover-bg)] hover:text-[var(--destructive)]"
         >
-          <TrashSimpleIcon className="h-4 w-4" /> {t(indexable ? 'memo.delete.confirm' : 'document.external.deleteFile')}
+          <Trash2 className="h-4 w-4" /> {t(indexable ? 'memo.delete.confirm' : 'document.external.deleteFile')}
         </DropdownMenuItem>}
       </DropdownMenuContent>
 

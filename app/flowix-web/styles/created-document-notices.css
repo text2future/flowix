@@ -1,18 +1,27 @@
 /* Created document cards reveal their native scrollbar only while scrolling. */
-.created-document-notice-scroll:not([data-scrolling="true"]) {
+html[data-platform] .created-document-notice-scroll:not([data-scrolling="true"]) {
 	scrollbar-color: transparent transparent;
 }
 
-.created-document-notice-scroll[data-scrolling="true"] {
-	scrollbar-color: color-mix(in oklch, var(--muted-foreground) 38%, transparent) transparent;
+html[data-platform] .created-document-notice-scroll[data-scrolling="true"] {
+	scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
-.created-document-notice-scroll:not([data-scrolling="true"])::-webkit-scrollbar-thumb {
+html[data-platform] .created-document-notice-scroll:not([data-scrolling="true"])::-webkit-scrollbar-thumb {
 	background: transparent;
 }
 
-.created-document-notice-scroll[data-scrolling="true"]::-webkit-scrollbar-thumb {
-	background: color-mix(in oklch, var(--muted-foreground) 38%, transparent);
+html[data-platform] .created-document-notice-scroll[data-scrolling="true"]::-webkit-scrollbar-thumb {
+	background: var(--scrollbar-thumb);
+}
+
+/* Keep state colors above both the hidden rule and platform native defaults. */
+html[data-platform] .created-document-notice-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+html[data-platform] .created-document-notice-scroll::-webkit-scrollbar-thumb:active {
+  background: var(--scrollbar-thumb-active);
 }
 
 /* Match Sonner's transform/opacity timing while keeping document cards persistent. */

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
+import { PopupScrollArea } from '@shared/ui/popup-scroll-area';
 import { POPUP_SEPARATOR_CLASS } from '@shared/ui/popup-separator';
 import { getPropertyTypeDefinition } from '@/lib/property-types';
 import type { I18nKey } from '@/lib/i18n';
@@ -120,9 +120,9 @@ export function FrontmatterPropertyKeyPicker({
             className="agent-composer__note-search multidimensional-table__preset-search shrink-0"
           />
           <div role="separator" aria-hidden="true" className={`${POPUP_SEPARATOR_CLASS} shrink-0`} />
-          <OverlayScrollbar
+          <PopupScrollArea
             className="overlay-scrollbar-frame--edge-aligned min-h-0 max-h-[calc(60vh-60px)] flex-1"
-            scrollerClassName="min-h-0 max-h-[calc(60vh-60px)] overflow-y-auto overflow-x-hidden"
+            scrollerClassName="min-h-0 max-h-[calc(60vh-60px)] "
           >
             <div role="listbox" className="space-y-2">
               {renderGroup(t('preferences.documentProperties.group.presets'), builtinPresets)}
@@ -133,7 +133,7 @@ export function FrontmatterPropertyKeyPicker({
                 </div>
               )}
             </div>
-          </OverlayScrollbar>
+          </PopupScrollArea>
         </div>
       )}
     </div>

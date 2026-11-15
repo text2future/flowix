@@ -6,7 +6,7 @@ import { useI18n } from '@/lib/i18n';
 import type { I18nKey } from '@/lib/i18n/locales';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@shared/ui/dropdown-menu';
 import { POPUP_SEPARATOR_CLASS } from '@shared/ui/popup-separator';
-import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
+import { PopupScrollArea } from '@shared/ui/popup-scroll-area';
 import { Tooltip } from '@shared/ui/tooltip';
 import { TABLE_STYLE_ROW_ROLES, type TableBorderStyle, type TableColumnRole, type TableRowRole, type TableStyleId } from './table-presentation';
 import { getBorderExtendsHint, getTablePresentationSelection, setTableCellBorder, setTableColumnRole, setTableRowRole, setTableStyle } from './table-style-commands';
@@ -100,15 +100,15 @@ function TableMenuShell({
           </span>
         </Tooltip>
         : <DropdownMenuTrigger asChild>{triggerButton}</DropdownMenuTrigger>}
-      <DropdownMenuContent side="bottom" sideOffset={palette ? 4 : 5} align="start"
+      <DropdownMenuContent scrollable={false} side="bottom" sideOffset={palette ? 4 : 5} align="start"
         className={palette
           ? 'table-style-menu table-style-menu--palette'
           : `table-style-menu ${widthClass} rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]`}>
         {heading}
         {palette
           ? <div className="editor-highlight-palette">{children}</div>
-          : <OverlayScrollbar className="table-style-menu-scroll-frame"
-            scrollerClassName={`table-style-menu-scroller ${scrollerClass}`}>{children}</OverlayScrollbar>}
+          : <PopupScrollArea className="table-style-menu-scroll-frame"
+            scrollerClassName={`table-style-menu-scroller ${scrollerClass}`}>{children}</PopupScrollArea>}
       </DropdownMenuContent>
     </DropdownMenu>
   );

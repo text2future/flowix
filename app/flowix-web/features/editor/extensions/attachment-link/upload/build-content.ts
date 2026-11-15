@@ -12,7 +12,7 @@ export function buildUploadContent(assets: StoredAsset[]): JSONContent[] {
             return [{
                 type: 'image',
                 attrs: {
-                    src: assetUrl(asset.storageKey) || asset.url,
+                    src: asset.markdownHref || assetUrl(asset.storageKey) || asset.url,
                     alt: asset.name,
                     title: asset.name,
                     fileName,
@@ -27,7 +27,7 @@ export function buildUploadContent(assets: StoredAsset[]): JSONContent[] {
             return [{
                 type: 'videoAttachment',
                 attrs: {
-                    src: assetUrl(asset.storageKey) || asset.url,
+                    src: asset.markdownHref || assetUrl(asset.storageKey) || asset.url,
                     title: asset.name,
                     fileName,
                     mimeType: asset.mimeType,
@@ -40,7 +40,7 @@ export function buildUploadContent(assets: StoredAsset[]): JSONContent[] {
         return [{
             type: 'fileAttachment',
             attrs: {
-                url: assetUrl(asset.storageKey) || asset.url,
+                url: asset.markdownHref || assetUrl(asset.storageKey) || asset.url,
                 name: fileName,
                 fileName,
                 mimeType: asset.mimeType || '',

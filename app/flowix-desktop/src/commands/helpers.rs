@@ -201,8 +201,7 @@ pub(crate) fn refresh_current_notebook_watcher(state: &AppState, app: &AppHandle
     let active_id = {
         let _transition = state
             .notebook_transition
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .lock();
         rebind_current_notebook_watcher_locked(state, app)
     };
     // The rebind has a short gap. Reconcile only the root that actually
@@ -261,18 +260,12 @@ pub(crate) fn is_registered_notebook_path(path: &Path, state: &State<AppState>) 
 
 pub(crate) fn is_registered_notebook_root(path: &Path, state: &State<AppState>) -> bool {
     let memo_file = read_lock(&state.memo_file, "memo_file");
-    memo_file
-        .registered_notebook_paths()
-        .iter()
-        .any(|root| path_is_inside(path, root) && path_is_inside(root, path))
+    crate::notebook_scope::is_registered_notebook_root_in(&memo_file, path)
 }
 
 pub(crate) fn is_registered_notebook_path_with_state(path: &Path, state: &AppState) -> bool {
     let memo_file = read_lock(&state.memo_file, "memo_file");
-    memo_file
-        .registered_notebook_paths()
-        .iter()
-        .any(|root| path_is_inside(path, root))
+    crate::notebook_scope::is_registered_notebook_path_in(&memo_file, path)
 }
 
 pub(crate) fn can_access_document_path(path: &Path, window: &str, state: &State<AppState>) -> bool {
@@ -322,7 +315,8 @@ pub(crate) fn can_access_document_path_timed(
     let attached = !registered && is_attached_notebook_directory(path, state);
     timings.attached_ms = attached_started.elapsed().as_millis();
 
-    let allowed_so_far = registered || attached;
+    let allowed_so_far =
+        registered || attached || super::dialog::external_file_images::contains(path);
     let access_list_started = std::time::Instant::now();
     let in_access_list = !allowed_so_far && state.document_access.contains(window, path);
     timings.access_list_ms = access_list_started.elapsed().as_millis();
@@ -388,7 +382,5 @@ pub(crate) fn is_attached_notebook_directory(path: &Path, state: &State<AppState
 
 pub(crate) fn is_attached_notebook_directory_with_state(path: &Path, state: &AppState) -> bool {
     let memo = read_lock(&state.memo_file, "memo_file");
-    memo.attached_directory_paths()
-        .map(|roots| roots.iter().any(|root| path_is_inside(path, root)))
-        .unwrap_or(false)
+    crate::notebook_scope::is_attached_notebook_directory_in(&memo, path)
 }

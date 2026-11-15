@@ -1,5 +1,7 @@
+import { subscribeFrameInteraction } from "./frame-interaction";
 import * as React from "react";
 import { createPortal } from "react-dom";
+import { PopupSurface, limitPopupHeight } from "./popup-scroll-area";
 import { cn } from "@/lib/utils";
 import { consumeCellPopupTriggerClick } from "@shared/ui/consume-cell-popup-click";
 
@@ -143,6 +145,7 @@ function PopoverTrigger({ children, asChild, className, render, anchorToCell = f
 }
 
 interface PopoverContentProps {
+	scrollerClassName?: string;
 	children: React.ReactNode;
 	anchorSelector?: string;
 	align?: "start" | "center" | "end";
@@ -160,6 +163,8 @@ interface PopoverContentProps {
 	ignoreSelectOutside?: boolean;
 	ignorePopoverOutside?: boolean;
 	fitViewport?: boolean;
+	/** Set false when children provide a PopupScrollArea with fixed chrome. */
+	scrollable?: boolean;
 	alignToAnchorOrigin?: boolean;
 	keepParentMenuOpen?: boolean;
 }
@@ -170,6 +175,7 @@ const EXIT_ANIMATION_FALLBACK_MS = 500;
 
 function PopoverContent({
 	children,
+	scrollerClassName,
 	anchorSelector,
 	align = "end",
 	side = "bottom",
@@ -187,9 +193,11 @@ function PopoverContent({
 	ignorePopoverOutside = false,
 	fitViewport = false,
 	alignToAnchorOrigin = false,
+	scrollable = fitViewport || alignToAnchorOrigin,
 	keepParentMenuOpen = false,
 }: PopoverContentProps) {
 	const { parent, descendantContents, open, setOpen, triggerRef, anchorRect, cellAnchorRect, cellPopup } = usePopoverContext();
+	const configuredMaxHeight = style?.maxHeight;
 	const contentRef = React.useRef<HTMLDivElement>(null);
 	const [position, setPosition] = React.useState({ top: 0, left: 0 });
 	const [present, setPresent] = React.useState(open);
@@ -243,12 +251,10 @@ function PopoverContent({
 			if (!rect) return;
 			if (content && alignToAnchorOrigin) {
 				content.style.maxWidth = `${Math.max(0, window.innerWidth - rect.left - 4)}px`;
-				content.style.maxHeight = `${Math.max(0, window.innerHeight - rect.top - 4)}px`;
-				content.style.overflowY = 'auto';
+				limitPopupHeight(content, window.innerHeight - rect.top - 4, configuredMaxHeight);
 			} else if (fitViewport && content) {
 				content.style.maxWidth = `${Math.max(0, window.innerWidth - 16)}px`;
-				content.style.maxHeight = `${Math.max(0, window.innerHeight - 8)}px`;
-				content.style.overflowY = 'auto';
+				limitPopupHeight(content, window.innerHeight - 8, configuredMaxHeight);
 			}
 			const width = contentRef.current?.offsetWidth ?? 200;
 			const height = contentRef.current?.offsetHeight ?? 200;
@@ -321,7 +327,7 @@ function PopoverContent({
 			window.removeEventListener('scroll', updatePosition, true);
 			window.removeEventListener('resize', updatePosition);
 		};
-	}, [open, present, side, sideOffset, offsetY, align, anchorRect, cellAnchorRect, anchorSelector, fitViewport, alignToAnchorOrigin]);
+	}, [open, present, side, sideOffset, offsetY, align, anchorRect, cellAnchorRect, anchorSelector, fitViewport, alignToAnchorOrigin, configuredMaxHeight, triggerRef]);
 
 	React.useEffect(() => {
 		if (!open || !cellAnchorRect) return;
@@ -351,8 +357,7 @@ function PopoverContent({
 	React.useEffect(() => {
 		if (!open) return;
 
-		const handlePointerDownOutside = (e: PointerEvent) => {
-			const target = e.target as Node;
+		const handleOutside = (target: Node, e?: PointerEvent) => {
 			if (
 				contentRef.current?.contains(target) ||
 				[...descendantContents.current].some((content) => content.contains(target)) ||
@@ -364,14 +369,19 @@ function PopoverContent({
 			}
 
 			if (contentRef.current) {
-				if (cellPopup) consumeCellPopupTriggerClick(e);
+				if (cellPopup && e) consumeCellPopupTriggerClick(e);
 				setOpen(false);
 			}
 		};
 
+		const handlePointerDownOutside = (e: PointerEvent) => handleOutside(e.target as Node, e);
+		const unsubscribe = subscribeFrameInteraction(document, frame => handleOutside(frame));
 		document.addEventListener("pointerdown", handlePointerDownOutside, true);
-		return () => document.removeEventListener("pointerdown", handlePointerDownOutside, true);
-	}, [open, setOpen, anchorRect, cellPopup, ignoreSelectOutside, ignorePopoverOutside, descendantContents]);
+		return () => {
+			unsubscribe();
+			document.removeEventListener("pointerdown", handlePointerDownOutside, true);
+		};
+	}, [open, setOpen, anchorRect, cellPopup, ignoreSelectOutside, ignorePopoverOutside, descendantContents, triggerRef]);
 
 	// Close on escape
 	React.useEffect(() => {
@@ -397,7 +407,9 @@ function PopoverContent({
 	const shadowClass = "shadow-lg";
 
 	return createPortal(
-		<div
+		<PopupSurface
+			scrollerClassName={scrollerClassName}
+			scrollable={scrollable}
 			ref={contentRef}
 			className={cn(
 				"flowix-popover-content fixed z-[var(--layer-popover)] w-[200px] bg-[var(--card)] border border-[var(--border-popup)] rounded-lg p-1",
@@ -431,7 +443,7 @@ function PopoverContent({
 			}}
 		>
 			{children}
-		</div>,
+		</PopupSurface>,
 		document.body
 	);
 }

@@ -43,15 +43,18 @@ pub enum NotebookInitializationJob {
     MigrateMediaResourceIdentity,
     MigrateResourceCatalog,
     IndexWorkDocuments,
+    /// 旧版「文件夹集合」的 `.index.yaml` → `folder_index` 表。
+    MigrateFolderIndex,
 }
 
 impl NotebookInitializationJob {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::ResetLegacyStorage,
         Self::InitializeSchema,
         Self::MigrateMediaResourceIdentity,
         Self::MigrateResourceCatalog,
         Self::IndexWorkDocuments,
+        Self::MigrateFolderIndex,
     ];
 
     pub fn key(self, notebook_id: &str) -> String {
@@ -61,6 +64,7 @@ impl NotebookInitializationJob {
             Self::MigrateMediaResourceIdentity => "media_resource_identity_v1",
             Self::MigrateResourceCatalog => "resource_catalog_v1",
             Self::IndexWorkDocuments => "work_documents_resource_index_v1",
+            Self::MigrateFolderIndex => "folder_index_legacy_v1",
         };
         format!("{prefix}:notebook:{notebook_id}")
     }

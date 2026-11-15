@@ -47,7 +47,7 @@ function editor() {
     extensions: [
       StarterKit,
       Markdown,
-      createNoteReferenceExtension('document', { getOwnerNotebookId: () => notebooks[0]?.id }),
+      createNoteReferenceExtension('document', { getOwnerNotebookId: () => notebooks[0]?.id, getDocumentPath: () => canonicalPath(join(root, 'A.md')) }),
     ],
     content: '<p></p>',
   });
@@ -112,12 +112,12 @@ describe('rename B updates the Markdown reference in A', () => {
     });
     const saved = await readFile(noteA, 'utf8');
     // Same notebook: no name and no ID, so the notebook rename cannot break it.
-    expect(saved).toContain('[简介2](flowix://open?f=%E6%95%99%E5%AD%A6%E6%96%B9%E6%A1%88%2F%E7%AE%80%E4%BB%8B2.md)');
+    expect(saved).toContain('[[./教学方案/简介2.md]]');
     expect(saved).not.toContain('Test+Book');
     expect(getDocumentBuffer(identity)).toMatchObject({ content: saved, lastSavedContent: saved, saveState: 'clean' });
     const reopened = editor();
     reopened.commands.setContent(getDocumentBuffer(identity).content, { contentType: 'markdown' });
-    expect(reopened.state.doc.firstChild?.firstChild?.attrs.relativePath).toBe('教学方案/简介2.md');
+    expect(reopened.state.doc.firstChild?.firstChild?.attrs.linkTarget).toBe('./教学方案/简介2.md');
     expect(reopened.view.dom.querySelector('.note-reference__title')?.textContent).toBe('简介2');
 
     // A persisted chain must reach the final filename in one pass.
@@ -125,7 +125,7 @@ describe('rename B updates the Markdown reference in A', () => {
       { oldPath: noteB, newPath: noteB.replace('简介.md', '简介2.md'), folder: false },
       { oldPath: noteB.replace('简介.md', '简介2.md'), newPath: noteB.replace('简介.md', '简介3.md'), folder: false },
     ])).toBe(true);
-    expect(await readFile(noteA, 'utf8')).toContain('[简介3]');
+    expect(await readFile(noteA, 'utf8')).toContain('[[./教学方案/简介3.md]]');
   });
 
   it('protects an unmounted dirty tab instead of replacing its draft with disk content', () => {

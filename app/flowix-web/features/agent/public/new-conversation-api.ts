@@ -9,14 +9,18 @@
  */
 import { fireAndForget } from '@/lib/fire-and-forget';
 import type { AgentTypeKey } from '@/types/agent';
+import type { AgentConversationReference } from '@features/agent/model/conversation-reference';
+
+export type { AgentConversationReference } from '@features/agent/model/conversation-reference';
 
 export function createAndOpenAgentConversation(
   typeKey: AgentTypeKey,
   notebookId: string | null,
+  destination: 0 | 1 = 0,
 ): void {
   fireAndForget(
     import('@features/agent/use-cases/new-conversation')
-      .then((module) => module.createAndOpenAgentConversation(typeKey, notebookId)),
+      .then((module) => module.createAndOpenAgentConversation(typeKey, notebookId, destination)),
     'agent:create-and-open-conversation',
   );
 }
@@ -38,5 +42,18 @@ export function createAndOpenAgentConversationWithPrompt(
     import('@features/agent/use-cases/new-conversation')
       .then((module) => module.createAndOpenAgentConversationWithPrompt(typeKey, notebookId, prompt)),
     'agent:create-and-open-conversation-with-prompt',
+  );
+}
+
+export function createAndOpenAgentConversationWithReference(
+  typeKey: AgentTypeKey,
+  notebookId: string | null,
+  reference: AgentConversationReference,
+  destination: 0 | 1 = 0,
+): void {
+  fireAndForget(
+    import('@features/agent/use-cases/new-conversation')
+      .then((module) => module.createAndOpenAgentConversationWithReference(typeKey, notebookId, reference, destination)),
+    'agent:create-and-open-conversation-with-reference',
   );
 }

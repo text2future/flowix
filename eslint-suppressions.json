@@ -198,7 +198,7 @@
   },
   "app/flowix-web/features/collection/recovery.ts": {
     "no-restricted-imports": {
-      "count": 3
+      "count": 2
     }
   },
   "app/flowix-web/features/document/components/agent-thread-card-titlebar.tsx": {
@@ -247,11 +247,6 @@
   "app/flowix-web/features/document/components/memo-title-editor.tsx": {
     "no-restricted-imports": {
       "count": 8
-    }
-  },
-  "app/flowix-web/features/document/components/use-document-commands.ts": {
-    "no-restricted-imports": {
-      "count": 1
     }
   },
   "app/flowix-web/features/document/components/use-document-titlebar-colors.ts": {
@@ -304,11 +299,6 @@
       "count": 2
     }
   },
-  "app/flowix-web/features/document/use-cases/open-document-local-link.ts": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
   "app/flowix-web/features/editor/code-file.ts": {
     "no-restricted-imports": {
       "count": 3
@@ -319,19 +309,9 @@
       "count": 1
     }
   },
-  "app/flowix-web/features/editor/components/slash-menu-dropdown.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
   "app/flowix-web/features/editor/extensions/attachment-link/nodes/view-image.ts": {
     "no-useless-escape": {
       "count": 1
-    }
-  },
-  "app/flowix-web/features/editor/extensions/attachment-link/upload/plugin.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 2
     }
   },
   "app/flowix-web/features/editor/extensions/frontmatter-node-view.ts": {
@@ -439,11 +419,6 @@
       "count": 6
     }
   },
-  "app/flowix-web/features/media-library/media-library-reference-picker.tsx": {
-    "no-restricted-imports": {
-      "count": 3
-    }
-  },
   "app/flowix-web/features/media-library/media-library-view.tsx": {
     "no-restricted-imports": {
       "count": 7
@@ -460,11 +435,6 @@
     }
   },
   "app/flowix-web/features/memo/components/file-type-icon.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "app/flowix-web/features/memo/components/memo-create-location.ts": {
     "no-restricted-imports": {
       "count": 1
     }
@@ -496,7 +466,7 @@
   },
   "app/flowix-web/features/memo/components/notebook-document-create-dialog.tsx": {
     "no-restricted-imports": {
-      "count": 2
+      "count": 1
     }
   },
   "app/flowix-web/features/memo/components/notebook-file-tree.test.tsx": {
@@ -521,9 +491,6 @@
   },
   "app/flowix-web/features/memo/components/notebook-tree-row.tsx": {
     "@typescript-eslint/no-floating-promises": {
-      "count": 1
-    },
-    "no-restricted-imports": {
       "count": 1
     }
   },
@@ -611,11 +578,6 @@
   "app/flowix-web/features/multidimensional-table/table-reference-node.tsx": {
     "no-restricted-imports": {
       "count": 3
-    }
-  },
-  "app/flowix-web/features/multidimensional-table/table-reference-picker.tsx": {
-    "no-restricted-imports": {
-      "count": 2
     }
   },
   "app/flowix-web/features/multidimensional-table/table-secondary-views.tsx": {
@@ -744,11 +706,6 @@
       "count": 1
     }
   },
-  "app/flowix-web/features/preferences/sections/general.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
   "app/flowix-web/features/preferences/sections/history.tsx": {
     "no-restricted-imports": {
       "count": 3
@@ -851,7 +808,7 @@
   },
   "app/flowix-web/features/surface/use-document-list-data.ts": {
     "no-restricted-imports": {
-      "count": 2
+      "count": 1
     }
   },
   "app/flowix-web/features/surface/work-column-surface-adapter.ts": {
@@ -861,7 +818,7 @@
   },
   "app/flowix-web/features/surface/work-documents-collection-view.tsx": {
     "no-restricted-imports": {
-      "count": 4
+      "count": 3
     }
   },
   "app/flowix-web/features/surface/work-file-browser-view.tsx": {
@@ -892,11 +849,6 @@
   "app/flowix-web/features/surface/workspace-surface-runtime.ts": {
     "no-restricted-imports": {
       "count": 1
-    }
-  },
-  "app/flowix-web/features/work-documents/model.ts": {
-    "no-restricted-imports": {
-      "count": 2
     }
   },
   "app/flowix-web/features/workspace/use-cases/browser-column-collections.test.ts": {

@@ -1,7 +1,7 @@
 import { act, type ComponentProps } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
-import { createWorkDocumentsCollection, serializeWorkDocumentsCollection } from '../work-documents/model';
+import { createWorkDocumentsCollection, serializeWorkDocumentsCollection } from '@features/collection/public/work-documents-model-api';
 import type { DocumentListView } from './document-list-view';
 import { WorkDocumentsCollectionView } from './work-documents-collection-view';
 

@@ -1,0 +1,50 @@
+/* Shared visual foundation for editor and Agent picker menus. Positioning,
+ * dimensions, keyboard navigation and content layout stay with each picker. */
+.slash-menu-dropdown,
+.mention-note-dropdown,
+.agent-composer-slash-menu,
+.agent-thread-card__featured-notes-view-picker {
+  padding: 0.25rem;
+  border: 1px solid var(--border-popup);
+  border-radius: 0.75rem;
+  background: var(--card);
+  box-shadow: var(--floating-shadow-popup, 0 4px 24px -3px rgb(0 0 0 / 24%));
+}
+
+.slash-menu-item,
+.mention-note-item,
+.agent-composer-slash-menu__item,
+.agent-thread-card__featured-notes-view-option {
+  width: 100%;
+  align-items: center;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+/* Extend each scroll frame to the popup edge while keeping item inset in the
+ * scroller. Mention menus add their own maximum-height constraint. */
+.slash-menu-items-frame,
+.mention-note-items-frame,
+.agent-thread-card__featured-notes-view-list {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  margin-right: -0.25rem;
+}
+
+.slash-menu-items,
+.mention-note-items,
+.agent-thread-card__featured-notes-view-items {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+  gap: 0.125rem;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}

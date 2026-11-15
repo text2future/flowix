@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { FunnelIcon } from '@phosphor-icons/react';
 import { Popover, PopoverContent, PopoverTrigger } from './popover';
-import { OverlayScrollbar } from './overlay-scrollbar';
+import { PopupScrollArea } from './popup-scroll-area';
 
 export const collectionDatasetMenuClassName = 'max-h-[60vh] w-[220px] max-w-[calc(100vw-16px)] overflow-hidden rounded-xl p-1.5 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]';
 
@@ -12,14 +12,14 @@ export function CollectionDatasetMenuContent({ location, noteFilter, assetFilter
   assetFilter?: ReactNode;
   children?: ReactNode;
 }) {
-  return <OverlayScrollbar className="overlay-scrollbar-frame--edge-aligned max-h-[calc(60vh-14px)]" scrollerClassName="max-h-[calc(60vh-14px)] overflow-y-auto overflow-x-hidden">
+  return <PopupScrollArea className="overlay-scrollbar-frame--edge-aligned max-h-[calc(60vh-14px)]" scrollerClassName="max-h-[calc(60vh-14px)] ">
     <div className="space-y-0.5">
       {location}
       {noteFilter}
       {assetFilter}
       {children && <><div role="separator" aria-hidden="true" className="mx-2 h-px bg-[var(--border)]" />{children}</>}
     </div>
-  </OverlayScrollbar>;
+  </PopupScrollArea>;
 }
 
 /** The only dataset popup shell used by note, asset and file-tree views. */
@@ -46,7 +46,7 @@ export function CollectionDatasetMenu({ open, onOpenChange, disabled = false, ac
         <FunnelIcon size={14} weight="bold" aria-hidden="true" />
       </button>
     </PopoverTrigger>
-    <PopoverContent align="end" side="bottom" sideOffset={0} fitViewport style={{ zIndex: 150 }}
+    <PopoverContent scrollable={false} align="end" side="bottom" sideOffset={0} fitViewport style={{ zIndex: 150 }}
       ignorePopoverOutside={ignoreOutside} ignoreSelectOutside className={collectionDatasetMenuClassName}>
       <CollectionDatasetMenuContent location={location} noteFilter={noteFilter} assetFilter={assetFilter}>
         {children}

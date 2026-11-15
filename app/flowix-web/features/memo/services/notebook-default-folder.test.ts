@@ -8,7 +8,7 @@ const repository = vi.hoisted(() => ({
 vi.mock('@features/memo/services/note-repository', () => ({ notebookRepository: repository }));
 
 const files = vi.hoisted(() => ({
-  createFolder: vi.fn(), getNotebookViewPreferences: vi.fn(), setNotebookViewPreferences: vi.fn(),
+  ensureNotebookFolder: vi.fn(), getNotebookViewPreferences: vi.fn(), setNotebookViewPreferences: vi.fn(),
 }));
 vi.mock('@platform/tauri/client/desktop', () => ({ files }));
 
@@ -33,7 +33,7 @@ describe('default note folder on notebook creation', () => {
 
     await createNotebookRegistration({ name: 'Book' });
 
-    expect(files.createFolder).toHaveBeenCalledExactlyOnceWith('/tmp/Book', '笔记');
+    expect(files.ensureNotebookFolder).toHaveBeenCalledExactlyOnceWith('/tmp/Book', '笔记');
     expect(files.setNotebookViewPreferences).toHaveBeenCalledExactlyOnceWith('/tmp/Book', {
       defaultCreateFolder: '笔记',
     });
@@ -45,7 +45,7 @@ describe('default note folder on notebook creation', () => {
 
     await createNotebookRegistration({ name: 'Book' });
 
-    expect(files.createFolder).toHaveBeenCalledExactlyOnceWith('/tmp/Book', 'Notes');
+    expect(files.ensureNotebookFolder).toHaveBeenCalledExactlyOnceWith('/tmp/Book', 'Notes');
     expect(files.setNotebookViewPreferences).toHaveBeenCalledExactlyOnceWith('/tmp/Book', {
       defaultCreateFolder: 'Notes',
     });
@@ -54,7 +54,7 @@ describe('default note folder on notebook creation', () => {
   it('preserves the layout of a newly registered existing directory', async () => {
     repository.create.mockResolvedValue({ id: 'existing-folder', path: '/existing' });
     await createNotebookRegistration({ name: 'Existing', path: '/existing' });
-    expect(files.createFolder).not.toHaveBeenCalled();
+    expect(files.ensureNotebookFolder).not.toHaveBeenCalled();
     expect(files.setNotebookViewPreferences).not.toHaveBeenCalled();
   });
 
@@ -67,7 +67,7 @@ describe('default note folder on notebook creation', () => {
 
     await createNotebookRegistration({ name: 'Book', reuseExisting: true });
 
-    expect(files.createFolder).not.toHaveBeenCalled();
+    expect(files.ensureNotebookFolder).not.toHaveBeenCalled();
     expect(files.setNotebookViewPreferences).not.toHaveBeenCalled();
   });
 
@@ -80,7 +80,7 @@ describe('default note folder on notebook creation', () => {
 
     await createNotebookRegistration({ name: 'Book' });
 
-    expect(files.createFolder).toHaveBeenCalledExactlyOnceWith('/tmp/Book', '笔记');
+    expect(files.ensureNotebookFolder).toHaveBeenCalledExactlyOnceWith('/tmp/Book', '笔记');
     expect(files.setNotebookViewPreferences).not.toHaveBeenCalled();
   });
 });

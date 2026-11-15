@@ -4,7 +4,6 @@ use std::sync::{Arc, RwLock};
 use tauri::{AppHandle, Manager};
 
 use crate::watcher::manager::MemoWatcher;
-use flowix_core::memo_file::atomic_write_bytes;
 
 /// Read a fresh registry snapshot without acquiring AppState's MemoFile lock.
 /// Call under the notebook transition lock so the selected ID and binding use

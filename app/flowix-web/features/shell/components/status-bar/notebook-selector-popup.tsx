@@ -2,12 +2,11 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronsUpDown, Plus } from 'lucide-react';
-import { PencilSimpleIcon, StarIcon, TrashSimpleIcon } from '@phosphor-icons/react';
+import { ChevronsUpDown, Pencil, Plus, Star, Trash2 } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@shared/ui/popover';
 import { notebooks as notebooksClient } from '@platform/tauri/client';
 import { NotebookIcon } from '@features/memo/components/notebook-icon';
-import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
+import { PopupScrollArea } from '@shared/ui/popup-scroll-area';
 import { Button } from '@shared/ui/button';
 import { useNoteStore, type Notebook } from '@features/memo/store/note-store';
 import { cn } from '@/lib/utils';
@@ -459,11 +458,7 @@ export function NotebookSelectorPopup({
           <span className="flex shrink-0 items-center gap-1 text-xs text-[var(--muted-foreground)] group-hover:hidden group-focus-within:hidden">
             {notebook.pinned && (
               <span title={t('memo.list.notebookMenu.pin')}>
-                <StarIcon
-                  className="h-4 w-4 text-[var(--primary)]"
-                  aria-label={t('memo.list.notebookMenu.pin')}
-                  weight="fill"
-                />
+                <Star className="h-4 w-4 fill-current text-[var(--primary)]" aria-hidden="true" />
               </span>
             )}
             {cloudSyncedNotebookIds?.has(notebook.id) && (
@@ -494,7 +489,7 @@ export function NotebookSelectorPopup({
             }}
             className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)]"
           >
-            <StarIcon className="h-4 w-4" weight={notebook.pinned ? 'fill' : 'regular'} aria-hidden="true" />
+            <Star className={cn('h-4 w-4', notebook.pinned && 'fill-current')} aria-hidden="true" />
           </button>
           <button
             type="button"
@@ -507,7 +502,7 @@ export function NotebookSelectorPopup({
             }}
             className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)]"
           >
-            <PencilSimpleIcon className="h-4 w-4" aria-hidden="true" />
+            <Pencil className="h-4 w-4" aria-hidden="true" />
           </button>
           <button
             type="button"
@@ -520,7 +515,7 @@ export function NotebookSelectorPopup({
             }}
             className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--destructive)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)]"
           >
-            <TrashSimpleIcon className="h-4 w-4" aria-hidden="true" />
+            <Trash2 className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
       </div>
@@ -587,10 +582,10 @@ export function NotebookSelectorPopup({
             className="agent-composer__note-search flowix-notebook-selector-search !mt-0 !h-[48px] !text-[var(--foreground)]"
           />
         </div>
-        <OverlayScrollbar
+        <PopupScrollArea
           className="flowix-notebook-selector-scrollbar min-h-0 max-h-[calc(72vh-6.375rem)] flex-initial"
           scrollerRef={listViewportRef}
-          scrollerClassName="min-h-0 max-h-[calc(72vh-6.375rem)] overflow-x-hidden overflow-y-auto overscroll-contain px-2 pt-1 pb-1"
+          scrollerClassName="min-h-0 max-h-[calc(72vh-6.375rem)] px-2 pt-1 pb-1"
         >
           <div className="flex flex-col gap-1">
             {notebooks.length === 0 && (
@@ -624,7 +619,7 @@ export function NotebookSelectorPopup({
               </>
             )}
           </div>
-        </OverlayScrollbar>
+        </PopupScrollArea>
         <div className="shrink-0 p-2">
           <Button
             type="button"

@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Popover, PopoverContent } from '@shared/ui/popover';
+import { PopupScrollArea } from '@shared/ui/popup-scroll-area';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight, Loader2 } from 'lucide-react';
-import { ClockIcon } from '@phosphor-icons/react';
+import { Clock } from 'lucide-react';
 import { notes as notesClient, type PathVersionMeta } from '@platform/tauri/client';
 import { useI18n, translate, type AppLanguage, type I18nKey } from '@/lib/i18n';
 import { createLogger } from '@/lib/logger';
@@ -48,6 +50,18 @@ export function VersionHistorySubmenu({
 }) {
   const { t, language } = useI18n();
   const [open, setOpen] = useState(false);
+  const [anchorElement, setAnchorElement] = useState<HTMLButtonElement | null>(null);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelClose = useCallback(() => {
+    if (closeTimer.current !== null) clearTimeout(closeTimer.current);
+    closeTimer.current = null;
+  }, []);
+  const keepOpen = () => { cancelClose(); setOpen(true); };
+  const openFrom = (element: HTMLButtonElement) => { setAnchorElement(element); keepOpen(); };
+  const scheduleClose = () => {
+    cancelClose();
+    closeTimer.current = setTimeout(() => { closeTimer.current = null; setOpen(false); }, 120);
+  };
   const [versions, setVersions] = useState<VersionDisplay[]>([]);
   const [loading, setLoading] = useState(false);
   const requestSeqRef = useRef(0);
@@ -55,8 +69,8 @@ export function VersionHistorySubmenu({
 
   useEffect(() => {
     mountedRef.current = true;
-    return () => { mountedRef.current = false; };
-  }, []);
+    return () => { mountedRef.current = false; cancelClose(); };
+  }, [cancelClose]);
 
   useEffect(() => {
     if (!open) return;
@@ -88,23 +102,25 @@ export function VersionHistorySubmenu({
   );
 
   return (
-    <div
-      className="relative"
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
-    >
+    <Popover open={open} onOpenChange={setOpen} anchorElement={anchorElement}>
+    <div className="relative" onMouseLeave={scheduleClose}>
       <button
         type="button"
         className="group flex h-7 w-full cursor-pointer items-center justify-start gap-2 rounded-lg px-2 py-0 text-left text-sm text-[var(--foreground)] hover:bg-[var(--hover-bg)] hover:text-[var(--foreground)]"
-        onFocus={() => setOpen(true)}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        onMouseEnter={(event) => openFrom(event.currentTarget)}
+        onFocus={(event) => openFrom(event.currentTarget)}
       >
-        <ClockIcon className="h-4 w-4" />
+        <Clock className="h-4 w-4" />
         <span className="flex-1 text-left">{t("document.version.menuLabel")}</span>
         <ChevronRight className="h-3.5 w-3.5 text-[var(--muted-foreground)] group-hover:text-[var(--foreground)]" />
       </button>
 
-      {open && (
-        <div className="absolute right-full top-0 z-[151] w-[300px] rounded-xl border border-[var(--border-popup)] bg-[var(--card)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+      <PopoverContent side="left" align="start" sideOffset={0} fitViewport scrollable={false}
+        keepParentMenuOpen aria-label={t('document.version.allHistory')}
+        onMouseEnter={keepOpen} onMouseLeave={scheduleClose}
+        className="flex min-h-0 w-[300px] flex-col rounded-xl p-1 !z-[151] shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
           <div
             className="flex items-center justify-between"
             style={{ padding: '0.15rem 0.375rem 0.35rem' }}
@@ -120,7 +136,7 @@ export function VersionHistorySubmenu({
             </div>
           </div>
 
-          <div className="max-h-[272px] overflow-y-auto px-1">
+          <PopupScrollArea className="max-h-[272px]" scrollerClassName="px-1">
             {loading && (
               <div className="flex items-center gap-1 px-2 py-3 text-xs text-[var(--muted-foreground)]">
                 <Loader2 className="h-3.5 w-3.5 flowix-spin" />
@@ -167,10 +183,10 @@ export function VersionHistorySubmenu({
                 </div>
               </button>
             )})}
-          </div>
-        </div>
-      )}
+          </PopupScrollArea>
+      </PopoverContent>
     </div>
+    </Popover>
   );
 }
 

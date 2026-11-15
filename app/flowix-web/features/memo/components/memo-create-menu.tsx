@@ -1,10 +1,8 @@
 import {
   ChevronDown,
   ChevronUp,
-  GalleryHorizontalEnd,
   SquarePen,
   SwatchBook,
-  Table2,
 } from 'lucide-react';
 
 import { useI18n } from '@/lib/i18n';
@@ -59,7 +57,7 @@ export function MemoCreateMenu({
     : MEMO_CREATE_VIEW_OPTIONS.slice(0, 1);
 
   return (
-    <DropdownMenuContent align="end" className="w-[200px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+    <DropdownMenuContent scrollerClassName="space-y-0.5" align="end" className="w-[200px] rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
       <DropdownMenuLabel className={LABEL_CLASS}>
         {t('memo.create.documents')}
       </DropdownMenuLabel>
@@ -108,9 +106,6 @@ export function MemoCreateMenu({
               onClick={() => onOpenDocumentCreate('table', type)}
               className={ITEM_CLASS}
             >
-              {type === 'table'
-                ? <Table2 className="h-4 w-4 shrink-0" aria-hidden="true" />
-                : <span className="h-4 w-4 shrink-0" aria-hidden="true" />}
               <span className="min-w-0 flex-1 truncate text-left">{t(labelKey)}</span>
               <span className={ITEM_HINT_CLASS}>{t('memo.create.note')}</span>
             </DropdownMenuItem>
@@ -122,7 +117,6 @@ export function MemoCreateMenu({
                 onClick={() => onOpenDocumentCreate('media-library')}
                 className={ITEM_CLASS}
               >
-                <GalleryHorizontalEnd className="h-4 w-4 shrink-0" aria-hidden="true" />
                 <span className="min-w-0 flex-1 truncate text-left">{t('memo.create.mediaLibraryMenuLabel')}</span>
                 <span className={ITEM_HINT_CLASS}>{t('memo.create.assetShort')}</span>
               </DropdownMenuItem>
@@ -131,7 +125,6 @@ export function MemoCreateMenu({
                 onClick={() => onOpenDocumentCreate('work-documents')}
                 className={ITEM_CLASS}
               >
-                <span className="h-4 w-4 shrink-0" aria-hidden="true" />
                 <span className="min-w-0 flex-1 truncate text-left">{t('memo.create.workDocumentsMenuLabel')}</span>
                 <span className={ITEM_HINT_CLASS}>{t('memo.create.assetShort')}</span>
               </DropdownMenuItem>

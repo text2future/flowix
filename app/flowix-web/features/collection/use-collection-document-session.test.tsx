@@ -3,7 +3,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import YAML from 'yaml';
 import { createMediaLibrary, parseMediaLibrary, serializeMediaLibrary, type MediaLibraryDocument } from '@features/media-library/model';
-import { createWorkDocumentsCollection } from '@features/work-documents/model';
+import { createWorkDocumentsCollection } from './work-documents-model';
 import { createTableDocument } from '@features/multidimensional-table/model';
 import {
   collectionSourceDomain,

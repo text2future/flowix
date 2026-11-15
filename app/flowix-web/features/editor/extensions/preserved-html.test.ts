@@ -7,7 +7,6 @@ const editors: Editor[] = [];
 function createEditor(content: string, getImageContext?: () => EditorImageContext | undefined) {
   const editor = new Editor({
     extensions: createMarkdownEditorExtensions({
-      getOwnerPath: () => undefined, getAttachmentNotebookId: () => undefined,
       workspaceHost: 'column-1', getPlaceholder: () => '', getImageContext,
     }), content, contentType: 'markdown',
   });

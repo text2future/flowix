@@ -150,6 +150,17 @@ describe('background link update', () => {
     expect(writeDocument).toHaveBeenCalledWith({ filePath: 'C:/Notes/Index.md', expectedContent: '![chart](./old.png)', content: '![chart](./new.png)' });
   });
 
+  it('rebases wiki references through the real move scheduler when a source crosses notebook roots', async () => {
+    notebooks.push({ id: 'other', name: 'Other', path: 'C:/Other' });
+    getDirChildren.mockImplementation(async (path: string) => path === 'C:/Other'
+      ? [{ type: 'document', fullPath: 'C:/Other/Index.md', name: 'Index.md' }] : []);
+    readDocument.mockResolvedValue('[[./_folder_/target.md]]');
+    writeDocument.mockImplementation(async request => ({ path: request.filePath, content: request.content }));
+    expect(await rewriteNoteLinkMoves([{ oldPath: 'C:/Notes/sub/Index.md', newPath: 'C:/Other/Index.md' }])).toBe(true);
+    expect(writeDocument).toHaveBeenCalledWith({ filePath: 'C:/Other/Index.md',
+      expectedContent: '[[./_folder_/target.md]]', content: '[target](C:/Notes/sub/_folder_/target.md)' });
+  });
+
   it('recovers a source rebase after a write succeeds but its response is lost', async () => {
     getDirChildren.mockResolvedValue([{ type: 'document', fullPath: 'C:/Notes/Index.md', name: 'Index.md' }]);
     let disk = '[custom](./target.md)';

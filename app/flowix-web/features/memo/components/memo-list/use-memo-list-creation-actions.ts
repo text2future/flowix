@@ -150,10 +150,15 @@ export function useMemoListCreationActions({
   const handleCreateNoteInFolder = useCallback(async (parentPath?: string, title?: string) => {
     if (!notebook) return;
     if (parentPath === undefined) return handleCreateMemo(undefined, title);
-    const root = notebook.path.replace(/\/+$/, '');
-    const parent = parentPath.replace(/\/+$/, '');
-    if (parent !== root && !parent.startsWith(`${root}/`)) return;
-    const relative = parent === root ? '' : parent.slice(root.length + 1);
+    const relative = notebookRelativeDirectoryPath(notebook.path, parentPath);
+    if (relative === null) {
+      logger.warn('ignored note creation request outside notebook', {
+        notebookId: notebook.id,
+        notebookPath: notebook.path,
+        parentPath,
+      });
+      return;
+    }
     return handleCreateMemo(relative, title);
   }, [handleCreateMemo, notebook]);
 

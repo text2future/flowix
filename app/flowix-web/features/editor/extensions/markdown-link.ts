@@ -1,3 +1,4 @@
+import { sanitizeLinkHref } from '@/lib/safe-link';
 import Link from '@tiptap/extension-link';
 import { Extension, markInputRule, markPasteRule } from '@tiptap/core';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
@@ -51,6 +52,7 @@ export const MarkdownLink = Link.extend({
   },
 }).configure({
   openOnClick: false,
+  isAllowedUri: href => Boolean(sanitizeLinkHref(href)),
   linkOnPaste: true,
   autolink: true,
   HTMLAttributes: {

@@ -75,7 +75,7 @@ export function TabStripItem({ label, editId, active, menuActive, editable, savi
         </button>
       </ContextMenuTrigger>
     )}
-    <ContextMenuContent className="w-[160px] space-y-0.5 rounded-xl p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+    <ContextMenuContent scrollerClassName="space-y-0.5" className="w-[160px] rounded-xl p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
       <ContextMenuItem disabled={!editable || saving} onSelect={() => onBeginRename(widthRef.current)}>{t('multidimensionalTable.view.rename')}</ContextMenuItem>
       <ContextMenuItem disabled={deleteDisabled} className="text-[var(--destructive)]" onSelect={onRequestDelete}>{t('multidimensionalTable.view.delete')}</ContextMenuItem>
     </ContextMenuContent>

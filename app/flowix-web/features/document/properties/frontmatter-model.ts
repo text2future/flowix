@@ -351,7 +351,7 @@ export function updateVisibleFrontmatterProperty(
   yamlContent: string,
   previousKey: string | null,
   nextKeyInput: string,
-  nextValueInput: string,
+  nextValueInput: string | string[],
   kind?: FrontmatterInputKind,
   semanticKind: FrontmatterInputKind | undefined = kind,
 ): string {
@@ -389,9 +389,11 @@ export function updateVisibleFrontmatterProperty(
   const previousValue = previousKey
     ? asRecord(document.toJS())[previousKey]
     : undefined;
-  const parsedValue = nextKey === 'flowix_plugin'
-    ? parsePluginMetadataJson(nextValueInput)
-    : parsePropertyInput(nextValueInput, kind, previousValue);
+  const parsedValue = Array.isArray(nextValueInput) && kind === 'Image'
+    ? nextValueInput
+    : nextKey === 'flowix_plugin'
+      ? parsePluginMetadataJson(String(nextValueInput))
+      : parsePropertyInput(String(nextValueInput), kind, previousValue);
   const collectionKey = kind === 'Tag' || kind === 'Color'
     || nextKey === 'tags' || nextKey === 'flowix_colors';
   // A key-only edit starts with the old scalar value. Switch collection

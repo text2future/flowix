@@ -22,7 +22,8 @@
    * text selection. A 1px rule box cannot paint a band by itself, so the
    * selected state expands it with a spread shadow that costs no layout.
    * 0.25rem each side → a 9px band around the 1px rule. */
-  --editor-divider-selected-background: color-mix(in oklch, var(--info) 16%, transparent);
+  --editor-selection-fill: color-mix(in oklch, var(--info) 16%, transparent);
+  --editor-divider-selected-background: var(--editor-selection-fill);
   --editor-divider-selected-spread: 0.25rem;
   --document-tag-font-scale: 0.875;
   --document-tag-font-size: calc(100% * var(--document-tag-font-scale));
@@ -30,6 +31,7 @@
   --document-tag-prefix-line-height: 1;
   --document-tag-padding-block: 2px;
   --document-tag-padding-inline: 6px;
+  /* Editor tag fill; --document-tag-bg also contributes to property-tag hover. */
   --document-tag-background: var(--muted);
   --flowix-text-red: var(--memo-color-red);
   --flowix-text-orange: var(--memo-color-orange);
@@ -84,9 +86,14 @@ html[data-os="windows"] .markdown-editor .tag-node-prefix-box > .tag-node-prefix
   min-height: 0;
 }
 
-/* Stop the editor thumb above the rounded bottom corner. */
-html[data-platform="mac"] .markdown-editor .editor-content-frame > .overlay-scrollbar-track:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
-  bottom: 12px;
+/* The outline anchor uses z-index 20. Keep the editor's edge controls above
+ * it so track hover and thumb dragging win in their overlapping hit area. */
+html[data-platform] .markdown-editor .editor-content-frame > .overlay-scrollbar-track--vertical:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  z-index: 21;
+}
+
+html[data-platform] .markdown-editor .editor-content-frame > .overlay-scrollbar-thumb--vertical:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  z-index: 22;
 }
 
 .markdown-editor .editor-content:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
@@ -191,7 +198,7 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
   border: 1px solid var(--border-popup);
   border-radius: 0.75rem;
   background: var(--card);
-  box-shadow: 0 4px 24px -3px rgb(0 0 0 / 24%);
+  box-shadow: var(--floating-shadow-popup, 0 4px 24px -3px rgb(0 0 0 / 24%));
   color: var(--foreground);
   font-size: 88%;
   pointer-events: auto;
@@ -973,8 +980,8 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
 /* Editing state is not content: a printed or exported document shows the plain
  * table, without the caret cell or the selection block. */
 @media print {
-  .markdown-editor .tiptap:not(.agent-composer__input-content) :where(.selectedCell, .table-editing-cell)::after,
-  .markdown-editor .tiptap:not(.agent-composer__input-content) :where(.selectedCell, .table-editing-cell)::before {
+  .markdown-editor .tiptap:not(.agent-composer__input-content) :where(.selectedCell, .table-editing-cell):where(:not(.agent-conversation-surface, .agent-conversation-surface *))::after,
+  .markdown-editor .tiptap:not(.agent-composer__input-content) :where(.selectedCell, .table-editing-cell):where(:not(.agent-conversation-surface, .agent-conversation-surface *))::before {
     content: none;
   }
 }
@@ -1203,7 +1210,7 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
 .markdown-editor .tiptap:not(.agent-composer__input-content) .editor-link-selection-highlight:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   /* 链接选区高亮: 与 .is-block-selected / 拖动选区 ::selection 同源,
    * 用 --info 派生透明底, 各主题下选中语义统一, 避免硬编码 indigo. */
-  background: color-mix(in oklch, var(--info) 16%, transparent);
+  background: var(--editor-selection-fill);
   border-radius: 2px;
 }
 
@@ -1571,7 +1578,7 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
  * transition 只动画会被改动的属性, 避免影响光标闪烁等 ProseMirror 内部更新。 */
 .markdown-editor .ProseMirror:not(.agent-composer__input-content) .is-block-selected:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   position: relative;
-  background-color: color-mix(in oklch, var(--info) 16%, transparent);
+  background-color: var(--editor-selection-fill);
   border-radius: 6px;
   transition:
     background-color 120ms ease-out;
@@ -1641,7 +1648,7 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
  * 语义, 各主题下视觉一致。限定在 .markdown-editor 内, 避免影响侧栏 /
  * 输入框等非编辑区域的选区色。 */
 .markdown-editor .ProseMirror:not(.agent-composer__input-content) :where(:not(.agent-conversation-surface, .agent-conversation-surface *))::selection {
-  background: color-mix(in oklch, var(--info) 16%, transparent) !important;
+  background: var(--editor-selection-fill) !important;
   color: inherit !important;
 }
 
@@ -1705,7 +1712,7 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
   border-radius: 0.75rem;
   background: var(--card);
   color: var(--foreground);
-  box-shadow: 0 4px 24px -3px rgb(0 0 0 / 12%);
+  box-shadow: var(--floating-shadow-bubble, 0 4px 24px -3px rgb(0 0 0 / 12%));
   box-sizing: border-box;
   overflow: hidden;
   padding: 0;

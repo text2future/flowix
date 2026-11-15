@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
-import { OverlayScrollbar, type OverlayScrollbarHandle } from '@shared/ui/overlay-scrollbar';
+import { PopupScrollArea, type PopupScrollAreaHandle } from '@shared/ui/popup-scroll-area';
 import {
   PROPERTY_ICON_CATEGORY_LABEL_KEY,
   PROPERTY_ICON_PACK_LABEL_KEY,
@@ -44,7 +44,7 @@ interface PropertyIconPickerPanelProps {
  * (mochi) 不渲染分类标签。
  *
  * ── 滚动条 ──
- * 走共享 OverlayScrollbar: 自绘滑块不占布局宽度, 默认隐藏, 滚动时淡入。
+ * 走共享 PopupScrollArea: 自绘滑块不占布局宽度, 默认隐藏, 滚动时淡入。
  *
  * ── 为什么用原生事件委托而不是 React onClick ──
  * 文件树的 picker 宿主在 WKWebView 里会出现 React 合成 click 不触发的情况
@@ -75,7 +75,7 @@ export function PropertyIconPickerPanel({
   const packEntry = PROPERTY_ICON_PACKS.find((entry) => entry.id === pack)
     ?? PROPERTY_ICON_PACKS[0];
   const options = getPropertyIconCategoryOptions(pack, category);
-  const scrollbarRef = useRef<OverlayScrollbarHandle>(null);
+  const scrollbarRef = useRef<PopupScrollAreaHandle>(null);
 
   // 分类吸顶后用户常在滚动中途切换分类/包, 滚动位置必须归零,
   // 否则会落在新分类列表的中间 (新列表更短时还会被浏览器 clamp 出怪异状态)。
@@ -161,7 +161,7 @@ export function PropertyIconPickerPanel({
           })}
         </div>
       )}
-      <OverlayScrollbar
+      <PopupScrollArea
         ref={scrollbarRef}
         observeContent
         /* 滚动条贴边: 宿主弹窗都是 p-2 (8px), 框架 -mx-2 拉到弹窗内缘,
@@ -232,7 +232,7 @@ export function PropertyIconPickerPanel({
             );
           })}
         </div>
-      </OverlayScrollbar>
+      </PopupScrollArea>
       </div>
       {onClear && (
         <div className="flex items-center justify-end border-t border-[var(--border)] pt-2">

@@ -279,7 +279,6 @@ export function MainLayout({
   }, []);
   const {
     handleCopyFullText,
-    handleCopyLink,
     handleExportMarkdown,
     handleSaveAsTemplate,
     handleExportWord,
@@ -413,7 +412,6 @@ export function MainLayout({
     canNavigateForward,
     handleNavigateBack,
     handleNavigateForward,
-    handleCopyLink,
     handleCopyFullText,
     handleExportMarkdown,
     handleSaveAsTemplate,
@@ -427,6 +425,9 @@ export function MainLayout({
     } : undefined,
     activeExternalSession,
     selectedNotebook,
+    fileBrowserContext: workColumnTarget.kind === 'external'
+      ? workColumnTarget.fileBrowser ?? null
+      : workColumnTarget.kind === 'file-browser' ? workColumnTarget : null,
     notebooks,
   });
 

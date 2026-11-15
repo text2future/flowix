@@ -1218,11 +1218,12 @@ checksum = "843fba2746e448b37e26a819579957415c8cef339bf08564fe8b7ddbd959573c"
 dependencies = [
  "crc32fast",
  "miniz_oxide",
+ "zlib-rs",
 ]
 
 [[package]]
 name = "flowix-cli"
-version = "1.5.18"
+version = "1.5.20"
 dependencies = [
  "chrono",
  "clap",
@@ -1242,7 +1243,7 @@ dependencies = [
 
 [[package]]
 name = "flowix-core"
-version = "1.5.18"
+version = "1.5.20"
 dependencies = [
  "chrono",
  "diffy",
@@ -1257,6 +1258,7 @@ dependencies = [
  "pulldown-cmark",
  "regex",
  "rusqlite",
+ "same-file",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -1268,11 +1270,12 @@ dependencies = [
  "uuid",
  "walkdir",
  "windows-sys 0.59.0",
+ "zip",
 ]
 
 [[package]]
 name = "flowix-desktop"
-version = "1.5.18"
+version = "1.5.20"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1335,7 +1338,7 @@ dependencies = [
 
 [[package]]
 name = "flowix-installer-helper"
-version = "1.5.18"
+version = "1.5.20"
 dependencies = [
  "clap",
  "dunce",
@@ -1349,7 +1352,7 @@ dependencies = [
 
 [[package]]
 name = "flowix-plugin-runtime"
-version = "1.5.18"
+version = "1.5.20"
 dependencies = [
  "chrono",
  "flowix-core",
@@ -1364,7 +1367,7 @@ dependencies = [
 
 [[package]]
 name = "flowix-sync"
-version = "1.5.18"
+version = "1.5.20"
 dependencies = [
  "chrono",
  "flowix-core",
@@ -6664,6 +6667,12 @@ dependencies = [
  "indexmap 2.14.0",
  "memchr",
 ]
+
+[[package]]
+name = "zlib-rs"
+version = "0.6.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b268e58e7c693d7c271f93ffc4ba3b380412554231c85bf61ca7af91042a4112"
 
 [[package]]
 name = "zmij"

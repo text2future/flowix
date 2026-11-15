@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use tauri::State;
 
-use super::{attachments, base64_input, upload_quota};
+use super::{attachments, base64_input, external_file_images, upload_quota};
 use crate::app::state::AppState;
 use crate::lock_utils::read_lock;
 
@@ -30,8 +30,7 @@ fn admit_request(
 
 struct Upload {
     owner: String,
-    note_path: Option<String>,
-    notebook_id: String,
+    destination: UploadDestination,
     name: String,
     deduplicate: bool,
     expected: u64,
@@ -39,6 +38,15 @@ struct Upload {
     created: Instant,
     file: File,
     _permit: upload_quota::UploadPermit<'static>,
+}
+
+enum UploadDestination {
+    Notebook {
+        notebook_id: String,
+        note_path: Option<String>,
+        repository_path: Option<String>,
+    },
+    ExternalFileCache,
 }
 
 #[derive(Default)]
@@ -61,8 +69,7 @@ impl UploadSessions {
         &self,
         owner: &str,
         generation: u64,
-        note_path: Option<String>,
-        notebook_id: String,
+        destination: UploadDestination,
         name: String,
         size: u64,
         deduplicate: bool,
@@ -72,7 +79,7 @@ impl UploadSessions {
         }
         if name.is_empty()
             || name.len() > 1024
-            || note_path.as_deref().is_some_and(|path| path.len() > 1024)
+            || matches!(&destination, UploadDestination::Notebook { note_path: Some(path), .. } if path.len() > 1024)
         {
             return Err("Invalid upload metadata".into());
         }
@@ -95,8 +102,7 @@ impl UploadSessions {
             id.clone(),
             Upload {
                 owner: owner.into(),
-                note_path,
-                notebook_id,
+                destination,
                 name,
                 deduplicate,
                 expected: size,
@@ -212,7 +218,10 @@ impl UploadSessions {
 #[tauri::command]
 pub fn begin_attachment_upload(
     window: tauri::WebviewWindow,
-    note_path: String,
+    note_path: Option<String>,
+    notebook_id: Option<String>,
+    repository_path: Option<String>,
+    external_file_cache: Option<bool>,
     file_name: String,
     size: u64,
     deduplicate: Option<bool>,
@@ -220,13 +229,59 @@ pub fn begin_attachment_upload(
 ) -> Result<String, String> {
     let generation = state.upload_sessions.generation(window.label())?;
     let store = read_lock(&state.memo_file, "memo_file");
-    let (notebook_id, owner_note) = attachments::resolve_note_owner(&store, None, Some(&note_path))
-        .map_err(|error| error.to_string())?;
+    let destination = if external_file_cache.unwrap_or(false) {
+        if note_path
+            .as_deref()
+            .is_some_and(|path| !path.trim().is_empty())
+            || notebook_id
+                .as_deref()
+                .is_some_and(|id| !id.trim().is_empty())
+            || repository_path
+                .as_deref()
+                .is_some_and(|path| !path.trim().is_empty())
+        {
+            return Err("External file upload cannot include a notebook owner".to_string());
+        }
+        UploadDestination::ExternalFileCache
+    } else {
+        let notebook_id = notebook_id.filter(|id| !id.trim().is_empty());
+        let note_path = note_path.filter(|path| !path.trim().is_empty());
+        let repository_path = repository_path.filter(|path| !path.trim().is_empty());
+        if repository_path.is_some() && note_path.is_some() {
+            return Err("Repository uploads must use a notebook owner".to_string());
+        }
+        if let Some(repository_path) = repository_path.as_deref() {
+            let notebook_id = notebook_id
+                .as_deref()
+                .ok_or_else(|| "OWNER_REQUIRED".to_string())?;
+            attachments::repository_root(&store, notebook_id, repository_path)
+                .map_err(|error| error.to_string())?;
+            UploadDestination::Notebook {
+                notebook_id: notebook_id.to_string(),
+                note_path: None,
+                repository_path: Some(repository_path.to_string()),
+            }
+        } else {
+            if notebook_id.is_none() && note_path.is_none() {
+                return Err("OWNER_REQUIRED".to_string());
+            }
+            let (notebook_id, owner_note) = attachments::resolve_note_owner(
+                &store,
+                notebook_id.as_deref(),
+                note_path.as_deref(),
+            )
+            .map_err(|error| error.to_string())?;
+            UploadDestination::Notebook {
+                notebook_id,
+                note_path: owner_note,
+                repository_path: None,
+            }
+        }
+    };
     state.upload_sessions.begin(
         window.label(),
         generation,
-        owner_note,
-        notebook_id,
+        destination,
         file_name,
         size,
         deduplicate.unwrap_or(false),
@@ -265,18 +320,39 @@ pub async fn finish_attachment_upload(
     tokio::task::spawn_blocking(move || -> Result<attachments::SavedNotebookAsset, String> {
         let _permit = permit;
         let mut upload = sessions.take(&owner, &upload_id)?;
-        let store = read_lock(&memo_file, "memo_file");
-        let deduplicate = upload.deduplicate;
-        let saved = attachments::save_for_owner(
-            &store,
-            Some(&upload.notebook_id),
-            upload.note_path.as_deref(),
-            &upload.name,
-            &mut upload.file,
-            deduplicate,
-        )
-        .map_err(|error| error.to_string())?;
-        Ok(saved)
+        match &upload.destination {
+            UploadDestination::Notebook {
+                notebook_id,
+                note_path,
+                repository_path,
+            } => {
+                let store = read_lock(&memo_file, "memo_file");
+                if let Some(repository_path) = repository_path.as_deref() {
+                    attachments::save_for_repository(
+                        &store,
+                        notebook_id,
+                        repository_path,
+                        &upload.name,
+                        &mut upload.file,
+                        upload.deduplicate,
+                    )
+                } else {
+                    attachments::save_for_owner(
+                        &store,
+                        Some(notebook_id),
+                        note_path.as_deref(),
+                        &upload.name,
+                        &mut upload.file,
+                        upload.deduplicate,
+                    )
+                }
+                .map_err(|error| error.to_string())
+            }
+            UploadDestination::ExternalFileCache => {
+                external_file_images::save(&mut upload.file, &upload.name, upload.deduplicate)
+                    .map_err(|error| error.to_string())
+            }
+        }
     })
     .await
     .map_err(|error| error.to_string())?

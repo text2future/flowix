@@ -8,6 +8,7 @@ import { useNoteStore } from '@features/memo/store/note-store';
 import { joinNotebookMemoPath } from '@/lib/path';
 import { parseTableDocumentAsync } from '@features/multidimensional-table/parse-table-document';
 import { toast } from '@/lib/toast';
+import { createPopupScrollAreaDom } from '@shared/ui/popup-scroll-area-dom';
 import { replayEnterAnimation } from '@/lib/replay-enter-animation';
 import { applyPopoverPosition, calculateAnchoredPopoverPosition } from '../popover/popover-position';
 import {
@@ -21,7 +22,6 @@ import {
 
 const FEATURED_NOTES_VIEW_PICKER_WIDTH_PX = 272;
 const FEATURED_NOTES_VIEW_PICKER_PADDING_PX = 8;
-const FEATURED_NOTES_SCROLLBAR_HIDE_DELAY_MS = 700;
 export interface FeaturedNoteReference {
   id: string;
   filename: string;
@@ -42,7 +42,7 @@ export class FeaturedNotesController {
   private featuredNotesRequestId = 0;
   private featuredNotesViewportCleanup: (() => void) | null = null;
   private featuredNotesPanel: HTMLElement | null = null;
-  private scrollbarHideTimer: ReturnType<typeof setTimeout> | null = null;
+  private tablePickerScrollbar: ReturnType<typeof createPopupScrollAreaDom> | null = null;
   private disposed = false;
   constructor(private readonly options: FeaturedNotesOptions) {}
   private getCurrentNotebookId = () => this.options.getNotebookId();
@@ -312,10 +312,8 @@ export class FeaturedNotesController {
       window.removeEventListener("resize", handleWindowResize);
       document.removeEventListener("pointerdown", handleOutsidePointer);
       document.removeEventListener("keydown", handleEscape);
-      if (this.scrollbarHideTimer !== null) {
-        clearTimeout(this.scrollbarHideTimer);
-        this.scrollbarHideTimer = null;
-      }
+      this.tablePickerScrollbar?.destroy();
+      this.tablePickerScrollbar = null;
       // 弹层挂在 document.body 上, 不随 panel 一起被移除, 必须显式清理,
       // 否则每次刷新精选笔记都会在 body 里留下一个孤儿弹层。
       settingsPopover.remove();
@@ -341,26 +339,18 @@ export class FeaturedNotesController {
     const heading = document.createElement("div");
     heading.className = "agent-thread-card__featured-notes-view-heading";
     heading.textContent = this.t("editor.threadCard.featuredNotes.settingsTitle");
-    const list = document.createElement("div");
-    list.className = "agent-thread-card__featured-notes-view-list";
-    const items = document.createElement("div");
-    items.className = "agent-thread-card__featured-notes-view-items";
+    const scrollbar = createPopupScrollAreaDom(popover.ownerDocument, {
+      frameClassName: "agent-thread-card__featured-notes-view-list",
+      scrollerClassName: "agent-thread-card__featured-notes-view-items",
+    });
+    this.tablePickerScrollbar = scrollbar;
+    const { frame: list, scroller: items } = scrollbar;
     items.setAttribute("role", "listbox");
     items.setAttribute("aria-label", this.t("editor.threadCard.featuredNotes.settingsTitle"));
-    items.setAttribute("data-flowix-surface", "select");
-    items.addEventListener("scroll", () => {
-      items.dataset.scrolling = "true";
-      if (this.scrollbarHideTimer !== null) clearTimeout(this.scrollbarHideTimer);
-      this.scrollbarHideTimer = setTimeout(() => {
-        delete items.dataset.scrolling;
-        this.scrollbarHideTimer = null;
-      }, FEATURED_NOTES_SCROLLBAR_HIDE_DELAY_MS);
-    }, { passive: true });
     const status = document.createElement("div");
     status.className = "agent-thread-card__featured-notes-view-status";
     status.textContent = this.t("editor.threadCard.featuredNotes.loadingTables");
     items.append(status);
-    list.append(items);
     popover.append(heading, list);
     this.appendCreateTableAction(popover, notebookId, onChange, onCreateTable);
 

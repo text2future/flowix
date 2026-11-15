@@ -47,9 +47,8 @@
 	--bg-titlebar: oklch(0.984 0.005 var(--neutral-hue));
 
 	--document-bg: oklch(1 0 0);
-	--document-foreground: oklch(0.300 0.009 var(--neutral-hue));
+	--document-foreground: var(--foreground);
 	--document-link: oklch(0.480 0.140 var(--brand-hue));
-	--document-highlight-bg: oklch(0.940 0.060 84);
 	--document-tag-bg: oklch(0.900 0 0);
 	--document-tag-foreground: var(--foreground);
 	/* Keep memo colors muted while using rock-specific warm hues. */
@@ -74,7 +73,7 @@
 	--warning: oklch(0.800 0.105 75);
 	/* 信息提示: blue 跟 warm rock 中性灰拉得开, 不与 brand 抢；亮度下调以
 	 * 保证白字达到普通文字 AA 对比度。 */
-	--info: #0085e6;
+	--info: #0078cf;
 	--info-foreground: oklch(1 0 0);
 
 	color-scheme: light;

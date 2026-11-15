@@ -3,23 +3,19 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import {
   ArrowDownUp,
+  ArrowDown,
+  ArrowUp,
   Check,
   ChevronRight,
-  GalleryHorizontalEnd,
+  DatabasePlus,
+  Download,
+  EyeOff,
+  FilePlusCorner,
+  FolderPlus,
   ListOrdered,
   MoreHorizontal,
-  Plus,
-  Table2,
+  PanelsTopLeft,
 } from 'lucide-react';
-import {
-  ArrowDownIcon,
-  ArrowUpIcon,
-  EyeSlashIcon,
-  DownloadSimpleIcon,
-  FileIcon,
-  FolderSimplePlusIcon,
-  SquaresFourIcon,
-} from '@phosphor-icons/react';
 
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n';
@@ -124,7 +120,7 @@ export function NotebookTreeSectionMenu({
   const createSubmenuPosition = useViewportSubmenuPosition(createSubmenuOpen);
   const importSubmenuPosition = useViewportSubmenuPosition(importSubmenuOpen);
   const sortSubmenuPosition = useViewportSubmenuPosition(sortSubmenuOpen);
-  const itemClassName = 'group h-7 items-center justify-start gap-2 rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)] disabled:cursor-not-allowed disabled:opacity-40';
+  const itemClassName = 'group h-7 items-center justify-start gap-2 rounded-lg px-2 py-0 text-left hover:bg-[var(--hover-bg)] focus-visible:bg-[var(--hover-bg)] disabled:cursor-not-allowed disabled:opacity-40';
   const hasActionsAfterMovement = Boolean(
     onCreateNote || onCreateFolder || onCreateTable || onCreateMediaLibrary || onCreateWorkDocuments || onImportFiles || onImportFolder || (sort && onSort),
   );
@@ -147,25 +143,25 @@ export function NotebookTreeSectionMenu({
           <MoreHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-[176px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+      <DropdownMenuContent scrollerClassName="space-y-0.5" align="end" className="w-[176px] rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
         <DropdownMenuItem disabled={!canMoveUp} onClick={onMoveUp} className={itemClassName}>
-          <ArrowUpIcon className="h-3.5 w-3.5" aria-hidden="true" />
+          <ArrowUp className="h-3.5 w-3.5" aria-hidden="true" />
           {t('memo.fileTree.moveSectionUp')}
         </DropdownMenuItem>
         <DropdownMenuItem disabled={!canMoveDown} onClick={onMoveDown} className={itemClassName}>
-          <ArrowDownIcon className="h-3.5 w-3.5" aria-hidden="true" />
+          <ArrowDown className="h-3.5 w-3.5" aria-hidden="true" />
           {t('memo.fileTree.moveSectionDown')}
         </DropdownMenuItem>
         {hasActionsAfterMovement && <DropdownMenuSeparator />}
         {onCreateNote && (
           <DropdownMenuItem onClick={onCreateNote} className={itemClassName}>
-            <FileIcon className="h-3.5 w-3.5" aria-hidden="true" />
+            <FilePlusCorner className="h-3.5 w-3.5" aria-hidden="true" />
             {t('memo.fileTree.newNote')}
           </DropdownMenuItem>
         )}
         {onCreateFolder && (
           <DropdownMenuItem onClick={onCreateFolder} className={itemClassName}>
-            <FolderSimplePlusIcon className="h-3.5 w-3.5" aria-hidden="true" />
+            <FolderPlus className="h-3.5 w-3.5" aria-hidden="true" />
             {t('memo.fileTree.newFolder')}
           </DropdownMenuItem>
         )}
@@ -183,7 +179,7 @@ export function NotebookTreeSectionMenu({
               onMouseDown={(event) => event.preventDefault()}
             >
               <span className="flex items-center gap-2">
-                <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                <DatabasePlus className="h-3.5 w-3.5" aria-hidden="true" />
                 {t('memo.create.newView')}
               </span>
               <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
@@ -194,25 +190,22 @@ export function NotebookTreeSectionMenu({
               <div ref={createSubmenuPosition.contentRef} style={{ ...createSubmenuPosition.style, maxWidth: 'calc(100vw - 8px)', maxHeight: 'calc(100vh - 8px)', overflowY: 'auto', transformOrigin: 'top left' }} className="flowix-popover-enter absolute w-[176px] space-y-0.5 rounded-xl border border-[var(--border-popup)] bg-[var(--card)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
                 {onCreateTable && MEMO_CREATE_VIEW_OPTIONS.map(({ type, labelKey }) => (
                   <DropdownMenuItem key={type} onClick={() => onCreateTable(type)} className={itemClassName}>
-                    {type === 'table' ? <Table2 className="h-3.5 w-3.5" aria-hidden="true" /> : <span className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
                     {t(labelKey)}
-                    <span className="ml-auto text-xs text-[var(--muted-foreground)] opacity-50 group-hover:text-[var(--primary-foreground)] group-focus-visible:text-[var(--primary-foreground)]">{t('memo.create.note')}</span>
+                    <span className="ml-auto text-xs text-[var(--muted-foreground)] opacity-50">{t('memo.create.note')}</span>
                   </DropdownMenuItem>
                 ))}
                 {onCreateMediaLibrary && (
                   <DropdownMenuItem onClick={onCreateMediaLibrary} className={itemClassName}>
-                    <GalleryHorizontalEnd className="h-3.5 w-3.5" aria-hidden="true" />
                     <span>{t('memo.create.mediaLibraryMenuLabel')}</span>
-                    <span className="ml-auto text-xs text-[var(--muted-foreground)] opacity-50 group-hover:text-[var(--primary-foreground)] group-focus-visible:text-[var(--primary-foreground)]">
+                    <span className="ml-auto text-xs text-[var(--muted-foreground)] opacity-50">
                       {t('memo.create.assetShort')}
                     </span>
                   </DropdownMenuItem>
                 )}
                 {onCreateWorkDocuments && (
                   <DropdownMenuItem onClick={onCreateWorkDocuments} className={itemClassName}>
-                    <span className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                     <span>{t('memo.create.workDocumentsMenuLabel')}</span>
-                    <span className="ml-auto text-xs text-[var(--muted-foreground)] opacity-50 group-hover:text-[var(--primary-foreground)] group-focus-visible:text-[var(--primary-foreground)]">
+                    <span className="ml-auto text-xs text-[var(--muted-foreground)] opacity-50">
                       {t('memo.create.assetShort')}
                     </span>
                   </DropdownMenuItem>
@@ -230,7 +223,7 @@ export function NotebookTreeSectionMenu({
               onMouseDown={(event) => event.preventDefault()}
               className={cn(itemClassName, 'flex w-full items-center text-sm')}
             >
-              <DownloadSimpleIcon className="h-3.5 w-3.5" aria-hidden="true" />
+              <Download className="h-3.5 w-3.5" aria-hidden="true" />
               {t('memo.fileTree.import')}
               <ChevronRight className="ml-auto h-3.5 w-3.5" aria-hidden="true" />
             </button>
@@ -280,7 +273,7 @@ export function NotebookTreeSectionMenu({
                     key={value}
                     onClick={() => onSort(value)}
                     className={cn(
-                      'memo-navigation-submenu-item mention-note-item !grid !grid-cols-[minmax(0,1fr)_auto] !gap-3 cursor-pointer hover:bg-[var(--brand)] focus-visible:bg-[var(--brand)] focus-visible:outline-none',
+                      'memo-navigation-submenu-item memo-navigation-submenu-item--neutral-hover mention-note-item !grid !grid-cols-[minmax(0,1fr)_auto] !gap-3 cursor-pointer hover:bg-[var(--hover-bg)] focus-visible:bg-[var(--hover-bg)] focus-visible:outline-none',
                       sort === value && 'is-selected',
                     )}
                   >
@@ -301,7 +294,7 @@ export function NotebookTreeSectionMenu({
         )}
         {onHideSection && (
           <DropdownMenuItem onClick={onHideSection} className={itemClassName}>
-            <EyeSlashIcon className="h-3.5 w-3.5" aria-hidden="true" />
+            <EyeOff className="h-3.5 w-3.5" aria-hidden="true" />
             {t('memo.fileTree.hideSection')}
           </DropdownMenuItem>
         )}
@@ -309,7 +302,7 @@ export function NotebookTreeSectionMenu({
           <DropdownMenuItem keepOpenOnClick onClick={(event) => {
             onCustomizeDisplay(getPopupOriginRect(event.currentTarget));
           }} className={itemClassName}>
-            <SquaresFourIcon className="h-3.5 w-3.5" aria-hidden="true" />
+            <PanelsTopLeft className="h-3.5 w-3.5" aria-hidden="true" />
             {t('memo.fileTree.customizeDisplay')}
           </DropdownMenuItem>
         )}

@@ -1,7 +1,10 @@
+import { subscribeFrameInteraction } from "./frame-interaction";
 import * as React from "react";
 import { createPortal } from "react-dom";
+import { PopupSurface } from "./popup-scroll-area";
 import { cn } from "@/lib/utils";
 import { POPUP_SEPARATOR_CLASS } from "@shared/ui/popup-separator";
+import { POPUP_MENU_SURFACE_CLASS } from "@shared/ui/popup-menu-styles";
 import { consumeCellPopupTriggerClick } from "@shared/ui/consume-cell-popup-click";
 
 type DropdownAlign = "start" | "center" | "end";
@@ -51,6 +54,9 @@ interface DropdownTriggerChildProps {
 }
 
 interface DropdownMenuContentProps {
+	scrollerClassName?: string;
+	/** Set false when children own their scrolling viewport. */
+	scrollable?: boolean;
 	children: React.ReactNode;
 	align?: DropdownAlign;
 	side?: DropdownSide;
@@ -196,6 +202,8 @@ function DropdownMenuTrigger({
 
 function DropdownMenuContent({
 	children,
+	scrollerClassName,
+	scrollable = true,
 	align = "start",
 	side = "bottom",
 	sideOffset = 4,
@@ -284,8 +292,7 @@ function DropdownMenuContent({
 	React.useEffect(() => {
 		if (!open) return;
 
-		const handleClickOutside = (e: PointerEvent) => {
-			const target = e.target as Node;
+		const handleOutside = (target: Node, e?: PointerEvent) => {
 			if (
 				contentRef.current?.contains(target) ||
 				triggerRef.current?.contains(target) ||
@@ -294,12 +301,17 @@ function DropdownMenuContent({
 				return;
 			}
 
-			if (anchorToCell) consumeCellPopupTriggerClick(e);
+			if (anchorToCell && e) consumeCellPopupTriggerClick(e);
 			setOpen(false);
 		};
 
+		const handleClickOutside = (e: PointerEvent) => handleOutside(e.target as Node, e);
+		const unsubscribe = subscribeFrameInteraction(document, frame => handleOutside(frame));
 		document.addEventListener("pointerdown", handleClickOutside, true);
-		return () => document.removeEventListener("pointerdown", handleClickOutside, true);
+		return () => {
+			unsubscribe();
+			document.removeEventListener("pointerdown", handleClickOutside, true);
+		};
 	}, [open, setOpen, triggerRef, anchorToCell]);
 
 	// Close on escape
@@ -329,7 +341,9 @@ function DropdownMenuContent({
 			: "top center";
 
 	return createPortal(
-		<div
+		<PopupSurface
+			scrollable={scrollable}
+			scrollerClassName={scrollerClassName}
 			ref={contentRef}
 				data-flowix-list-column-overlay={belongsToListColumnPreview ? "" : undefined}
 				data-flowix-surface="popover"
@@ -340,7 +354,7 @@ function DropdownMenuContent({
 			// 插件在 Tailwind v3 下不生成任何 class (死类)。 统一改用共享关键帧
 			// 类 `.flowix-popover-enter` (styles/index.css), 条件渲染挂载即播。
 			className={cn(
-				"fixed z-[150] min-w-[160px] bg-[var(--card)] border border-[var(--border-popup)] rounded-lg shadow-lg py-1 flowix-popover-enter",
+				POPUP_MENU_SURFACE_CLASS,
 				className
 			)}
 			style={{
@@ -354,7 +368,7 @@ function DropdownMenuContent({
 			}}
 		>
 			{children}
-		</div>,
+		</PopupSurface>,
 		document.body
 	);
 }
@@ -527,6 +541,7 @@ function DropdownMenuSubContent({
 }) {
 	return (
 		<div
+			data-flowix-surface="popover"
 			className={cn(
 				"absolute left-full ml-1 top-0 z-[151] min-w-[160px] bg-[var(--card)] border border-[var(--border-popup)] rounded-lg shadow-lg py-1",
 				className

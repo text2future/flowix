@@ -1,0 +1,136 @@
+@font-face {
+	font-family: 'FlowixSeti';
+	src: url('../assets/seti/seti.woff') format('woff');
+	font-display: block;
+	font-style: normal;
+	font-weight: normal;
+}
+
+/* Keep drag gestures from selecting page text while a shared drop session is active. */
+html.flowix-drag-drop-active,
+html.flowix-drag-drop-active * {
+	-webkit-user-select: none !important;
+	user-select: none !important;
+}
+
+/* shadcn/ui variable convention: --[role]-[property]
+ * Roles: background, foreground, primary, secondary, muted, accent, border, ring */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Shared ring shape. index.html mirrors this inline for the first paint, before
+ * this stylesheet loads; keep that copy in sync. */
+.flowix-loading-ring {
+	box-sizing: border-box;
+	width: 1.25rem;
+	height: 1.25rem;
+	border: 2px solid color-mix(in oklch, var(--muted-foreground) 26%, transparent);
+	border-top-color: var(--brand);
+	border-radius: 9999px;
+}
+
+/* Shared rotation for loading indicators; callers may override the duration. */
+.flowix-spin {
+	animation: flowix-spin var(--flowix-spin-duration, 1s) linear infinite;
+}
+
+@keyframes flowix-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.flowix-spin {
+		animation: none;
+	}
+}
+
+/* 全局搜索命令面板是带分组/搜索结果的特殊菜单。保留多行结果的内容高度，
+ * 但单行项目以 h-7 为基线；hover 与选中态统一使用 hover surface。 */
+.flowix-global-search-command [cmdk-item] {
+	min-height: 1.75rem;
+	padding: 0.125rem 0.5rem;
+	border-radius: 0.5rem;
+}
+
+.flowix-global-search-command [cmdk-item][data-selected='true'] {
+	background: var(--hover-bg);
+	color: var(--foreground);
+}
+
+/* hover 由 cmdk 的 data-selected 统一驱动；不要再叠加独立的 :hover 背景，
+ * 否则键盘选中项和鼠标所在项会同时显示为选中。 */
+
+.flowix-global-search-command [cmdk-input-wrapper] {
+	border-bottom-color: color-mix(in srgb, var(--border-popup) 60%, transparent);
+}
+
+.flowix-global-search-filter-panel {
+	border-bottom-color: color-mix(in srgb, var(--border-popup) 60%, transparent);
+}
+
+/* Preferences 使用共享 Select 组件，但只在这些调用点应用弹窗规范，避免
+ * 改变编辑器与 Memo 中其它 Select 的默认表现。 */
+.flowix-preferences-select-content {
+	border-color: var(--border-popup);
+	border-radius: 0.75rem;
+	padding: 0.25rem;
+	box-shadow: var(--floating-shadow-popup, 0 4px 24px -3px rgb(0 0 0 / 24%));
+}
+
+.flowix-preferences-select-content > .popup-scroll-area__viewport > button {
+	min-height: 1.75rem;
+	height: 1.75rem;
+	padding: 0.125rem 0.5rem;
+	border-radius: 0.5rem;
+}
+
+.flowix-preferences-select-content > .popup-scroll-area__viewport > button:hover,
+.flowix-preferences-select-content > .popup-scroll-area__viewport > button:focus-visible {
+	background: var(--brand);
+	color: var(--primary-foreground);
+}
+
+.flowix-preferences-select-content > .popup-scroll-area__viewport > button:hover :is(span, svg),
+.flowix-preferences-select-content > .popup-scroll-area__viewport > button:focus-visible :is(span, svg) {
+	color: var(--primary-foreground);
+}
+
+.flowix-notebook-import-select-content > .popup-scroll-area__viewport > button:hover,
+.flowix-notebook-import-select-content > .popup-scroll-area__viewport > button:focus-visible {
+	background: var(--hover-bg);
+	color: var(--foreground);
+}
+
+.flowix-notebook-import-select-content > .popup-scroll-area__viewport > button:hover :is(span, svg),
+.flowix-notebook-import-select-content > .popup-scroll-area__viewport > button:focus-visible :is(span, svg) {
+	color: var(--foreground);
+}
+
+.preferences-range-slider {
+	-webkit-appearance: none;
+	appearance: none;
+}
+
+.preferences-range-slider::-webkit-slider-thumb {
+	width: 14px;
+	height: 14px;
+	-webkit-appearance: none;
+	appearance: none;
+	border: 2px solid var(--background);
+	border-radius: 50%;
+	background: var(--foreground);
+	box-shadow: 0 1px 3px color-mix(in oklch, var(--foreground) 22%, transparent);
+}
+
+.preferences-range-slider::-moz-range-thumb {
+	width: 14px;
+	height: 14px;
+	border: 2px solid var(--background);
+	border-radius: 50%;
+	background: var(--foreground);
+	box-shadow: 0 1px 3px color-mix(in oklch, var(--foreground) 22%, transparent);
+}

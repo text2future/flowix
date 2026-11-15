@@ -66,7 +66,7 @@ function build(overrides: Partial<Parameters<typeof buildPinnedSectionItems>[0]>
   return buildPinnedSectionItems({
     entries: [],
     folderPaths: [],
-    loadedItems: [projects, archive],
+    itemByPath: nodes,
     nodes,
     expanded: new Set<string>(),
     sort: 'createdAt',
@@ -112,7 +112,10 @@ describe('buildPinnedSectionItems', () => {
     const projects = folder('Projects', 100, [sub]);
     const items = build({
       folderPaths: [`${ROOT}/Projects`, `${ROOT}/Projects/Sub`],
-      loadedItems: [projects],
+      itemByPath: new Map<string, DocTreeItem>([
+        [`${ROOT}/Projects`, projects],
+        [`${ROOT}/Projects/Sub`, sub],
+      ]),
       nodes: new Map<string, DocTreeItem>([
         [`${ROOT}/Projects`, projects],
         [`${ROOT}/Projects/Sub`, sub],
@@ -131,7 +134,10 @@ describe('buildPinnedSectionItems', () => {
     const projects = folder('Projects', 100, [sub]);
     const items = build({
       folderPaths: [`${ROOT}/Projects`, `${ROOT}/Projects/Sub`],
-      loadedItems: [projects],
+      itemByPath: new Map<string, DocTreeItem>([
+        [`${ROOT}/Projects`, projects],
+        [`${ROOT}/Projects/Sub`, sub],
+      ]),
       nodes: new Map<string, DocTreeItem>([
         [`${ROOT}/Projects`, projects],
         [`${ROOT}/Projects/Sub`, sub],
@@ -166,7 +172,10 @@ describe('buildPinnedSectionItems', () => {
     const projects = folder('Projects', 100, [sub]);
     const items = build({
       folderPaths: [`${ROOT}/Projects`],
-      loadedItems: [projects],
+      itemByPath: new Map<string, DocTreeItem>([
+        [`${ROOT}/Projects`, projects],
+        [`${ROOT}/Projects/Sub`, sub],
+      ]),
       nodes: new Map<string, DocTreeItem>([
         [`${ROOT}/Projects`, projects],
         [`${ROOT}/Projects/Sub`, sub],
@@ -186,7 +195,10 @@ describe('buildPinnedSectionItems', () => {
     const projects = folder('Projects', 100, [sub]);
     const items = build({
       folderPaths: [`${ROOT}/Projects`, `${ROOT}/Projects/Sub`],
-      loadedItems: [projects],
+      itemByPath: new Map<string, DocTreeItem>([
+        [`${ROOT}/Projects`, projects],
+        [`${ROOT}/Projects/Sub`, sub],
+      ]),
       nodes: new Map<string, DocTreeItem>([
         [`${ROOT}/Projects`, projects],
         [`${ROOT}/Projects/Sub`, sub],

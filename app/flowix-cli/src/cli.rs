@@ -44,6 +44,15 @@ pub enum Cli {
         path: Option<String>,
         json: bool,
     },
+    CollectionAddNote {
+        notebook: String,
+        collection_id: Option<String>,
+        path: Option<String>,
+        title: String,
+        file: Option<String>,
+        stdin: bool,
+        json: bool,
+    },
     CollectionList {
         notebook: Option<String>,
         collection_type: Option<String>,
@@ -118,6 +127,14 @@ pub enum Cli {
     },
     Completion {
         shell: String,
+    },
+    /// 笔记本内 HTML 页面的能力目录（`window.flowix` 能读什么、怎么读）。
+    /// 内容由 `scripts/gen-embed-catalog.mjs` 从契约生成。
+    Html {
+        template: Option<String>,
+        out: Option<String>,
+        force: bool,
+        json: bool,
     },
     /// Model Context Protocol over stdio。向外部 Agent 暴露唯一工具
     /// `memo`，工具参数采用受限的 Flowix CLI 语法。
@@ -231,11 +248,20 @@ pub(crate) fn parse(args: &[String]) -> Result<Option<Cli>, CliError> {
                 path: command.get_one::<String>("path").cloned(),
                 json,
             })),
+            Some(("add-note", command)) => Ok(Some(Cli::CollectionAddNote {
+                notebook: required_string(command, "notebook")?,
+                collection_id: command.get_one::<String>("collection-id").cloned(),
+                path: command.get_one::<String>("path").cloned(),
+                title: required_string(command, "title")?,
+                file: command.get_one::<String>("file").cloned(),
+                stdin: command.get_flag("stdin"),
+                json,
+            })),
             Some((other, _)) => Err(CliError::Usage(format!(
                 "unknown collection command: `{other}`"
             ))),
             None => Err(CliError::Usage(format!(
-                "usage: {DISPLAY_BIN} collection <list|describe|query|read>"
+                "usage: {DISPLAY_BIN} collection <list|describe|query|read|add-note>"
             ))),
         },
         Some(("edit", sub)) => Ok(Some(Cli::Edit {
@@ -294,6 +320,12 @@ pub(crate) fn parse(args: &[String]) -> Result<Option<Cli>, CliError> {
         Some(("completion", sub)) => Ok(Some(Cli::Completion {
             shell: required_string(sub, "shell")?,
         })),
+        Some(("html", sub)) => Ok(Some(Cli::Html {
+            template: sub.get_one::<String>("template").cloned(),
+            out: sub.get_one::<String>("out").cloned(),
+            force: sub.get_flag("force"),
+            json,
+        })),
         Some(("mcp", _)) => Ok(Some(Cli::Mcp)),
         Some((other, _)) => Err(CliError::Usage(format!(
             "unknown command: `{other}`\n(run `{DISPLAY_BIN} --help` for usage)"
@@ -309,7 +341,7 @@ pub(crate) fn cli_command() -> Command {
     Command::new(DISPLAY_BIN)
         .version(env!("CARGO_PKG_VERSION"))
         .about("Manage local Flowix notebooks, Markdown notes, and artifacts")
-        .after_help("For Markdown content, --file is recommended (especially on Windows PowerShell 5.1). Files must be UTF-8. Note addresses use <notebook-id>::<relative-path> or an absolute path. Examples:\n  flowix create <notebook> --title \"My note\" --file body.md --json\n  flowix show work::Notes/Example.md --json\n  flowix write work::Notes/Example.md --file body.md --json\n  flowix list\n  flowix search TODO --tag project/flowix --limit 20\n  flowix collection list work --json\n  flowix collection describe --notebook work --id <collection-id> --json\n  flowix collection query --notebook work --id <collection-id> --domain notes --json\n  flowix collection read --notebook <notebook-id> --id <collection-id> --json\n  flowix mcp")
+        .after_help("For Markdown content, --file is recommended (especially on Windows PowerShell 5.1). Files must be UTF-8. Note addresses use <notebook-id>::<relative-path> or an absolute path. Examples:\n  flowix create <notebook> --title \"My note\" --file body.md --json\n  flowix show work::Notes/Example.md --json\n  flowix write work::Notes/Example.md --file body.md --json\n  flowix list\n  flowix search TODO --tag project/flowix --limit 20\n  flowix collection list work --json\n  flowix collection describe --notebook work --id <collection-id> --json\n  flowix collection query --notebook work --id <collection-id> --domain notes --json\n  flowix collection add-note --notebook work --id <collection-id> --title \"New note\" --file body.md --json\n  flowix collection read --notebook <notebook-id> --id <collection-id> --json\n  flowix html\n  flowix mcp")
         .arg(
             Arg::new("json")
                 .long("json")
@@ -342,7 +374,7 @@ pub(crate) fn cli_command() -> Command {
         .subcommand(Command::new("delete").about("Delete a note").arg(required_arg("id")))
         .subcommand(
             Command::new("collection")
-                .about("Read collection datasets")
+                .about("Read and update collection datasets")
                 .subcommand_required(true)
                 .subcommand(
                     Command::new("list")
@@ -391,6 +423,18 @@ pub(crate) fn cli_command() -> Command {
                                 .required(true)
                                 .multiple(false),
                         ),
+                )
+                .subcommand(
+                    Command::new("add-note")
+                        .about("Create and link a Markdown note in a table collection")
+                        .arg(Arg::new("notebook").long("notebook").required(true).num_args(1))
+                        .arg(Arg::new("collection-id").long("id").num_args(1))
+                        .arg(Arg::new("path").long("path").num_args(1))
+                        .arg(Arg::new("title").long("title").required(true).num_args(1))
+                        .arg(Arg::new("file").long("file").num_args(1))
+                        .arg(Arg::new("stdin").long("stdin").action(ArgAction::SetTrue))
+                        .group(clap::ArgGroup::new("selector").args(["collection-id", "path"]).required(true).multiple(false))
+                        .group(clap::ArgGroup::new("input").args(["file", "stdin"]).required(true).multiple(false)),
                 ),
         )
         .subcommand(
@@ -483,6 +527,14 @@ pub(crate) fn cli_command() -> Command {
                 ),
         )
         .subcommand(Command::new("completion").about("Generate shell completion").arg(required_arg("shell")))
+        .subcommand(
+            Command::new("html")
+                .about("Describe what a page inside a notebook can read (window.flowix), and print runnable templates")
+                .after_help("Write the page into the notebook directory: a file outside it opens as an external file and every request answers E_SCOPE. Examples:\n  flowix html\n  flowix html --template workbench --out board.html\n  flowix html --json")
+                .arg(Arg::new("template").long("template").value_name("ID").num_args(1).help("Print a runnable page template instead of the catalog; run `flowix html` to see the IDs"))
+                .arg(Arg::new("out").long("out").value_name("PATH").num_args(1).allow_hyphen_values(true).help("Write the template to PATH as UTF-8 instead of stdout (avoids Windows shell encoding); refuses to overwrite"))
+                .arg(Arg::new("force").long("force").action(ArgAction::SetTrue).help("Allow --out to overwrite an existing file")),
+        )
         .subcommand(Command::new("mcp").about("Run the Flowix MCP server over stdio"))
 }
 

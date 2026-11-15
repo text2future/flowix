@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 
@@ -7,9 +8,67 @@ pub struct DocumentAccess {
     paths: RwLock<HashSet<(String, PathBuf)>>,
     directories: RwLock<HashSet<(String, PathBuf)>>,
     generations: RwLock<HashMap<String, u64>>,
+    references: RwLock<HashSet<PathBuf>>,
+    references_file: Option<PathBuf>,
 }
 
 impl DocumentAccess {
+    pub fn new(config_dir: &Path) -> Self {
+        let name = if option_env!("FLOWIX_DEV_MODE") == Some("1") {
+            "file-references.dev.json"
+        } else {
+            "file-references.json"
+        };
+        let file = config_dir.join("boot").join(name);
+        let references = match std::fs::read(&file) {
+            Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|error| {
+                tracing::warn!(%error, "cannot read retained file references");
+                HashSet::new()
+            }),
+            Err(error) => {
+                if error.kind() != io::ErrorKind::NotFound {
+                    tracing::warn!(%error, "cannot read retained file references");
+                }
+                HashSet::new()
+            }
+        };
+        Self {
+            references: RwLock::new(references),
+            references_file: Some(file),
+            ..Self::default()
+        }
+    }
+
+    /// The caller supplies an already canonical path.
+    pub(crate) fn has_retained_file_reference(&self, path: &Path) -> bool {
+        self.references
+            .read()
+            .is_ok_and(|references| references.contains(path))
+    }
+
+    /// The caller must authorize this exact file before retaining its reference.
+    pub(crate) fn retain_file_reference(&self, path: &Path) -> io::Result<PathBuf> {
+        let path = existing_file(path).ok_or_else(|| {
+            io::Error::new(io::ErrorKind::NotFound, "referenced file is unavailable")
+        })?;
+        let mut references = self
+            .references
+            .write()
+            .map_err(|_| io::Error::other("file references lock is poisoned"))?;
+        if !references.contains(&path) {
+            let mut next = references.clone();
+            next.insert(path.clone());
+            if let Some(file) = &self.references_file {
+                let mut paths = next.iter().collect::<Vec<_>>();
+                paths.sort();
+                let json = serde_json::to_string_pretty(&paths)?;
+                crate::config::user::atomic_write_json(file, &json)?;
+            }
+            *references = next;
+        }
+        Ok(path)
+    }
+
     pub fn grant(&self, window: &str, path: &Path) -> bool {
         self.grant_for_generation(window, self.generation(window), path)
     }
@@ -67,14 +126,23 @@ impl DocumentAccess {
         let Some(path) = existing_path(path) else {
             return false;
         };
-        let file_granted = path.is_file() && self.paths
-            .read()
-            .is_ok_and(|paths| paths.contains(&(window.to_string(), path.clone())));
-        file_granted || self.directories.read().is_ok_and(|directories| {
-            directories.iter().any(|(owner, directory)| {
-                owner == window && path.starts_with(directory)
+        let file_granted = path.is_file()
+            && self
+                .paths
+                .read()
+                .is_ok_and(|paths| paths.contains(&(window.to_string(), path.clone())));
+        let referenced = path.is_file()
+            && self
+                .references
+                .read()
+                .is_ok_and(|references| references.contains(&path));
+        file_granted
+            || referenced
+            || self.directories.read().is_ok_and(|directories| {
+                directories
+                    .iter()
+                    .any(|(owner, directory)| owner == window && path.starts_with(directory))
             })
-        })
     }
 
     pub fn revoke(&self, window: &str) {

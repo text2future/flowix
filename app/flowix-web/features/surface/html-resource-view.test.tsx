@@ -22,7 +22,9 @@ vi.mock('@features/document/components/document-container', () => ({ DocumentCon
 } }));
 vi.mock('@features/workspace/public/surface-api', () => ({ workspaceSurfaceAppearance: () => ({ contentBackground: 'document', stateBackground: 'document' }) }));
 vi.mock('@shared/ui/tooltip', () => ({ Tooltip: ({ children }: { children: ReactNode }) => children }));
-vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }));
+// 整模块替身：constants -> user-settings-store 链路会读 DEFAULT_APP_LANGUAGE，
+// 缺这个导出会让整个 suite 在导入期就崩（不是断言失败）。值须与 lib/i18n/locales.ts 一致。
+vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string) => key }), DEFAULT_APP_LANGUAGE: 'zh-CN' }));
 
 function deferred() {
   let resolve!: (value: string) => void;
@@ -66,6 +68,30 @@ afterEach(async () => {
 });
 
 describe('HTML preview lifecycle', () => {
+  it('reveals the preview after its scrollbar runtime reports, with a bounded fallback', async () => {
+    mocks.read.mockResolvedValue('<html></html>');
+    await render();
+    const frame = host.querySelector('iframe')!;
+    expect(frame.style.visibility).toBe('hidden');
+    await act(async () => window.dispatchEvent(new MessageEvent('message', {
+      source: window, data: { type: 'flowix:web-frame-scrollbar-status' },
+    })));
+    expect(frame.style.visibility).toBe('hidden');
+    await act(async () => window.dispatchEvent(new MessageEvent('message', {
+      source: frame.contentWindow, data: { type: 'flowix:web-frame-scrollbar-status', suppressed: true, gutter: 15 },
+    })));
+    expect(frame.style.visibility).toBe('hidden');
+    await act(async () => window.dispatchEvent(new MessageEvent('message', {
+      source: frame.contentWindow, data: { type: 'flowix:web-frame-scrollbar-status', suppressed: false, gutter: 0 },
+    })));
+    expect(frame.style.visibility).toBe('visible');
+    await render('/book/other.html');
+    const next = host.querySelector('iframe')!;
+    expect(next.style.visibility).toBe('hidden');
+    await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+    expect(next.style.visibility).toBe('visible');
+  });
+
   it('accepts only the current preview background and clears it for source, retry and another file', async () => {
     mocks.read.mockResolvedValue('<html></html>');
     await render();
