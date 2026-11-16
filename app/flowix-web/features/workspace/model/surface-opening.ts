@@ -33,13 +33,13 @@ export interface WorkspaceSurfaceOpenRequest {
   target: OpenableWorkspaceSurfaceTarget;
   options?: WorkspaceSurfaceOpenOptions;
 }
-export type WorkWorkspaceOpenResult =
+export type MainWorkspaceOpenResult =
   | { status: 'opened' | 'activated'; host: 'column-1'; location: Extract<WorkspaceContentLocation, { host: 'column-1' }> }
   | { status: 'cancelled'; host: 'column-1'; reason: 'navigation-cancelled' };
 export type BrowserWorkspaceOpenResult =
   | { status: 'opened' | 'activated'; host: 'column-2'; location: Extract<WorkspaceContentLocation, { host: 'column-2' }> }
   | { status: 'cancelled'; host: 'column-2'; reason: 'navigation-cancelled' };
-export type WorkspaceSurfaceOpenResult = WorkWorkspaceOpenResult | BrowserWorkspaceOpenResult;
+export type WorkspaceSurfaceOpenResult = MainWorkspaceOpenResult | BrowserWorkspaceOpenResult;
 /** Internal Browser adapter detail, normalized by openWorkspaceSurface. */
 export type BrowserColumnNavigationResult = {
   host: 'column-2';

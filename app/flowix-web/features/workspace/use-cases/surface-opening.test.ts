@@ -4,13 +4,13 @@ import { seedMainColumn } from '@features/workspace/test-support/workspace-fixtu
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  openWork: vi.fn(), openBrowser: vi.fn(),
+  openMain: vi.fn(), openBrowser: vi.fn(),
   prepareDocumentLeave: vi.fn(),
   flushBrowser: vi.fn(),
-  workIdentity: null as { kind: 'external'; path: string } | null,
+  mainIdentity: null as { kind: 'external'; path: string } | null,
 }));
 vi.mock('./workspace-navigation', () => ({
-  openExternalTarget: mocks.openWork,
+  openExternalTarget: mocks.openMain,
   prepareActiveMainColumnDocumentLeave: mocks.prepareDocumentLeave,
   openCollectionTarget: vi.fn(),
   openMediaLibraryTarget: vi.fn(), openMediaTarget: vi.fn(),
@@ -26,10 +26,10 @@ vi.mock('./browser-column-navigation', () => ({
 vi.mock('./prepare-browser-document-for-work', () => ({ flushBrowserViewBeforeOpeningWork: mocks.flushBrowser }));
 vi.mock('./agent-conversation-navigation', () => ({ selectAndOpenAgentConversation: vi.fn() }));
 vi.mock('./workspace-content-activation', () => ({
-  mainColumnTargetIdentity: () => mocks.workIdentity,
+  mainColumnTargetIdentity: () => mocks.mainIdentity,
   findWorkspaceContentLocations: () => ({ browserColumn: null }),
   findWorkspaceContentForNavigation: (identity: { kind: 'external'; path: string }) =>
-    mocks.workIdentity?.path === identity.path ? { host: 'column-1', state: 'active' } : null,
+    mocks.mainIdentity?.path === identity.path ? { host: 'column-1', state: 'active' } : null,
   browserColumnTargetIdentity: (target: { activeFilePath: string }) => ({ kind: 'external', path: target.activeFilePath }),
 }));
 vi.mock('@platform/tauri/client', () => ({ collections: {}, notebooks: {} }));
@@ -48,28 +48,28 @@ describe('public surface opening host contract', () => {
     } });
     mocks.prepareDocumentLeave.mockResolvedValue(undefined);
     mocks.flushBrowser.mockReset().mockResolvedValue(true);
-    mocks.workIdentity = null;
-    mocks.openWork.mockImplementation(async (path: string) => { mocks.workIdentity = { kind: 'external', path }; });
+    mocks.mainIdentity = null;
+    mocks.openMain.mockImplementation(async (path: string) => { mocks.mainIdentity = { kind: 'external', path }; });
     mocks.openBrowser.mockResolvedValue({ host: 'column-2', surfaceId: 'a', alreadyOpen: true });
   });
 
-  it('keeps an explicit Work request in Work', async () => {
+  it('keeps an explicit main-column request in the main column', async () => {
     await expect(openWorkspaceSurface({ host: 'column-1', target })).resolves.toEqual({
       status: 'opened', host: 'column-1', location: { host: 'column-1', state: 'active' },
     });
-    expect(mocks.openWork).toHaveBeenCalledWith(target.path, expect.objectContaining({ destination: 'column-1' }));
+    expect(mocks.openMain).toHaveBeenCalledWith(target.path, expect.objectContaining({ destination: 'column-1' }));
     expect(mocks.openBrowser).not.toHaveBeenCalled();
   });
 
   it('normalizes a refused Work document leave as cancellation', async () => {
-    mocks.openWork.mockRejectedValueOnce(new NavigationCancelledError('saving could not be retained'));
+    mocks.openMain.mockRejectedValueOnce(new NavigationCancelledError('saving could not be retained'));
     await expect(openWorkspaceSurface({ host: 'column-1', target })).resolves.toEqual({
       status: 'cancelled', host: 'column-1', reason: 'navigation-cancelled',
     });
   });
 
-  it('normalizes a refused Work leave before opening Browser as cancellation', async () => {
-    mocks.workIdentity = { kind: 'external', path: target.path };
+  it('normalizes a refused main-column leave before opening the browser column as cancellation', async () => {
+    mocks.mainIdentity = { kind: 'external', path: target.path };
     mocks.prepareDocumentLeave.mockRejectedValueOnce(new NavigationCancelledError('saving could not be retained'));
     await expect(openWorkspaceSurface({ host: 'column-2', target })).resolves.toEqual({
       status: 'cancelled', host: 'column-2', reason: 'navigation-cancelled',
@@ -82,18 +82,18 @@ describe('public surface opening host contract', () => {
       .resolves.toEqual({ status: 'activated', host: 'column-2', location: { host: 'column-2', surfaceId: 'a' } });
     // Notebook ownership is in the target; navigation policy is passed separately.
     expect(mocks.openBrowser).toHaveBeenCalledWith(expect.objectContaining({ notebookId: 'book', activeFilePath: target.path }), { notebookId: 'book' });
-    expect(mocks.openWork).not.toHaveBeenCalled();
+    expect(mocks.openMain).not.toHaveBeenCalled();
   });
 
   it('forwards a created note reveal policy with its document navigation', async () => {
     await openWorkspaceSurface({ host: 'column-1', target: { ...target, treeReveal: 'created-note' } });
-    expect(mocks.openWork).toHaveBeenCalledWith(target.path, expect.objectContaining({
+    expect(mocks.openMain).toHaveBeenCalledWith(target.path, expect.objectContaining({
       treeReveal: 'created-note',
     }));
   });
 
-  it('publishes Work changes before opening a second view of the same content', async () => {
-    mocks.workIdentity = { kind: 'external', path: target.path };
+  it('publishes main-column changes before opening a second view of the same content', async () => {
+    mocks.mainIdentity = { kind: 'external', path: target.path };
     await openWorkspaceSurface({ host: 'column-2', target });
     expect(mocks.prepareDocumentLeave).toHaveBeenCalledOnce();
     expect(mocks.prepareDocumentLeave.mock.invocationCallOrder[0]).toBeLessThan(mocks.openBrowser.mock.invocationCallOrder[0]);
@@ -104,11 +104,11 @@ describe('public surface opening host contract', () => {
     await expect(openWorkspaceSurface({ host: 'column-2', target })).resolves.toEqual({
       status: 'cancelled', host: 'column-2', reason: 'navigation-cancelled',
     });
-    expect(mocks.openWork).not.toHaveBeenCalled();
+    expect(mocks.openMain).not.toHaveBeenCalled();
   });
 
-  it('reports a Work navigation superseded before its target becomes active as cancelled', async () => {
-    mocks.openWork.mockImplementation(async () => undefined);
+  it('reports a main-column navigation superseded before its target becomes active as cancelled', async () => {
+    mocks.openMain.mockImplementation(async () => undefined);
     await expect(openWorkspaceSurface({ host: 'column-1', target })).resolves.toEqual({
       status: 'cancelled', host: 'column-1', reason: 'navigation-cancelled',
     });
@@ -126,8 +126,8 @@ describe('public surface opening host contract', () => {
     store.swapColumnContents(); // Bypass the UI guard to exercise the defensive boundary.
     finish(true);
     await expect(pending).resolves.toMatchObject({ status: 'opened', host: owner });
-    expect(mocks.openWork).toHaveBeenCalledOnce();
-    expect(mocks.openWork).toHaveBeenCalledWith(target.path, expect.objectContaining({ destination: owner }));
+    expect(mocks.openMain).toHaveBeenCalledOnce();
+    expect(mocks.openMain).toHaveBeenCalledWith(target.path, expect.objectContaining({ destination: owner }));
   });
 
   it('keeps exchange unavailable for the whole delayed save and releases preparation on refusal', async () => {
@@ -138,10 +138,10 @@ describe('public surface opening host contract', () => {
     finish(false);
     await expect(pending).resolves.toMatchObject({ status: 'cancelled' });
     expect(canSwapSessions(useWorkspaceSessionStore.getState().sessions)).toBe(true);
-    expect(mocks.openWork).not.toHaveBeenCalled();
+    expect(mocks.openMain).not.toHaveBeenCalled();
   });
 
-  it('does not let an older save barrier override a later Work click', async () => {
+  it('does not let an older save barrier override a later main-column click', async () => {
     let finishFirst!: (saved: boolean) => void;
     mocks.flushBrowser.mockImplementationOnce(() => new Promise<boolean>((resolve) => { finishFirst = resolve; }));
     const first = openWorkspaceSurface({ host: 'column-1', target });
@@ -149,14 +149,14 @@ describe('public surface opening host contract', () => {
     await expect(openWorkspaceSurface({ host: 'column-1', target: secondTarget })).resolves.toMatchObject({ status: 'opened' });
     finishFirst(true);
     await expect(first).resolves.toMatchObject({ status: 'cancelled', host: 'column-1' });
-    expect(mocks.openWork).toHaveBeenCalledTimes(1);
-    expect(mocks.openWork).toHaveBeenCalledWith(secondTarget.path, expect.anything());
+    expect(mocks.openMain).toHaveBeenCalledTimes(1);
+    expect(mocks.openMain).toHaveBeenCalledWith(secondTarget.path, expect.anything());
   });
 
-  it('keeps a Work request cancelled when the Browser save barrier refuses', async () => {
+  it('keeps a main-column request cancelled when the browser-column save barrier refuses', async () => {
     mocks.flushBrowser.mockResolvedValueOnce(false);
     await expect(openWorkspaceSurface({ host: 'column-1', target })).resolves.toMatchObject({ status: 'cancelled', host: 'column-1' });
-    expect(mocks.openWork).not.toHaveBeenCalled();
+    expect(mocks.openMain).not.toHaveBeenCalled();
     expect(mocks.openBrowser).not.toHaveBeenCalled();
   });
 
@@ -185,8 +185,8 @@ describe('public surface opening host contract', () => {
     await openWorkspaceSurface({ host: 'column-1', target: next });
     finish({ target });
     await expect(first).resolves.toMatchObject({ status: 'cancelled' });
-    expect(mocks.openWork).toHaveBeenCalledTimes(1);
-    expect(mocks.openWork).toHaveBeenCalledWith(next.path, expect.anything());
+    expect(mocks.openMain).toHaveBeenCalledTimes(1);
+    expect(mocks.openMain).toHaveBeenCalledWith(next.path, expect.anything());
   });
 
   it('releases the preparation intent when target resolution fails', async () => {
@@ -194,7 +194,7 @@ describe('public surface opening host contract', () => {
       throw new Error('resolution failed');
     })).rejects.toThrow('resolution failed');
     expect(canSwapSessions(useWorkspaceSessionStore.getState().sessions)).toBe(true);
-    expect(mocks.openWork).not.toHaveBeenCalled();
+    expect(mocks.openMain).not.toHaveBeenCalled();
   });
 
 });

@@ -37,7 +37,7 @@ interface UseMemoListCreationActionsOptions {
   activeCustomFilterId: string | null;
   activeCustomFilter: CustomFilter | null;
   folderMode: boolean;
-  workTargetParentPath: string | null;
+  mainTargetParentPath: string | null;
   loadNotebookFilters: (notebookId: string) => Promise<void>;
   setActiveFilter: (filter: ExtendedFilterType) => void;
   setSelectedTagId: (tagId: string | null) => void;
@@ -52,7 +52,7 @@ export function useMemoListCreationActions({
   activeCustomFilterId,
   activeCustomFilter,
   folderMode,
-  workTargetParentPath,
+  mainTargetParentPath,
   loadNotebookFilters,
   setActiveFilter,
   setSelectedTagId,
@@ -84,11 +84,11 @@ export function useMemoListCreationActions({
         setActiveFilter(createFilter);
       }
 
-      const workTargetParentRelativePath = !folderMode || workTargetParentPath === null
+      const mainTargetParentRelativePath = !folderMode || mainTargetParentPath === null
         ? null
-        : notebookRelativeDirectoryPath(notebook.path, workTargetParentPath);
+        : notebookRelativeDirectoryPath(notebook.path, mainTargetParentPath);
       const parentRelativePath = parentRelativePathOverride
-        ?? workTargetParentRelativePath
+        ?? mainTargetParentRelativePath
         ?? (await files.getNotebookViewPreferences(notebook.path)).defaultCreateFolder
         ?? '';
       const notebookRoot = notebook.path.replace(/[\\/]+$/, '');
@@ -140,7 +140,7 @@ export function useMemoListCreationActions({
     loadNotebookFilters,
     folderMode,
     prepareForInsert,
-    workTargetParentPath,
+    mainTargetParentPath,
     notebook,
     setActiveFilter,
     setSelectedTagId,

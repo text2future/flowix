@@ -55,24 +55,24 @@ export function useMainColumnPresentation({
       : null,
     emptyMessage: t('shell.emptyDocument'),
   });
-  const workSurfaceViewId = mainColumnPresentation.content.status === 'surface'
+  const mainSurfaceViewId = mainColumnPresentation.content.status === 'surface'
     ? mainColumnPresentation.content.surface.instanceKey
     : '';
-  const workRuntimePresentation = useWorkspaceSurfacePresentation(workSurfaceViewId);
-  const workSurfaceBlockingLoading = workRuntimePresentation.state?.status === 'loading'
-    && workRuntimePresentation.state.loadingMode === 'blocking';
+  const mainRuntimePresentation = useWorkspaceSurfacePresentation(mainSurfaceViewId);
+  const mainSurfaceBlockingLoading = mainRuntimePresentation.state?.status === 'loading'
+    && mainRuntimePresentation.state.loadingMode === 'blocking';
   const effectiveWorkPresentation = resolveMainColumnRuntimePresentation(
     mainColumnPresentation,
-    workRuntimePresentation,
+    mainRuntimePresentation,
     mainColumnDocument?.identity,
   );
   return {
     mainColumnPresentation,
-    workRuntimePresentation,
-    workSurfaceBlockingLoading,
+    mainRuntimePresentation,
+    mainSurfaceBlockingLoading,
     effectiveWorkPresentation,
-    workCapabilities: effectiveWorkPresentation.capabilities,
-    workHeaderStyle: effectiveWorkPresentation.chrome,
+    mainCapabilities: effectiveWorkPresentation.capabilities,
+    mainHeaderStyle: effectiveWorkPresentation.chrome,
     isAgentConversationDetail: mainColumnPresentation.header.kind === 'agent',
   };
 }

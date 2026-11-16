@@ -124,7 +124,7 @@ export function MemoList({
       setDocumentCreateRequest({
         kind: 'table', notebook,
         parentFolder: async () => {
-          // Follow the currently browsed Work folder; fall back to the
+          // Follow the currently browsed main-column folder; fall back to the
           // notebook's default note folder, then the root.
           const target = columnTarget(0);
           if (target.kind === 'folder-collection' && (!target.notebookId || target.notebookId === notebook.id)) {
@@ -215,10 +215,10 @@ export function MemoList({
     setIsMemoListLoading,
     setLoadedMemoListQueryKey,
   });
-  const workTargetParentPath = useColumnNavigation(0, (navigation) => {
+  const mainTargetParentPath = useColumnNavigation(0, (navigation) => {
     if (!selectedNotebook) return null;
-    // The committed Work target is the implicit destination for tree creation.
-    // Fall back to the notebook preference when Work has no in-notebook target.
+    // The committed main-column target is the implicit destination for tree creation.
+    // Fall back to the notebook preference when the main column has no in-notebook target.
     const target = navigation.current?.target ?? { kind: 'empty' };
     let parentPath: string | null = null;
 
@@ -253,7 +253,7 @@ export function MemoList({
     activeCustomFilterId,
     activeCustomFilter,
     folderMode: memoListView === 'folders',
-    workTargetParentPath,
+    mainTargetParentPath,
     loadNotebookFilters,
     setActiveFilter,
     setSelectedTagId,
@@ -386,8 +386,8 @@ export function MemoList({
     setDocumentCreateRequest({
       kind, notebook, viewType,
       parentFolder: async () => {
-        if (workTargetParentPath !== null) {
-          const relative = notebookRelativeDirectoryPath(notebook.path, workTargetParentPath);
+        if (mainTargetParentPath !== null) {
+          const relative = notebookRelativeDirectoryPath(notebook.path, mainTargetParentPath);
           if (relative !== null) return relative;
         }
         return defaultCreateFolderReady
@@ -395,7 +395,7 @@ export function MemoList({
           : (await fileApi.getNotebookViewPreferences(notebook.path)).defaultCreateFolder;
       },
     });
-  }, [defaultCreateFolder, defaultCreateFolderReady, handleCreateTypeMenuOpenChange, selectedNotebook, workTargetParentPath]);
+  }, [defaultCreateFolder, defaultCreateFolderReady, handleCreateTypeMenuOpenChange, selectedNotebook, mainTargetParentPath]);
   useEffect(() => {
     const handleOpenNotebookDocumentCreateDialog = (event: Event) => {
       const request = (event as CustomEvent<OpenNotebookDocumentCreateDialogRequest>).detail;

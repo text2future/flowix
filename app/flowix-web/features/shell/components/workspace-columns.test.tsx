@@ -82,7 +82,7 @@ function props(): WorkspaceColumnsProps {
     selectedNotebook: null,
     recentExportPath: null,
     onDismissExportNotice: vi.fn(),
-    workSurfaceBlockingLoading: false,
+    mainSurfaceBlockingLoading: false,
     notebookSwitching: false,
     language: 'zh-CN',
   } as unknown as WorkspaceColumnsProps;

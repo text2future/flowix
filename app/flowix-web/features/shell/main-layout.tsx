@@ -382,10 +382,10 @@ export function MainLayout({
     : null;
   const {
     mainColumnPresentation,
-    workRuntimePresentation,
-    workSurfaceBlockingLoading,
-    workCapabilities,
-    workHeaderStyle,
+    mainRuntimePresentation,
+    mainSurfaceBlockingLoading,
+    mainCapabilities,
+    mainHeaderStyle,
     isAgentConversationDetail,
   } = useMainColumnPresentation({
     navigation: navigationState,
@@ -397,9 +397,9 @@ export function MainLayout({
   });
   const documentTitlebarProps = useDocumentTitlebarProps({
     mainColumnPresentation,
-    workRuntimePresentation,
-    workCapabilities,
-    workHeaderStyle,
+    mainRuntimePresentation,
+    mainCapabilities,
+    mainHeaderStyle,
     browserColumnVisible,
     mainEditorMode,
     handleSetMainEditorMode,
@@ -490,7 +490,7 @@ export function MainLayout({
             handleToggleMemoList={handleToggleMemoList}
             recentExportPath={recentExportPath}
             onDismissExportNotice={() => setRecentExportPath(null)}
-            workSurfaceBlockingLoading={workSurfaceBlockingLoading}
+            mainSurfaceBlockingLoading={mainSurfaceBlockingLoading}
             notebookSwitching={notebookSwitching}
             language={language}
           />

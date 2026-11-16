@@ -3,8 +3,8 @@ import { externalFileViewKind } from '@features/editor/public/code-file';
 import type { MainColumnSurface } from './types';
 import type { WorkspaceSurfaceRendererData } from './workspace-surface-renderer-contract';
 
-/** Convert Work's navigation discriminants to the canonical renderer input. */
-export function workspaceSurfaceRendererDataFromWorkSurface(surface: MainColumnSurface): WorkspaceSurfaceRendererData {
+/** Convert the main column's navigation discriminants to the canonical renderer input. */
+export function workspaceSurfaceRendererDataFromMainColumnSurface(surface: MainColumnSurface): WorkspaceSurfaceRendererData {
   switch (surface.kind) {
     case 'file-browser': return { kind: 'file-browser', props: surface };
     case 'folder-collection': return { kind: 'collection', notebookId: surface.notebookId,

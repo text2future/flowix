@@ -16,11 +16,11 @@ function startFileDisplayTracking(): () => void {
       files.set(path, { path });
     };
     const navigation = useMainColumnStore.getState().navigation;
-    const workTargets = [
+    const mainTargets = [
       navigation.target,
       navigation.phase === 'loading' ? navigation.pendingTarget : null,
     ];
-    for (const target of workTargets) {
+    for (const target of mainTargets) {
       if (target?.kind === 'file-browser') addFile(target.activeFilePath);
       if (target?.kind === 'external') addFile(target.path);
       if (target?.kind === 'table') addFile(target.filePath);
@@ -37,7 +37,7 @@ function startFileDisplayTracking(): () => void {
     for (const path of getWorkspaceDocumentPaths()) addFile(path);
     reconcileFileDisplays(files.values());
     const retained: CollectionDisplayDescriptor[] = [];
-    for (const target of [...workTargets, navigation.previousTarget, useWorkspaceRestoreStore.getState().desiredTarget,
+    for (const target of [...mainTargets, navigation.previousTarget, useWorkspaceRestoreStore.getState().desiredTarget,
       ...getWorkspaceDocumentHistory()]) {
       if (target?.kind === 'collection') retained.push(target);
     }

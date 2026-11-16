@@ -2,7 +2,7 @@ import { seedMainColumn } from '@features/workspace/test-support/workspace-fixtu
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CodeSurfaceFileBrowser } from './work-file-browser-view';
+import { CodeSurfaceFileBrowser } from './main-column-file-browser-view';
 import { useMainColumnStore } from '@features/workspace/store/main-column-store';
 import { openSurfaceAtPosition } from '@features/workspace/public/open-surface-api';
 import { openSurfaceInColumn as openSessionSurface } from '@features/workspace/public/session-opening-api';

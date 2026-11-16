@@ -28,14 +28,14 @@ import type {
 
 type ActiveExternalSession = ReturnType<typeof useShellDocumentViewModel>['activeExternalSession'];
 type RuntimePresentation = ReturnType<typeof useWorkspaceSurfacePresentation>;
-type WorkCapabilities = ReturnType<typeof resolveMainColumnRuntimePresentation>['capabilities'];
-type WorkHeaderStyle = ReturnType<typeof resolveMainColumnRuntimePresentation>['chrome'];
+type MainCapabilities = ReturnType<typeof resolveMainColumnRuntimePresentation>['capabilities'];
+type MainHeaderStyle = ReturnType<typeof resolveMainColumnRuntimePresentation>['chrome'];
 
 export interface UseDocumentTitlebarPropsInput {
   mainColumnPresentation: MainColumnPresentation;
-  workRuntimePresentation: RuntimePresentation;
-  workCapabilities: WorkCapabilities;
-  workHeaderStyle: WorkHeaderStyle;
+  mainRuntimePresentation: RuntimePresentation;
+  mainCapabilities: MainCapabilities;
+  mainHeaderStyle: MainHeaderStyle;
   browserColumnVisible: boolean;
   mainEditorMode: DocumentEditorMode;
   handleSetMainEditorMode: (mode: DocumentEditorMode) => void;
@@ -54,7 +54,7 @@ export interface UseDocumentTitlebarPropsInput {
   mediaActions: DocumentTitlebarProps['mediaActions'];
   activeExternalSession: ActiveExternalSession;
   selectedNotebook: Notebook | null;
-  /** File-browser context for the current Work target, if it owns one. */
+  /** File-browser context for the current main-column target, if it owns one. */
   fileBrowserContext?: FileBrowserContext | null;
   /** Fallback ownership lookup: some surfaces (file tree, access space) carry no scopePath. */
   notebooks?: readonly { id?: string; path: string }[];
@@ -67,9 +67,9 @@ export interface UseDocumentTitlebarPropsInput {
 export function useDocumentTitlebarProps(input: UseDocumentTitlebarPropsInput): DocumentTitlebarProps {
   const {
     mainColumnPresentation,
-    workRuntimePresentation,
-    workCapabilities,
-    workHeaderStyle,
+    mainRuntimePresentation,
+    mainCapabilities,
+    mainHeaderStyle,
     browserColumnVisible,
     mainEditorMode,
     handleSetMainEditorMode,
@@ -92,10 +92,10 @@ export function useDocumentTitlebarProps(input: UseDocumentTitlebarPropsInput): 
     notebooks = [],
   } = input;
   const { t } = useI18n();
-  const workWebSurfaceId = mainColumnPresentation.content.status === 'surface'
+  const mainWebSurfaceId = mainColumnPresentation.content.status === 'surface'
     && mainColumnPresentation.content.surface.kind === 'web'
     ? mainColumnPresentation.content.surface.instanceKey : null;
-  const addressBar = useSessionAddressBar('column-1', workWebSurfaceId);
+  const addressBar = useSessionAddressBar('column-1', mainWebSurfaceId);
   const collectionPath = collectionIndexPath(mainColumnPresentation.content.status === 'surface'
     ? mainColumnPresentation.content.surface : null);
 
@@ -124,10 +124,10 @@ export function useDocumentTitlebarProps(input: UseDocumentTitlebarPropsInput): 
   const relativePath = fileBrowserNotebookPath && fileBrowser?.activeFilePath
     ? notebookRelativeDirectoryPath(fileBrowserNotebookPath, fileBrowser.activeFilePath) : null;
   const header = resolveWorkspaceHeaderModel({
-    chrome: workHeaderStyle, contentKind: workRuntimePresentation.contentKind ?? mainColumnPresentation.contentKind,
+    chrome: mainHeaderStyle, contentKind: mainRuntimePresentation.contentKind ?? mainColumnPresentation.contentKind,
     sourceKind: fileBrowser?.activeFilePath ? `file-${resolveWorkspaceFileSurfaceKind(fileBrowser.activeFilePath)}`
       : source?.kind === 'md' ? 'file-markdown' : source?.kind === 'html-file' ? 'file-html' : null,
-    capabilities: workCapabilities,
+    capabilities: mainCapabilities,
   });
 
   const breadcrumbRepositoryNotebookIds = [...new Set([
@@ -176,7 +176,7 @@ export function useDocumentTitlebarProps(input: UseDocumentTitlebarPropsInput): 
   }), repositoryPaths);
 
   return {
-    headerBackgroundColor: workRuntimePresentation.headerBackgroundColor,
+    headerBackgroundColor: mainRuntimePresentation.headerBackgroundColor,
     breadcrumb,
     /** 面包屑文件夹弹层选中的文件在当前栏打开：换文档，不动栏本身。 */
     onBreadcrumbFileOpen: (filePath: string, rootPath: string) => {
@@ -201,9 +201,9 @@ export function useDocumentTitlebarProps(input: UseDocumentTitlebarPropsInput): 
       }).catch(() => { toast.error(t('memo.fileTree.openFailed')); });
     },
     webAddressBarVisible: addressBar.visible,
-    onToggleWebAddressBar: workWebSurfaceId ? addressBar.toggle : undefined,
+    onToggleWebAddressBar: mainWebSurfaceId ? addressBar.toggle : undefined,
     reserveWindowsControls: !browserColumnVisible,
-    surfaceChrome: workHeaderStyle === 'media' ? 'media' as const : 'document' as const,
+    surfaceChrome: mainHeaderStyle === 'media' ? 'media' as const : 'document' as const,
     showEditorFontSwitcher: header.showEditorFontSwitcher,
     showEditorModeToggle: header.showEditorModeToggle,
     editorMode: mainEditorMode,
@@ -221,8 +221,8 @@ export function useDocumentTitlebarProps(input: UseDocumentTitlebarPropsInput): 
       canNavigateForward,
       onNavigateBack: handleNavigateBack,
       onNavigateForward: handleNavigateForward,
-      title: workRuntimePresentation.title,
-      icon: workRuntimePresentation.icon,
+      title: mainRuntimePresentation.title,
+      icon: mainRuntimePresentation.icon,
     },
     contentCapabilities: header.documentControls,
     actions: {
@@ -247,7 +247,7 @@ export function useDocumentTitlebarProps(input: UseDocumentTitlebarPropsInput): 
           : source?.kind === 'file-browser' ? source.scopePath : null,
       collectionPath: source?.kind === 'folder-collection' ? source.folderPath : collectionPath,
       collectionId,
-      name: source?.kind === 'folder-collection' ? source.folderName : workRuntimePresentation.title,
+      name: source?.kind === 'folder-collection' ? source.folderName : mainRuntimePresentation.title,
     } : null,
   };
 }

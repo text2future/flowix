@@ -54,7 +54,7 @@ function currentCollectionView(location: WorkspaceContentLocation): string | nul
 }
 
 /**
- * Focus a target in the requested host. Without a host preference, Work is
+ * Focus a target in the requested host. Without a host preference, the main column is
  * preferred for legacy callers; callers that care about placement should pass
  * the host explicitly because the same content may exist in both columns.
  */
@@ -130,13 +130,13 @@ export function findWorkspaceContentLocations(
     : null;
   const pendingMatch = pendingIdentity && contentIdentityKey(pendingIdentity) === key;
 
-  const workTarget = mainColumn.status === 'empty'
+  const mainTarget = mainColumn.status === 'empty'
     ? null
     : mainColumn.status === 'transitioning'
       ? mainColumn.from
       : mainColumn.target;
-  const workIdentity = workTarget ? mainColumnTargetIdentity(workTarget) : null;
-  const activeMatch = workIdentity && contentIdentityKey(workIdentity) === key;
+  const mainIdentity = mainTarget ? mainColumnTargetIdentity(mainTarget) : null;
+  const activeMatch = mainIdentity && contentIdentityKey(mainIdentity) === key;
 
   const browserColumn = useBrowserColumnStore.getState();
   const currentBrowserEntry = browserColumn.current;
@@ -151,7 +151,7 @@ export function findWorkspaceContentLocations(
   };
 }
 
-/** Resolve an existing location in the requested host; unspecified opens target Work. */
+/** Resolve an existing location in the requested host; unspecified opens the main column. */
 export function findWorkspaceContentForNavigation(
   identity: ContentIdentity,
   destination?: WorkspaceContentLocation['host'],

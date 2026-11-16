@@ -5,7 +5,7 @@ import { canOpenBrowserTargetInMainColumn, useBrowserColumnStore } from '../stor
 import type { BrowserViewTarget } from '../model/browser-column-session';
 import type {
   WorkspaceSurfaceOpenRequest,
-  WorkWorkspaceOpenResult, BrowserWorkspaceOpenResult, WorkspaceContentLocation, WorkspaceSurfaceOpenResult,
+  MainWorkspaceOpenResult, BrowserWorkspaceOpenResult, WorkspaceContentLocation, WorkspaceSurfaceOpenResult,
 } from '../model/surface-opening';
 import type { OpenableWorkspaceSurfaceTarget, CollectionReferenceSurfaceTarget } from '../model/surface-target';
 export type * from '../model/surface-opening';
@@ -36,7 +36,7 @@ import {
   openContentleTarget,
   openWebTarget,
   prepareActiveMainColumnDocumentLeave,
-  openWorkFileBrowserTarget,
+  openMainFileBrowserTarget,
 } from './workspace-navigation';
 import { selectAndOpenAgentConversation } from './agent-conversation-navigation';
 import { mainColumnTargetIdentity, findWorkspaceContentForNavigation } from './workspace-content-activation';
@@ -52,7 +52,7 @@ function fileKind(path: string): WorkspaceSurfaceKind {
   return workspaceFileSurfaceKind(resolveWorkspaceFileSurfaceKind(path));
 }
 
-function workTargetSurfaceKind(target: OpenableWorkspaceSurfaceTarget): WorkspaceSurfaceKind {
+function mainTargetSurfaceKind(target: OpenableWorkspaceSurfaceTarget): WorkspaceSurfaceKind {
   switch (target.kind) {
     case 'file-browser': return browserTargetSurfaceKind(target);
     case 'folder-collection': return 'collection';
@@ -70,7 +70,7 @@ function workTargetSurfaceKind(target: OpenableWorkspaceSurfaceTarget): Workspac
   }
 }
 
-function workTargetIdentity(target: OpenableWorkspaceSurfaceTarget): ContentIdentity | null {
+function mainTargetIdentity(target: OpenableWorkspaceSurfaceTarget): ContentIdentity | null {
   switch (target.kind) {
     case 'file-browser': return sessionTargetIdentity(target);
     case 'folder-collection': return { kind: 'folder-collection', notebookId: target.notebookId, folderPath: target.folderPath, viewMode: target.viewMode };
@@ -256,7 +256,7 @@ async function performWorkspaceSurfaceOpen(
   request: WorkspaceSurfaceOpenRequest,
   navigationId: number,
   intent: SessionNavigationIntent | undefined,
-): Promise<BrowserWorkspaceOpenResult | WorkWorkspaceOpenResult> {
+): Promise<BrowserWorkspaceOpenResult | MainWorkspaceOpenResult> {
   if (request.host === 'column-2') {
     const target = request.target;
     if (target.kind === 'collection-reference') {
@@ -268,34 +268,34 @@ async function performWorkspaceSurfaceOpen(
     return openBrowserTarget(resolvedTarget, request.options);
   }
 
-  const workRequestId = intent?.requestId;
-  const workIntentCurrent = () => intent && getColumnSessionId('column-1') === intent.sessionId
+  const mainRequestId = intent?.requestId;
+  const mainIntentCurrent = () => intent && getColumnSessionId('column-1') === intent.sessionId
     && isSessionNavigationIntentCurrent(intent);
-  const cancelWork = (reason: 'superseded' | 'save-refused' | 'target-not-active'): WorkWorkspaceOpenResult => {
-    navigationLogger.debug('Work navigation cancelled', {
+  const cancelMainOpen = (reason: 'superseded' | 'save-refused' | 'target-not-active'): MainWorkspaceOpenResult => {
+    navigationLogger.debug('Main-column navigation cancelled', {
       navigationId, source: request.source ?? 'unspecified', requestedHost: request.host,
       targetKind: request.target.kind, reason,
     });
     return { status: 'cancelled', host: 'column-1', reason: 'navigation-cancelled' };
   };
   const target = request.target;
-  const kind = workTargetSurfaceKind(target);
+  const kind = mainTargetSurfaceKind(target);
   assertHostSupport(kind, 'column-1');
   const options = request.options;
-  const identity = workTargetIdentity(target);
+  const identity = mainTargetIdentity(target);
   const previousLocation = identity ? findWorkspaceContentForNavigation(identity, 'column-1') : null;
   if (target.kind !== 'external' && !(previousLocation?.host === 'column-1' && previousLocation.state === 'active') && identity
     && identity.kind !== 'media' && identity.kind !== 'web' && identity.kind !== 'agent-conversation') {
     if (!await flushBrowserViewBeforeOpeningWork(identity)) {
-      return cancelWork('save-refused');
+      return cancelMainOpen('save-refused');
     }
   }
-  if (!workIntentCurrent()) return cancelWork('superseded');
+  if (!mainIntentCurrent()) return cancelMainOpen('superseded');
   const previousWorkTarget = useMainColumnStore.getState().navigation.target;
   const pluginWasOpen = target.kind === 'plugin-workbench'
     && previousWorkTarget.kind === 'plugin-workbench'
     && previousWorkTarget.plugin.manifest.id === target.plugin.manifest.id;
-  const finishWorkOpen = (): WorkWorkspaceOpenResult => {
+  const finishMainOpen = (): MainWorkspaceOpenResult => {
     const navigationTarget = useMainColumnStore.getState().navigation.target;
     const pluginMatches = target.kind === 'plugin-workbench'
       && navigationTarget.kind === 'plugin-workbench'
@@ -304,27 +304,27 @@ async function performWorkspaceSurfaceOpen(
       ? findWorkspaceContentForNavigation(identity, 'column-1')
       : pluginMatches ? activeWorkLocation() : null;
     if (!location || location.host !== 'column-1' || location.state === 'pending') {
-      return cancelWork('target-not-active');
+      return cancelMainOpen('target-not-active');
     }
     return { status: previousLocation || pluginWasOpen ? 'activated' : 'opened', host: 'column-1', location };
   };
   switch (target.kind) {
     case 'file-browser':
-      await openWorkFileBrowserTarget(target, options?.history ?? 'push', workRequestId);
-      return finishWorkOpen();
+      await openMainFileBrowserTarget(target, options?.history ?? 'push', mainRequestId);
+      return finishMainOpen();
     case 'folder-collection':
-      await openFolderCollectionChooserTarget(target, workRequestId, options?.history ?? 'push');
-      return finishWorkOpen();
+      await openFolderCollectionChooserTarget(target, mainRequestId, options?.history ?? 'push');
+      return finishMainOpen();
     case 'external': {
       if (!await flushBrowserViewBeforeOpeningWork({ kind: 'external', path: target.path })) {
-        return cancelWork('save-refused');
+        return cancelMainOpen('save-refused');
       }
       markDocumentOpenJourney(target.path, 'journey:browser-flush-done');
       // A later click can finish its save barrier before this request does.
       // Do not let the older request begin a new lower-level transaction.
-      if (!workIntentCurrent()) return cancelWork('superseded');
+      if (!mainIntentCurrent()) return cancelMainOpen('superseded');
       await openExternalTarget(target.path, {
-        restoreRequestId: workRequestId,
+        restoreRequestId: mainRequestId,
         browserDocumentPrepared: true,
         scopePath: target.scopePath,
         fileBrowser: target.fileBrowser,
@@ -335,38 +335,38 @@ async function performWorkspaceSurfaceOpen(
         treeReveal: target.treeReveal,
         destination: 'column-1',
       });
-      return finishWorkOpen();
+      return finishMainOpen();
     }
     case 'table':
-      await openContentleTarget(target.filePath, target.notebookPath, target.notebookId, { history: options?.history, destination: 'column-1', restoreRequestId: workRequestId });
-      return finishWorkOpen();
+      await openContentleTarget(target.filePath, target.notebookPath, target.notebookId, { history: options?.history, destination: 'column-1', restoreRequestId: mainRequestId });
+      return finishMainOpen();
     case 'media-library':
-      await openMediaLibraryTarget(target.filePath, target.notebookPath, target.notebookId, { history: options?.history, destination: 'column-1', restoreRequestId: workRequestId });
-      return finishWorkOpen();
+      await openMediaLibraryTarget(target.filePath, target.notebookPath, target.notebookId, { history: options?.history, destination: 'column-1', restoreRequestId: mainRequestId });
+      return finishMainOpen();
     case 'collection':
-      await openCollectionTarget(target, { history: options?.history, destination: 'column-1', restoreRequestId: workRequestId, refresh: options?.refresh });
-      return finishWorkOpen();
+      await openCollectionTarget(target, { history: options?.history, destination: 'column-1', restoreRequestId: mainRequestId, refresh: options?.refresh });
+      return finishMainOpen();
     case 'collection-reference':
-      await openCollectionTarget(target, { history: options?.history, destination: 'column-1', restoreRequestId: workRequestId, refresh: options?.refresh });
-      return finishWorkOpen();
+      await openCollectionTarget(target, { history: options?.history, destination: 'column-1', restoreRequestId: mainRequestId, refresh: options?.refresh });
+      return finishMainOpen();
     case 'media':
-      await openMediaTarget({ ...target, history: options?.history, destination: 'column-1', restoreRequestId: workRequestId });
-      return finishWorkOpen();
+      await openMediaTarget({ ...target, history: options?.history, destination: 'column-1', restoreRequestId: mainRequestId });
+      return finishMainOpen();
     case 'agent-conversation': {
       await selectAndOpenAgentConversation(target.instanceId, {
         history: options?.history,
         destination: 'column-1',
-        restoreRequestId: workRequestId,
+        restoreRequestId: mainRequestId,
         ...(target.blankIfMissing ? { blankIfMissing: true as const } : {}),
       });
-      return finishWorkOpen();
+      return finishMainOpen();
     }
     case 'web':
       await openWebTarget(target.url, { history: options?.history, destination: 'column-1' });
-      return finishWorkOpen();
+      return finishMainOpen();
     case 'plugin-workbench':
       await openPluginWorkbench(target.plugin, options?.history ?? 'push');
-      return finishWorkOpen();
+      return finishMainOpen();
   }
 }
 

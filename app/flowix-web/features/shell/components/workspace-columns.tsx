@@ -76,7 +76,7 @@ export interface WorkspaceColumnsProps {
   handleToggleMemoList: () => void;
   recentExportPath: string | null;
   onDismissExportNotice: () => void;
-  workSurfaceBlockingLoading: boolean;
+  mainSurfaceBlockingLoading: boolean;
   notebookSwitching: boolean;
   language: 'zh-CN' | 'en-US';
 }
@@ -112,7 +112,7 @@ export function WorkspaceColumns({
   handleToggleMemoList,
   recentExportPath,
   onDismissExportNotice,
-  workSurfaceBlockingLoading,
+  mainSurfaceBlockingLoading,
   notebookSwitching,
   language,
 }: WorkspaceColumnsProps) {
@@ -162,13 +162,13 @@ export function WorkspaceColumns({
   const collectionBanner = useCollectionBannerControl(collectionPath);
   // Registry 尚未就绪时按默认可见处理，避免集合初次渲染时内容短暂跳位。
   const collectionBannerVisible = !collectionBanner.available || collectionBanner.visible;
-  const workTitlebarH = collectionPath && collectionBannerVisible
+  const mainTitlebarH = collectionPath && collectionBannerVisible
     ? 'var(--window-titlebar-height)'
     : null;
   const contentHostStyle: CSSProperties | undefined = columnHasSelection
     ? { display: 'none' }
-    : workTitlebarH
-      ? ({ marginTop: `calc(0px - ${workTitlebarH})`, '--work-titlebar-h': workTitlebarH } as CSSProperties)
+    : mainTitlebarH
+      ? ({ marginTop: `calc(0px - ${mainTitlebarH})`, '--work-titlebar-h': mainTitlebarH } as CSSProperties)
       : undefined;
   return (
     <>
@@ -284,7 +284,7 @@ export function WorkspaceColumns({
             renderNoTargetEmpty={() => <EmptyWorkspaceActions columnId="column-1" />}
           />
         </SurfaceBoundary>
-        {(workSurfaceBlockingLoading
+        {(mainSurfaceBlockingLoading
           || (navigationState.phase === 'loading' && navigationState.showMainColumnLoading)) && (
           <CenteredLoadingSpinner
             className="pointer-events-none absolute inset-0 z-40"

@@ -7,7 +7,7 @@ import {
 import type { MainColumnSurface, MainColumnSurfaceKind } from './types';
 import { workspaceSurfaceRendererRegistry } from './workspace-surface-renderer-registry';
 import { collectionIndexPath } from './collection-frame';
-import { workspaceSurfaceRendererDataFromWorkSurface } from './main-column-surface-adapter';
+import { workspaceSurfaceRendererDataFromMainColumnSurface } from './main-column-surface-adapter';
 import { workspaceSurfaceUsesCollectionFrame, workspaceSurfaceRegistry } from '@features/workspace/public/surface-api';
 
 function fileIdentity(path: string) {
@@ -165,7 +165,7 @@ describe('unified collection frame', () => {
   it.each(['folder-collection', 'table-file', 'media-library-file', 'work-documents-file'] as const)(
     '%s uses the same header underlap and display controls', (kind) => {
       const value = surface(kind);
-      expect(workspaceSurfaceUsesCollectionFrame(workspaceSurfaceRendererDataFromWorkSurface(value).kind)).toBe(true);
+      expect(workspaceSurfaceUsesCollectionFrame(workspaceSurfaceRendererDataFromMainColumnSurface(value).kind)).toBe(true);
       // 文件夹表面没有集合体：键就是目录本身（不再拼 `.index.yaml`）。
       expect(collectionIndexPath(value)).toBe(kind === 'folder-collection'
         ? '/notebook/folder'

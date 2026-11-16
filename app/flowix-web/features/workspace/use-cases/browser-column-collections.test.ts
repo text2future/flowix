@@ -61,7 +61,7 @@ describe('browser column collection navigation', () => {
     });
   });
 
-  it('opens a second collection view at the current path and retains Work', async () => {
+  it('opens a second collection view at the current path and retains the main column', async () => {
     const item = fixture('table', '移动后.index.yaml');
     const display = ensureCollectionDisplay({ notebookId: 'notes', collectionId: item.collectionId!, viewId: 'selected-view' });
     const target: SessionSurfaceTarget = { kind: 'collection', ...display, collectionType: 'table', filePath: '/notes/旧.index.yaml', notebookPath: '/notes', name: '项目' };

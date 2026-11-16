@@ -28,8 +28,8 @@ it.each(['note', 'collection'] as const)('derives primary file-browser %s menus 
   const effective = resolveMainColumnRuntimePresentation(presentation, runtime, null);
   const remove = vi.fn().mockResolvedValue(undefined);
   const input: UseDocumentTitlebarPropsInput = {
-    mainColumnPresentation: presentation, workRuntimePresentation: runtime, workCapabilities: effective.capabilities,
-    workHeaderStyle: effective.chrome, browserColumnVisible: true, mainEditorMode: 'rich', handleSetMainEditorMode: vi.fn(),
+    mainColumnPresentation: presentation, mainRuntimePresentation: runtime, mainCapabilities: effective.capabilities,
+    mainHeaderStyle: effective.chrome, browserColumnVisible: true, mainEditorMode: 'rich', handleSetMainEditorMode: vi.fn(),
     isMemoListHidden: false, handleToggleMemoList: vi.fn(), canNavigateBack: false,
     canNavigateForward: false, handleNavigateBack: vi.fn(), handleNavigateForward: vi.fn(),
     handleCopyFullText: vi.fn(), handleExportMarkdown: vi.fn(), handleSaveAsTemplate: vi.fn(), handleExportWord: vi.fn(),
@@ -77,8 +77,8 @@ it('falls back to the owning notebook when a file-browser surface has no scopePa
   } as unknown as MainColumnPresentation;
   const runtime = workspaceSurfaceContentPresentation('file-markdown');
   const input: UseDocumentTitlebarPropsInput = {
-    mainColumnPresentation: presentation, workRuntimePresentation: runtime, workCapabilities: [],
-    workHeaderStyle: 'document', browserColumnVisible: true, mainEditorMode: 'rich', handleSetMainEditorMode: vi.fn(),
+    mainColumnPresentation: presentation, mainRuntimePresentation: runtime, mainCapabilities: [],
+    mainHeaderStyle: 'document', browserColumnVisible: true, mainEditorMode: 'rich', handleSetMainEditorMode: vi.fn(),
     isMemoListHidden: false, handleToggleMemoList: vi.fn(), canNavigateBack: false,
     canNavigateForward: false, handleNavigateBack: vi.fn(), handleNavigateForward: vi.fn(),
     handleCopyFullText: vi.fn(), handleExportMarkdown: vi.fn(), handleSaveAsTemplate: vi.fn(), handleExportWord: vi.fn(),
@@ -112,8 +112,8 @@ it('derives the notebook path breadcrumb for a note opened from the access space
   const runtime = workspaceSurfaceContentPresentation('file-markdown');
   const remove = vi.fn().mockResolvedValue(undefined);
   const input: UseDocumentTitlebarPropsInput = {
-    mainColumnPresentation: presentation, workRuntimePresentation: runtime, workCapabilities: [],
-    workHeaderStyle: 'document', browserColumnVisible: true, mainEditorMode: 'rich', handleSetMainEditorMode: vi.fn(),
+    mainColumnPresentation: presentation, mainRuntimePresentation: runtime, mainCapabilities: [],
+    mainHeaderStyle: 'document', browserColumnVisible: true, mainEditorMode: 'rich', handleSetMainEditorMode: vi.fn(),
     isMemoListHidden: false, handleToggleMemoList: vi.fn(), canNavigateBack: false,
     canNavigateForward: false, handleNavigateBack: vi.fn(), handleNavigateForward: vi.fn(),
     handleCopyFullText: vi.fn(), handleExportMarkdown: vi.fn(), handleSaveAsTemplate: vi.fn(), handleExportWord: vi.fn(),
@@ -152,8 +152,8 @@ it('keeps Work file-browser ownership and tree preferences when opening a breadc
   };
   mocks.openSurfaceInColumn.mockResolvedValue({ status: 'opened' });
   const input: UseDocumentTitlebarPropsInput = {
-    mainColumnPresentation: presentation, workRuntimePresentation: runtime, workCapabilities: [],
-    workHeaderStyle: 'document', browserColumnVisible: true, mainEditorMode: 'rich', handleSetMainEditorMode: vi.fn(),
+    mainColumnPresentation: presentation, mainRuntimePresentation: runtime, mainCapabilities: [],
+    mainHeaderStyle: 'document', browserColumnVisible: true, mainEditorMode: 'rich', handleSetMainEditorMode: vi.fn(),
     isMemoListHidden: false, handleToggleMemoList: vi.fn(), canNavigateBack: false,
     canNavigateForward: false, handleNavigateBack: vi.fn(), handleNavigateForward: vi.fn(),
     handleCopyFullText: vi.fn(), handleExportMarkdown: vi.fn(), handleSaveAsTemplate: vi.fn(), handleExportWord: vi.fn(),

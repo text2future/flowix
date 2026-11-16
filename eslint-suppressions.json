@@ -816,7 +816,7 @@
       "count": 3
     }
   },
-  "app/flowix-web/features/surface/work-file-browser-view.tsx": {
+  "app/flowix-web/features/surface/main-column-file-browser-view.tsx": {
     "no-restricted-imports": {
       "count": 2
     }

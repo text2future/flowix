@@ -15,7 +15,7 @@ import { SurfaceHostView } from './surface-host-view';
 import { useDocumentStore } from '@features/document/store/document-store';
 
 import { primaryCurrentEntryId, updatePrimarySurfaceMetadata } from '@features/workspace/public/session-runtime-api';
-import { workspaceSurfaceRendererDataFromWorkSurface } from './main-column-surface-adapter';
+import { workspaceSurfaceRendererDataFromMainColumnSurface } from './main-column-surface-adapter';
 import { reportEmptyWorkspaceSurfaceForIdentity } from './workspace-surface-runtime';
 
 export interface MainColumnSurfaceDefinition {
@@ -29,7 +29,7 @@ export interface MainColumnSurfaceDefinition {
 export function getMainColumnSurfaceDefinition(
   surface: MainColumnSurface,
 ): MainColumnSurfaceDefinition {
-  const data = workspaceSurfaceRendererDataFromWorkSurface(surface);
+  const data = workspaceSurfaceRendererDataFromMainColumnSurface(surface);
   const definition = getWorkspaceSurfaceRendererDefinition(data);
   return {
     contentKind: data.kind,
@@ -98,7 +98,7 @@ function MainColumnSurfaceMount({ surface, focused, webAddressBarVisible }: { su
   }, []);
 
   return <SurfaceHostView
-    surface={workspaceSurfaceRendererDataFromWorkSurface(surface)}
+    surface={workspaceSurfaceRendererDataFromMainColumnSurface(surface)}
     columnId="column-1"
     viewId={viewId}
     sessionEntryId={surface.sessionEntryId}

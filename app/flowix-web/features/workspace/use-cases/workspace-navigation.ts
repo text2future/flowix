@@ -1129,13 +1129,13 @@ export async function clearWorkspaceTargetsForDeletedDirectory(directoryPath: st
   const navigation = useMainColumnStore.getState().navigation;
   clearSelectedWorkspaceNoteIf(isInsideDeletedDirectory);
 
-  const workTargetIsInside = (target: SessionSurfaceTarget | null) => {
+  const mainTargetIsInside = (target: SessionSurfaceTarget | null) => {
     if (!target) return false;
     if (target.kind === 'folder-collection') return isInsideDeletedDirectory(target.folderPath);
     return isInsideDeletedDirectory(sessionTargetFilePath(target));
   };
-  const targetIsInside = workTargetIsInside(navigation.target);
-  const pendingTargetIsInside = workTargetIsInside(navigation.pendingTarget);
+  const targetIsInside = mainTargetIsInside(navigation.target);
+  const pendingTargetIsInside = mainTargetIsInside(navigation.pendingTarget);
   const clearWorkTarget = targetIsInside || pendingTargetIsInside;
 
   useBrowserColumnStore.getState().clearTargetsUnderDirectory(directoryPath);
@@ -1158,7 +1158,7 @@ export async function clearWorkspaceTargetsForDeletedDirectory(directoryPath: st
   if (clearWorkTarget) await clearWorkspaceDocument();
 
   const latestNavigation = useMainColumnStore.getState().navigation;
-  if (workTargetIsInside(latestNavigation.previousTarget)) {
+  if (mainTargetIsInside(latestNavigation.previousTarget)) {
     useWorkspaceSessionStore.getState().updateSession(getSessionId('column-1'), (session) => ({ ...session,
       navigation: { ...session.navigation, transaction: { ...session.navigation.transaction, previousTarget: null } },
     }));
@@ -1312,7 +1312,7 @@ export async function reconcileDeletedNotebook(
 }
 
 /** The primary runtime can render the same file-browser target as the secondary runtime. */
-export async function openWorkFileBrowserTarget(target: FileBrowserTarget, history: 'push' | 'skip', restoreRequestId?: number) {
+export async function openMainFileBrowserTarget(target: FileBrowserTarget, history: 'push' | 'skip', restoreRequestId?: number) {
   const prepared = await prepareCollectionBrowserTarget(target);
   if (prepared.kind !== 'file-browser' || !isRestoreRequestCurrent(restoreRequestId)) return;
   await runNavigation(prepared, async (requestId) => {
@@ -1320,5 +1320,5 @@ export async function openWorkFileBrowserTarget(target: FileBrowserTarget, histo
     if (!isCurrentNavigation(requestId)) return;
     commitNavigation(requestId, prepared, history);
     useWorkspaceFocusStore.getState().focusColumn('column-1');
-  }, async () => { await openWorkFileBrowserTarget(target, history); });
+  }, async () => { await openMainFileBrowserTarget(target, history); });
 }

@@ -9,7 +9,7 @@ import { openWorkspaceSurface } from './surface-opening';
 
 vi.mock('./surface-opening', () => ({ openWorkspaceSurface: vi.fn().mockResolvedValue({ status: 'opened' }) }));
 
-const workTarget = { kind: 'external' as const, path: '/notes/Note.md', scopePath: '/notes', transitionId: null };
+const mainTarget = { kind: 'external' as const, path: '/notes/Note.md', scopePath: '/notes', transitionId: null };
 
 describe('external note creation notifications', () => {
   beforeEach(() => {
@@ -22,8 +22,8 @@ describe('external note creation notifications', () => {
 
   it('keeps Work focus and does not duplicate the document being edited', async () => {
     const work = useMainColumnStore.getState();
-    const requestId = work.beginNavigation(workTarget, null);
-    work.commitNavigation(requestId, workTarget);
+    const requestId = work.beginNavigation(mainTarget, null);
+    work.commitNavigation(requestId, mainTarget);
     await openExternallyCreatedNote('/notes/Note.md', '/notes', 'nb');
     expect(openWorkspaceSurface).not.toHaveBeenCalled();
     expect(useBrowserColumnStore.getState().current).toBeNull();
@@ -31,7 +31,7 @@ describe('external note creation notifications', () => {
   });
 
   it('does not steal focus for a document currently being opened in Work', async () => {
-    useMainColumnStore.getState().beginNavigation(workTarget, null);
+    useMainColumnStore.getState().beginNavigation(mainTarget, null);
     await openExternallyCreatedNote('/notes/Note.md', '/notes', 'nb');
     expect(openWorkspaceSurface).not.toHaveBeenCalled();
     expect(useWorkspaceFocusStore.getState().focusedColumnId).toBe('column-1');

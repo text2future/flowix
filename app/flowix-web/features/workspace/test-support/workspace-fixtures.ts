@@ -5,11 +5,11 @@ import { fromBrowserEntry } from '@features/workspace/store/session-legacy-proje
 import { sessionTargetKey } from '@features/workspace/model/session-target-key';
 import { emptySessionTransaction } from '@features/workspace/model/session-navigation';
 
-type WorkFixture = Partial<MainColumnStore>;
+type MainColumnFixture = Partial<MainColumnStore>;
 type BrowserFixture = Partial<ReturnType<typeof useBrowserColumnStore.getState>>;
 
 /** Test setup only. Production read models deliberately have no state patch API. */
-export function seedMainColumn(input: WorkFixture | ((state: MainColumnStore) => WorkFixture), _replace?: boolean) {
+export function seedMainColumn(input: MainColumnFixture | ((state: MainColumnStore) => MainColumnFixture), _replace?: boolean) {
   const previous = useMainColumnStore.getState();
   const patch = typeof input === 'function' ? input(previous) : input;
   const next = { ...previous, ...patch };

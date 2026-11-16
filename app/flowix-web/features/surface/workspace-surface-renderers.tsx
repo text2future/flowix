@@ -80,7 +80,7 @@ const CsvPreview = lazy(() => import('@features/document/components/csv-preview'
 const MediaResourceView = lazy(() => import('./media-resource-view').then((module) => ({ default: module.MediaResourceView })));
 const MarkdownDocumentSurface = lazy(() => import('./markdown-document-surface').then((module) => ({ default: module.MarkdownDocumentSurface })));
 const HtmlResourceView = lazy(() => import('./html-resource-view').then((module) => ({ default: module.HtmlResourceView })));
-const CodeSurfaceFileBrowser = lazy(() => import('./work-file-browser-view').then((module) => ({ default: module.CodeSurfaceFileBrowser })));
+const CodeSurfaceFileBrowser = lazy(() => import('./main-column-file-browser-view').then((module) => ({ default: module.CodeSurfaceFileBrowser })));
 
 type SurfaceOfKind<K extends WorkspaceSurfaceRendererData['kind']> = Extract<WorkspaceSurfaceRendererData, { kind: K }>;
 type RendererProps<K extends WorkspaceSurfaceRendererData['kind']> = {
@@ -133,13 +133,13 @@ export function CodeRenderer({ surface, context }: RendererProps<'file-code'>) {
     onContentStateChange: context.reportPresentation ? onContentStateChange : undefined,
   }, context.registerLifecycle);
   if (context.policy.fileShell === 'surface') {
-    const workSurface = {
+    const mainSurface = {
       kind: 'code' as const,
       instanceKey: surface.instanceKey,
       fileIdentity: surface.fileIdentity,
       props: documentProps,
     };
-    return <CodeSurfaceFileBrowser surface={workSurface} />;
+    return <CodeSurfaceFileBrowser surface={mainSurface} />;
   }
   const content = <DocumentContainer
     {...documentProps}

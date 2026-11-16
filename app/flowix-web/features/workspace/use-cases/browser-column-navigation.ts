@@ -206,7 +206,7 @@ export function openSessionTargetInBrowserColumn(
       return null;
     }
 
-    // This legacy transfer opens the current Work content as a second view.
+    // This legacy transfer opens the current main-column content as a second view.
     if (target.kind !== 'agent-conversation') await prepareActiveMainColumnDocumentLeave();
     if (!isStillCurrentTarget()) return null;
 
