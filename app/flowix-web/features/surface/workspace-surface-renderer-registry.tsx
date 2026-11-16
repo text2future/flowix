@@ -9,13 +9,14 @@ import {
   workspaceSurfaceAppearance,
   workspaceSurfaceCapabilities,
   workspaceSurfaceRegistry,
+  workspaceColumnIndexOf,
   resolveWorkspaceFileSurfaceKind,
 } from '@features/workspace/public/surface-api';
 import type {
   SurfaceAppearance,
   SurfaceState,
   WorkspaceSurfaceCapability,
-  WorkspaceColumnId,
+  WorkspaceColumnIndex,
   WorkspaceSurfaceKind,
 } from '@features/workspace/public/surface-api';
 import { useWorkspaceSurfaceRendererLazy, WorkspaceSurfaceErrorBoundary, WorkspaceSurfaceStateView } from './workspace-surface-state-view';
@@ -45,7 +46,7 @@ interface RendererImplementation {
 
 export interface WorkspaceSurfaceRendererDefinition extends RendererImplementation {
   kind: WorkspaceSurfaceRendererKind;
-  hosts: readonly WorkspaceColumnId[];
+  columns: readonly WorkspaceColumnIndex[];
   appearance: Readonly<SurfaceAppearance>;
   capabilities: readonly WorkspaceSurfaceCapability[];
 }
@@ -112,7 +113,7 @@ function buildWorkspaceSurfaceRendererRegistry() {
     const registration = workspaceSurfaceRegistry[kind];
     definitions[kind] = Object.freeze({
       kind,
-      hosts: registration.hosts,
+      columns: registration.columns,
       appearance: registration.appearance,
       capabilities: registration.capabilities,
       render(surface: WorkspaceSurfaceRendererData, context: WorkspaceSurfaceRenderContext) {
@@ -127,8 +128,8 @@ function buildWorkspaceSurfaceRendererRegistry() {
 /** Derived from the public registration: hosts never maintain renderer maps. */
 export const workspaceSurfaceRendererRegistry = buildWorkspaceSurfaceRendererRegistry();
 
-export function workspaceSurfaceRendererSupportsHost(kind: WorkspaceSurfaceRendererData['kind'], host: WorkspaceColumnId): boolean {
-  return workspaceSurfaceRendererRegistry[kind].hosts.includes(host);
+export function workspaceSurfaceRendererSupportsColumn(kind: WorkspaceSurfaceRendererData['kind'], column: WorkspaceColumnIndex): boolean {
+  return workspaceSurfaceRendererRegistry[kind].columns.includes(column);
 }
 
 /** File-browser is a shell; its current content determines chrome and capabilities. */
@@ -235,7 +236,7 @@ export function WorkspaceSurfaceRendererView({
   const contentIdentity = surface.kind === 'file-browser'
     ? surface.props.fileIdentity?.displayId ?? surface.props.activeFilePath ?? 'folder'
     : 'fileIdentity' in surface ? surface.fileIdentity.displayId : '';
-  if (!definition.hosts.includes(context.host)) {
+  if (!definition.columns.includes(workspaceColumnIndexOf(context.host))) {
     throw new Error(`Workspace host '${context.host}' does not support '${surface.kind}'`);
   }
   const backgroundClass = appearance.contentBackground === 'document'

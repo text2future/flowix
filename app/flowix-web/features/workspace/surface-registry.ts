@@ -1,17 +1,19 @@
 import { externalFileViewKind } from '@features/editor/public/code-file';
 
 import type {
-  WorkspaceColumnId, WorkspaceSurfaceCapability, WorkspaceFileSurfaceKind, WorkspaceSurfaceKind,
+  WorkspaceColumnIndex, WorkspaceSurfaceCapability, WorkspaceFileSurfaceKind, WorkspaceSurfaceKind,
   SurfaceAppearance,
 } from './model/surface-contract';
 export type {
-  WorkspaceColumnId, WorkspaceSurfaceCapability, WorkspaceFileSurfaceKind, WorkspaceSurfaceKind,
+  WorkspaceColumnId, WorkspaceColumnIndex, WorkspaceSurfaceCapability, WorkspaceFileSurfaceKind, WorkspaceSurfaceKind,
 } from './model/surface-contract';
+export { workspaceColumnIndexOf } from './model/workspace-session';
 
 type SurfaceRegistration = {
   /** Stable implementation ID; the UI layer supplies its lazy component. */
   rendererId: string;
-  hosts: readonly WorkspaceColumnId[];
+  /** Zero-based layout positions that may present this surface. */
+  columns: readonly WorkspaceColumnIndex[];
   capabilities: readonly WorkspaceSurfaceCapability[];
   appearance: SurfaceAppearance;
 };
@@ -33,38 +35,39 @@ const FILE_MEDIA_APPEARANCE = Object.freeze({
 } as const satisfies SurfaceAppearance);
 
 /**
- * The single support declaration for surfaces rendered in workspace hosts.
- * Both hosts consume common renderer registrations. The React-free metadata
- * is also used by navigation to reject unsupported hosts before mounting UI.
+ * The single support declaration for surfaces rendered in workspace columns.
+ * Both columns consume common renderer registrations. The React-free metadata
+ * is also used by navigation to reject unsupported columns before mounting UI.
  */
 export const workspaceSurfaceRegistry = Object.freeze({
-  'file-markdown': { rendererId: 'file-markdown', hosts: ['column-1', 'column-2'], capabilities: ['edit', 'search', 'copy-content', 'export-content', 'save-template'], appearance: DOCUMENT_APPEARANCE },
-  'file-code': { rendererId: 'file-code', hosts: ['column-1', 'column-2'], capabilities: ['edit', 'search', 'copy-content'], appearance: DOCUMENT_APPEARANCE },
-  'file-csv': { rendererId: 'file-csv', hosts: ['column-1', 'column-2'], capabilities: [], appearance: DOCUMENT_APPEARANCE },
-  'file-image': { rendererId: 'file-image', hosts: ['column-1', 'column-2'], capabilities: ['fullscreen', 'zoom'], appearance: FILE_MEDIA_APPEARANCE },
-  'file-video': { rendererId: 'file-video', hosts: ['column-1', 'column-2'], capabilities: ['fullscreen'], appearance: FILE_MEDIA_APPEARANCE },
-  'file-table': { rendererId: 'file-table', hosts: ['column-1', 'column-2'], capabilities: [], appearance: DOCUMENT_APPEARANCE },
-  'file-media-library': { rendererId: 'file-media-library', hosts: ['column-1', 'column-2'], capabilities: [], appearance: DOCUMENT_APPEARANCE },
-  'file-work-documents': { rendererId: 'file-work-documents', hosts: ['column-1', 'column-2'], capabilities: [], appearance: DOCUMENT_APPEARANCE },
-  'file-html': { rendererId: 'file-html', hosts: ['column-1', 'column-2'], capabilities: [], appearance: DOCUMENT_APPEARANCE },
-  'file-docx': { rendererId: 'file-docx', hosts: ['column-1', 'column-2'], capabilities: [], appearance: DOCUMENT_APPEARANCE },
-  'file-unavailable': { rendererId: 'file-unavailable', hosts: ['column-1', 'column-2'], capabilities: [], appearance: DOCUMENT_APPEARANCE },
-  'file-browser': { rendererId: 'file-browser', hosts: ['column-1', 'column-2'], capabilities: [], appearance: DOCUMENT_APPEARANCE },
-  collection: { rendererId: 'collection', hosts: ['column-1', 'column-2'], capabilities: [], appearance: DOCUMENT_APPEARANCE },
-  media: { rendererId: 'media', hosts: ['column-1', 'column-2'], capabilities: ['fullscreen'], appearance: MEDIA_APPEARANCE },
-  mindmap: { rendererId: 'plugin-document', hosts: ['column-1'], capabilities: ['fullscreen', 'fit', 'zoom'], appearance: DOCUMENT_APPEARANCE },
-  'plugin-artifact': { rendererId: 'plugin-document', hosts: ['column-1'], capabilities: ['fullscreen'], appearance: DOCUMENT_APPEARANCE },
-  'agent-conversation': { rendererId: 'agent-conversation', hosts: ['column-1', 'column-2'], capabilities: ['stream-conversation'], appearance: AGENT_APPEARANCE },
-  web: { rendererId: 'web', hosts: ['column-1', 'column-2'], capabilities: ['web-navigation'], appearance: DOCUMENT_APPEARANCE },
-  'plugin-workbench': { rendererId: 'plugin-workbench', hosts: ['column-1', 'column-2'], capabilities: ['run-agent', 'fullscreen'], appearance: DOCUMENT_APPEARANCE },
+  'file-markdown': { rendererId: 'file-markdown', columns: [0, 1], capabilities: ['edit', 'search', 'copy-content', 'export-content', 'save-template'], appearance: DOCUMENT_APPEARANCE },
+  'file-code': { rendererId: 'file-code', columns: [0, 1], capabilities: ['edit', 'search', 'copy-content'], appearance: DOCUMENT_APPEARANCE },
+  'file-csv': { rendererId: 'file-csv', columns: [0, 1], capabilities: [], appearance: DOCUMENT_APPEARANCE },
+  'file-image': { rendererId: 'file-image', columns: [0, 1], capabilities: ['fullscreen', 'zoom'], appearance: FILE_MEDIA_APPEARANCE },
+  'file-video': { rendererId: 'file-video', columns: [0, 1], capabilities: ['fullscreen'], appearance: FILE_MEDIA_APPEARANCE },
+  'file-table': { rendererId: 'file-table', columns: [0, 1], capabilities: [], appearance: DOCUMENT_APPEARANCE },
+  'file-media-library': { rendererId: 'file-media-library', columns: [0, 1], capabilities: [], appearance: DOCUMENT_APPEARANCE },
+  'file-work-documents': { rendererId: 'file-work-documents', columns: [0, 1], capabilities: [], appearance: DOCUMENT_APPEARANCE },
+  'file-html': { rendererId: 'file-html', columns: [0, 1], capabilities: [], appearance: DOCUMENT_APPEARANCE },
+  'file-docx': { rendererId: 'file-docx', columns: [0, 1], capabilities: [], appearance: DOCUMENT_APPEARANCE },
+  'file-unavailable': { rendererId: 'file-unavailable', columns: [0, 1], capabilities: [], appearance: DOCUMENT_APPEARANCE },
+  'file-browser': { rendererId: 'file-browser', columns: [0, 1], capabilities: [], appearance: DOCUMENT_APPEARANCE },
+  collection: { rendererId: 'collection', columns: [0, 1], capabilities: [], appearance: DOCUMENT_APPEARANCE },
+  media: { rendererId: 'media', columns: [0, 1], capabilities: ['fullscreen'], appearance: MEDIA_APPEARANCE },
+  mindmap: { rendererId: 'plugin-document', columns: [0], capabilities: ['fullscreen', 'fit', 'zoom'], appearance: DOCUMENT_APPEARANCE },
+  'plugin-artifact': { rendererId: 'plugin-document', columns: [0], capabilities: ['fullscreen'], appearance: DOCUMENT_APPEARANCE },
+  'agent-conversation': { rendererId: 'agent-conversation', columns: [0, 1], capabilities: ['stream-conversation'], appearance: AGENT_APPEARANCE },
+  web: { rendererId: 'web', columns: [0, 1], capabilities: ['web-navigation'], appearance: DOCUMENT_APPEARANCE },
+  'plugin-workbench': { rendererId: 'plugin-workbench', columns: [0, 1], capabilities: ['run-agent', 'fullscreen'], appearance: DOCUMENT_APPEARANCE },
 } as const satisfies Record<WorkspaceSurfaceKind, SurfaceRegistration>);
 
-export function workspaceSurfaceSupportsHost(
+export function workspaceSurfaceSupportsColumn(
   kind: WorkspaceSurfaceKind,
-  host: WorkspaceColumnId,
+  column: WorkspaceColumnIndex,
 ): boolean {
-  const hosts: readonly WorkspaceColumnId[] = workspaceSurfaceRegistry[kind].hosts;
-  return hosts.includes(host);
+  // Registrations are `as const`, so the tuple narrows per entry; widen for the lookup.
+  const columns = workspaceSurfaceRegistry[kind].columns as readonly WorkspaceColumnIndex[];
+  return columns.includes(column);
 }
 
 export function workspaceSurfaceCapabilities(kind: WorkspaceSurfaceKind): readonly WorkspaceSurfaceCapability[] {
@@ -75,11 +78,11 @@ export function workspaceFileSurfaceKind(kind: WorkspaceFileSurfaceKind): `file-
   return `file-${kind}`;
 }
 
-export function workspaceFileSurfaceSupportsHost(
+export function workspaceFileSurfaceSupportsColumn(
   kind: WorkspaceFileSurfaceKind,
-  host: WorkspaceColumnId,
+  column: WorkspaceColumnIndex,
 ): boolean {
-  return workspaceSurfaceSupportsHost(workspaceFileSurfaceKind(kind), host);
+  return workspaceSurfaceSupportsColumn(workspaceFileSurfaceKind(kind), column);
 }
 
 /** Resolve a local file to the same canonical surface kind for either host. */

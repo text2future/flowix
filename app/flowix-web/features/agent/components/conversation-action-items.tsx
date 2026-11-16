@@ -24,7 +24,7 @@ export function ConversationActionItems({ context = false, archiveSeparator = fa
     <>
       <Item onClick={onOpen} className="group h-7 items-center justify-start rounded-lg px-2 py-0 text-left hover:bg-[var(--hover-bg)] focus-visible:bg-[var(--hover-bg)]">
         <Columns2 className="mr-2 h-4 w-4" /> {t(openHost === 'column-1'
-          ? 'tabWindow.context.openInWorkColumn'
+          ? 'tabWindow.context.openInMainColumn'
           : 'memo.fileTree.openInRight')}
       </Item>
       <Item onClick={onFavorite} className="group h-7 items-center gap-2 rounded-lg px-2 py-0 hover:bg-[var(--hover-bg)] focus-visible:bg-[var(--hover-bg)]">

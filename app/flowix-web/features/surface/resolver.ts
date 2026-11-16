@@ -4,7 +4,7 @@ import { collectionSessionKey } from '@/lib/collection-session-key';
 import { canonicalPath } from '@/lib/path';
 import {
   resolveWorkspaceFileSurfaceKind,
-  workspaceFileSurfaceSupportsHost,
+  workspaceFileSurfaceSupportsColumn,
 } from '@features/workspace/public/surface-api';
 import type {
   DocumentSurfaceContext,
@@ -44,7 +44,7 @@ function resolveExternalDocumentSurface(
   const filePath = fileIdentity.path;
   const scopePath = document.identity.scopePath;
   const fileSurfaceKind = resolveWorkspaceFileSurfaceKind(filePath);
-  if (!workspaceFileSurfaceSupportsHost(fileSurfaceKind, 'column-1')) {
+  if (!workspaceFileSurfaceSupportsColumn(fileSurfaceKind, 0)) {
     throw new Error(`Work column does not support file surface '${fileSurfaceKind}'`);
   }
 

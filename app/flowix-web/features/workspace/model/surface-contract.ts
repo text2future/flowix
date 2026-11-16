@@ -1,4 +1,4 @@
-export type { WorkspaceColumnId } from './workspace-session';
+export type { WorkspaceColumnId, WorkspaceColumnIndex } from './workspace-session';
 import type { WorkspaceColumnId } from './workspace-session';
 
 export type WorkspaceSurfaceCapability =

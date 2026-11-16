@@ -37,7 +37,7 @@ export {
   WorkspaceSurfaceRendererView,
   getWorkspaceSurfaceRendererDefinition,
   workspaceSurfaceRendererRegistry,
-  workspaceSurfaceRendererSupportsHost,
+  workspaceSurfaceRendererSupportsColumn,
 } from '@features/surface/workspace-surface-renderer-registry';
 export type {
   WorkspaceSurfaceRendererData,

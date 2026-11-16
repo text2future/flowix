@@ -4,6 +4,9 @@ import type { WorkspaceWebRuntime } from './surface-contract';
 /** Stable column instances move between zero-based layout positions. */
 export type WorkspaceColumnIndex = 0 | 1;
 export type WorkspaceColumnId = 'column-1' | 'column-2';
+export function workspaceColumnIndexOf(id: WorkspaceColumnId): WorkspaceColumnIndex {
+  return id === 'column-1' ? 0 : 1;
+}
 export type WorkspaceSessionId = WorkspaceColumnId;
 /** Column references are accepted only at the compatibility/navigation boundary. */
 export type WorkspaceSessionReference = WorkspaceSessionId | WorkspaceColumnIndex;

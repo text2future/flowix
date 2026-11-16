@@ -7,7 +7,7 @@ import { memo, useCallback, useMemo, type CSSProperties, type ReactNode } from '
 import {
   BROWSER_COLUMN_MIN_WIDTH,
   hideBrowserColumn,
-  openBrowserColumnContentInWorkColumn,
+  openBrowserContentInMainColumn,
   useBrowserColumnFocusViewModel,
   useBrowserColumnViewModel,
 } from '@features/workspace/public/browser-column-api';
@@ -143,7 +143,7 @@ export const BrowserColumn = memo(function BrowserColumn({
         headerBackgroundColor={activeSurfaceRuntime.headerBackgroundColor}
         surfaceCapabilities={activeSurfaceCapabilities}
         onToggleMemoEditorMode={handleToggleMemoEditorMode}
-        onOpenInWorkColumn={(surfaceId) => { void openBrowserColumnContentInWorkColumn(surfaceId); }}
+        onOpenInMainColumn={(surfaceId) => { void openBrowserContentInMainColumn(surfaceId); }}
         onCloseColumn={hideBrowserColumn}
         isFocused={isFocused}
         canCreate={creation.canCreate}

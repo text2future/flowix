@@ -8,8 +8,8 @@ import { useWorkspaceSessionStore } from '../store/workspace-session-store';
 export { openSurfaceAtPosition } from './open-surface-api';
 export type { OpenSurfaceAtPositionRequest } from './open-surface-api';
 export { createFileBrowserTarget, removeBrowserColumnContentByPath, selectBrowserColumnFile, navigateBrowserColumnHistory } from '../use-cases/browser-column-navigation';
-export { openBrowserColumnContentInWorkColumn } from '../use-cases/surface-opening';
-export { BROWSER_COLUMN_MIN_WIDTH, canOpenBrowserColumnTargetInWorkColumn } from '../store/browser-column-store';
+export { openBrowserContentInMainColumn } from '../use-cases/surface-opening';
+export { BROWSER_COLUMN_MIN_WIDTH, canOpenBrowserTargetInMainColumn } from '../store/browser-column-store';
 export type { BrowserColumnEntry, BrowserViewTarget, BrowserColumnWebRuntime } from '../store/browser-column-store';
 export { closeBrowserColumnContent, clearBrowserColumnSession } from '../use-cases/browser-column-closing';
 

@@ -880,7 +880,7 @@ const zhCN = {
     "tabWindow.context.moveFolderUnavailable": "请先在目录中选择文件，再在主工作区打开。",
     "tabWindow.switchFailed": "未能切换标签，当前内容已保留。请确认保存成功后重试。",
     "tabWindow.confirmDiscardChanges": "当前文档无法保存。是否放弃未保存的本地内容并关闭？",
-    "tabWindow.context.openInWorkColumn": "在左栏打开",
+    "tabWindow.context.openInMainColumn": "在左栏打开",
     "workColumn.context.openInBrowserColumn": "在右栏打开",
     "workColumn.context.alsoOpenInBrowserColumn": "同时在右栏打开",
     "workspace.alreadyOpen": "文档已打开",

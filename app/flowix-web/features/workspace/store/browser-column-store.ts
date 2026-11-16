@@ -6,7 +6,7 @@ import type { SessionNavigationEntry } from '../model/session-navigation';
 import { emptySessionTransaction } from '../model/session-navigation';
 import type { WorkspaceSurfaceOpenTarget } from '../model/surface-target';
 import { useWorkspaceSessionStore } from './workspace-session-store';
-import { resolveWorkspaceFileSurfaceKind, workspaceSurfaceSupportsHost } from '../surface-registry';
+import { resolveWorkspaceFileSurfaceKind, workspaceSurfaceSupportsColumn } from '../surface-registry';
 import { createWorkspaceWebRuntime, navigateWorkspaceWebRuntime, moveWorkspaceWebHistory, reloadWorkspaceWebRuntime } from '../model/web-navigation';
 import type { FileBrowserTarget } from './file-browser-target';
 import { createBrowserColumnView } from './session-read-models';
@@ -25,18 +25,18 @@ export { BROWSER_COLUMN_MIN_WIDTH, BROWSER_COLUMN_DEFAULT_SPLIT_RATIO, BROWSER_C
 export type { BrowserViewTarget } from '../model/browser-column-session';
 export { sessionTargetKey };
 
-/** Opening in Work uses the same public support declaration as normal navigation. */
-export function canOpenBrowserColumnTargetInWorkColumn(target: BrowserViewTarget): boolean {
+/** Opening in the main column uses the same public support declaration as normal navigation. */
+export function canOpenBrowserTargetInMainColumn(target: BrowserViewTarget): boolean {
   if (target.kind === 'file-browser') {
-    if (!target.activeFilePath) return workspaceSurfaceSupportsHost('file-browser', 'column-1');
+    if (!target.activeFilePath) return workspaceSurfaceSupportsColumn('file-browser', 0);
     const fileKind = target.collectionType === 'table' ? 'table'
       : target.collectionType === 'media_library' ? 'media-library'
       : target.collectionType === 'work_documents' ? 'work-documents'
       : resolveWorkspaceFileSurfaceKind(target.activeFilePath);
-    return workspaceSurfaceSupportsHost(`file-${fileKind}`, 'column-1');
+    return workspaceSurfaceSupportsColumn(`file-${fileKind}`, 0);
   }
-  return workspaceSurfaceSupportsHost(target.kind === 'agent-conversation' ? 'agent-conversation'
-    : target.kind === 'folder-collection' ? 'collection' : target.kind, 'column-1');
+  return workspaceSurfaceSupportsColumn(target.kind === 'agent-conversation' ? 'agent-conversation'
+    : target.kind === 'folder-collection' ? 'collection' : target.kind, 0);
 }
 
 export type { BrowserColumnEntry } from '../model/browser-column-session';

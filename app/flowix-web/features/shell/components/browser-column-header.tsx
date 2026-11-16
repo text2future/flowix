@@ -1,6 +1,6 @@
 import { useWorkspaceSessionNavigation } from '@features/workspace/public/session-navigation-api';
 import { getWorkspaceAgentRepositories } from '@features/agent/public/workspace-api';
-import { canOpenBrowserColumnTargetInWorkColumn, selectBrowserColumnFile, type BrowserColumnEntry } from '@features/workspace/public/browser-column-api';
+import { canOpenBrowserTargetInMainColumn, selectBrowserColumnFile, type BrowserColumnEntry } from '@features/workspace/public/browser-column-api';
 import type { BrowserColumnSurfaceChrome } from '@features/surface/public/shell-api';
 import { browserCollectionIndexPath, markRepositoryBreadcrumbItems, resolveDocumentBreadcrumb } from '@features/surface/public/shell-api';
 import { useShellNotebooks } from '@features/memo/public/shell-api';
@@ -29,7 +29,7 @@ export interface BrowserColumnHeaderProps {
   /** Resolved file-browser ownership/scope shared with the rendered surface. */
   resolvedFileBrowserContext?: FileBrowserContext | null;
   onToggleMemoEditorMode: (surfaceId: string) => void | Promise<void>;
-  onOpenInWorkColumn: (surfaceId: string) => void | Promise<void>;
+  onOpenInMainColumn: (surfaceId: string) => void | Promise<void>;
   onCloseColumn?: () => void;
   isFocused: boolean;
   canCreate: boolean;
@@ -117,7 +117,7 @@ export function BrowserColumnHeader(props: BrowserColumnHeaderProps) {
         fallback={current?.target.kind === 'web' ? undefined : <WorkspaceHeaderFallbackMenu columnId="column-2"
           iconButtonClass={iconButtonClass} canCreate={props.canCreate} onCreateNote={props.onCreateNote}
           onCreateAgentConversation={props.onCreateAgentConversation}
-          onOpenInWorkColumn={current && canOpenBrowserColumnTargetInWorkColumn(current.target)
-            ? () => void props.onOpenInWorkColumn(current.id) : undefined} />} />}
+          onOpenInMainColumn={current && canOpenBrowserTargetInMainColumn(current.target)
+            ? () => void props.onOpenInMainColumn(current.id) : undefined} />} />}
   />;
 }

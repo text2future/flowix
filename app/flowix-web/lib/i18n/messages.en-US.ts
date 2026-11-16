@@ -898,7 +898,7 @@ const enUS: Record<keyof typeof zhCN, string> = {
     "tabWindow.context.moveFolderUnavailable": "Select a file in this folder before opening it in the main workspace.",
     "tabWindow.switchFailed": "Could not switch tabs. Your current content remains open. Check that saving succeeds, then try again.",
     "tabWindow.confirmDiscardChanges": "This document could not be saved. Discard unsaved local content and close it?",
-    "tabWindow.context.openInWorkColumn": "Open in main workspace",
+    "tabWindow.context.openInMainColumn": "Open in main workspace",
     "workColumn.context.openInBrowserColumn": "Open in Right Panel",
     "workColumn.context.alsoOpenInBrowserColumn": "Also open in Right Panel",
     "workspace.alreadyOpen": "Document is already open",

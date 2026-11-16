@@ -1,7 +1,7 @@
 import { getColumnSessionId } from '../store/workspace-session-store';
 import { reserveSessionNavigationIntent, isSessionNavigationIntentCurrent, releaseSessionNavigationIntent, type SessionNavigationIntent } from '../store/session-navigation-intent';
 import { createLogger } from '@/lib/logger';
-import { canOpenBrowserColumnTargetInWorkColumn, useBrowserColumnStore } from '../store/browser-column-store';
+import { canOpenBrowserTargetInMainColumn, useBrowserColumnStore } from '../store/browser-column-store';
 import type { BrowserViewTarget } from '../model/browser-column-session';
 import type {
   WorkspaceSurfaceOpenRequest,
@@ -14,12 +14,13 @@ import { contentIdentityKey } from '../model/surface-identity';
 import type { ContentIdentity } from '../model/surface-identity';
 import { useWorkColumnStore } from '../store/work-column-store';
 import type { WorkspaceColumnId, WorkspaceSurfaceKind } from '../surface-registry';
+import { workspaceColumnIndexOf } from '../surface-registry';
 import { collections, notebooks } from '@platform/tauri/client';
 import { ensureCollectionDisplay, findCollectionDisplayPath } from '@/lib/collection-display-registry';
 import {
   resolveWorkspaceFileSurfaceKind,
   workspaceFileSurfaceKind,
-  workspaceSurfaceSupportsHost,
+  workspaceSurfaceSupportsColumn,
 } from '../surface-registry';
 import {
   createFileBrowserTarget,
@@ -183,7 +184,7 @@ function activeWorkLocation(): Extract<WorkspaceContentLocation, { host: 'column
 }
 
 function assertHostSupport(kind: WorkspaceSurfaceKind, host: WorkspaceColumnId): void {
-  if (!workspaceSurfaceSupportsHost(kind, host)) {
+  if (!workspaceSurfaceSupportsColumn(kind, workspaceColumnIndexOf(host))) {
     throw new Error(`Surface '${kind}' is not supported in '${host}'`);
   }
 }
@@ -369,12 +370,12 @@ async function performWorkspaceSurfaceOpen(
   }
 }
 
-/** Open Browser content as an additional Work view through the shared protocol. */
-export async function openBrowserColumnContentInWorkColumn(
+/** Open the browser column's current content as an additional main-column view. */
+export async function openBrowserContentInMainColumn(
   surfaceId: string,
 ): Promise<WorkspaceSurfaceOpenResult> {
   const entry = (useBrowserColumnStore.getState().current?.id === surfaceId ? useBrowserColumnStore.getState().current : null);
-  if (!entry || !canOpenBrowserColumnTargetInWorkColumn(entry.target)) {
+  if (!entry || !canOpenBrowserTargetInMainColumn(entry.target)) {
     return { status: 'cancelled', host: 'column-1', reason: 'navigation-cancelled' };
   }
   return openWorkspaceSurface({ host: 'column-1', target: entry.target });

@@ -2,7 +2,8 @@
 
 ## 状态所有权
 
-work（内部容器 ID 为 main-third）和 browser 是固定的布局位置。primary-session、
+主列（`column-1`）和副列（`column-2`）是两个稳定的会话实例；`placement` 把它们映射到
+零基布局位置（index 0/1），交换只改映射。primary-session、
 secondary-session 使用完全相同的 WorkspaceSession 模型，活动状态唯一保存在
 workspace-session-store。
 
@@ -45,6 +46,10 @@ placement 将容器映射到会话，交换只更新两个 sessionId。容器宽
 
 内容保持在原有 React 树中，通过 CSS Grid 调整展示位置。交换不跨父节点移动
 DOM，也不更换 Portal 容器；编辑器、iframe、Agent 与 Header 不因交换而重建。
+
+打开入口同样区分位置与实例：`openSurfaceAtPosition({ index })` 按 placement
+解析到当前列；`openSurfaceInColumn({ columnId })` 永远作用于指定实例，交换后
+不漂移。
 
 SessionHostEnvironment 为 Header 提供当前容器环境。标题、内容操作和历史属于
 会话；关闭右栏、展开侧栏、Header 几何尺寸属于容器。焦点跟随会话，分隔条和

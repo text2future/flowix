@@ -1,18 +1,20 @@
-/** Shared surface support and routing metadata for Work and Browser hosts. */
+/** Shared surface support and routing metadata for workspace columns. */
 export {
   resolveWorkspaceFileSurfaceKind,
+  workspaceColumnIndexOf,
   workspaceFileSurfaceKind,
-  workspaceFileSurfaceSupportsHost,
+  workspaceFileSurfaceSupportsColumn,
   workspaceSurfaceCapabilities,
   workspaceSurfaceContentPresentation,
   workspaceSurfaceAppearance,
   workspaceSurfaceRegistry,
-  workspaceSurfaceSupportsHost,
+  workspaceSurfaceSupportsColumn,
 } from '../surface-registry';
 export type {
   WorkspaceFileSurfaceKind,
   WorkspaceSurfaceCapability,
   WorkspaceColumnId,
+  WorkspaceColumnIndex,
   WorkspaceSurfaceKind,
 } from '../surface-registry';
 
