@@ -61,9 +61,9 @@ it('retains Browser iframe, URL, history and ready state throughout Work loading
       expect(next.backStack).toBe(browser.backStack);
       expect(next.forwardStack).toBe(browser.forwardStack);
     }
-    const workBeforeBrowserNavigation = useMainColumnStore.getState().navigation;
+    const mainBeforeBrowserNavigation = useMainColumnStore.getState().navigation;
     await act(async () => { useBrowserColumnStore.getState().navigateWeb(id, 'https://example.com/browser-next'); });
-    expect(useMainColumnStore.getState().navigation).toBe(workBeforeBrowserNavigation);
+    expect(useMainColumnStore.getState().navigation).toBe(mainBeforeBrowserNavigation);
     expect(node.querySelector('iframe')?.getAttribute('src')).toBe('https://example.com/browser-next');
   } finally {
     await act(async () => root.unmount()); node.remove();
