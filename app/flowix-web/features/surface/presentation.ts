@@ -1,45 +1,45 @@
 import { resolveWorkspaceHeaderModel } from '@features/workspace/public/header-api';
 import { notebookRelativeDirectoryPath } from '@/lib/path';
-import { getWorkColumnSurfaceDefinition } from './registry';
-import { resolveWorkColumnContent } from './resolver';
+import { getMainColumnSurfaceDefinition } from './registry';
+import { resolveMainColumnContent } from './resolver';
 import type {
-  WorkColumnContentPresentation,
-  ResolveWorkColumnContentInput,
-  WorkColumnSurfaceCapability,
-  WorkColumnSurfaceChrome,
+  MainColumnContentPresentation,
+  ResolveMainColumnContentInput,
+  MainColumnSurfaceCapability,
+  MainColumnSurfaceChrome,
   DocumentSurfaceIdentity,
 } from './types';
 import type { SurfacePresentationUpdate, WorkspaceSurfaceKind } from '@features/workspace/public/surface-api';
 
-export interface WorkColumnDocumentHeaderPresentation {
+export interface MainColumnDocumentHeaderPresentation {
   externalFilePath: string | null;
 }
 
-export type WorkColumnHeaderPresentation =
+export type MainColumnHeaderPresentation =
   | {
       kind: 'document';
-      document: WorkColumnDocumentHeaderPresentation;
+      document: MainColumnDocumentHeaderPresentation;
     }
   | {
       kind: 'agent';
       instanceId: string;
     };
 
-export interface WorkColumnPresentation {
-  header: WorkColumnHeaderPresentation;
-  chrome: WorkColumnSurfaceChrome;
+export interface MainColumnPresentation {
+  header: MainColumnHeaderPresentation;
+  chrome: MainColumnSurfaceChrome;
   /** The initially resolved content kind; runtime renderers may replace it after mode detection. */
   contentKind: WorkspaceSurfaceKind | null;
-  capabilities: readonly WorkColumnSurfaceCapability[];
-  content: WorkColumnContentPresentation;
+  capabilities: readonly MainColumnSurfaceCapability[];
+  content: MainColumnContentPresentation;
 }
 
 /** Resolve runtime overrides and document actions at the host boundary. */
-export function resolveWorkColumnRuntimePresentation(
-  initial: WorkColumnPresentation,
+export function resolveMainColumnRuntimePresentation(
+  initial: MainColumnPresentation,
   runtime: Readonly<SurfacePresentationUpdate>,
   identity: DocumentSurfaceIdentity | null | undefined,
-): WorkColumnPresentation {
+): MainColumnPresentation {
   const surface = initial.content.status === 'surface' ? initial.content.surface : null;
   const indexable = surface?.kind === 'file-browser'
     ? Boolean(surface.notebookId && surface.scopePath && surface.activeFilePath
@@ -54,8 +54,8 @@ export function resolveWorkColumnRuntimePresentation(
 }
 
 function documentHeaderPresentation(
-  surface: Extract<WorkColumnContentPresentation, { status: 'surface' }>['surface'],
-): WorkColumnDocumentHeaderPresentation {
+  surface: Extract<MainColumnContentPresentation, { status: 'surface' }>['surface'],
+): MainColumnDocumentHeaderPresentation {
   switch (surface.kind) {
     case 'file-browser': return { externalFilePath: surface.activeFilePath };
     case 'code':
@@ -75,15 +75,15 @@ function documentHeaderPresentation(
 }
 
 /** Derive all host-facing presentation data from one resolved Work Column content. */
-export function resolveWorkColumnPresentation(
-  input: ResolveWorkColumnContentInput,
-): WorkColumnPresentation {
-  const content = resolveWorkColumnContent(input);
+export function resolveMainColumnPresentation(
+  input: ResolveMainColumnContentInput,
+): MainColumnPresentation {
+  const content = resolveMainColumnContent(input);
   const definition = content.status === 'surface'
-    ? getWorkColumnSurfaceDefinition(content.surface)
+    ? getMainColumnSurfaceDefinition(content.surface)
     : null;
 
-  const header: WorkColumnHeaderPresentation = content.status === 'surface'
+  const header: MainColumnHeaderPresentation = content.status === 'surface'
     && definition?.chrome === 'agent'
     ? content.surface.kind === 'agent-conversation'
       ? { kind: 'agent', instanceId: content.surface.instanceId }

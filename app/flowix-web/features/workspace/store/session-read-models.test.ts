@@ -1,5 +1,5 @@
 import { beforeEach, expect, it } from 'vitest';
-import { useWorkColumnStore } from './work-column-store';
+import { useMainColumnStore } from './main-column-store';
 import { useBrowserColumnStore } from './browser-column-store';
 import { useWorkspaceSessionStore } from './workspace-session-store';
 import { useDocumentHistoryStore } from '@features/document/store/document-history-store';
@@ -7,7 +7,7 @@ import { createSessionViewChannel } from '../public/session-view-state-api';
 
 beforeEach(() => useWorkspaceSessionStore.getState().reset());
 it('exposes read models and commands without a legacy state setter or persistence engine', () => {
-  for (const view of [useWorkColumnStore, useBrowserColumnStore, useDocumentHistoryStore]) {
+  for (const view of [useMainColumnStore, useBrowserColumnStore, useDocumentHistoryStore]) {
     expect('setState' in view).toBe(false);
     expect('persist' in view).toBe(false);
   }

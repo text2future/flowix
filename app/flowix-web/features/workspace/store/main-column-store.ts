@@ -7,7 +7,7 @@ import { EMPTY_SESSION_TARGET, type SessionSurfaceTarget } from '../model/sessio
 import type { MainColumnNavigationState } from './session-legacy-projections';
 
 /** Compatibility API for the first column. Canonical state belongs to WorkspaceSessionStore. */
-export interface WorkColumnStore {
+export interface MainColumnStore {
   navigation: MainColumnNavigationState;
   notebookSwitchesInFlight: number;
   beginNavigation: (
@@ -36,7 +36,7 @@ function updateNavigation(update: (state: SessionNavigationState) => SessionNavi
   });
 }
 
-export const useWorkColumnStore = createMainColumnView<WorkColumnStore>({
+export const useMainColumnStore = createMainColumnView<MainColumnStore>({
   notebookSwitchesInFlight: 0,
   navigation: { phase: 'idle', showMainColumnLoading: false, requestId: 0,
     target: EMPTY_SESSION_TARGET, pendingTarget: null, previousTarget: null, failure: null, retryToken: null },

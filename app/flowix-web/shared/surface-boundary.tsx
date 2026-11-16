@@ -5,7 +5,7 @@ import { DEFAULT_APP_LANGUAGE, translate, type AppLanguage } from "@/lib/i18n";
 const logger = createLogger("surface-boundary");
 
 export interface SurfaceBoundaryProps {
-  /** 仅用于日志定位（例如 "memo-list" / "work-column"），不是展示文案。 */
+  /** 仅用于日志定位（例如 "memo-list" / "main-column"），不是展示文案。 */
   name: string;
   language?: AppLanguage;
   /**

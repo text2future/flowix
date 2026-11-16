@@ -2,7 +2,7 @@ import { getSessionId } from './workspace-session-store';
 import { sessionFor } from '../model/workspace-session';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useWorkspaceSessionStore } from './workspace-session-store';
-import { useWorkColumnStore } from './work-column-store';
+import { useMainColumnStore } from './main-column-store';
 import { useBrowserColumnStore } from './browser-column-store';
 import { createSessionWebRuntimeChannel } from './session-web-runtime';
 import { getWorkspaceDocumentNavigation, recordWorkspaceDocumentNavigation } from '@features/document/public/workspace-api';
@@ -35,14 +35,14 @@ describe('one canonical session state source', () => {
   });
 
   it('makes old Work mutations and direct session mutations address the same state', () => {
-    const work = useWorkColumnStore.getState();
+    const work = useMainColumnStore.getState();
     const target = web('https://work.example/');
     const requestId = work.beginNavigation(target, null);
     expect(work.commitNavigation(requestId, target, 'push')).toBe(true);
     const current = getWorkspaceSessionNavigation(0).current!;
     expect(current.target).toBe(target);
     useWorkspaceSessionStore.getState().commitTarget(getSessionId(0), web('https://next.example/'), { history: 'push' });
-    expect(useWorkColumnStore.getState().navigation.target).toEqual(web('https://next.example/'));
+    expect(useMainColumnStore.getState().navigation.target).toEqual(web('https://next.example/'));
     expect(getWorkspaceDocumentNavigation().backStack[0]).toMatchObject({ kind: 'web', url: target.url });
   });
 
@@ -88,7 +88,7 @@ describe('one canonical session state source', () => {
     expect(session.navigation.current?.id).toBe(current.id);
     expect(session.navigation.current?.target).toEqual(web('https://b.example/'));
     expect(session.viewStates[current.id].webRuntime).toBe(runtime);
-    expect(useWorkColumnStore.getState().navigation.target).toEqual(web('https://b.example/'));
+    expect(useMainColumnStore.getState().navigation.target).toEqual(web('https://b.example/'));
   });
 
   it('persists current/history/header state together and never writes retired storage keys', () => {
@@ -134,7 +134,7 @@ it('keeps the outgoing Surface ID when a refused replay rolls back its target', 
   root.updateSession(getSessionId(0), (session) => ({ ...session, navigation: {
     ...session.navigation, transaction: { ...session.navigation.transaction, entryId: 'replay-target' },
   } }));
-  const work = useWorkColumnStore.getState();
+  const work = useMainColumnStore.getState();
   const requestId = work.beginNavigation({ kind: 'web', url: 'https://refused.example/' }, null);
   work.failNavigation(requestId, new Error('Save refused'));
   work.commitNavigation(requestId, target);

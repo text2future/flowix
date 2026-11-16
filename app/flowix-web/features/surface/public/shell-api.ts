@@ -1,18 +1,18 @@
 export {
-  WorkColumnContentHost,
-  WorkColumnSurfaceHost,
-  getWorkColumnSurfaceDefinition,
+  MainColumnContentHost,
+  MainColumnSurfaceHost,
+  getMainColumnSurfaceDefinition,
   surfaceSupports,
 } from '@features/surface/registry';
-export { resolveWorkColumnContent } from '@features/surface/resolver';
+export { resolveMainColumnContent } from '@features/surface/resolver';
 export {
-  resolveWorkColumnRuntimePresentation,
-  resolveWorkColumnPresentation,
+  resolveMainColumnRuntimePresentation,
+  resolveMainColumnPresentation,
 } from '@features/surface/presentation';
 export type {
-  WorkColumnDocumentHeaderPresentation,
-  WorkColumnHeaderPresentation,
-  WorkColumnPresentation,
+  MainColumnDocumentHeaderPresentation,
+  MainColumnHeaderPresentation,
+  MainColumnPresentation,
 } from '@features/surface/presentation';
 export type {
   CodeSurface,
@@ -23,8 +23,8 @@ export type {
   MDSurface,
   UnavailableFileSurface,
   VideoFileSurface,
-  WorkColumnContentPresentation,
-  WorkColumnEmptyStateTone,
+  MainColumnContentPresentation,
+  MainColumnEmptyStateTone,
 } from '@features/surface/types';
 export {
   BrowserColumnSurfaceHost,

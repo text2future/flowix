@@ -20,7 +20,7 @@ import {
 } from '@platform/tauri/client';
 import type { SurfaceNotice, SurfacePresentationUpdate } from '@features/workspace/public/surface-api';
 import { openSurfaceAtPosition } from '@features/workspace/public/open-surface-api';
-import { useWorkColumnStore } from '@features/workspace/store/work-column-store';
+import { useMainColumnStore } from '@features/workspace/store/main-column-store';
 import { runPlugin } from './plugin-runner';
 import {
   ensurePluginRunStoreSubscription,
@@ -156,9 +156,9 @@ export function AgentPluginWorkbench({
         // Completion belongs to the run store. Only an explicit, still-active
         // workbench may opt into opening the produced pointer memo; switching
         // notebook, memo, conversation, or plugin while the run continues
-        // must not steal the workColumn back.
+        // must not steal the mainColumn back.
         const isCurrentWorkbenchContext = () => {
-          const currentTarget = useWorkColumnStore.getState().navigation.target;
+          const currentTarget = useMainColumnStore.getState().navigation.target;
           const currentNotebook = useNoteStore.getState().selectedNotebook;
           return currentTarget.kind === 'plugin-workbench'
             && currentTarget.plugin.manifest.id === plugin.manifest.id

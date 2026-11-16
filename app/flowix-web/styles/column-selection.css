@@ -1,4 +1,4 @@
-.work-column-selection-view {
+.column-selection-view {
   display: flex;
   flex: 1;
   min-height: 0;
@@ -9,14 +9,14 @@
   padding: 32px 16px;
 }
 
-.work-column-selection-summary {
+.column-selection-summary {
   container: selection-fan / inline-size;
   width: min(100%, 760px);
   margin-block: auto;
   text-align: center;
 }
 
-.work-column-selection-fan {
+.column-selection-fan {
   /* Leave room for rotated corners; the remaining width determines overlap. */
   --fan-card-width: clamp(96px, 32cqw, 176px);
   --fan-edge-room: 80px;
@@ -30,7 +30,7 @@
   list-style: none;
 }
 
-.work-column-selection-slot {
+.column-selection-slot {
   position: absolute;
   top: 30px;
   left: calc(50% + var(--fan-position) * var(--fan-radius));
@@ -41,7 +41,7 @@
   transition: left 280ms ease, transform 280ms ease, width 280ms ease;
 }
 
-.work-column-selection-card {
+.column-selection-card {
   display: flex;
   height: 100%;
   flex-direction: column;
@@ -53,25 +53,25 @@
   background: var(--card);
   box-shadow: 0 8px 24px rgb(0 0 0 / 8%), 0 2px 6px rgb(0 0 0 / 4%);
   text-align: left;
-  animation: work-column-selection-card-in 280ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: column-selection-card-in 280ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
 /* Respond to the work column itself, including manual column resizing. */
 @container selection-fan (max-width: 480px) {
-  .work-column-selection-fan {
+  .column-selection-fan {
     --fan-edge-room: 60px;
     --fan-angle-scale: 0.8;
   }
 }
 
 @container selection-fan (max-width: 360px) {
-  .work-column-selection-fan {
+  .column-selection-fan {
     --fan-edge-room: 40px;
     --fan-angle-scale: 0.55;
   }
 }
 
-@keyframes work-column-selection-card-in {
+@keyframes column-selection-card-in {
   from {
     opacity: 0;
     transform: translateY(24px) scale(0.9);
@@ -83,11 +83,11 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .work-column-selection-slot {
+  .column-selection-slot {
     transition: none;
   }
 
-  .work-column-selection-card {
+  .column-selection-card {
     animation: none;
   }
 }

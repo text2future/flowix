@@ -3,7 +3,7 @@ import { canonicalPath } from '@/lib/path';
 import { ContentIcon, type ContentKind } from '@features/content/public/content-api';
 
 /** Stable path keys preserve cards as the selection spreads into a fan. */
-export function WorkColumnSelectionView({ paths, label, contentKinds }: {
+export function ColumnSelectionView({ paths, label, contentKinds }: {
   paths: readonly string[];
   label: string;
   contentKinds?: ReadonlyMap<string, ContentKind>;
@@ -11,9 +11,9 @@ export function WorkColumnSelectionView({ paths, label, contentKinds }: {
   const visiblePaths = paths.slice(0, 15);
   const halfSpread = Math.min(22, (visiblePaths.length - 1) * 6);
   return (
-    <section className="work-column-selection-view" aria-label={label}>
-      <div className="work-column-selection-summary">
-        <ul className="work-column-selection-fan">
+    <section className="column-selection-view" aria-label={label}>
+      <div className="column-selection-summary">
+        <ul className="column-selection-fan">
           {visiblePaths.map((path, index) => {
             const normalizedPath = canonicalPath(path);
             const fileName = normalizedPath.split('/').pop() || normalizedPath;
@@ -27,8 +27,8 @@ export function WorkColumnSelectionView({ paths, label, contentKinds }: {
               zIndex: index,
             } as CSSProperties;
             return (
-              <li key={normalizedPath} className="work-column-selection-slot" style={style} title={path}>
-                <div className="work-column-selection-card">
+              <li key={normalizedPath} className="column-selection-slot" style={style} title={path}>
+                <div className="column-selection-card">
                   <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-[var(--muted)] text-[var(--muted-foreground)]" aria-hidden="true">
                     <ContentIcon content={contentKind ? { kind: contentKind } : { kind: 'file', path }} className="h-7 w-7" />
                   </div>

@@ -1,6 +1,6 @@
 import { updateMainColumnTargets } from '@features/workspace/public/session-runtime-api';
 import { useCallback, useRef } from 'react';
-import { useWorkColumnStore } from '@features/workspace/store/work-column-store';
+import { useMainColumnStore } from '@features/workspace/store/main-column-store';
 import { openSurfaceInColumn as openSessionSurface } from '@features/workspace/public/session-opening-api';
 import { openSurfaceAtPosition } from '@features/workspace/public/open-surface-api';
 import { CodeSurfaceView } from './code-surface-view';
@@ -12,7 +12,7 @@ import type { CodeSurface } from './types';
 
 export function CodeSurfaceFileBrowser({ surface }: { surface: CodeSurface }) {
   const props = { ...surface.props, fileIdentity: surface.fileIdentity };
-  const target = useWorkColumnStore((state) => state.navigation.target);
+  const target = useMainColumnStore((state) => state.navigation.target);
   const flushRef = useRef<(() => Promise<boolean>) | null>(null);
   const { t } = useI18n();
   const reportFlushReady = props.onFlushReady;
@@ -36,7 +36,7 @@ export function CodeSurfaceFileBrowser({ surface }: { surface: CodeSurface }) {
         return;
       }
       // Do not let a delayed save override a newer navigation intent.
-      const current = useWorkColumnStore.getState().navigation;
+      const current = useMainColumnStore.getState().navigation;
       if (current.phase === 'loading' || current.target.kind !== 'external' || current.target.path !== target.path) return;
       const fileKind = externalFileViewKind(path);
       if ((fileKind === 'image' || fileKind === 'video') && context.scopePath) {

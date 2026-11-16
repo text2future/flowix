@@ -11,7 +11,7 @@ import {
   useBrowserColumnFocusViewModel,
   useBrowserColumnViewModel,
 } from '@features/workspace/public/browser-column-api';
-import { WorkColumnTitlebar } from './work-column-titlebar';
+import { MainColumnTitlebar } from './main-column-titlebar';
 import { isWindowsPlatform } from '@/lib/path';
 import type { FileBrowserContext } from '@features/workspace/public/surface-api';
 import { BrowserColumnHeader } from './browser-column-header';
@@ -131,7 +131,7 @@ export const BrowserColumn = memo(function BrowserColumn({
       } : { width }}
     >
       {!environment && <ColumnResizeHandle label="调整浏览器列宽度" width={width} direction={-1} onResize={onResize} />}
-      {selectionView ? <WorkColumnTitlebar columnId="column-2" isWindows={isWindowsPlatform()}>{null}</WorkColumnTitlebar> : <BrowserColumnHeader
+      {selectionView ? <MainColumnTitlebar columnId="column-2" isWindows={isWindowsPlatform()}>{null}</MainColumnTitlebar> : <BrowserColumnHeader
         current={current}
         webAddressBarVisible={webAddressBarVisible}
         onToggleWebAddressBar={addressBar.toggle}

@@ -3,8 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { useDocumentStore } from '@features/document/store/document-store';
-import { WorkColumnSurfaceHost } from './registry';
-import type { WorkColumnSurface } from './types';
+import { MainColumnSurfaceHost } from './registry';
+import type { MainColumnSurface } from './types';
 
 const mockedDocument = vi.hoisted(() => ({ ready: false }));
 
@@ -43,7 +43,7 @@ afterEach(() => {
 function externalSurface(
   kind: 'image-file' | 'video-file' | 'unavailable-file',
   transitionId: number,
-): WorkColumnSurface {
+): MainColumnSurface {
   const filePath = kind === 'image-file' ? '/notebook/photo.png'
     : kind === 'video-file' ? '/notebook/movie.mp4' : '/notebook/report.pdf';
   const base = {
@@ -58,7 +58,7 @@ function externalSurface(
   }
 }
 
-function contentSurface(kind: 'md' | 'code' | 'html-file', transitionId: number): WorkColumnSurface {
+function contentSurface(kind: 'md' | 'code' | 'html-file', transitionId: number): MainColumnSurface {
   const filePath = kind === 'html-file' ? '/notebook/index.html' : '/notebook/readme.md';
   const base = {
     instanceKey: `${kind}:${filePath}`,
@@ -89,7 +89,7 @@ describe('work column external-file transition completion', () => {
       const element = document.createElement('div');
       const root = createRoot(element);
       try {
-        await act(async () => root.render(<WorkColumnSurfaceHost surface={externalSurface(kind, 12)} />));
+        await act(async () => root.render(<MainColumnSurfaceHost surface={externalSurface(kind, 12)} />));
         expect(useDocumentStore.getState().isDocumentTransitioning).toBe(false);
         if (kind === 'unavailable-file') {
           await vi.waitFor(async () => {
@@ -109,9 +109,9 @@ describe('work column external-file transition completion', () => {
     useDocumentStore.setState({ documentTransitionId: 14, isDocumentTransitioning: true });
     const root = createRoot(document.createElement('div'));
     try {
-      await act(async () => root.render(<WorkColumnSurfaceHost surface={externalSurface('unavailable-file', 13)} />));
+      await act(async () => root.render(<MainColumnSurfaceHost surface={externalSurface('unavailable-file', 13)} />));
       expect(useDocumentStore.getState().isDocumentTransitioning).toBe(true);
-      await act(async () => root.render(<WorkColumnSurfaceHost surface={externalSurface('unavailable-file', 14)} />));
+      await act(async () => root.render(<MainColumnSurfaceHost surface={externalSurface('unavailable-file', 14)} />));
       expect(useDocumentStore.getState().isDocumentTransitioning).toBe(false);
     } finally {
       await act(async () => root.unmount());
@@ -125,7 +125,7 @@ describe('work column external-file transition completion', () => {
       useDocumentStore.setState({ documentTransitionId: 20, isDocumentTransitioning: true });
       const root = createRoot(document.createElement('div'));
       try {
-        await act(async () => root.render(<WorkColumnSurfaceHost surface={contentSurface(kind, 20)} />));
+        await act(async () => root.render(<MainColumnSurfaceHost surface={contentSurface(kind, 20)} />));
         expect(useDocumentStore.getState().isDocumentTransitioning).toBe(true);
       } finally {
         await act(async () => root.unmount());
@@ -140,7 +140,7 @@ it('finishes the legacy navigation marker when an independent column document re
   useDocumentStore.setState({ documentTransitionId: 31, isDocumentTransitioning: true });
   const root = createRoot(document.createElement('div'));
   try {
-    await act(async () => root.render(<WorkColumnSurfaceHost surface={contentSurface('md', 31)} />));
+    await act(async () => root.render(<MainColumnSurfaceHost surface={contentSurface('md', 31)} />));
     await vi.waitFor(async () => {
       await act(async () => {});
       expect(useDocumentStore.getState().isDocumentTransitioning).toBe(false);

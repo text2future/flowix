@@ -4,8 +4,8 @@ import { createMediaLibrary, serializeMediaLibrary } from '@features/media-libra
 import { ensureCollectionDisplay, reconcileCollectionDisplays } from '@/lib/collection-display-registry';
 import { collectionDisplayName } from '@features/collection/model';
 import { sessionTargetFilePath } from '../model/session-target';
-import { resolveWorkColumnContent } from '@features/surface/resolver';
-import { useWorkColumnStore } from '../store/work-column-store';
+import { resolveMainColumnContent } from '@features/surface/resolver';
+import { useMainColumnStore } from '../store/main-column-store';
 import { useBrowserColumnStore } from '../store/browser-column-store';
 
 const mocks = vi.hoisted(() => ({ resolve: vi.fn(), read: vi.fn(), write: vi.fn(), getAll: vi.fn(), clear: vi.fn(async () => {}) }));
@@ -32,7 +32,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.getAll.mockResolvedValue([{ id: 'book', path: '/book' }]);
   useBrowserColumnStore.getState().reset();
-  const store = useWorkColumnStore.getState();
+  const store = useMainColumnStore.getState();
   store.commitNavigation(store.beginNavigation({ kind: 'empty' }, null), { kind: 'empty' });
 });
 afterEach(() => reconcileCollectionDisplays([]));
@@ -42,7 +42,7 @@ it('opens a table with a deleted reference view so the table can apply its fallb
   mocks.resolve.mockResolvedValue({ relativePath: 'table.yaml', parseState: 'valid', collectionType: 'table', name: 'Table', indexSequence: 1 });
   mocks.read.mockResolvedValue(serializeTableDocument(document));
   await openCollectionTarget({ notebookId: 'book', collectionId: document.collection.id, viewId: 'deleted-view' });
-  const target = useWorkColumnStore.getState().navigation.target;
+  const target = useMainColumnStore.getState().navigation.target;
   expect(target).toMatchObject({ kind: 'collection', viewId: 'deleted-view', filePath: '/book/table.yaml' });
   expect(target).not.toHaveProperty('unavailableReason');
 });
@@ -59,36 +59,36 @@ it('commits the latest view when a second request arrives during loading', async
   const first = openCollectionTarget({ ...reference, viewId: firstView.id });
   await vi.waitFor(() => expect(mocks.resolve).toHaveBeenCalledTimes(1));
   await openCollectionTarget({ ...reference, viewId: 'view_11111111111111111111111111111111' });
-  const latest = useWorkColumnStore.getState().navigation.target;
+  const latest = useMainColumnStore.getState().navigation.target;
   expect(latest).toMatchObject({ kind: 'collection', viewId: 'view_11111111111111111111111111111111' });
   release(item);
   await first;
-  expect(useWorkColumnStore.getState().navigation.target).toEqual(latest);
+  expect(useMainColumnStore.getState().navigation.target).toEqual(latest);
 });
 
 it('re-resolves an explicit main-column open after collection type changes and resets its view', async () => {
   const media = createMediaLibrary('Media');
   const display = ensureCollectionDisplay({ notebookId: 'book', collectionId: media.collection.id, viewId: 'old-table-view' });
   const target = { kind: 'collection' as const, ...display, filePath: '/book/.index.yaml', notebookPath: '/book', collectionType: 'table' as const, name: 'Table' };
-  const store = useWorkColumnStore.getState();
+  const store = useMainColumnStore.getState();
   store.commitNavigation(store.beginNavigation(target, null), target);
   mocks.resolve.mockResolvedValue({ relativePath: '.index.yaml', parseState: 'valid', collectionType: 'media_library', name: 'Media', indexSequence: 1 });
   mocks.read.mockResolvedValue(serializeMediaLibrary(media));
   await openCollectionTarget({ ...display, viewId: null }, { destination: 'column-1', history: 'skip' });
   expect(mocks.resolve).toHaveBeenCalledTimes(1);
-  expect(useWorkColumnStore.getState().navigation.target).toMatchObject({ displayId: display.displayId, collectionType: 'media_library', viewId: null });
+  expect(useMainColumnStore.getState().navigation.target).toMatchObject({ displayId: display.displayId, collectionType: 'media_library', viewId: null });
 });
 
 it('revalidates an unavailable collection without clearing an identity conflict', async () => {
   const display = ensureCollectionDisplay({ notebookId: 'book', collectionId: 'conflicted', viewId: 'old' });
   const target = { kind: 'collection' as const, ...display, filePath: '/book/table.yaml', notebookPath: '/book', collectionType: 'table' as const, name: 'Table', unavailableReason: '集合身份冲突或格式暂不可用' };
-  const store = useWorkColumnStore.getState();
+  const store = useMainColumnStore.getState();
   store.commitNavigation(store.beginNavigation(target, null), target);
   mocks.resolve.mockResolvedValue({ relativePath: 'table.yaml', parseState: 'valid', identityConflict: true, collectionType: 'table', name: 'Table', indexSequence: 1 });
   await openCollectionTarget({ ...display, viewId: 'another' });
   expect(mocks.resolve).toHaveBeenCalledTimes(1);
   expect(mocks.read).not.toHaveBeenCalled();
-  expect(useWorkColumnStore.getState().navigation.target).toMatchObject({ unavailableReason: '集合身份冲突，请先为副本生成新 ID' });
+  expect(useMainColumnStore.getState().navigation.target).toMatchObject({ unavailableReason: '集合身份冲突，请先为副本生成新 ID' });
 });
 
 it('retains the selected file when a previously resolved collection disappears from the index', async () => {
@@ -98,7 +98,7 @@ it('retains the selected file when a previously resolved collection disappears f
   const reference = { notebookId: 'book', collectionId: document.collection.id };
   await openCollectionTarget(reference);
   await openCollectionTarget(reference, { refresh: true });
-  expect(useWorkColumnStore.getState().navigation.target).toMatchObject({
+  expect(useMainColumnStore.getState().navigation.target).toMatchObject({
     filePath: '/book/11测试/新建多维日历.index.yaml', unavailableReason: '集合不存在或暂时无法读取',
   });
 });
@@ -111,11 +111,11 @@ it('opens a malformed calendar without withdrawing selection, then repairs it ev
   mocks.resolve.mockRejectedValue(new Error('COLLECTION_NOT_FOUND'));
   mocks.write.mockResolvedValue({ status: 'saved' });
   await openContentleTarget(path, '/book/11测试', null);
-  const navigation = useWorkColumnStore.getState().navigation;
+  const navigation = useMainColumnStore.getState().navigation;
   expect(navigation.phase).toBe('committed');
   expect(sessionTargetFilePath(navigation.target)).toBe(path);
   expect(navigation.target).toMatchObject({ kind: 'table', notebookPath: '/book', notebookId: 'book', unavailableReason: '集合文件格式无效' });
-  const presentation = resolveWorkColumnContent({ navigation, document: null, pluginWorkbench: null, emptyMessage: '' });
+  const presentation = resolveMainColumnContent({ navigation, document: null, pluginWorkbench: null, emptyMessage: '' });
   expect(presentation).toMatchObject({ status: 'empty', actions: [{ id: 'reset-current-collection-view', enabled: true }] });
 
   await resetCurrentCollectionView(path, '/book/11测试', null);
@@ -126,8 +126,8 @@ it('opens a malformed calendar without withdrawing selection, then repairs it ev
   expect(collectionDisplayName(path, repaired.collection.placement)).toBe('新建多维日历');
   expect(repaired.collection).not.toHaveProperty('name');
   expect(repaired.views.items).toEqual(document.views.items);
-  expect(useWorkColumnStore.getState().navigation.target).toMatchObject({ kind: 'table', filePath: path });
-  expect(useWorkColumnStore.getState().navigation.target).not.toHaveProperty('unavailableReason');
+  expect(useMainColumnStore.getState().navigation.target).toMatchObject({ kind: 'table', filePath: path });
+  expect(useMainColumnStore.getState().navigation.target).not.toHaveProperty('unavailableReason');
 });
 
 it('opens the folder surface without inspecting a damaged .index.yaml inside it', async () => {
@@ -139,7 +139,7 @@ it('opens the folder surface without inspecting a damaged .index.yaml inside it'
   try {
     await openFolderCollection('book', '/book/项目');
     // 文件夹不再是集合：目录里残留什么文件都不影响落点，也不会带出「格式无效」。
-    expect(useWorkColumnStore.getState().navigation.target).toMatchObject({
+    expect(useMainColumnStore.getState().navigation.target).toMatchObject({
       kind: 'folder-collection', folderPath: '/book/项目', notebookId: 'book',
     });
     expect(read).not.toHaveBeenCalled();

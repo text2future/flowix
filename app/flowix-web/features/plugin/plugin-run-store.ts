@@ -151,7 +151,7 @@ function pruneRuns(
 
 let runEventReady: Promise<void> | null = null;
 
-/** Keep run projections alive independently of whichever workColumn surface is mounted. */
+/** Keep run projections alive independently of whichever mainColumn surface is mounted. */
 export function ensurePluginRunStoreSubscription(): Promise<void> {
   if (runEventReady) return runEventReady;
   let resolveReady: (() => void) | undefined;

@@ -1,4 +1,4 @@
-import { seedWorkColumn } from '@features/workspace/test-support/workspace-fixtures';
+import { seedMainColumn } from '@features/workspace/test-support/workspace-fixtures';
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -81,7 +81,7 @@ vi.mock('@platform/tauri/client', () => ({
   notebooks: { setCurrent: mocks.setCurrentNotebook },
 }));
 
-import { useWorkColumnStore } from '../store/work-column-store';
+import { useMainColumnStore } from '../store/main-column-store';
 import { useBrowserColumnStore } from '../store/browser-column-store';
 import { openSurfaceAtPosition } from '../public/open-surface-api';
 import { clearWorkspaceDocument, selectNotebook } from './workspace-navigation';
@@ -109,7 +109,7 @@ vi.mock('@platform/tauri/notebook-change-events', () => ({ subscribeNotebookChan
 vi.mock('@features/memo/services/note-link-rewriter', () => ({ updateNoteLinksAfterMove: vi.fn() }));
 
 function resetWorkspace() {
-  seedWorkColumn({
+  seedMainColumn({
     navigation: {
       phase: 'idle',
       showMainColumnLoading: false,
@@ -184,7 +184,7 @@ describe('notebook tree navigation with an Agent in Browser', () => {
 
   it('ordinary click opens Work while preserving the Browser Agent tab', async () => {
     await click(0);
-    expect(useWorkColumnStore.getState().navigation.target).toMatchObject({ kind: 'external', path: '/notes/a.md' });
+    expect(useMainColumnStore.getState().navigation.target).toMatchObject({ kind: 'external', path: '/notes/a.md' });
     expect(useBrowserColumnStore.getState().current?.id).toBe('agent:active');
     expect(useBrowserColumnStore.getState().current).not.toBeNull();
   });
@@ -192,15 +192,15 @@ describe('notebook tree navigation with an Agent in Browser', () => {
   it('folder click opens Work even when Browser owns focus', async () => {
     expect(useWorkspaceFocusStore.getState().focusedColumnId).toBe('column-2');
     await click(3);
-    expect(useWorkColumnStore.getState().navigation.target).toMatchObject({ kind: 'folder-collection', folderPath: '/notes/folder' });
+    expect(useMainColumnStore.getState().navigation.target).toMatchObject({ kind: 'folder-collection', folderPath: '/notes/folder' });
     expect(useBrowserColumnStore.getState().current?.id).toBe('agent:active');
   });
 
   it('a later note click retires a folder view before it finishes mounting', async () => {
     await click(3);
-    expect(useWorkColumnStore.getState().navigation.target).toMatchObject({ kind: 'folder-collection', folderPath: '/notes/folder' });
+    expect(useMainColumnStore.getState().navigation.target).toMatchObject({ kind: 'folder-collection', folderPath: '/notes/folder' });
     await click(1);
-    expect(useWorkColumnStore.getState().navigation.target).toMatchObject({ kind: 'external', path: '/notes/b.md' });
+    expect(useMainColumnStore.getState().navigation.target).toMatchObject({ kind: 'external', path: '/notes/b.md' });
     expect(useBrowserColumnStore.getState().current?.id).toBe('agent:active');
     expect(mocks.resolveCollection).not.toHaveBeenCalled();
   });
@@ -208,7 +208,7 @@ describe('notebook tree navigation with an Agent in Browser', () => {
   it('clearing Work clears an open folder view', async () => {
     await click(3);
     await act(async () => { await clearWorkspaceDocument(); });
-    expect(useWorkColumnStore.getState().navigation.target).toEqual({ kind: 'empty' });
+    expect(useMainColumnStore.getState().navigation.target).toEqual({ kind: 'empty' });
   });
 
   it('switching notebook clears an open folder view', async () => {
@@ -217,7 +217,7 @@ describe('notebook tree navigation with an Agent in Browser', () => {
     await act(async () => { await selectNotebook(nextNotebook); });
     await act(async () => {});
     expect(mocks.memoState.selectedNotebook?.id).toBe('next');
-    expect(useWorkColumnStore.getState().navigation.target).toEqual({ kind: 'empty' });
+    expect(useMainColumnStore.getState().navigation.target).toEqual({ kind: 'empty' });
   });
 
   it('switching notebooks after a swap clears index zero and preserves the column on the right', async () => {
@@ -235,17 +235,17 @@ describe('notebook tree navigation with an Agent in Browser', () => {
     let finishOpen!: () => void;
     mocks.openExternalDocument.mockImplementationOnce(() => new Promise<void>(resolve => { finishOpen = resolve; }));
     await click(1);
-    const oldRequestId = useWorkColumnStore.getState().navigation.requestId;
+    const oldRequestId = useMainColumnStore.getState().navigation.requestId;
     await click(3);
-    expect(useWorkColumnStore.getState().isCurrentNavigation(oldRequestId)).toBe(false);
+    expect(useMainColumnStore.getState().isCurrentNavigation(oldRequestId)).toBe(false);
     await act(async () => finishOpen());
-    expect(useWorkColumnStore.getState().navigation.target).toMatchObject({ kind: 'folder-collection', folderPath: '/notes/folder' });
+    expect(useMainColumnStore.getState().navigation.target).toMatchObject({ kind: 'folder-collection', folderPath: '/notes/folder' });
   });
 
   it('a configured folder still opens the folder home (never the collection directly)', async () => {
     mocks.readFolderIndex.mockResolvedValue(createFolderCollectionContent('notes', 'Folder', 'folder'));
     await click(3);
-    expect(useWorkColumnStore.getState().navigation.target).toMatchObject({ kind: 'folder-collection', folderPath: '/notes/folder' });
+    expect(useMainColumnStore.getState().navigation.target).toMatchObject({ kind: 'folder-collection', folderPath: '/notes/folder' });
     expect(mocks.resolveCollection).not.toHaveBeenCalled();
     expect(useBrowserColumnStore.getState().current?.id).toBe('agent:active');
   });
@@ -253,7 +253,7 @@ describe('notebook tree navigation with an Agent in Browser', () => {
   it('ordinary click stays in Work even when the same note is current in Browser', async () => {
     addBrowserNote();
     await click(0);
-    expect(useWorkColumnStore.getState().navigation.target).toMatchObject({ kind: 'external', path: '/notes/a.md' });
+    expect(useMainColumnStore.getState().navigation.target).toMatchObject({ kind: 'external', path: '/notes/a.md' });
     expect(useBrowserColumnStore.getState().current?.id).toBe('note:a');
   });
 
@@ -266,7 +266,7 @@ describe('notebook tree navigation with an Agent in Browser', () => {
     expect(flush).toHaveBeenCalledOnce();
     await click(1);
     await act(async () => finishSave(true));
-    expect(useWorkColumnStore.getState().navigation.target).toMatchObject({ kind: 'external', path: '/notes/b.md' });
+    expect(useMainColumnStore.getState().navigation.target).toMatchObject({ kind: 'external', path: '/notes/b.md' });
     expect(mocks.openExternalDocument).toHaveBeenCalledTimes(1);
     expect(useBrowserColumnStore.getState().current?.id).toBe('note:a');
   });
@@ -275,7 +275,7 @@ describe('notebook tree navigation with an Agent in Browser', () => {
     await click(2);
     expect(useBrowserColumnStore.getState().backStack.some(tab => tab.id === 'agent:active')).toBe(true);
     expect(useBrowserColumnStore.getState().current?.id).not.toBe('agent:active');
-    expect(useWorkColumnStore.getState().navigation.target).toEqual({ kind: 'empty' });
+    expect(useMainColumnStore.getState().navigation.target).toEqual({ kind: 'empty' });
   });
   it('clearing Work retires a tree click waiting for Browser saving', async () => {
     addBrowserNote();
@@ -284,7 +284,7 @@ describe('notebook tree navigation with an Agent in Browser', () => {
     await click(0);
     await act(async () => { await clearWorkspaceDocument(); });
     await act(async () => finishSave(true));
-    expect(useWorkColumnStore.getState().navigation.target).toEqual({ kind: 'empty' });
+    expect(useMainColumnStore.getState().navigation.target).toEqual({ kind: 'empty' });
     expect(mocks.openExternalDocument).not.toHaveBeenCalled();
   });
 
@@ -298,7 +298,7 @@ describe('notebook tree navigation with an Agent in Browser', () => {
     await act(async () => { switching = selectNotebook(nextNotebook); });
     await act(async () => { finishSave(true); await switching; });
     expect(mocks.memoState.selectedNotebook?.id).toBe('next');
-    expect(useWorkColumnStore.getState().navigation.target).toEqual({ kind: 'empty' });
+    expect(useMainColumnStore.getState().navigation.target).toEqual({ kind: 'empty' });
     expect(mocks.openExternalDocument).not.toHaveBeenCalled();
   });
 
@@ -306,7 +306,7 @@ describe('notebook tree navigation with an Agent in Browser', () => {
     let finishOpen!: () => void;
     let oldRequestId = 0;
     mocks.openExternalDocument.mockImplementationOnce(() => {
-      oldRequestId = useWorkColumnStore.getState().navigation.requestId;
+      oldRequestId = useMainColumnStore.getState().navigation.requestId;
       return new Promise<void>(resolve => { finishOpen = resolve; });
     });
     await click(1);
@@ -314,11 +314,11 @@ describe('notebook tree navigation with an Agent in Browser', () => {
     let finishSave!: (saved: boolean) => void;
     registerWorkspaceSurfaceLifecycle('note:a', { status: 'ready', flush: () => new Promise<boolean>(resolve => { finishSave = resolve; }) });
     await click(0);
-    expect(useWorkColumnStore.getState().isCurrentNavigation(oldRequestId)).toBe(false);
+    expect(useMainColumnStore.getState().isCurrentNavigation(oldRequestId)).toBe(false);
     await act(async () => finishOpen());
-    expect(useWorkColumnStore.getState().navigation.target).toEqual({ kind: 'empty' });
+    expect(useMainColumnStore.getState().navigation.target).toEqual({ kind: 'empty' });
     await act(async () => finishSave(true));
-    expect(useWorkColumnStore.getState().navigation.target).toMatchObject({ kind: 'external', path: '/notes/a.md' });
+    expect(useMainColumnStore.getState().navigation.target).toMatchObject({ kind: 'external', path: '/notes/a.md' });
   });
 
   it('retires a collection file waiting on metadata before its adapter starts a transaction', async () => {
@@ -334,7 +334,7 @@ describe('notebook tree navigation with an Agent in Browser', () => {
     await click(0);
     await act(async () => finishRead('invalid collection'));
     await expect(opening).resolves.toMatchObject({ status: 'cancelled' });
-    expect(useWorkColumnStore.getState().navigation.target).toMatchObject({ kind: 'external', path: '/notes/a.md' });
+    expect(useMainColumnStore.getState().navigation.target).toMatchObject({ kind: 'external', path: '/notes/a.md' });
     expect(mocks.clearDocument).not.toHaveBeenCalled();
   });
 

@@ -4,14 +4,14 @@ import { createTableDocument, serializeTableDocument } from '@features/multidime
 import { createMediaLibrary, serializeMediaLibrary } from '@features/media-library/model';
 import { serializeHybridCollectionDocument } from '@features/collection/model';
 import { ensureCollectionDisplay } from '@/lib/collection-display-registry';
-import { useWorkColumnStore } from '../store/work-column-store';
+import { useMainColumnStore } from '../store/main-column-store';
 import { useBrowserColumnStore } from '../store/browser-column-store';
 import type { SessionSurfaceTarget } from '../model/session-target';
 import { resetBrowserColumnCoordinator } from './browser-column-coordinator';
 import { openBrowserColumnText, openSessionTargetInBrowserColumn, selectBrowserColumnFile } from './browser-column-navigation';
 
 function activate(target: SessionSurfaceTarget) {
-  const store = useWorkColumnStore.getState();
+  const store = useMainColumnStore.getState();
   store.commitNavigation(store.beginNavigation(target, null), target);
 }
 
@@ -70,7 +70,7 @@ describe('browser column collection navigation', () => {
     expect(useBrowserColumnStore.getState().current!.target).toMatchObject({
       activeFilePath: '/notes/移动后.index.yaml', collectionType: 'table', collectionDisplay: display,
     });
-    expect(useWorkColumnStore.getState().navigation.target).toEqual(target);
+    expect(useMainColumnStore.getState().navigation.target).toEqual(target);
   });
 
   it.each([
@@ -79,7 +79,7 @@ describe('browser column collection navigation', () => {
   ] as const)('opens a second view for the legacy %s target', async (kind, type, filename) => {
     fixture(type, filename);
     activate({ kind, filePath: `/notes/${filename}`, notebookPath: '/notes', notebookId: 'notes' });
-    await openSessionTargetInBrowserColumn(useWorkColumnStore.getState().navigation.target);
+    await openSessionTargetInBrowserColumn(useMainColumnStore.getState().navigation.target);
     expect(useBrowserColumnStore.getState().current!.target).toMatchObject({ collectionType: type });
   });
 
@@ -90,7 +90,7 @@ describe('browser column collection navigation', () => {
     activate(target);
     await expect(openSessionTargetInBrowserColumn(target)).rejects.toThrow('集合身份冲突');
     expect(useBrowserColumnStore.getState().current).toBeNull();
-    expect(useWorkColumnStore.getState().navigation.target).toEqual(target);
+    expect(useMainColumnStore.getState().navigation.target).toEqual(target);
   });
 
   it.each(['table', 'media_library'] as const)('keeps an invalid %s selected when opening and switching files', async (type) => {

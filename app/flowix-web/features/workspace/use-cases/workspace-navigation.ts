@@ -35,7 +35,7 @@ import {
   setCurrentWorkspaceNotebook,
   type Notebook,
 } from '@features/memo/public/workspace-api';
-import { useWorkColumnStore } from '@features/workspace/store/work-column-store';
+import { useMainColumnStore } from '@features/workspace/store/main-column-store';
 import { EMPTY_SESSION_TARGET, sessionTargetFilePath, sessionTargetShowsBlockingLoading, type SessionSurfaceTarget } from '../model/session-target';
 import type { FolderCollectionSurfaceTarget } from '../model/surface-target';
 import type { LegacyFolderListTarget } from '../model/legacy-folder-list';
@@ -117,7 +117,7 @@ function activateExistingContentForNavigation(
     }
     // The visible target is not the latest intent while another target loads.
     // Clicking it must start a new transaction so the pending request is stale.
-    if (existing.state === 'active' && useWorkColumnStore.getState().navigation.phase === 'loading') {
+    if (existing.state === 'active' && useMainColumnStore.getState().navigation.phase === 'loading') {
       return null;
     }
     activateExistingWorkspaceContent(identity, existing.host);
@@ -159,11 +159,11 @@ function beginNavigation(
   preservePreviousTarget = false,
   showMainColumnLoading = true,
 ): number {
-  const previousRetryToken = useWorkColumnStore.getState().navigation.retryToken;
+  const previousRetryToken = useMainColumnStore.getState().navigation.retryToken;
   if (previousRetryToken) retryActions.delete(previousRetryToken);
 
   const retryToken = retry ? `navigation-retry-${++retrySequence}` : null;
-  const requestId = useWorkColumnStore.getState().beginNavigation(
+  const requestId = useMainColumnStore.getState().beginNavigation(
     pendingTarget,
     retryToken,
     preservePreviousTarget,
@@ -178,7 +178,7 @@ function commitNavigation(
   target: SessionSurfaceTarget,
   history: 'push' | 'skip' = 'skip',
 ): boolean {
-  const state = useWorkColumnStore.getState();
+  const state = useMainColumnStore.getState();
   const retryToken = state.navigation.requestId === requestId ? state.navigation.retryToken : null;
   const committed = state.commitNavigation(requestId, target, history);
   if (committed) {
@@ -233,7 +233,7 @@ export function captureWorkspaceRestoreTarget(): PersistedWorkspaceTarget | null
 
 export async function restoreExternalDocumentWorkspace(
   restored: Extract<PersistedWorkspaceTarget, { kind: 'external' }>,
-  restoreRequestId = useWorkColumnStore.getState().navigation.requestId,
+  restoreRequestId = useMainColumnStore.getState().navigation.requestId,
 ): Promise<void> {
   if (!isRestoreRequestCurrent(restoreRequestId)) return;
   // Startup restoration must validate its captured revision before beginning a
@@ -253,7 +253,7 @@ export async function restoreExternalDocumentWorkspace(
 
 export function restoreTableWorkspace(
   restored: Extract<PersistedWorkspaceTarget, { kind: 'table' }>,
-  restoreRequestId = useWorkColumnStore.getState().navigation.requestId,
+  restoreRequestId = useMainColumnStore.getState().navigation.requestId,
 ): Promise<void> {
   return openContentleTarget(restored.filePath, restored.notebookPath, restored.notebookId, { history: 'skip', restoreRequestId });
 }
@@ -265,7 +265,7 @@ export async function openCollectionTarget(
   if (!isRestoreRequestCurrent(options?.restoreRequestId)) return;
   const { notebookId, collectionId } = reference;
   const identity: ContentIdentity = { kind: 'collection', notebookId, collectionId, viewId: reference.viewId ?? null };
-  const navigation = useWorkColumnStore.getState().navigation;
+  const navigation = useMainColumnStore.getState().navigation;
   const liveTarget = [navigation.pendingTarget, navigation.target].find((target) => target?.kind === 'collection'
     && target.notebookId === notebookId && target.collectionId === collectionId);
   const needsResolution = options?.refresh || options?.destination === 'column-1'
@@ -281,7 +281,7 @@ export async function openCollectionTarget(
   if (!isRestoreRequestCurrent(options?.restoreRequestId)) return;
   if (!notebook) throw new Error('集合所属笔记本不存在');
   const descriptor = ensureCollectionDisplay({ notebookId, collectionId, viewId: reference.viewId ?? null }, reference.displayId);
-  const previousTarget = useWorkColumnStore.getState().navigation.target;
+  const previousTarget = useMainColumnStore.getState().navigation.target;
   const knownPath = reference.filePath || (reference.relativePathHint
     ? `${canonicalDirectoryPath(notebook.path)}/${reference.relativePathHint}` : null)
     || findCollectionDisplayPath(descriptor.displayId)
@@ -311,7 +311,7 @@ export async function openCollectionTarget(
       if (envelope.collection.type !== 'table' && !views.some((view) => view.id === descriptor.viewId)) unavailableReason = '此视图已不存在，请重新选择视图';
     } catch { unavailableReason = '无法读取集合视图'; }
   }
-  if (useWorkColumnStore.getState().navigation.requestId !== requestId) return;
+  if (useMainColumnStore.getState().navigation.requestId !== requestId) return;
   if (filePath && !bindCollectionDisplayPath(descriptor.displayId, filePath, item?.indexSequence)) {
     // The first attempt already advanced the navigation revision. Carry that
     // revision into the retry so the startup restore lease does not reject its
@@ -329,7 +329,7 @@ export async function openCollectionTarget(
   try {
     await getWorkspaceDocumentState().clearDocument();
   } catch (error) {
-    if (isCurrentNavigation(requestId)) useWorkColumnStore.getState().failNavigation(requestId, error);
+    if (isCurrentNavigation(requestId)) useMainColumnStore.getState().failNavigation(requestId, error);
     throw error;
   }
   if (!isCurrentNavigation(requestId)) return;
@@ -396,7 +396,7 @@ export async function resetCurrentCollectionView(
     await openCollectionFileDirectly(filePath, root, resolvedId, repaired.collectionType);
     return;
   }
-  const active = useWorkColumnStore.getState().navigation.target;
+  const active = useMainColumnStore.getState().navigation.target;
   if (active.kind !== 'collection' || active.collectionId !== repaired.collectionId || active.unavailableReason) {
     await openCollectionFileDirectly(filePath, root, resolvedId, repaired.collectionType);
   }
@@ -480,7 +480,7 @@ export async function openFolderCollectionChooserTarget(
   }
   const notebookScope = createNotebookNavigationScope(isCurrentNavigation);
   await runNavigation(target, async requestId => {
-    await prepareActiveWorkColumnDocumentLeave();
+    await prepareActiveMainColumnDocumentLeave();
     if (!isCurrentNavigation(requestId)) return;
     await notebookScope.switchTo(notebook.id, requestId, notebook);
     if (!isCurrentNavigation(requestId)) return;
@@ -519,16 +519,16 @@ export function openContentleTarget(filePath: string, notebookPath: string | nul
 export function openMediaLibraryTarget(filePath: string, notebookPath: string | null, notebookId: string | null, options?: { history?: 'push' | 'skip'; destination?: 'column-1'; restoreRequestId?: number }): Promise<void> {
   return openCollectionFile(filePath, notebookPath, notebookId, options);
 }
-export function restoreCollectionWorkspace(restored: Extract<PersistedWorkspaceTarget, { kind: 'collection' }>, restoreRequestId = useWorkColumnStore.getState().navigation.requestId): Promise<void> {
+export function restoreCollectionWorkspace(restored: Extract<PersistedWorkspaceTarget, { kind: 'collection' }>, restoreRequestId = useMainColumnStore.getState().navigation.requestId): Promise<void> {
   return openCollectionTarget(restored, { history: 'skip', restoreRequestId });
 }
-export function restoreFolderCollectionWorkspace(restored: FolderCollectionSurfaceTarget, restoreRequestId = useWorkColumnStore.getState().navigation.requestId): Promise<void> {
+export function restoreFolderCollectionWorkspace(restored: FolderCollectionSurfaceTarget, restoreRequestId = useMainColumnStore.getState().navigation.requestId): Promise<void> {
   return openFolderCollectionChooserTarget(restored, restoreRequestId);
 }
 
 export async function restoreMediaWorkspace(
   restored: Extract<PersistedWorkspaceTarget, { kind: 'media' }>,
-  restoreRequestId = useWorkColumnStore.getState().navigation.requestId,
+  restoreRequestId = useMainColumnStore.getState().navigation.requestId,
 ): Promise<void> {
   if (!isRestoreRequestCurrent(restoreRequestId)) return;
   await openMediaTarget({
@@ -543,13 +543,13 @@ export async function restoreMediaWorkspace(
 
 export async function restoreLegacyFolderListWorkspace(
   restored: LegacyFolderListTarget,
-  restoreRequestId = useWorkColumnStore.getState().navigation.requestId,
+  restoreRequestId = useMainColumnStore.getState().navigation.requestId,
 ): Promise<void> {
   await openFolderCollection(restored.scope.notebookId ?? '', restored.scope.path, { history: 'skip', restoreRequestId });
 }
 
 function isRestoreRequestCurrent(requestId: number | undefined): boolean {
-  return requestId === undefined || useWorkColumnStore.getState().navigation.requestId === requestId;
+  return requestId === undefined || useMainColumnStore.getState().navigation.requestId === requestId;
 }
 
 function stripRestoreRequestId<T extends { restoreRequestId?: number }>(options: T | undefined): Omit<T, 'restoreRequestId'> | undefined {
@@ -560,7 +560,7 @@ function stripRestoreRequestId<T extends { restoreRequestId?: number }>(options:
 }
 
 function isCurrentNavigation(requestId: number): boolean {
-  return useWorkColumnStore.getState().isCurrentNavigation(requestId);
+  return useMainColumnStore.getState().isCurrentNavigation(requestId);
 }
 
 async function runNavigation(
@@ -583,7 +583,7 @@ async function runNavigation(
     if (!isCurrentNavigation(requestId)) return;
     await operation(requestId);
   } catch (error) {
-    const workspace = useWorkColumnStore.getState();
+    const workspace = useMainColumnStore.getState();
     if (workspace.isCurrentNavigation(requestId)) {
       // Enter failed before compensation. Selection listeners must not turn a
       // failed navigation into a second, competing clear request.
@@ -692,7 +692,7 @@ async function restoreDocumentSnapshot(snapshot: DocumentSnapshot): Promise<void
 }
 
 export async function retryLastNavigation(): Promise<void> {
-  const navigation = useWorkColumnStore.getState().navigation;
+  const navigation = useMainColumnStore.getState().navigation;
   const token = navigation.phase === 'failed' ? navigation.retryToken : null;
   const retry = token ? retryActions.get(token) : undefined;
   if (!retry) throw new Error('No retryable navigation is available');
@@ -700,7 +700,7 @@ export async function retryLastNavigation(): Promise<void> {
 }
 
 export function dismissNavigationFailure(): void {
-  const token = useWorkColumnStore.getState().dismissNavigationFailure();
+  const token = useMainColumnStore.getState().dismissNavigationFailure();
   if (token) retryActions.delete(token);
 }
 
@@ -715,7 +715,7 @@ export async function selectNotebook(
   const notebookScope = createNotebookNavigationScope(isCurrentNavigation);
   const previousDocument = captureDocumentSnapshot();
   let clearedDocument = false;
-  useWorkColumnStore.getState().beginNotebookSwitch?.();
+  useMainColumnStore.getState().beginNotebookSwitch?.();
 
   try {
     await runNavigation(
@@ -732,9 +732,9 @@ export async function selectNotebook(
       },
       () => selectNotebook(notebook),
       async (requestId) => {
-        if (!useWorkColumnStore.getState().isCurrentNavigation(requestId)) return;
+        if (!useMainColumnStore.getState().isCurrentNavigation(requestId)) return;
         await notebookScope.rollback(requestId);
-        if (!useWorkColumnStore.getState().isCurrentNavigation(requestId)) return;
+        if (!useMainColumnStore.getState().isCurrentNavigation(requestId)) return;
         // Selection has not been published on a failed switch. Avoid calling
         // its setter: doing so would reset list and filter state on rollback.
         if (clearedDocument) await restoreDocumentSnapshot(previousDocument);
@@ -743,7 +743,7 @@ export async function selectNotebook(
       true,
     );
   } finally {
-    useWorkColumnStore.getState().endNotebookSwitch?.();
+    useMainColumnStore.getState().endNotebookSwitch?.();
   }
 }
 
@@ -889,7 +889,7 @@ export async function openExternalTarget(
           initialFocus: options?.initialFocus,
         },
       );
-      if (!useWorkColumnStore.getState().isCurrentNavigation(requestId)) return;
+      if (!useMainColumnStore.getState().isCurrentNavigation(requestId)) return;
       const scopePath = options?.scopePath ? canonicalPath(options.scopePath) : null;
       if (path === null && !getWorkspaceDocumentState().activeExternalSession) {
         commitNavigation(requestId, EMPTY_SESSION_TARGET);
@@ -981,7 +981,7 @@ export async function openWebTarget(
   await runNavigation(
     target,
     async (requestId) => {
-      await prepareActiveWorkColumnDocumentLeave();
+      await prepareActiveMainColumnDocumentLeave();
       if (!isCurrentNavigation(requestId)) return;
       commitNavigation(requestId, target, options?.history ?? 'push');
       useWorkspaceFocusStore.getState().focusColumn('column-1');
@@ -992,8 +992,8 @@ export async function openWebTarget(
 }
 
 /** Capture and retain the document before replacing its visible work surface. */
-export async function prepareActiveWorkColumnDocumentLeave(): Promise<void> {
-  const active = resolveSessionDocumentContext(useWorkColumnStore.getState().navigation.target,
+export async function prepareActiveMainColumnDocumentLeave(): Promise<void> {
+  const active = resolveSessionDocumentContext(useMainColumnStore.getState().navigation.target,
     getWorkspaceDocumentState().activeExternalSession, getWorkspaceMemoState().notebooks);
   if (!active) return;
   const prepared = await prepareWorkspaceDocumentLeave(
@@ -1037,7 +1037,7 @@ export async function openAgentTarget(
       await getWorkspaceDocumentState().openAgentConversation(
         normalized,
       );
-      if (!useWorkColumnStore.getState().isCurrentNavigation(requestId)) return;
+      if (!useMainColumnStore.getState().isCurrentNavigation(requestId)) return;
       if (getWorkspaceDocumentState().activeAgentConversationId !== normalized) {
         throw new Error(`Agent session was not committed: ${normalized}`);
       }
@@ -1066,7 +1066,7 @@ export async function clearWorkspaceDocument(): Promise<void> {
     EMPTY_SESSION_TARGET,
     async (requestId) => {
       await getWorkspaceDocumentState().clearDocument();
-      if (!useWorkColumnStore.getState().isCurrentNavigation(requestId)) return;
+      if (!useMainColumnStore.getState().isCurrentNavigation(requestId)) return;
       const document = getWorkspaceDocumentState();
       if (document.activeExternalSession || document.activeAgentConversationId) {
         throw new Error('Document session was not cleared');
@@ -1087,7 +1087,7 @@ function clearSelectedWorkspaceNoteIf(matchesPath: (path: string) => boolean): v
   if (selectedPath && matchesPath(selectedPath)) memoState.setSelectedNote(null);
 }
 
-/** Clear the active work-column view when its backing file has been deleted. */
+/** Clear the active main-column view when its backing file has been deleted. */
 export async function clearWorkspaceTargetForDeletedFile(filePath: string): Promise<boolean> {
   clearSelectedWorkspaceNoteIf((selectedPath) => samePath(selectedPath, filePath));
 
@@ -1102,7 +1102,7 @@ export async function clearWorkspaceTargetForDeletedFile(filePath: string): Prom
     : desired && 'filePath' in desired ? desired.filePath : null;
   if (desiredPath && samePath(desiredPath, filePath)) restoreStore.setDesiredTarget(null);
 
-  const navigation = useWorkColumnStore.getState().navigation;
+  const navigation = useMainColumnStore.getState().navigation;
   const targetMatches = matchesPath(navigation.target);
   const pendingMatches = matchesPath(navigation.pendingTarget);
   const previousMatches = matchesPath(navigation.previousTarget);
@@ -1112,7 +1112,7 @@ export async function clearWorkspaceTargetForDeletedFile(filePath: string): Prom
 
   // Committing an empty target intentionally preserves navigation history for
   // ordinary closes. A deleted file must not remain as a rollback target.
-  const latestNavigation = useWorkColumnStore.getState().navigation;
+  const latestNavigation = useMainColumnStore.getState().navigation;
   if (matchesPath(latestNavigation.previousTarget)) {
     useWorkspaceSessionStore.getState().updateSession(getSessionId('column-1'), (session) => ({ ...session,
       navigation: { ...session.navigation, transaction: { ...session.navigation.transaction, previousTarget: null } },
@@ -1126,7 +1126,7 @@ export async function clearWorkspaceTargetsForDeletedDirectory(directoryPath: st
   const isInsideDeletedDirectory = (path: string | null | undefined) => (
     Boolean(path && isPathInDirectory(path, directoryPath))
   );
-  const navigation = useWorkColumnStore.getState().navigation;
+  const navigation = useMainColumnStore.getState().navigation;
   clearSelectedWorkspaceNoteIf(isInsideDeletedDirectory);
 
   const workTargetIsInside = (target: SessionSurfaceTarget | null) => {
@@ -1157,7 +1157,7 @@ export async function clearWorkspaceTargetsForDeletedDirectory(directoryPath: st
 
   if (clearWorkTarget) await clearWorkspaceDocument();
 
-  const latestNavigation = useWorkColumnStore.getState().navigation;
+  const latestNavigation = useMainColumnStore.getState().navigation;
   if (workTargetIsInside(latestNavigation.previousTarget)) {
     useWorkspaceSessionStore.getState().updateSession(getSessionId('column-1'), (session) => ({ ...session,
       navigation: { ...session.navigation, transaction: { ...session.navigation.transaction, previousTarget: null } },
@@ -1195,7 +1195,7 @@ export function replaceExternalDocumentPath(
         });
       }
     }
-    useWorkColumnStore.getState().replaceExternalPath(previous, next);
+    useMainColumnStore.getState().replaceExternalPath(previous, next);
     useBrowserColumnStore.getState().replaceExternalPath(previous, next);
     const restored = useWorkspaceRestoreStore.getState().desiredTarget;
     if (restored?.kind === 'external' && canonicalPath(restored.path) === previous) {
@@ -1210,7 +1210,7 @@ export function replaceExternalDocumentPath(
 }
 
 export function closeAgentTarget(): void {
-  const workspace = useWorkColumnStore.getState();
+  const workspace = useMainColumnStore.getState();
   const wasActive = !!getWorkspaceDocumentState().activeAgentConversationId
     || workspace.navigation.target.kind === 'agent-conversation';
   const requestId = wasActive ? beginNavigation(EMPTY_SESSION_TARGET, null) : null;
@@ -1226,7 +1226,7 @@ export function closeAgentTarget(): void {
  * and must preserve whatever the third column is currently showing.
  */
 export function clearPluginWorkbenchTarget(): boolean {
-  const workspace = useWorkColumnStore.getState();
+  const workspace = useMainColumnStore.getState();
   if (workspace.navigation.target.kind !== 'plugin-workbench') return false;
   const requestId = beginNavigation(EMPTY_SESSION_TARGET, null);
   commitNavigation(requestId, EMPTY_SESSION_TARGET);
@@ -1239,7 +1239,7 @@ export async function openPluginWorkbench(plugin: PluginDescriptor, history: 'pu
     { kind: 'plugin-workbench', plugin },
     async (requestId) => {
       await getWorkspaceDocumentState().clearDocument();
-      if (!useWorkColumnStore.getState().isCurrentNavigation(requestId)) return;
+      if (!useMainColumnStore.getState().isCurrentNavigation(requestId)) return;
       getWorkspaceMemoState().setActiveFilter('all');
       getWorkspaceMemoState().setActivePluginId(plugin.manifest.id);
       if (!isCurrentNavigation(requestId)) return;
@@ -1251,14 +1251,14 @@ export async function openPluginWorkbench(plugin: PluginDescriptor, history: 'pu
 
 /** Close the plugin workbench and clear the document it owns, if any. */
 export async function closePluginWorkbench(): Promise<boolean> {
-  const workspace = useWorkColumnStore.getState();
+  const workspace = useMainColumnStore.getState();
   const previousTarget = workspace.navigation.target;
   if (previousTarget.kind !== 'plugin-workbench') return false;
   await runNavigation(
     EMPTY_SESSION_TARGET,
     async (requestId) => {
       await getWorkspaceDocumentState().clearDocument();
-      if (!useWorkColumnStore.getState().isCurrentNavigation(requestId)) return;
+      if (!useMainColumnStore.getState().isCurrentNavigation(requestId)) return;
       getWorkspaceMemoState().setActivePluginId(null);
       if (!isCurrentNavigation(requestId)) return;
       commitNavigation(requestId, EMPTY_SESSION_TARGET);

@@ -2,8 +2,8 @@
 
 import { useCallback, type ReactNode } from 'react';
 import type {
-  WorkColumnContentPresentation, WorkColumnSurface,
-  WorkColumnSurfaceCapability, WorkColumnSurfaceChrome,
+  MainColumnContentPresentation, MainColumnSurface,
+  MainColumnSurfaceCapability, MainColumnSurfaceChrome,
 } from './types';
 import { workspaceSurfaceAppearance } from '@features/workspace/public/surface-api';
 import type { WorkspaceSurfaceKind } from '@features/workspace/public/surface-api';
@@ -15,20 +15,20 @@ import { SurfaceHostView } from './surface-host-view';
 import { useDocumentStore } from '@features/document/store/document-store';
 
 import { primaryCurrentEntryId, updatePrimarySurfaceMetadata } from '@features/workspace/public/session-runtime-api';
-import { workspaceSurfaceRendererDataFromWorkSurface } from './work-column-surface-adapter';
+import { workspaceSurfaceRendererDataFromWorkSurface } from './main-column-surface-adapter';
 import { reportEmptyWorkspaceSurfaceForIdentity } from './workspace-surface-runtime';
 
-export interface WorkColumnSurfaceDefinition {
+export interface MainColumnSurfaceDefinition {
   contentKind: WorkspaceSurfaceKind;
   appearance: Readonly<SurfaceAppearance>;
-  chrome: WorkColumnSurfaceChrome;
-  capabilities: readonly WorkColumnSurfaceCapability[];
+  chrome: MainColumnSurfaceChrome;
+  capabilities: readonly MainColumnSurfaceCapability[];
 }
 
 /** Work adapts navigation data; mounting belongs to SurfaceHostView. */
-export function getWorkColumnSurfaceDefinition(
-  surface: WorkColumnSurface,
-): WorkColumnSurfaceDefinition {
+export function getMainColumnSurfaceDefinition(
+  surface: MainColumnSurface,
+): MainColumnSurfaceDefinition {
   const data = workspaceSurfaceRendererDataFromWorkSurface(surface);
   const definition = getWorkspaceSurfaceRendererDefinition(data);
   return {
@@ -39,20 +39,20 @@ export function getWorkColumnSurfaceDefinition(
   };
 }
 
-function initialFocusForSurface(surface: WorkColumnSurface): 'title' | 'body' | undefined {
+function initialFocusForSurface(surface: MainColumnSurface): 'title' | 'body' | undefined {
   if (!('props' in surface) || !surface.props || !('initialFocus' in surface.props)) return undefined;
   const value = surface.props.initialFocus;
   return value === 'title' || value === 'body' ? value : undefined;
 }
 
 export function surfaceSupports(
-  surface: WorkColumnSurface,
-  capability: WorkColumnSurfaceCapability,
+  surface: MainColumnSurface,
+  capability: MainColumnSurfaceCapability,
 ): boolean {
-  return getWorkColumnSurfaceDefinition(surface).capabilities.includes(capability);
+  return getMainColumnSurfaceDefinition(surface).capabilities.includes(capability);
 }
 
-function transitionForSurface(surface: WorkColumnSurface): { id: number; finishOnMount: boolean } | null {
+function transitionForSurface(surface: MainColumnSurface): { id: number; finishOnMount: boolean } | null {
   let id: number | null = null;
   let finishOnMount = false;
   switch (surface.kind) {
@@ -86,7 +86,7 @@ function transitionForSurface(surface: WorkColumnSurface): { id: number; finishO
   return typeof id === 'number' ? { id, finishOnMount } : null;
 }
 
-function WorkColumnSurfaceMount({ surface, focused, webAddressBarVisible }: { surface: WorkColumnSurface; focused: boolean; webAddressBarVisible: boolean }) {
+function MainColumnSurfaceMount({ surface, focused, webAddressBarVisible }: { surface: MainColumnSurface; focused: boolean; webAddressBarVisible: boolean }) {
   const entryId = primaryCurrentEntryId();
   const viewId = surface.instanceKey;
   const transition = transitionForSurface(surface);
@@ -115,13 +115,13 @@ function WorkColumnSurfaceMount({ surface, focused, webAddressBarVisible }: { su
   />;
 }
 
-export function WorkColumnSurfaceHost({ surface, focused = false, webAddressBarVisible = false }: { surface: WorkColumnSurface; focused?: boolean; webAddressBarVisible?: boolean }) {
+export function MainColumnSurfaceHost({ surface, focused = false, webAddressBarVisible = false }: { surface: MainColumnSurface; focused?: boolean; webAddressBarVisible?: boolean }) {
   const instanceKey = `${surface.kind}:${surface.instanceKey}`;
-  return <WorkColumnSurfaceMount key={instanceKey} surface={surface} focused={focused} webAddressBarVisible={webAddressBarVisible} />;
+  return <MainColumnSurfaceMount key={instanceKey} surface={surface} focused={focused} webAddressBarVisible={webAddressBarVisible} />;
 }
 
-export function WorkColumnContentHost({ content, focused = false, startupIdentity = '', webAddressBarVisible = false, renderNoTargetEmpty }: {
-  content: WorkColumnContentPresentation;
+export function MainColumnContentHost({ content, focused = false, startupIdentity = '', webAddressBarVisible = false, renderNoTargetEmpty }: {
+  content: MainColumnContentPresentation;
   focused?: boolean;
   startupIdentity?: string;
   webAddressBarVisible?: boolean;
@@ -141,5 +141,5 @@ export function WorkColumnContentHost({ content, focused = false, startupIdentit
     />;
   }
 
-  return <WorkColumnSurfaceHost surface={content.surface} focused={focused} webAddressBarVisible={webAddressBarVisible} />;
+  return <MainColumnSurfaceHost surface={content.surface} focused={focused} webAddressBarVisible={webAddressBarVisible} />;
 }

@@ -1,20 +1,20 @@
 import { resolveBrowserColumnSurface } from './browser-column-registry';
 import { describe, expect, it } from 'vitest';
 import {
-  getWorkColumnSurfaceDefinition,
+  getMainColumnSurfaceDefinition,
   surfaceSupports,
 } from './registry';
-import type { WorkColumnSurface, WorkColumnSurfaceKind } from './types';
+import type { MainColumnSurface, MainColumnSurfaceKind } from './types';
 import { workspaceSurfaceRendererRegistry } from './workspace-surface-renderer-registry';
 import { collectionIndexPath } from './collection-frame';
-import { workspaceSurfaceRendererDataFromWorkSurface } from './work-column-surface-adapter';
+import { workspaceSurfaceRendererDataFromWorkSurface } from './main-column-surface-adapter';
 import { workspaceSurfaceUsesCollectionFrame, workspaceSurfaceRegistry } from '@features/workspace/public/surface-api';
 
 function fileIdentity(path: string) {
   return { path, displayId: `display:${path}` };
 }
 
-function surface(kind: WorkColumnSurfaceKind): WorkColumnSurface {
+function surface(kind: MainColumnSurfaceKind): MainColumnSurface {
   switch (kind) {
     case 'file-browser': return resolveBrowserColumnSurface({
       id: 'file-browser:1', title: 'Folder', icon: null,
@@ -122,7 +122,7 @@ describe('Work surface adapter', () => {
   it('exposes Markdown editing actions on the path surface', () => {
     const markdown = surface('md');
 
-    expect(getWorkColumnSurfaceDefinition(markdown).chrome).toBe('document');
+    expect(getMainColumnSurfaceDefinition(markdown).chrome).toBe('document');
     expect(surfaceSupports(markdown, 'edit')).toBe(true);
     expect(surfaceSupports(markdown, 'search')).toBe(true);
     expect(surfaceSupports(markdown, 'copy-content')).toBe(true);
@@ -134,7 +134,7 @@ describe('Work surface adapter', () => {
   it('exposes canvas controls without leaking pointer-note editing actions', () => {
     const mindmap = surface('mindmap');
 
-    expect(getWorkColumnSurfaceDefinition(mindmap).chrome).toBe('document');
+    expect(getMainColumnSurfaceDefinition(mindmap).chrome).toBe('document');
     expect(surfaceSupports(mindmap, 'fit')).toBe(true);
     expect(surfaceSupports(mindmap, 'zoom')).toBe(true);
     expect(surfaceSupports(mindmap, 'fullscreen')).toBe(true);
@@ -146,7 +146,7 @@ describe('Work surface adapter', () => {
   it('uses media chrome for media resources', () => {
     const media = surface('media');
 
-    expect(getWorkColumnSurfaceDefinition(media).chrome).toBe('media');
+    expect(getMainColumnSurfaceDefinition(media).chrome).toBe('media');
     expect(surfaceSupports(media, 'properties')).toBe(false);
     expect(surfaceSupports(media, 'edit')).toBe(false);
   });
@@ -154,7 +154,7 @@ describe('Work surface adapter', () => {
   it('uses agent chrome and conversation-specific capabilities for agents', () => {
     const agent = surface('agent-conversation');
 
-    expect(getWorkColumnSurfaceDefinition(agent).chrome).toBe('agent');
+    expect(getMainColumnSurfaceDefinition(agent).chrome).toBe('agent');
     expect(surfaceSupports(agent, 'stream-conversation')).toBe(true);
     expect(surfaceSupports(agent, 'edit')).toBe(false);
   });

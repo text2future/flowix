@@ -1,6 +1,6 @@
 import { updateMainColumnTargets } from '../store/session-mutations';
 import { ensureCollectionDisplay, type CollectionDisplayDescriptor } from '@/lib/collection-display-registry';
-import { useWorkColumnStore } from '../store/work-column-store';
+import { useMainColumnStore } from '../store/main-column-store';
 import { useWorkspaceRestoreStore } from '../store/workspace-restore-store';
 import { useBrowserColumnStore } from '../store/browser-column-store';
 
@@ -13,7 +13,7 @@ export function setCollectionActiveView(
   const matches = (target: Pick<CollectionDisplayDescriptor, 'notebookId' | 'collectionId'>) =>
     target.notebookId === expected.notebookId && target.collectionId === expected.collectionId;
   if (location.host === 'column-1') {
-    const state = useWorkColumnStore.getState();
+    const state = useMainColumnStore.getState();
     const target = state.navigation.target;
     if (state.navigation.phase === 'loading' || target.kind !== 'collection' || !matches(target)) return false;
     if (target.unavailableReason && target.unavailableReason !== '此视图已不存在，请重新选择视图') return false;

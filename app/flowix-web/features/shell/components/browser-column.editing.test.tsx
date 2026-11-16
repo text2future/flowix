@@ -1,10 +1,10 @@
-import { seedWorkColumn } from '@features/workspace/test-support/workspace-fixtures';
+import { seedMainColumn } from '@features/workspace/test-support/workspace-fixtures';
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
 import { BrowserColumn } from './browser-column';
 import { useBrowserColumnStore } from '@features/workspace/store/browser-column-store';
-import { useWorkColumnStore } from '@features/workspace/store/work-column-store';
+import { useMainColumnStore } from '@features/workspace/store/main-column-store';
 import { useWorkspaceFocusStore } from '@features/workspace/store/workspace-focus-store';
 
 const resolveSurface = vi.hoisted(() => vi.fn((_tab: unknown, _options: { readOnly?: boolean }) => null));
@@ -20,9 +20,9 @@ it('does not force the right document read-only when the same memo is open on th
   environment.IS_REACT_ACT_ENVIRONMENT = true;
   const element = document.createElement('div');
   const root = createRoot(element);
-  const previousNavigation = useWorkColumnStore.getState().navigation;
+  const previousNavigation = useMainColumnStore.getState().navigation;
   const target = { kind: 'external' as const, path: '/notes/both.md', scopePath: '/notes', transitionId: 1 };
-  const work = useWorkColumnStore.getState();
+  const work = useMainColumnStore.getState();
   work.commitNavigation(work.beginNavigation(target, null), target);
   const tab = { id: 'memo:both', title: 'Both', icon: null, target: { kind: 'file-browser' as const, activeFilePath: target.path, folderPath: '/notes', notebookId: 'notes', scopePath: '/notes', fileTreeVisible: true, fileTreeWidth: 220 } };
   useBrowserColumnStore.getState().openContent(tab);
@@ -35,7 +35,7 @@ it('does not force the right document read-only when the same memo is open on th
   } finally {
     await act(async () => root.unmount());
     useBrowserColumnStore.getState().reset();
-    seedWorkColumn({ navigation: previousNavigation });
+    seedMainColumn({ navigation: previousNavigation });
     useWorkspaceFocusStore.getState().reset();
     environment.IS_REACT_ACT_ENVIRONMENT = false;
   }

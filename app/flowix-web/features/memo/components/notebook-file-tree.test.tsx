@@ -1,4 +1,4 @@
-import { seedWorkColumn } from '@features/workspace/test-support/workspace-fixtures';
+import { seedMainColumn } from '@features/workspace/test-support/workspace-fixtures';
 import { act } from 'react';
 import { FOLDER_SINGLE_CLICK_DELAY_MS } from './notebook-tree-row';
 import { createRoot } from 'react-dom/client';
@@ -13,7 +13,7 @@ import * as folderTreeModule from './use-folder-tree';
 import { noteMetadata } from '../services/note-metadata-service';
 import * as openSurfaceApi from '@features/workspace/public/open-surface-api';
 import { useNotebookTreeSelectionStore } from '../store/notebook-tree-selection-store';
-import { useWorkColumnStore } from '@features/workspace/store/work-column-store';
+import { useMainColumnStore } from '@features/workspace/store/main-column-store';
 import {
   NotebookFileTree,
   type NotebookMoveResult,
@@ -564,10 +564,10 @@ describe('NotebookFileTree pointer dragging', () => {
   });
 
   it.each(['collection', 'table', 'media-library'] as const)('highlights the folder owning an active %s including damaged file surfaces', async (kind) => {
-    const previousNavigation = useWorkColumnStore.getState().navigation;
+    const previousNavigation = useMainColumnStore.getState().navigation;
     const { root } = await mount(successfulMove);
     try {
-      await act(async () => seedWorkColumn({ navigation: {
+      await act(async () => seedMainColumn({ navigation: {
         ...previousNavigation,
         target: kind === 'collection' ? {
           kind: 'collection', displayId: 'collection:projects', notebookId: 'notes',
@@ -581,7 +581,7 @@ describe('NotebookFileTree pointer dragging', () => {
       expect(folderRow.getAttribute('aria-selected')).toBe('true');
       expect(folderRow.classList.contains('bg-[var(--muted)]')).toBe(true);
 
-      await act(async () => seedWorkColumn({ navigation: {
+      await act(async () => seedMainColumn({ navigation: {
         ...previousNavigation, target: { kind: 'empty' },
       } }));
       expect(folderRow.getAttribute('aria-selected')).toBe('false');
@@ -589,7 +589,7 @@ describe('NotebookFileTree pointer dragging', () => {
     } finally {
       await act(async () => {
         root.unmount();
-        seedWorkColumn({ navigation: previousNavigation });
+        seedMainColumn({ navigation: previousNavigation });
       });
     }
   });

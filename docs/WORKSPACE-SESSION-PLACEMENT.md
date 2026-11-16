@@ -18,7 +18,7 @@ workspace-session-store。
 - runtime：稳定的渲染器命名空间，与物理容器 ID 使用不同类型。
 
 SessionSurfaceTarget 和 SessionNavigationTransaction 定义在 model 层。
-旧 WorkColumnTarget 等名称仅为兼容类型别名，不再定义另一份模型。
+WorkColumnTarget 等旧名称已删除，目标统一为 SessionSurfaceTarget。
 
 ## 写入与导航
 
@@ -30,8 +30,8 @@ session-navigation.ts 是两侧唯一的前进后退算法。保存和目标解�
 Surface 打开协议；保存拒绝、打开失败或请求过期时，历史不推进。历史回放保留
 Surface ID，并携带 navigationEntryId，避免重新生成展示身份。
 
-旧 work-column-store、browser-column-store、document-history-store 和
-session-web-runtime-store 不再创建 Zustand store，也不再独立持久化。
+旧 work-column-store（主列现名 main-column-store）、browser-column-store、
+document-history-store 和 session-web-runtime-store 不再创建 Zustand store，也不再独立持久化。
 它们通过 createStoreFacade 提供旧选择器及动作名称；缓存只是从 SessionStore
 派生的快照，不存在反向订阅或两份可写数据。
 

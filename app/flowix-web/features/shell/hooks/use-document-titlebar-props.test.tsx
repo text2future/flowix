@@ -2,7 +2,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
 import { ensureFileDisplayIdentity } from '@/lib/file-display-registry';
-import { resolveWorkColumnPresentation, resolveWorkColumnRuntimePresentation, type WorkColumnPresentation } from '@features/surface/presentation';
+import { resolveMainColumnPresentation, resolveMainColumnRuntimePresentation, type MainColumnPresentation } from '@features/surface/presentation';
 import { workspaceSurfaceContentPresentation } from '@features/workspace/public/surface-api';
 import { useDocumentTitlebarProps, type UseDocumentTitlebarPropsInput } from './use-document-titlebar-props';
 
@@ -17,7 +17,7 @@ it.each(['note', 'collection'] as const)('derives primary file-browser %s menus 
   const path = kind === 'collection' ? '/other/folder/.index.yaml' : '/other/repo/note.md';
   const scopePath = kind === 'collection' ? '/other' : '/other/repo';
   const fileIdentity = ensureFileDisplayIdentity(path);
-  const presentation = resolveWorkColumnPresentation({
+  const presentation = resolveMainColumnPresentation({
     navigation: { phase: 'committed', showMainColumnLoading: false, requestId: 1,
       target: { kind: 'file-browser', activeFilePath: path, folderPath: scopePath, scopePath, notebookId: 'other',
         fileTreeVisible: true, fileTreeWidth: 220, collectionType: kind === 'collection' ? 'table' : undefined },
@@ -25,10 +25,10 @@ it.each(['note', 'collection'] as const)('derives primary file-browser %s menus 
     document: null, emptyMessage: 'Empty',
   });
   const runtime = workspaceSurfaceContentPresentation(kind === 'collection' ? 'file-table' : 'file-markdown');
-  const effective = resolveWorkColumnRuntimePresentation(presentation, runtime, null);
+  const effective = resolveMainColumnRuntimePresentation(presentation, runtime, null);
   const remove = vi.fn().mockResolvedValue(undefined);
   const input: UseDocumentTitlebarPropsInput = {
-    workColumnPresentation: presentation, workRuntimePresentation: runtime, workCapabilities: effective.capabilities,
+    mainColumnPresentation: presentation, workRuntimePresentation: runtime, workCapabilities: effective.capabilities,
     workHeaderStyle: effective.chrome, browserColumnVisible: true, mainEditorMode: 'rich', handleSetMainEditorMode: vi.fn(),
     isMemoListHidden: false, handleToggleMemoList: vi.fn(), canNavigateBack: false,
     canNavigateForward: false, handleNavigateBack: vi.fn(), handleNavigateForward: vi.fn(),
@@ -74,10 +74,10 @@ it('falls back to the owning notebook when a file-browser surface has no scopePa
       folderPath: '/notebooks/小红书运营知识库/08 原则', scopePath: null, notebookId: null,
       fileTreeVisible: true, fileTreeWidth: 220,
     } },
-  } as unknown as WorkColumnPresentation;
+  } as unknown as MainColumnPresentation;
   const runtime = workspaceSurfaceContentPresentation('file-markdown');
   const input: UseDocumentTitlebarPropsInput = {
-    workColumnPresentation: presentation, workRuntimePresentation: runtime, workCapabilities: [],
+    mainColumnPresentation: presentation, workRuntimePresentation: runtime, workCapabilities: [],
     workHeaderStyle: 'document', browserColumnVisible: true, mainEditorMode: 'rich', handleSetMainEditorMode: vi.fn(),
     isMemoListHidden: false, handleToggleMemoList: vi.fn(), canNavigateBack: false,
     canNavigateForward: false, handleNavigateBack: vi.fn(), handleNavigateForward: vi.fn(),
@@ -108,11 +108,11 @@ it('derives the notebook path breadcrumb for a note opened from the access space
     header: { kind: 'document', document: { externalFilePath: path } },
     chrome: 'document', contentKind: 'file-markdown', capabilities: [],
     content: { status: 'surface', surface: { kind: 'md', instanceKey: fileIdentity.displayId, fileIdentity, props: {} } },
-  } as unknown as WorkColumnPresentation;
+  } as unknown as MainColumnPresentation;
   const runtime = workspaceSurfaceContentPresentation('file-markdown');
   const remove = vi.fn().mockResolvedValue(undefined);
   const input: UseDocumentTitlebarPropsInput = {
-    workColumnPresentation: presentation, workRuntimePresentation: runtime, workCapabilities: [],
+    mainColumnPresentation: presentation, workRuntimePresentation: runtime, workCapabilities: [],
     workHeaderStyle: 'document', browserColumnVisible: true, mainEditorMode: 'rich', handleSetMainEditorMode: vi.fn(),
     isMemoListHidden: false, handleToggleMemoList: vi.fn(), canNavigateBack: false,
     canNavigateForward: false, handleNavigateBack: vi.fn(), handleNavigateForward: vi.fn(),
@@ -144,7 +144,7 @@ it('keeps Work file-browser ownership and tree preferences when opening a breadc
     header: { kind: 'document', document: { externalFilePath: path } },
     chrome: 'document', contentKind: 'file-markdown', capabilities: [],
     content: { status: 'surface', surface: { kind: 'md', instanceKey: fileIdentity.displayId, fileIdentity, props: {} } },
-  } as unknown as WorkColumnPresentation;
+  } as unknown as MainColumnPresentation;
   const runtime = workspaceSurfaceContentPresentation('file-markdown');
   const fileBrowserContext = {
     notebookId: 'book', scopePath: '/book/repo', folderPath: '/book/repo',
@@ -152,7 +152,7 @@ it('keeps Work file-browser ownership and tree preferences when opening a breadc
   };
   mocks.openSurfaceInColumn.mockResolvedValue({ status: 'opened' });
   const input: UseDocumentTitlebarPropsInput = {
-    workColumnPresentation: presentation, workRuntimePresentation: runtime, workCapabilities: [],
+    mainColumnPresentation: presentation, workRuntimePresentation: runtime, workCapabilities: [],
     workHeaderStyle: 'document', browserColumnVisible: true, mainEditorMode: 'rich', handleSetMainEditorMode: vi.fn(),
     isMemoListHidden: false, handleToggleMemoList: vi.fn(), canNavigateBack: false,
     canNavigateForward: false, handleNavigateBack: vi.fn(), handleNavigateForward: vi.fn(),

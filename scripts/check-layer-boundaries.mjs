@@ -143,7 +143,7 @@ for (const file of files) {
         || r === 'features/shell/hooks/browser-column-layout.ts'
         || r === 'features/shell/components/browser-column.tsx'
         || r === 'features/shell/components/browser-column-header.tsx'
-        || r === 'features/shell/components/work-column-titlebar-shell.tsx'
+        || r === 'features/shell/components/main-column-titlebar-shell.tsx'
         || r === 'features/shell/components/drag-overlay/external-file-drop-overlay.tsx'
         || r === 'features/shell/components/global-search-command.tsx'
       )

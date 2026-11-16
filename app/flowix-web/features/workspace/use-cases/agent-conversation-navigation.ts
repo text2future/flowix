@@ -3,7 +3,7 @@ import {
   hydrateWorkspaceAgentConversation,
 } from '@features/agent/public/workspace-session-api';
 import { useWorkspaceRestoreStore } from '@features/workspace/store/workspace-restore-store';
-import { useWorkColumnStore } from '@features/workspace/store/work-column-store';
+import { useMainColumnStore } from '@features/workspace/store/main-column-store';
 import { clearWorkspaceDocument, closeAgentTarget, openAgentTarget } from './workspace-navigation';
 
 import { createLogger } from '@/lib/logger';
@@ -16,10 +16,10 @@ export async function selectAndOpenAgentConversation(
   if (!normalized || !isRestoreRequestCurrent(options?.restoreRequestId)) return;
 
   if (options?.blankIfMissing && !(await hasWorkspaceAgentConversation(normalized))) {
-    const requestId = useWorkColumnStore.getState().navigation.requestId;
+    const requestId = useMainColumnStore.getState().navigation.requestId;
     try {
       const restored = await hydrateWorkspaceAgentConversation(normalized);
-      if (useWorkColumnStore.getState().navigation.requestId !== requestId
+      if (useMainColumnStore.getState().navigation.requestId !== requestId
         || !isRestoreRequestCurrent(options?.restoreRequestId)) return;
       if (!restored) {
         await clearWorkspaceDocument();
@@ -27,7 +27,7 @@ export async function selectAndOpenAgentConversation(
         return;
       }
     } catch {
-      if (useWorkColumnStore.getState().navigation.requestId !== requestId
+      if (useMainColumnStore.getState().navigation.requestId !== requestId
         || !isRestoreRequestCurrent(options?.restoreRequestId)) return;
       // A backend error is not proof that an empty draft has vanished. Keep
       // the target so the detail can show its normal loading error and retry.
@@ -41,7 +41,7 @@ export async function selectAndOpenAgentConversation(
     ...options,
     destination: options?.destination ?? 'column-1',
   });
-  const activeTarget = useWorkColumnStore.getState().navigation.target;
+  const activeTarget = useMainColumnStore.getState().navigation.target;
   if (activeTarget.kind !== 'agent-conversation' || activeTarget.instanceId !== normalized) return;
   useWorkspaceRestoreStore.getState().selectAgentConversation(
     normalized,
@@ -55,7 +55,7 @@ export function closeAgentConversationDetail(): void {
 }
 
 export async function restoreAgentConversationWorkspace(
-  restoreRequestId = useWorkColumnStore.getState().navigation.requestId,
+  restoreRequestId = useMainColumnStore.getState().navigation.requestId,
 ): Promise<void> {
   if (!isRestoreRequestCurrent(restoreRequestId)) return;
   const store = useWorkspaceRestoreStore.getState();
@@ -80,11 +80,11 @@ export async function restoreAgentConversationWorkspace(
 
   const currentTarget = useWorkspaceRestoreStore.getState().desiredTarget;
   if (
-    useWorkColumnStore.getState().navigation.requestId !== navigationRevision
+    useMainColumnStore.getState().navigation.requestId !== navigationRevision
     || !isRestoreRequestCurrent(restoreRequestId)
     || currentTarget?.kind !== 'agent-conversation'
     || currentTarget.instanceId.trim() !== instanceId
-    || useWorkColumnStore.getState().navigation.phase === 'loading'
+    || useMainColumnStore.getState().navigation.phase === 'loading'
   ) return;
 
   if (!restoreFailed && restored === null) {
@@ -118,5 +118,5 @@ export async function restoreAgentConversationWorkspace(
 }
 
 function isRestoreRequestCurrent(requestId: number | undefined): boolean {
-  return requestId === undefined || useWorkColumnStore.getState().navigation.requestId === requestId;
+  return requestId === undefined || useMainColumnStore.getState().navigation.requestId === requestId;
 }

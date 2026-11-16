@@ -94,7 +94,7 @@ export function AgentConversationList({ isActive = true, onBack }: AgentConversa
   const conversationRunIndex = useAgentSessionStore((state) => state.threadRunSignatures);
   const currentNotebookId = useNoteStore((state) => state.selectedNotebook?.id ?? null);
   // Highlight follows whatever surface is showing the conversation (Browser or
-  // Work), not just the restored Work-column selection.
+  // Work), not just the restored Main-column selection.
   const activeConversationInstanceId = useActiveAgentConversationInstanceId();
   const {
     conversationPage,

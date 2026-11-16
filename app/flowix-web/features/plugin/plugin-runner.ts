@@ -56,7 +56,7 @@ function waitForRun(runId: string): Promise<PluginArtifact> {
 
 /**
  * Start a run and wait by immutable runId. The run store, rather than a
- * workColumn component, owns the event projection while a surface is mounted
+ * mainColumn component, owns the event projection while a surface is mounted
  * or not.
  */
 export async function runPlugin(request: PluginRunRequest): Promise<PluginArtifact> {

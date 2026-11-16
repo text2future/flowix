@@ -8,15 +8,15 @@ vi.mock('@features/workspace/public/surface-api', () => ({
 }));
 vi.mock('@features/surface/public/shell-api', () => ({
   collectionIndexPath: () => '/book/folder/.index.yaml',
-  WorkColumnContentHost: () => <span data-testid="surface-host"><input defaultValue="primary draft" /></span>,
+  MainColumnContentHost: () => <span data-testid="surface-host"><input defaultValue="primary draft" /></span>,
 }));
 vi.mock('@features/document/public/shell-api', () => ({
   DocumentTitlebarMac: () => null,
   DocumentTitlebarWin: () => null,
 }));
 vi.mock('./browser-column', () => ({ BrowserColumn: () => <section data-testid="secondary-surface"><input defaultValue="preserved" /></section> }));
-vi.mock('./work-column-titlebar', () => ({ WorkColumnTitlebar: () => null }));
-vi.mock('./work-column-selection-view', () => ({ WorkColumnSelectionView: () => null }));
+vi.mock('./main-column-titlebar', () => ({ MainColumnTitlebar: () => null }));
+vi.mock('./column-selection-view', () => ({ ColumnSelectionView: () => null }));
 vi.mock('./main-layout-export-notice', () => ({ MainLayoutExportNotice: () => null }));
 vi.mock('./memo-list-preview-edge-trigger', () => ({ MemoListPreviewEdgeTrigger: () => null }));
 vi.mock('@shared/surface-boundary', () => ({ SurfaceBoundary: ({ children }: { children: ReactNode }) => children }));
@@ -24,7 +24,7 @@ vi.mock('@shared/ui/centered-loading-spinner', () => ({ CenteredLoadingSpinner: 
 
 import { useWorkspaceSessionStore } from '@features/workspace/public/session-api';
 import { registerCollectionBannerControl } from '@/lib/collection-banner-visibility';
-import { MainWorkColumns, type MainWorkColumnsProps } from './main-work-columns';
+import { WorkspaceColumns, type WorkspaceColumnsProps } from './workspace-columns';
 
 let root: Root | undefined;
 let host: HTMLDivElement | undefined;
@@ -40,11 +40,11 @@ afterEach(async () => {
   host = undefined;
 });
 
-function props(): MainWorkColumnsProps {
+function props(): WorkspaceColumnsProps {
   return {
-    navigationState: { target: { kind: 'collection', filePath: '/book/folder/.index.yaml' }, phase: 'ready', showMainColumnLoading: false } as unknown as MainWorkColumnsProps['navigationState'],
+    navigationState: { target: { kind: 'collection', filePath: '/book/folder/.index.yaml' }, phase: 'ready', showMainColumnLoading: false } as unknown as WorkspaceColumnsProps['navigationState'],
     browserColumnVisible: false,
-    browserColumnLayout: { mainColumnWidth: 900, browserColumnWidth: 400 } as MainWorkColumnsProps['browserColumnLayout'],
+    browserColumnLayout: { mainColumnWidth: 900, browserColumnWidth: 400 } as WorkspaceColumnsProps['browserColumnLayout'],
     browserColumnLayoutKey: 'layout',
     handleBrowserColumnResize: vi.fn(),
     focusedColumnId: 'column-1',
@@ -58,14 +58,14 @@ function props(): MainWorkColumnsProps {
     accessSpaceSelectionCount: 0,
     accessSpaceSelectedPaths: [],
     accessSpaceSelectionContentKinds: new Map(),
-    workColumnPresentation: {
+    mainColumnPresentation: {
       header: { kind: 'document', document: { externalFilePath: '/book/folder/.index.yaml' } },
       chrome: 'document',
       contentKind: 'collection',
       capabilities: [],
       content: { status: 'surface', surface: { kind: 'folder-collection' } },
-    } as unknown as MainWorkColumnsProps['workColumnPresentation'],
-    documentTitlebarProps: {} as MainWorkColumnsProps['documentTitlebarProps'],
+    } as unknown as WorkspaceColumnsProps['mainColumnPresentation'],
+    documentTitlebarProps: {} as WorkspaceColumnsProps['documentTitlebarProps'],
     canNavigateBack: false,
     canNavigateForward: false,
     handleNavigateBack: vi.fn(),
@@ -85,16 +85,16 @@ function props(): MainWorkColumnsProps {
     workSurfaceBlockingLoading: false,
     notebookSwitching: false,
     language: 'zh-CN',
-  } as unknown as MainWorkColumnsProps;
+  } as unknown as WorkspaceColumnsProps;
 }
 
-describe('MainWorkColumns collection header overlap', () => {
+describe('WorkspaceColumns collection header overlap', () => {
   it('removes the negative top margin when the collection banner is hidden', async () => {
     disposeBanner = registerCollectionBannerControl('/book/folder/.index.yaml', { visible: true, toggle: vi.fn() });
     host = document.createElement('div');
     document.body.append(host);
     root = createRoot(host);
-    await act(async () => root?.render(<MainWorkColumns {...props()} />));
+    await act(async () => root?.render(<WorkspaceColumns {...props()} />));
 
     const contentHost = () => host?.querySelector('[data-testid="surface-host"]')?.parentElement;
     expect(contentHost()?.style.marginTop).toBe('calc(0px - var(--window-titlebar-height))');
@@ -115,7 +115,7 @@ it('keeps both column trees mounted when column 2 collapses', async () => {
   document.body.append(host);
   root = createRoot(host);
   const input = { ...props(), browserColumnVisible: true };
-  await act(async () => root?.render(<MainWorkColumns {...input} />));
+  await act(async () => root?.render(<WorkspaceColumns {...input} />));
   const primary = host.querySelector('[data-testid="surface-host"]');
   const secondary = host.querySelector('[data-testid="secondary-surface"]');
   const field = secondary?.querySelector('input');
@@ -127,7 +127,7 @@ it('keeps both column trees mounted when column 2 collapses', async () => {
   expect(host.querySelector('[data-testid="surface-host"]')).toBe(primary);
   expect(host.querySelector('[data-testid="secondary-surface"]')).toBe(secondary);
   expect(secondary?.querySelector('input')?.value).toBe('edited without saving');
-  await act(async () => root?.render(<MainWorkColumns {...input} browserColumnVisible={false} />));
+  await act(async () => root?.render(<WorkspaceColumns {...input} browserColumnVisible={false} />));
   // 收起右侧只改变可见性，不卸载实例。
   expect(primaryRoot?.style.display).toBe('');
   expect(host.querySelector('[data-testid="surface-host"]')).toBe(primary);
@@ -137,7 +137,7 @@ it('moves the same column DOM and preserves both drafts when indices exchange', 
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
-  await act(async () => root?.render(<MainWorkColumns {...props()} browserColumnVisible />));
+  await act(async () => root?.render(<WorkspaceColumns {...props()} browserColumnVisible />));
   const column = host.querySelector<HTMLElement>('[data-workspace-host="column-1"]')!;
   const primary = host.querySelector<HTMLInputElement>('[data-testid="surface-host"] input')!;
   const secondary = host.querySelector<HTMLInputElement>('[data-testid="secondary-surface"] input')!;
@@ -156,7 +156,7 @@ it('moves the same column DOM and preserves both drafts when indices exchange', 
   expect(secondary.value).toBe('unsaved secondary');
   expect(document.activeElement).toBe(primary);
 
-  await act(async () => root?.render(<MainWorkColumns {...props()} browserColumnVisible={false} />));
+  await act(async () => root?.render(<WorkspaceColumns {...props()} browserColumnVisible={false} />));
   expect(column.style.display).toBe('none');
   expect(host.querySelector('[data-testid="surface-host"] input')).toBe(primary);
   await act(async () => useWorkspaceSessionStore.getState().swapColumnContents());
@@ -165,7 +165,7 @@ it('moves the same column DOM and preserves both drafts when indices exchange', 
   expect(primary.value).toBe('unsaved primary');
 });
 
-describe('MainWorkColumns browser column toggle animation', () => {
+describe('WorkspaceColumns browser column toggle animation', () => {
   const grid = () => host!.querySelector<HTMLElement>('[data-document-columns-layout]')!;
 
   afterEach(() => { vi.useRealTimers(); });
@@ -175,13 +175,13 @@ describe('MainWorkColumns browser column toggle animation', () => {
     host = document.createElement('div');
     document.body.append(host);
     root = createRoot(host);
-    await act(async () => root?.render(<MainWorkColumns {...props()} browserColumnVisible />));
+    await act(async () => root?.render(<WorkspaceColumns {...props()} browserColumnVisible />));
     expect(grid().className).toContain('overflow-x-hidden');
     expect(grid().className).not.toContain('overflow-x-auto');
     expect(grid().style.gridTemplateColumns).toBe('minmax(420px, 900fr) minmax(420px, 400fr)');
     expect(grid().className).not.toContain('document-columns-layout--animating');
 
-    await act(async () => root?.render(<MainWorkColumns {...props()} browserColumnVisible={false} />));
+    await act(async () => root?.render(<WorkspaceColumns {...props()} browserColumnVisible={false} />));
     // 收起窗口：双列 px 轨道插值到 0，过渡类挂在 grid 容器上。
     expect(grid().className).toContain('document-columns-layout--animating');
     expect(grid().style.gridTemplateColumns).toBe('1300px 0px');
@@ -197,10 +197,10 @@ describe('MainWorkColumns browser column toggle animation', () => {
     host = document.createElement('div');
     document.body.append(host);
     root = createRoot(host);
-    await act(async () => root?.render(<MainWorkColumns {...props()} />));
+    await act(async () => root?.render(<WorkspaceColumns {...props()} />));
     expect(grid().style.gridTemplateColumns).toBe('minmax(0, 1fr)');
 
-    await act(async () => root?.render(<MainWorkColumns {...props()} browserColumnVisible />));
+    await act(async () => root?.render(<WorkspaceColumns {...props()} browserColumnVisible />));
     // 展开窗口：起点模板已 pin 为收起态，终点是展开 px 模板。
     expect(grid().className).toContain('document-columns-layout--animating');
     expect(grid().style.gridTemplateColumns).toBe('900px 400px');

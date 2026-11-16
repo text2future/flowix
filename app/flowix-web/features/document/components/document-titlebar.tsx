@@ -1,6 +1,6 @@
 'use client';
 
-import { WorkspaceHeader, WorkspaceHeaderContentActions, WorkspaceDocumentHeaderActions } from '@features/shell/public/work-column-api';
+import { WorkspaceHeader, WorkspaceHeaderContentActions, WorkspaceDocumentHeaderActions } from '@features/shell/public/main-column-api';
 import { resolveWorkspaceFileSurfaceKind } from '@features/workspace/public/surface-api';
 import type { DocumentTitlebarProps } from './document-titlebar-model';
 

@@ -217,7 +217,7 @@
 		transition-timing-function: var(--flowix-motion-easing);
 	}
 
-	/* Browser column (column-2) expand/collapse from the work-column header.
+	/* Browser column (column-2) expand/collapse from the main-column header.
 	 * Only mounted during the transition window (see useBrowserColumnAnimation,
 	 * BROWSER_COLUMN_ANIMATION_MS = 200) so drags and viewport resizes snap. */
 	.document-columns-layout--animating {

@@ -25,9 +25,9 @@ export async function restoreSessionTarget(
   target: Extract<import('../store/workspace-restore-store').PersistedWorkspaceTarget, { kind: 'web' | 'file-browser' | 'plugin-workbench' }>,
   requestId: number,
 ) {
-  const { useWorkColumnStore } = await import('../store/work-column-store');
-  if (useWorkColumnStore.getState().navigation.requestId !== requestId) return;
+  const { useMainColumnStore } = await import('../store/main-column-store');
+  if (useMainColumnStore.getState().navigation.requestId !== requestId) return;
   const { openWorkspaceSurface } = await import('../use-cases/surface-opening');
-  if (useWorkColumnStore.getState().navigation.requestId !== requestId) return;
+  if (useMainColumnStore.getState().navigation.requestId !== requestId) return;
   await openWorkspaceSurface({ host: 'column-1', target, options: { history: 'skip' } });
 }

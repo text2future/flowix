@@ -1,4 +1,4 @@
-import { seedWorkColumn, seedBrowserColumn } from '@features/workspace/test-support/workspace-fixtures';
+import { seedMainColumn, seedBrowserColumn } from '@features/workspace/test-support/workspace-fixtures';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -28,7 +28,7 @@ import { ensureFileDisplayTrackingStarted } from '@features/workspace/public/app
 import { useDocumentStore } from '@features/document/store/document-store';
 import { useDocumentHistoryStore } from '@features/document/store/document-history-store';
 import { useWorkspaceRestoreStore } from '@features/workspace/store/workspace-restore-store';
-import { useWorkColumnStore } from '@features/workspace/store/work-column-store';
+import { useMainColumnStore } from '@features/workspace/store/main-column-store';
 import { useBrowserColumnStore } from '@features/workspace/store/browser-column-store';
 import { useNoteStore } from '@features/memo/store/note-store';
 import { useTodoCountStore } from '@features/memo/store/todo-count-store';
@@ -82,7 +82,7 @@ function prepareWorkspace(oldPath: string): void {
   });
 
   const target = { kind: 'external' as const, path: oldPath, scopePath: root, transitionId: null };
-  seedWorkColumn({
+  seedMainColumn({
     navigation: {
       phase: 'committed', showMainColumnLoading: false, requestId: 1,
       target, pendingTarget: null, previousTarget: null, failure: null, retryToken: null,
@@ -112,7 +112,7 @@ describe('main-window rename event integration', () => {
     useDocumentHistoryStore.getState().clear();
     useBrowserColumnStore.getState().reset();
     useWorkspaceRestoreStore.getState().setDesiredTarget(null);
-    seedWorkColumn((state) => ({
+    seedMainColumn((state) => ({
       navigation: {
         ...state.navigation,
         phase: 'idle', showMainColumnLoading: false,
@@ -222,7 +222,7 @@ describe('main-window rename event integration', () => {
     expect(findFileDisplayPath(displayId!)).toBe(finalPath);
     expect(document.currentDocumentPath).toBe(finalPath);
     expect(document.activeExternalSession).toMatchObject({ openedAt, transitionId, relativePath: 'Folder/Final.md' });
-    expect(useWorkColumnStore.getState().navigation.target).toMatchObject({ kind: 'external', path: finalPath });
+    expect(useMainColumnStore.getState().navigation.target).toMatchObject({ kind: 'external', path: finalPath });
     expect(useBrowserColumnStore.getState().current?.target).toMatchObject({ kind: 'file-browser', activeFilePath: finalPath });
     expect(useWorkspaceRestoreStore.getState().desiredTarget).toMatchObject({ kind: 'external', path: finalPath });
     expect(useDocumentHistoryStore.getState().backStack[0]).toMatchObject({ kind: 'external', path: finalPath });

@@ -9,11 +9,11 @@ import {
 import type {
   DocumentSurfaceContext,
   PluginWorkbenchContext,
-  WorkColumnContentPresentation,
-  ResolveWorkColumnContentInput,
-  WorkColumnEmptyReason,
-  WorkColumnEmptyStateTone,
-  WorkColumnSurface,
+  MainColumnContentPresentation,
+  ResolveMainColumnContentInput,
+  MainColumnEmptyReason,
+  MainColumnEmptyStateTone,
+  MainColumnSurface,
 } from './types';
 import type { SessionSurfaceTarget } from '@features/workspace/public/session-api';
 import { requireFileDisplayIdentity } from '@/lib/file-display-registry';
@@ -26,19 +26,19 @@ function assertNever(value: never): never {
 
 function emptyContent(
   message: string,
-  reason: WorkColumnEmptyReason,
-  tone: WorkColumnEmptyStateTone = 'document',
-): Extract<WorkColumnContentPresentation, { status: 'empty' }> {
+  reason: MainColumnEmptyReason,
+  tone: MainColumnEmptyStateTone = 'document',
+): Extract<MainColumnContentPresentation, { status: 'empty' }> {
   return { status: 'empty', message, reason, tone };
 }
 
-function surfaceContent(surface: WorkColumnSurface): WorkColumnContentPresentation {
+function surfaceContent(surface: MainColumnSurface): MainColumnContentPresentation {
   return { status: 'surface', surface };
 }
 
 function resolveExternalDocumentSurface(
   document: Extract<DocumentSurfaceContext, { identity: { kind: 'external' } }>,
-): WorkColumnSurface {
+): MainColumnSurface {
   const { instanceKey } = document;
   const { fileIdentity } = document.identity;
   const filePath = fileIdentity.path;
@@ -81,7 +81,7 @@ function resolveExternalDocumentSurface(
 
 function resolveMediaTargetContent(
   target: Extract<SessionSurfaceTarget, { kind: 'media' }>,
-): WorkColumnContentPresentation {
+): MainColumnContentPresentation {
   const filePath = target.filePath.trim();
   if (!filePath || !target.notebookPath?.trim()) {
     return emptyContent('媒体资源上下文无效', 'invalid-target');
@@ -130,8 +130,8 @@ function isPluginWorkbenchContext(
 
 function resolveSessionTarget(
   target: SessionSurfaceTarget,
-  input: Pick<ResolveWorkColumnContentInput, 'document' | 'pluginWorkbench' | 'emptyMessage'>,
-): WorkColumnContentPresentation {
+  input: Pick<ResolveMainColumnContentInput, 'document' | 'pluginWorkbench' | 'emptyMessage'>,
+): MainColumnContentPresentation {
   if ((target.kind === 'collection' || target.kind === 'table' || target.kind === 'media-library') && target.unavailableReason) {
     return {
       ...emptyContent(target.unavailableReason, 'invalid-target'),
@@ -222,9 +222,9 @@ function resolveSessionTarget(
 }
 
 /** Resolve the main workspace target into either a renderable surface or an empty state. */
-export function resolveWorkColumnContent(
-  input: ResolveWorkColumnContentInput,
-): WorkColumnContentPresentation {
+export function resolveMainColumnContent(
+  input: ResolveMainColumnContentInput,
+): MainColumnContentPresentation {
   const content = resolveSessionTarget(input.navigation.target, input);
   const sessionEntryId = primaryEntryIdForTarget(input.navigation.target);
   return content.status === 'surface' && sessionEntryId ? { ...content, surface: { ...content.surface, sessionEntryId } } : content;

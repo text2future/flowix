@@ -1,7 +1,7 @@
 'use client';
 
 import { isWindowsPlatform } from '@features/shortcuts';
-import { WorkspaceHeader } from '@features/shell/public/work-column-api';
+import { WorkspaceHeader } from '@features/shell/public/main-column-api';
 import { AgentConversationHeaderContent } from './agent-conversation-header-content';
 
 export function AgentConversationTitlebar({

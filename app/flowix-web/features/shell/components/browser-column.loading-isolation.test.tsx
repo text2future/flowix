@@ -1,10 +1,10 @@
-import { seedWorkColumn } from '@features/workspace/test-support/workspace-fixtures';
+import { seedMainColumn } from '@features/workspace/test-support/workspace-fixtures';
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
 import { BrowserColumn } from './browser-column';
 import { useBrowserColumnStore } from '@features/workspace/store/browser-column-store';
-import { useWorkColumnStore } from '@features/workspace/store/work-column-store';
+import { useMainColumnStore } from '@features/workspace/store/main-column-store';
 import { useWorkspaceFocusStore } from '@features/workspace/store/workspace-focus-store';
 import { getWorkspaceSurfacePresentation } from '@features/surface/workspace-surface-runtime';
 
@@ -14,7 +14,7 @@ const noop = () => {};
 
 /** Work publishes navigation/loading repeatedly while Browser keeps its mounted web session. */
 function Columns() {
-  const navigation = useWorkColumnStore((state) => state.navigation);
+  const navigation = useMainColumnStore((state) => state.navigation);
   return <div>
     <section data-work-state={navigation.phase}>{navigation.pendingTarget?.kind ?? navigation.target.kind}</section>
     <BrowserColumn width={500} layoutKey="split" onResize={noop} />
@@ -22,7 +22,7 @@ function Columns() {
 }
 
 it('retains Browser iframe, URL, history and ready state throughout Work loading, failure and commits', async () => {
-  const beforeWork = useWorkColumnStore.getState();
+  const beforeWork = useMainColumnStore.getState();
   useBrowserColumnStore.getState().reset();
   const id = useBrowserColumnStore.getState().openContent({ id: 'browser-web-isolation', title: 'Browser', icon: null, target: { kind: 'web', url: 'https://example.com/browser' } });
   const node = document.createElement('div'); document.body.append(node);
@@ -38,7 +38,7 @@ it('retains Browser iframe, URL, history and ready state throughout Work loading
     expect(getWorkspaceSurfacePresentation(id).state?.status).toBe('ready');
     const browser = useBrowserColumnStore.getState();
     for (const outcome of ['commit', 'failure', 'commit'] as const) {
-      const work = useWorkColumnStore.getState();
+      const work = useMainColumnStore.getState();
       const target = { kind: 'web' as const, url: `https://example.com/work-${outcome}` };
       let request = 0;
       await act(async () => {
@@ -61,13 +61,13 @@ it('retains Browser iframe, URL, history and ready state throughout Work loading
       expect(next.backStack).toBe(browser.backStack);
       expect(next.forwardStack).toBe(browser.forwardStack);
     }
-    const workBeforeBrowserNavigation = useWorkColumnStore.getState().navigation;
+    const workBeforeBrowserNavigation = useMainColumnStore.getState().navigation;
     await act(async () => { useBrowserColumnStore.getState().navigateWeb(id, 'https://example.com/browser-next'); });
-    expect(useWorkColumnStore.getState().navigation).toBe(workBeforeBrowserNavigation);
+    expect(useMainColumnStore.getState().navigation).toBe(workBeforeBrowserNavigation);
     expect(node.querySelector('iframe')?.getAttribute('src')).toBe('https://example.com/browser-next');
   } finally {
     await act(async () => root.unmount()); node.remove();
-    seedWorkColumn(beforeWork);
+    seedMainColumn(beforeWork);
     useBrowserColumnStore.getState().reset();
   }
 });

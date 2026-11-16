@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type { SessionSurfaceTarget } from '@features/workspace/public/session-api';
 import type { MainColumnNavigationState } from '@features/workspace/public/shell-api';
 import { workspaceSurfaceContentPresentation } from '@features/workspace/public/surface-api';
-import { resolveWorkColumnRuntimePresentation, resolveWorkColumnPresentation } from './presentation';
+import { resolveMainColumnRuntimePresentation, resolveMainColumnPresentation } from './presentation';
 
 function navigation(target: SessionSurfaceTarget): MainColumnNavigationState {
   return {
@@ -23,7 +23,7 @@ describe('work column presentation', () => {
   it('preserves notebook actions through Markdown runtime updates and removes them in previews', () => {
     const path = '/notebook/note.md';
     const fileIdentity = { path, displayId: 'display:path-note' };
-    const present = (indexable: boolean) => resolveWorkColumnPresentation({
+    const present = (indexable: boolean) => resolveMainColumnPresentation({
       navigation: navigation({ kind: 'external', path, scopePath: '/notebook', transitionId: null }),
       document: {
         identity: { kind: 'external', fileIdentity, scopePath: '/notebook', indexable, transitionId: null },
@@ -38,7 +38,7 @@ describe('work column presentation', () => {
     });
     const initial = present(true);
     const identity = { kind: 'external' as const, fileIdentity, scopePath: '/notebook', indexable: true, transitionId: null };
-    const resolve = (runtime = {}) => resolveWorkColumnRuntimePresentation(initial, runtime, identity);
+    const resolve = (runtime = {}) => resolveMainColumnRuntimePresentation(initial, runtime, identity);
     expect(initial.capabilities).not.toContain('memo-colors');
     expect(resolve().capabilities).toContain('memo-colors');
     expect(resolve(workspaceSurfaceContentPresentation('file-markdown')).capabilities)
@@ -49,15 +49,15 @@ describe('work column presentation', () => {
       expect(preview.capabilities).not.toContain('version-history');
       expect(preview.capabilities).not.toContain('edit');
     }
-    expect(resolveWorkColumnRuntimePresentation(initial,
+    expect(resolveMainColumnRuntimePresentation(initial,
       workspaceSurfaceContentPresentation('file-markdown'), { ...identity, indexable: false },
     ).capabilities).not.toContain('memo-colors');
-    expect(resolveWorkColumnRuntimePresentation(initial, {}, null).capabilities).not.toContain('memo-colors');
+    expect(resolveMainColumnRuntimePresentation(initial, {}, null).capabilities).not.toContain('memo-colors');
 
   });
 
   it('derives document header data and capabilities from the resolved surface', () => {
-    const presentation = resolveWorkColumnPresentation({
+    const presentation = resolveMainColumnPresentation({
       navigation: navigation({
         kind: 'external',
         path: '/notebook/note.md',
@@ -99,7 +99,7 @@ describe('work column presentation', () => {
     ['/book/folder/.index.yaml', 'table'],
   ] as const)('exposes header context for a primary file-browser target: %s', (path, collectionType) => {
     ensureFileDisplayIdentity(path);
-    const initial = resolveWorkColumnPresentation({
+    const initial = resolveMainColumnPresentation({
       navigation: navigation({ kind: 'file-browser', activeFilePath: path, folderPath: '/book',
         scopePath: '/book', notebookId: 'book', fileTreeVisible: true, fileTreeWidth: 220, collectionType }),
       document: null, emptyMessage: 'Empty',
@@ -108,14 +108,14 @@ describe('work column presentation', () => {
     if (initial.content.status !== 'surface') throw new Error('Expected file-browser surface');
     expect(collectionIndexPath(initial.content.surface)).toBe(collectionType ? path : null);
     if (path.endsWith('.md')) {
-      const runtime = resolveWorkColumnRuntimePresentation(initial, workspaceSurfaceContentPresentation('file-markdown'), null);
+      const runtime = resolveMainColumnRuntimePresentation(initial, workspaceSurfaceContentPresentation('file-markdown'), null);
       expect(runtime.capabilities).toContain('memo-colors');
       expect(runtime.capabilities).toContain('version-history');
     }
   });
 
   it('preserves the empty reason and uses the document header for the empty surface', () => {
-    const presentation = resolveWorkColumnPresentation({
+    const presentation = resolveMainColumnPresentation({
       navigation: navigation({ kind: 'empty' }),
       emptyMessage: 'Select a note',
     });
@@ -133,7 +133,7 @@ describe('work column presentation', () => {
   });
 
   it('selects the agent header from the surface definition', () => {
-    const presentation = resolveWorkColumnPresentation({
+    const presentation = resolveMainColumnPresentation({
       navigation: navigation({ kind: 'agent-conversation', instanceId: 'agent-1' }),
       emptyMessage: 'Select a note',
     });

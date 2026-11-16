@@ -49,7 +49,7 @@ export function useMainPanelController({
     noteNavigationWidth: 0,
   });
 
-  // True while the memo list is mid-collapse/expand. MainWorkColumns hides the
+  // True while the memo list is mid-collapse/expand. WorkspaceColumns hides the
   // fixed-position resize handle until the fluid tracks reach their final size.
   const [isMemoListAnimating, setIsMemoListAnimating] = useState(false);
   const memoListAnimateTimerRef = useRef<number | null>(null);

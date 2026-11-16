@@ -806,7 +806,7 @@
       "count": 1
     }
   },
-  "app/flowix-web/features/surface/work-column-surface-adapter.ts": {
+  "app/flowix-web/features/surface/main-column-surface-adapter.ts": {
     "no-restricted-imports": {
       "count": 1
     }

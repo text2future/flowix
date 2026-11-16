@@ -8,7 +8,7 @@ export async function openExternallyCreatedNote(
   notebookId: string,
 ): Promise<void> {
   const locations = findWorkspaceContentLocations({ kind: 'external', path });
-  if (locations.workColumn || locations.browserColumn) return;
+  if (locations.mainColumn || locations.browserColumn) return;
 
   await openSurfaceAtPosition({
     index: 1,

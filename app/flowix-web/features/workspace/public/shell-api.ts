@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { toast } from '@/lib/toast';
 import { useShallow } from 'zustand/react/shallow';
-import { useWorkColumnStore } from '@features/workspace/store/work-column-store';
+import { useMainColumnStore } from '@features/workspace/store/main-column-store';
 import { columnRequestId } from '@features/workspace/store/column-navigation';
 import { useBrowserColumnStore } from '@features/workspace/store/browser-column-store';
 import { useWorkspaceFocusStore } from '@features/workspace/store/workspace-focus-store';
@@ -33,7 +33,7 @@ export function getWorkspaceNavigationRevision(): number {
 }
 
 export function useShellWorkspaceViewModel() {
-  const { navigation, notebookSwitchesInFlight } = useWorkColumnStore(useShallow((state) => ({
+  const { navigation, notebookSwitchesInFlight } = useMainColumnStore(useShallow((state) => ({
     navigation: state.navigation,
     notebookSwitchesInFlight: state.notebookSwitchesInFlight,
   })));
@@ -54,8 +54,8 @@ export function useShellWorkspaceViewModel() {
   };
 }
 
-export function useWorkColumnTransferViewModel() {
-  const target = useWorkColumnStore((state) => state.navigation.target);
+export function useMainColumnTransferViewModel() {
+  const target = useMainColumnStore((state) => state.navigation.target);
   const canOpenInBrowserColumn = target.kind !== 'empty'
     && target.kind !== 'plugin-workbench';
   const openInBrowserColumn = useCallback(() => {

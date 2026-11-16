@@ -14,7 +14,7 @@ import { agent } from '@platform/tauri/client/agent';
 import { useAgentConversationSurface } from './use-agent-conversation-surface';
 import type { WorkspaceColumnId } from '@features/workspace/public/surface-api';
 import { clearMissingBrowserConversation } from '@features/workspace/public/browser-column-api';
-import { WorkspaceColumnContextMenu } from '@features/shell/public/work-column-api';
+import { WorkspaceColumnContextMenu } from '@features/shell/public/main-column-api';
 import { isInitialConversationHistoryLoading } from './agent-conversation-history-loading';
 import { useAgentSessionStore } from '@features/agent/store/agent-session-store';
 import { consumeAgentConversationInitialContent, createAndOpenAgentConversation } from '@features/agent/use-cases/new-conversation';

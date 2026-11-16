@@ -9,14 +9,14 @@ import {
 } from '@features/workspace/store/workspace-content-identity';
 import type { SessionSurfaceTarget } from '../model/session-target';
 import { useWorkspaceFocusStore } from '@features/workspace/store/workspace-focus-store';
-import { getWorkColumnContentState } from '@features/workspace/store/work-column-content-state';
+import { getMainColumnContentState } from '@features/workspace/store/main-column-content-state';
 import { activateBrowserColumnEntry } from './browser-column-coordinator';
 
 import type { WorkspaceContentLocation } from '../model/surface-opening';
 export type { WorkspaceContentLocation } from '../model/surface-opening';
 
 export interface WorkspaceContentLocations {
-  workColumn: Extract<WorkspaceContentLocation, { host: 'column-1' }> | null;
+  mainColumn: Extract<WorkspaceContentLocation, { host: 'column-1' }> | null;
   browserColumn: Extract<WorkspaceContentLocation, { host: 'column-2' }> | null;
 }
 
@@ -45,7 +45,7 @@ export function mainColumnTargetIdentity(target: SessionSurfaceTarget): ContentI
 
 function currentCollectionView(location: WorkspaceContentLocation): string | null {
   if (location.host === 'column-1') {
-    const target = getWorkColumnContentState();
+    const target = getMainColumnContentState();
     if (target.status === 'empty' || target.status === 'transitioning') return null;
     return target.target.kind === 'collection' ? target.target.viewId : null;
   }
@@ -64,10 +64,10 @@ export function activateExistingWorkspaceContent(
 ): WorkspaceContentLocation | null {
   const locations = findWorkspaceContentLocations(identity);
   const location = host === 'column-1'
-    ? locations.workColumn
+    ? locations.mainColumn
     : host === 'column-2'
       ? locations.browserColumn
-      : locations.workColumn ?? locations.browserColumn;
+      : locations.mainColumn ?? locations.browserColumn;
   if (!location) return null;
 
   if (identity.kind === 'collection') {
@@ -93,10 +93,10 @@ export async function activateExistingWorkspaceContentAsync(
 ): Promise<WorkspaceContentLocation | null> {
   const locations = findWorkspaceContentLocations(identity);
   const location = host === 'column-1'
-    ? locations.workColumn
+    ? locations.mainColumn
     : host === 'column-2'
       ? locations.browserColumn
-      : locations.workColumn ?? locations.browserColumn;
+      : locations.mainColumn ?? locations.browserColumn;
   if (!location) return null;
 
   if (location.host === 'column-1') {
@@ -122,19 +122,19 @@ export function findWorkspaceContentLocations(
   identity: ContentIdentity,
 ): WorkspaceContentLocations {
   const key = contentIdentityKey(identity);
-  if (!key) return { workColumn: null, browserColumn: null };
+  if (!key) return { mainColumn: null, browserColumn: null };
 
-  const workColumn = getWorkColumnContentState();
-  const pendingIdentity = workColumn.status === 'transitioning'
-    ? mainColumnTargetIdentity(workColumn.to)
+  const mainColumn = getMainColumnContentState();
+  const pendingIdentity = mainColumn.status === 'transitioning'
+    ? mainColumnTargetIdentity(mainColumn.to)
     : null;
   const pendingMatch = pendingIdentity && contentIdentityKey(pendingIdentity) === key;
 
-  const workTarget = workColumn.status === 'empty'
+  const workTarget = mainColumn.status === 'empty'
     ? null
-    : workColumn.status === 'transitioning'
-      ? workColumn.from
-      : workColumn.target;
+    : mainColumn.status === 'transitioning'
+      ? mainColumn.from
+      : mainColumn.target;
   const workIdentity = workTarget ? mainColumnTargetIdentity(workTarget) : null;
   const activeMatch = workIdentity && contentIdentityKey(workIdentity) === key;
 
@@ -144,7 +144,7 @@ export function findWorkspaceContentLocations(
   const tab = currentBrowserEntry && browserIdentity && contentIdentityKey(browserIdentity) === key
     ? currentBrowserEntry : null;
   return {
-    workColumn: pendingMatch
+    mainColumn: pendingMatch
       ? { host: 'column-1', state: 'pending' }
       : activeMatch ? { host: 'column-1', state: 'active' } : null,
     browserColumn: tab ? { host: 'column-2', surfaceId: tab.id } : null,
@@ -157,7 +157,7 @@ export function findWorkspaceContentForNavigation(
   destination?: WorkspaceContentLocation['host'],
 ): WorkspaceContentLocation | null {
   const locations = findWorkspaceContentLocations(identity);
-  if (destination === 'column-1') return locations.workColumn;
+  if (destination === 'column-1') return locations.mainColumn;
   if (destination === 'column-2') return locations.browserColumn;
-  return locations.workColumn;
+  return locations.mainColumn;
 }

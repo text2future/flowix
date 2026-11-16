@@ -1,13 +1,13 @@
-import { seedWorkColumn } from '@features/workspace/test-support/workspace-fixtures';
+import { seedMainColumn } from '@features/workspace/test-support/workspace-fixtures';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { useBrowserColumnStore } from '@features/workspace/store/browser-column-store';
-import { useWorkColumnStore } from '@features/workspace/store/work-column-store';
+import { useMainColumnStore } from '@features/workspace/store/main-column-store';
 import { activateExistingWorkspaceContent } from './workspace-content-activation';
 import { useWorkspaceFocusStore } from '@features/workspace/store/workspace-focus-store';
 
 function resetWorkspace() {
-  seedWorkColumn({
+  seedMainColumn({
     navigation: {
       phase: 'idle',
       showMainColumnLoading: false,
@@ -21,8 +21,8 @@ function resetWorkspace() {
   });
 }
 
-function commitSessionTarget(target: Parameters<ReturnType<typeof useWorkColumnStore.getState>['beginNavigation']>[0]) {
-  const store = useWorkColumnStore.getState();
+function commitSessionTarget(target: Parameters<ReturnType<typeof useMainColumnStore.getState>['beginNavigation']>[0]) {
+  const store = useMainColumnStore.getState();
   const requestId = store.beginNavigation(target, null);
   store.commitNavigation(requestId, target);
 }
@@ -122,8 +122,8 @@ describe('workspace content activation', () => {
     expect(useWorkspaceFocusStore.getState().focusedColumnId).toBe('column-1');
   });
 
-  it('treats a pending work-column open as existing content', () => {
-    useWorkColumnStore.getState().beginNavigation({
+  it('treats a pending main-column open as existing content', () => {
+    useMainColumnStore.getState().beginNavigation({
       kind: 'external',
       path: '/notes/pending.md',
       scopePath: '/notes',

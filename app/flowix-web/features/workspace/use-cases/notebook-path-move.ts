@@ -4,7 +4,7 @@ import { findFileDisplayId, listFileDisplayIdentities, suspendFileDisplayReconci
 import { rebaseWorkspaceDocumentLinkSources, getWorkspaceDocumentState, getWorkspaceDocumentHistory, replaceWorkspaceDocumentHistoryPath } from '@features/document/public/workspace-api';
 import { getWorkspaceMemoState, updateNoteLinksAfterMove } from '@features/memo/public/workspace-api';
 import { getBrowserColumnEntries, useBrowserColumnStore } from '../store/browser-column-store';
-import { useWorkColumnStore } from '../store/work-column-store';
+import { useMainColumnStore } from '../store/main-column-store';
 import { useWorkspaceRestoreStore } from '../store/workspace-restore-store';
 import { replaceExternalDocumentPath } from './workspace-navigation';
 import { rebaseWorkspaceTargetPath } from '../model/path-move';
@@ -34,7 +34,7 @@ export async function applyNotebookPathMove(input: {
   };
 
   const document = getWorkspaceDocumentState().activeExternalSession;
-  const navigation = useWorkColumnStore.getState().navigation;
+  const navigation = useMainColumnStore.getState().navigation;
   const desired = useWorkspaceRestoreStore.getState().desiredTarget;
   const candidates = [document?.fileIdentity.path, ...listFileDisplayIdentities().map((identity) => identity.path)];
   for (const entry of getWorkspaceDocumentHistory()) {
@@ -56,7 +56,7 @@ export async function applyNotebookPathMove(input: {
       if (displayId) replaceExternalDocumentPath(displayId, path, replacement);
       replaceWorkspaceDocumentHistoryPath(path, replacement);
     }
-    const workspace = useWorkColumnStore.getState();
+    const workspace = useMainColumnStore.getState();
     const navigation = workspace.navigation;
     const rebase = <T extends Parameters<typeof rebaseWorkspaceTargetPath>[0]>(target: T) =>
       rebaseWorkspaceTargetPath(target, previous, next, input.directory);

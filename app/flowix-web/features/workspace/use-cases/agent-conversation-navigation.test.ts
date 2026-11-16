@@ -68,8 +68,8 @@ vi.mock('@features/workspace/store/workspace-restore-store', () => ({
   },
 }));
 
-vi.mock('@features/workspace/store/work-column-store', () => ({
-  useWorkColumnStore: {
+vi.mock('@features/workspace/store/main-column-store', () => ({
+  useMainColumnStore: {
     getState: () => ({
       navigation: { phase: 'committed', showMainColumnLoading: false, requestId: mocks.navigationRevision, target: mocks.navigationTarget, pendingTarget: null, previousTarget: null, failure: null, retryToken: null },
       beginNavigation: mocks.beginNavigation,
@@ -160,7 +160,7 @@ describe('agent conversation navigation', () => {
     expect(mocks.clearAgentConversation).not.toHaveBeenCalled();
   });
 
-  it('restores the work-column conversation even when the middle column is on notes', async () => {
+  it('restores the main-column conversation even when the middle column is on notes', async () => {
     const { restoreAgentConversationWorkspace } = await import('./agent-conversation-navigation');
 
     await restoreAgentConversationWorkspace();

@@ -1,13 +1,13 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { WorkColumnSelectionView } from './work-column-selection-view';
+import { ColumnSelectionView } from './column-selection-view';
 
 vi.mock('@features/content/public/content-api', () => ({
   ContentIcon: ({ content }: { content: { kind: string } }) => <svg aria-hidden="true" data-content-kind={content.kind} />,
 }));
 
-describe('WorkColumnSelectionView', () => {
+describe('ColumnSelectionView', () => {
   let host: HTMLDivElement;
   let root: Root;
   const environment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
@@ -25,7 +25,7 @@ describe('WorkColumnSelectionView', () => {
   it('uses catalog types for collection files sharing the index.yaml suffix', async () => {
     const paths = ['/notes/Media.index.yaml', '/notes/Table.index.yaml', '/notes/Resources.index.yaml'];
     await act(async () => root.render(
-      <WorkColumnSelectionView paths={paths} label="3 个文档" contentKinds={new Map([
+      <ColumnSelectionView paths={paths} label="3 个文档" contentKinds={new Map([
         [paths[0], 'media-library'], [paths[1], 'multidimensional-table'], [paths[2], 'work-documents'],
       ])} />,
     ));
@@ -38,7 +38,7 @@ describe('WorkColumnSelectionView', () => {
     const second = '/notebook/second.pdf';
     const third = '/notebook/third.index.yaml';
     const render = (paths: string[]) => act(async () => root.render(
-      <WorkColumnSelectionView paths={paths} label={`${paths.length} 个文档`} />,
+      <ColumnSelectionView paths={paths} label={`${paths.length} 个文档`} />,
     ));
     await render([first, second]);
     const initialCards = Array.from(host.querySelectorAll('li'));

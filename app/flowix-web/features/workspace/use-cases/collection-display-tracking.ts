@@ -5,7 +5,7 @@ import { subscribe } from '@platform/tauri/event-bus';
 import { subscribeNotebookChanges } from '@platform/tauri/notebook-change-events';
 import { canonicalDirectoryPath } from '@/lib/path';
 import { bindCollectionDisplayPath, collectionDisplays, findCollectionDisplayPath } from '@/lib/collection-display-registry';
-import { useWorkColumnStore } from '../store/work-column-store';
+import { useMainColumnStore } from '../store/main-column-store';
 import { useWorkspaceRestoreStore } from '../store/workspace-restore-store';
 import type { SessionSurfaceTarget } from '../model/session-target';
 import { getWorkspaceMemoState } from '@features/memo/public/workspace-api';
@@ -22,7 +22,7 @@ let started = false;
 function replaceLiveFilePath(previousPath: string, path: string): void {
   const displayId = findFileDisplayId(previousPath);
   if (displayId && !replaceWorkspaceDocumentPath({ kind: 'md', path: previousPath, displayId }, path)) return;
-  useWorkColumnStore.getState().replaceExternalPath(previousPath, path);
+  useMainColumnStore.getState().replaceExternalPath(previousPath, path);
   useBrowserColumnStore.getState().replaceExternalPath(previousPath, path);
 }
 
@@ -65,7 +65,7 @@ function applyCollectionIndexItemAtRoot(
     const unavailableReason = item.identityConflict ? '集合身份冲突，请先修复副本' : item.parseState !== 'valid' ? '集合文件格式或版本暂不可用' : undefined;
     return { ...rest, filePath: path, notebookPath: root, name: item.name, ...(unavailableReason ? { unavailableReason } : {}) } as T;
   };
-  const state = useWorkColumnStore.getState();
+  const state = useMainColumnStore.getState();
   const navigation = state.navigation;
   if ([navigation.target, navigation.pendingTarget, navigation.previousTarget].some((target) => target?.kind === 'collection' && target.notebookId === notebookId && target.collectionId === item.collectionId)) {
     updateMainColumnTargets(update);
@@ -111,7 +111,7 @@ export async function refreshCollectionDisplays(event: CollectionChange): Promis
         continue;
       }
       // Selected views belong to live targets, not the shared display identity.
-      const navigation = useWorkColumnStore.getState().navigation;
+      const navigation = useMainColumnStore.getState().navigation;
       const selections = [navigation.target, navigation.pendingTarget, useWorkspaceRestoreStore.getState().desiredTarget,
         ...getBrowserColumnEntries(useBrowserColumnStore.getState()).map((tab) => tab.target.kind === 'file-browser' ? tab.target.collectionDisplay : null)]
         .filter((target): target is NonNullable<typeof target> & { notebookId: string; collectionId: string; viewId: string | null } =>

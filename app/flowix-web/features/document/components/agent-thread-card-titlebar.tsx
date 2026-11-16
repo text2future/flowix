@@ -64,7 +64,7 @@ export function AgentThreadCardFullscreenExitButton({
   );
 }
 
-/** Agent conversation menu rendered in the existing work-column titlebar slot. */
+/** Agent conversation menu rendered in the existing main-column titlebar slot. */
 export function AgentThreadCardFullscreenMoreMenu({
   iconButtonClass,
   host = 'column-1',

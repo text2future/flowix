@@ -14,12 +14,12 @@ import {
   type DocumentTitlebarProps,
 } from '@features/document/public/shell-api';
 import {
-  resolveWorkColumnRuntimePresentation,
+  resolveMainColumnRuntimePresentation,
   collectionIndexPath,
   markRepositoryBreadcrumbItems,
   useWorkspaceSurfacePresentation,
   resolveDocumentBreadcrumb,
-  type WorkColumnPresentation,
+  type MainColumnPresentation,
 } from '@features/surface/public/shell-api';
 import type { Notebook } from '@features/memo/public/shell-api';
 import type {
@@ -28,11 +28,11 @@ import type {
 
 type ActiveExternalSession = ReturnType<typeof useShellDocumentViewModel>['activeExternalSession'];
 type RuntimePresentation = ReturnType<typeof useWorkspaceSurfacePresentation>;
-type WorkCapabilities = ReturnType<typeof resolveWorkColumnRuntimePresentation>['capabilities'];
-type WorkHeaderStyle = ReturnType<typeof resolveWorkColumnRuntimePresentation>['chrome'];
+type WorkCapabilities = ReturnType<typeof resolveMainColumnRuntimePresentation>['capabilities'];
+type WorkHeaderStyle = ReturnType<typeof resolveMainColumnRuntimePresentation>['chrome'];
 
 export interface UseDocumentTitlebarPropsInput {
-  workColumnPresentation: WorkColumnPresentation;
+  mainColumnPresentation: MainColumnPresentation;
   workRuntimePresentation: RuntimePresentation;
   workCapabilities: WorkCapabilities;
   workHeaderStyle: WorkHeaderStyle;
@@ -66,7 +66,7 @@ export interface UseDocumentTitlebarPropsInput {
  */
 export function useDocumentTitlebarProps(input: UseDocumentTitlebarPropsInput): DocumentTitlebarProps {
   const {
-    workColumnPresentation,
+    mainColumnPresentation,
     workRuntimePresentation,
     workCapabilities,
     workHeaderStyle,
@@ -92,14 +92,14 @@ export function useDocumentTitlebarProps(input: UseDocumentTitlebarPropsInput): 
     notebooks = [],
   } = input;
   const { t } = useI18n();
-  const workWebSurfaceId = workColumnPresentation.content.status === 'surface'
-    && workColumnPresentation.content.surface.kind === 'web'
-    ? workColumnPresentation.content.surface.instanceKey : null;
+  const workWebSurfaceId = mainColumnPresentation.content.status === 'surface'
+    && mainColumnPresentation.content.surface.kind === 'web'
+    ? mainColumnPresentation.content.surface.instanceKey : null;
   const addressBar = useSessionAddressBar('column-1', workWebSurfaceId);
-  const collectionPath = collectionIndexPath(workColumnPresentation.content.status === 'surface'
-    ? workColumnPresentation.content.surface : null);
+  const collectionPath = collectionIndexPath(mainColumnPresentation.content.status === 'surface'
+    ? mainColumnPresentation.content.surface : null);
 
-  const source = workColumnPresentation.content.status === 'surface' ? workColumnPresentation.content.surface : null;
+  const source = mainColumnPresentation.content.status === 'surface' ? mainColumnPresentation.content.surface : null;
   const collectionDisplayId = source && 'fileIdentity' in source && source.fileIdentity
     ? source.fileIdentity.displayId : null;
   const registeredCollectionId = collectionDisplayId
@@ -124,7 +124,7 @@ export function useDocumentTitlebarProps(input: UseDocumentTitlebarPropsInput): 
   const relativePath = fileBrowserNotebookPath && fileBrowser?.activeFilePath
     ? notebookRelativeDirectoryPath(fileBrowserNotebookPath, fileBrowser.activeFilePath) : null;
   const header = resolveWorkspaceHeaderModel({
-    chrome: workHeaderStyle, contentKind: workRuntimePresentation.contentKind ?? workColumnPresentation.contentKind,
+    chrome: workHeaderStyle, contentKind: workRuntimePresentation.contentKind ?? mainColumnPresentation.contentKind,
     sourceKind: fileBrowser?.activeFilePath ? `file-${resolveWorkspaceFileSurfaceKind(fileBrowser.activeFilePath)}`
       : source?.kind === 'md' ? 'file-markdown' : source?.kind === 'html-file' ? 'file-html' : null,
     capabilities: workCapabilities,
@@ -139,8 +139,8 @@ export function useDocumentTitlebarProps(input: UseDocumentTitlebarPropsInput): 
   const repositoryPaths = breadcrumbRepositoryNotebookIds.flatMap((notebookId) =>
     getWorkspaceAgentRepositories(notebookId).map((repository) => repository.path));
 
-  const documentTarget = workColumnPresentation.header.kind === 'document'
-    && workColumnPresentation.header.document.externalFilePath
+  const documentTarget = mainColumnPresentation.header.kind === 'document'
+    && mainColumnPresentation.header.document.externalFilePath
     && source && 'fileIdentity' in source && source.fileIdentity
     ? resolveDocumentTitlebarTarget(source.fileIdentity, fileBrowser ? {
         fileIdentity: source.fileIdentity, scopePath: fileBrowser.scopePath,
@@ -154,8 +154,8 @@ export function useDocumentTitlebarProps(input: UseDocumentTitlebarPropsInput): 
    * capabilities (never a title), so the breadcrumb also drives the header
    * identity here. Collections keep their own tabbed shell instead. */
   const breadcrumbFilePath = documentTarget?.fileIdentity.path
-    ?? (workColumnPresentation.header.kind === 'document'
-      ? workColumnPresentation.header.document.externalFilePath : null);
+    ?? (mainColumnPresentation.header.kind === 'document'
+      ? mainColumnPresentation.header.document.externalFilePath : null);
   /** The selected notebook is only a root candidate when the file really lives inside it. */
   const selectedNotebookRoot = selectedNotebook?.path && breadcrumbFilePath
     && notebookRelativeDirectoryPath(selectedNotebook.path, breadcrumbFilePath) !== null

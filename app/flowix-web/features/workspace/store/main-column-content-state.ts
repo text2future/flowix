@@ -5,35 +5,35 @@ import { columnNavigation } from './column-navigation';
 import { EMPTY_SESSION_TARGET, type SessionSurfaceTarget } from '../model/session-target';
 import type { SessionNavigationState, SessionNavigationFailure } from '../model/session-navigation';
 
-export type WorkColumnSession
+export type MainColumnSession
   =
   | { kind: 'external'; session: ExternalDocumentSession }
   | { kind: 'agent-conversation'; instanceId: string };
 
-export type WorkColumnContentState
+export type MainColumnContentState
   =
   | { status: 'empty' }
-  | { status: 'ready'; target: SessionSurfaceTarget; session: WorkColumnSession | null }
+  | { status: 'ready'; target: SessionSurfaceTarget; session: MainColumnSession | null }
   | {
       status: 'transitioning';
       from: SessionSurfaceTarget;
       to: SessionSurfaceTarget;
-      session: WorkColumnSession | null;
+      session: MainColumnSession | null;
     }
   | {
       status: 'failed';
       target: SessionSurfaceTarget;
       attemptedTarget: SessionSurfaceTarget;
-      session: WorkColumnSession | null;
+      session: MainColumnSession | null;
       failure: SessionNavigationFailure;
     };
 
-interface WorkColumnDocumentSnapshot {
+interface MainColumnDocumentSnapshot {
   activeExternalSession: ExternalDocumentSession | null;
   activeAgentConversationId: string | null;
 }
 
-function activeSession(document: WorkColumnDocumentSnapshot): WorkColumnSession | null {
+function activeSession(document: MainColumnDocumentSnapshot): MainColumnSession | null {
   if (document.activeExternalSession) {
     return { kind: 'external', session: document.activeExternalSession };
   }
@@ -47,10 +47,10 @@ function activeSession(document: WorkColumnDocumentSnapshot): WorkColumnSession 
  * Read model for a column's content. The session owns target intent and
  * transaction status; DocumentStore owns loaded editable sessions.
  */
-export function resolveWorkColumnContentState(
+export function resolveMainColumnContentState(
   navigation: SessionNavigationState,
-  document: WorkColumnDocumentSnapshot,
-): WorkColumnContentState {
+  document: MainColumnDocumentSnapshot,
+): MainColumnContentState {
   const session = activeSession(document);
   const target = navigation.current?.target ?? EMPTY_SESSION_TARGET;
   const { transaction } = navigation;
@@ -79,6 +79,6 @@ export function resolveWorkColumnContentState(
 }
 
 /** Imperative read entry for use-cases outside React rendering. */
-export function getWorkColumnContentState(): WorkColumnContentState {
-  return resolveWorkColumnContentState(columnNavigation('column-1'), getWorkspaceDocumentState());
+export function getMainColumnContentState(): MainColumnContentState {
+  return resolveMainColumnContentState(columnNavigation('column-1'), getWorkspaceDocumentState());
 }

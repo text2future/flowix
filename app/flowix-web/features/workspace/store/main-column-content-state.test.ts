@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { SessionNavigationFailure, SessionNavigationState } from '../model/session-navigation';
 import type { SessionSurfaceTarget } from '../model/session-target';
-import { resolveWorkColumnContentState } from './work-column-content-state';
+import { resolveMainColumnContentState } from './main-column-content-state';
 
 const emptyDocument = {
   activeExternalSession: null,
@@ -50,9 +50,9 @@ const sessionA = {
   transitionId: 1,
 };
 
-describe('work-column content state', () => {
+describe('main-column content state', () => {
   it('keeps the loaded A session while navigation to B is in progress', () => {
-    const state = resolveWorkColumnContentState(
+    const state = resolveMainColumnContentState(
       navigation(memoA, { phase: 'loading', pendingTarget: memoB, previousTarget: memoA }),
       { ...emptyDocument, activeExternalSession: sessionA },
     );
@@ -72,7 +72,7 @@ describe('work-column content state', () => {
       requestId: 2,
       retryToken: 'retry-b',
     };
-    const state = resolveWorkColumnContentState(
+    const state = resolveMainColumnContentState(
       navigation(memoA, {
         phase: 'failed',
         requestId: 2,
@@ -94,7 +94,7 @@ describe('work-column content state', () => {
   });
 
   it('returns ready only after the target and loaded session are committed', () => {
-    expect(resolveWorkColumnContentState(
+    expect(resolveMainColumnContentState(
       navigation(memoA),
       { ...emptyDocument, activeExternalSession: sessionA },
     )).toEqual({
@@ -108,7 +108,7 @@ describe('work-column content state', () => {
 
 it('reads the Work runtime independently of its layout position', async () => {
   const { useWorkspaceSessionStore } = await import('./workspace-session-store');
-  const { getWorkColumnContentState } = await import('./work-column-content-state');
+  const { getMainColumnContentState } = await import('./main-column-content-state');
   const store = useWorkspaceSessionStore.getState();
   store.reset();
   const work = { kind: 'web' as const, url: 'https://work.example/' };
@@ -116,6 +116,6 @@ it('reads the Work runtime independently of its layout position', async () => {
   store.commitTarget('column-2', { kind: 'web', url: 'https://other.example/' });
   store.swapColumnContents();
   try {
-    expect(getWorkColumnContentState()).toMatchObject({ status: 'ready', target: work });
+    expect(getMainColumnContentState()).toMatchObject({ status: 'ready', target: work });
   } finally { store.reset(); }
 });

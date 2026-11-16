@@ -12,7 +12,7 @@ vi.mock('@features/document/public/workspace-api', () => ({
 vi.mock('@features/memo/public/workspace-api', () => ({
   getWorkspaceMemoState: () => ({ notebooks: [{ id: 'book', path: '/book' }] }),
 }));
-vi.mock('../store/work-column-store', () => ({ useWorkColumnStore: { getState: () => ({ navigation: {
+vi.mock('../store/main-column-store', () => ({ useMainColumnStore: { getState: () => ({ navigation: {
   target: { kind: 'external', path: '/book/a.md', scopePath: '/book', transitionId: 1 },
 } }) } }));
 vi.mock('../store/browser-column-store', () => ({ useBrowserColumnStore: { getState: () => ({ clearExternalPath: mocks.clearBrowser }) } }));

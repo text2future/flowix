@@ -201,8 +201,8 @@ future removal must invert rendering through Shell-owned slots; it must not be
 implemented as a path-only file move.
 
 The remaining Shell-to-Workspace navigation seams use intent-specific public
-contracts. Work-column chrome receives a derived transfer capability rather
-than reading the work-column store. Markdown drag-and-drop calls the public
+contracts. Main-column chrome receives a derived transfer capability rather
+than reading the main-column store. Markdown drag-and-drop calls the public
 browser-column navigation command, while the global search palette uses a
 search-specific navigation entrypoint for notebook and Agent-conversation
 selection. The first two files are fully protected from cross-feature deep

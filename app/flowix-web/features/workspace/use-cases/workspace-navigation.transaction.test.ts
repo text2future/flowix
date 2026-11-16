@@ -1,7 +1,7 @@
 import { openBrowserColumnTarget } from './browser-column-navigation';
 import { useWorkspaceSessionStore } from '../store/workspace-session-store';
 import { navigateWorkspaceSession } from './session-navigation';
-import { seedWorkColumn, seedBrowserColumn } from '@features/workspace/test-support/workspace-fixtures';
+import { seedMainColumn, seedBrowserColumn } from '@features/workspace/test-support/workspace-fixtures';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -96,7 +96,7 @@ vi.mock('@features/memo/public/workspace-api', () => ({
   },
 }));
 
-import { useWorkColumnStore } from '../store/work-column-store';
+import { useMainColumnStore } from '../store/main-column-store';
 import { NavigationCancelledError } from '@/lib/navigation-cancelled-error';
 import { useBrowserColumnStore } from '../store/browser-column-store';
 import { registerWorkspaceSurfaceLifecycle } from '../store/surface-lifecycle-store';
@@ -108,7 +108,7 @@ import {
 } from './workspace-navigation';
 
 function resetWorkspace() {
-  seedWorkColumn({
+  seedMainColumn({
     navigation: {
       phase: 'idle',
       showMainColumnLoading: false,
@@ -168,7 +168,7 @@ describe('workspace navigation transaction', () => {
       await openFolderCollectionChooserTarget({ kind: 'folder-collection', notebookId: 'b', notebookPath: '/b', folderPath: '/b/folder', folderName: 'folder' });
       expect(mocks.memoState.selectedNotebookId).toBe('a');
       expect(mocks.setCurrentNotebook).not.toHaveBeenCalled();
-      expect(useWorkColumnStore.getState().navigation.target).toMatchObject({ kind: 'folder-collection', notebookId: 'b' });
+      expect(useMainColumnStore.getState().navigation.target).toMatchObject({ kind: 'folder-collection', notebookId: 'b' });
     } finally { sessions.reset(); resetWorkspace(); }
   });
 
@@ -211,7 +211,7 @@ describe('workspace navigation transaction', () => {
     expect(mocks.memoState.selectedNotebookId).toBe('b');
     expect(await navigateWorkspaceSession(0, 'back')).toBe(true);
     expect(mocks.memoState.selectedNotebookId).toBe('a');
-    expect(useWorkColumnStore.getState().navigation.target).toMatchObject({ kind: 'external', path: '/a/source.md' });
+    expect(useMainColumnStore.getState().navigation.target).toMatchObject({ kind: 'external', path: '/a/source.md' });
     expect(await navigateWorkspaceSession(0, 'forward')).toBe(true);
     expect(mocks.memoState.selectedNotebookId).toBe('b');
   });
@@ -230,10 +230,10 @@ describe('workspace navigation transaction', () => {
     expect(mocks.memoState.selectedNotebookId).toBe('b');
     expect(await navigateWorkspaceSession(0, 'back')).toBe(true);
     expect(mocks.memoState.selectedNotebookId).toBe('a');
-    expect(useWorkColumnStore.getState().navigation.target).toMatchObject(folder(a));
+    expect(useMainColumnStore.getState().navigation.target).toMatchObject(folder(a));
     expect(await navigateWorkspaceSession(0, 'forward')).toBe(true);
     expect(mocks.memoState.selectedNotebookId).toBe('b');
-    expect(useWorkColumnStore.getState().navigation.target).toMatchObject(folder(b));
+    expect(useMainColumnStore.getState().navigation.target).toMatchObject(folder(b));
     expect(mocks.memoState.loadNotes.mock.calls.map(call => call[0])).toEqual([
       { notebookId: 'b' }, { notebookId: 'a' }, { notebookId: 'b' },
     ]);
@@ -264,7 +264,7 @@ describe('workspace navigation transaction', () => {
     expect(mocks.memoState.selectedNotebookId).toBe('b');
     expect(mocks.memoState.selectedNote).toBeNull();
     expect(mocks.memoState.loadNotes).toHaveBeenCalledWith({ notebookId: 'b' });
-    expect(useWorkColumnStore.getState().navigation.target).toMatchObject(target);
+    expect(useMainColumnStore.getState().navigation.target).toMatchObject(target);
   });
 
   it('restores native selection when a newer navigation returns to the still-selected notebook', async () => {
@@ -311,17 +311,17 @@ describe('workspace navigation transaction', () => {
     expect(mocks.memoState.selectedNotebookId).toBe('a');
     expect(mocks.memoState.selectedNote).toEqual(previousNote);
     expect(mocks.setCurrentNotebook.mock.calls.map(call => call[0])).toEqual(['b', 'a']);
-    expect(useWorkColumnStore.getState().navigation.target.kind).toBe('empty');
+    expect(useMainColumnStore.getState().navigation.target.kind).toBe('empty');
   });
 
   it('retains the previous Work target without a failure or retry action when leaving is refused', async () => {
     const previous = { kind: 'web' as const, url: 'https://example.com' };
-    const work = useWorkColumnStore.getState();
+    const work = useMainColumnStore.getState();
     const requestId = work.beginNavigation(previous, null);
     work.commitNavigation(requestId, previous);
     mocks.openExternalDocument.mockRejectedValueOnce(new NavigationCancelledError('saving could not be retained'));
     await expect(openExternalTarget('/notes/new.md')).rejects.toBeInstanceOf(NavigationCancelledError);
-    expect(useWorkColumnStore.getState().navigation).toMatchObject({
+    expect(useMainColumnStore.getState().navigation).toMatchObject({
       phase: 'committed', target: previous, pendingTarget: null, failure: null, retryToken: null,
     });
   });
@@ -334,7 +334,7 @@ describe('workspace navigation transaction', () => {
     })).rejects.toThrow('external unavailable');
 
     expect(mocks.memoState.selectedNote).toEqual({ notebookId: 'notebook-a', relativePath: 'old.md' });
-    expect(useWorkColumnStore.getState().navigation).toMatchObject({
+    expect(useMainColumnStore.getState().navigation).toMatchObject({
       phase: 'failed',
       pendingTarget: {
         kind: 'external',
@@ -366,7 +366,7 @@ describe('workspace navigation transaction', () => {
     expect(mocks.openExternalDocument).toHaveBeenCalledWith('/notes/a.md', expect.objectContaining({
       scopePath: '/notes', notebookId: 'notebook-a', relativePath: 'a.md', indexable: true,
     }));
-    expect(useWorkColumnStore.getState().navigation.target).toMatchObject({
+    expect(useMainColumnStore.getState().navigation.target).toMatchObject({
       kind: 'external', path: '/notes/a.md', scopePath: '/notes',
     });
   });
@@ -376,7 +376,7 @@ describe('workspace navigation transaction', () => {
       id: 'next-notebook', name: 'Next', path: '/next',
       createdAt: 0, updatedAt: 0, isDefault: false,
     };
-    seedWorkColumn((state) => ({
+    seedMainColumn((state) => ({
       navigation: { ...state.navigation, target: { kind: 'plugin-workbench', plugin: {} as never } },
     }));
     seedBrowserColumn({
@@ -392,7 +392,7 @@ describe('workspace navigation transaction', () => {
 
     expect(mocks.clearDocument).toHaveBeenCalledOnce();
     expect(reset).not.toHaveBeenCalled();
-    expect(useWorkColumnStore.getState().navigation.target).toEqual({ kind: 'empty' });
+    expect(useMainColumnStore.getState().navigation.target).toEqual({ kind: 'empty' });
     expect(useBrowserColumnStore.getState()).toBe(browserBefore);
     expect(flush).not.toHaveBeenCalled();
     registerWorkspaceSurfaceLifecycle('web-tab', null);
@@ -404,7 +404,7 @@ describe('workspace navigation transaction', () => {
     mocks.memoState.selectedNotebook = previous;
     mocks.memoState.selectedNotebookId = previous.id;
     const target = { kind: 'web' as const, url: 'https://old.example' };
-    seedWorkColumn((state) => ({ navigation: { ...state.navigation, target } }));
+    seedMainColumn((state) => ({ navigation: { ...state.navigation, target } }));
     useBrowserColumnStore.getState().openContent({
       id: 'saving-tab', title: 'Saving', icon: null, target,
     });
@@ -419,7 +419,7 @@ describe('workspace navigation transaction', () => {
     expect(mocks.memoState.setSelectedNotebook).not.toHaveBeenCalled();
     expect(mocks.memoState.selectedNote).toEqual({ notebookId: 'notebook-a', relativePath: 'old.md' });
     expect(useBrowserColumnStore.getState()).toBe(browserBefore);
-    expect(useWorkColumnStore.getState().navigation.target).toEqual(target);
+    expect(useMainColumnStore.getState().navigation.target).toEqual(target);
     expect(mocks.clearDocument).toHaveBeenCalledOnce();
   });
 
@@ -440,7 +440,7 @@ describe('workspace navigation transaction', () => {
     expect(mocks.setCurrentNotebook).toHaveBeenCalledExactlyOnceWith('second');
     expect(mocks.memoState.selectedNotebook?.id).toBe('second');
     expect(reset).not.toHaveBeenCalled();
-    expect(useWorkColumnStore.getState().notebookSwitchesInFlight).toBe(0);
+    expect(useMainColumnStore.getState().notebookSwitchesInFlight).toBe(0);
     reset.mockRestore();
   });
 
@@ -468,7 +468,7 @@ describe('workspace navigation transaction', () => {
     await expect(selectNotebook(nextNotebook)).rejects.toThrow('notebook unavailable');
 
     expect(mocks.memoState.selectedNotebook).toEqual(previousNotebook);
-    expect(useWorkColumnStore.getState().navigation).toMatchObject({
+    expect(useMainColumnStore.getState().navigation).toMatchObject({
       phase: 'failed',
       pendingTarget: { kind: 'empty' },
       failure: { message: 'notebook unavailable' },
@@ -505,7 +505,7 @@ describe('workspace navigation transaction', () => {
     expect(mocks.memoState.loadNotes).toHaveBeenCalledWith({
       notebookId: remainingNotebook.id,
     });
-    expect(useWorkColumnStore.getState().navigation).toMatchObject({
+    expect(useMainColumnStore.getState().navigation).toMatchObject({
       phase: 'idle',
       target: { kind: 'empty' },
     });

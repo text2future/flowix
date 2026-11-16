@@ -5,12 +5,12 @@ import { useI18n } from '@/lib/i18n';
 import type { WorkspaceColumnId } from '@features/workspace/public/surface-api';
 
 /**
- * Work-column header button that expands the browser column. It mirrors the
+ * Main-column header button that expands the browser column. It mirrors the
  * collapse button in the browser column header (same `SidebarToggleIconRight`
  * family) and reuses the context menu's `toggleBrowserColumn` action. Hidden
  * once the browser column is open, so the two never appear together.
  */
-export function WorkColumnBrowserExpandButton({ iconButtonClass, columnId = 'column-1' }: { iconButtonClass: string; columnId?: WorkspaceColumnId }) {
+export function BrowserColumnExpandButton({ iconButtonClass, columnId = 'column-1' }: { iconButtonClass: string; columnId?: WorkspaceColumnId }) {
   const { t } = useI18n();
   const environment = useColumnEnvironment();
   const browserColumnVisible = useBrowserColumnVisible();

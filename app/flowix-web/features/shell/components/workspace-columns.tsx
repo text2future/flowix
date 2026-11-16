@@ -15,16 +15,16 @@ import {
 } from '@features/document/public/shell-api';
 import {
   collectionIndexPath,
-  WorkColumnContentHost,
-  type WorkColumnPresentation,
+  MainColumnContentHost,
+  type MainColumnPresentation,
 } from '@features/surface/public/shell-api';
 import type {
   useShellWorkspaceViewModel,
 } from '@features/workspace/public/shell-api';
 import { BROWSER_COLUMN_MIN_WIDTH } from '@features/workspace/public/shell-api';
-import { WorkColumnTitlebar } from './work-column-titlebar';
+import { MainColumnTitlebar } from './main-column-titlebar';
 import { EmptyWorkspaceActions } from './empty-workspace-actions';
-import { WorkColumnSelectionView } from './work-column-selection-view';
+import { ColumnSelectionView } from './column-selection-view';
 import { MainLayoutExportNotice } from './main-layout-export-notice';
 import { MemoListPreviewEdgeTrigger } from './memo-list-preview-edge-trigger';
 import { SurfaceBoundary } from '@shared/surface-boundary';
@@ -51,7 +51,7 @@ const DOCUMENT_PANEL_MIN_WIDTH = BROWSER_COLUMN_MIN_WIDTH;
 
 type WorkspaceNavigation = ReturnType<typeof useShellWorkspaceViewModel>['navigation'];
 
-export interface MainWorkColumnsProps {
+export interface WorkspaceColumnsProps {
   navigationState: WorkspaceNavigation;
   browserColumnVisible: boolean;
   browserColumnLayout: ReturnType<typeof useMainPanelController>['browserColumnLayout'];
@@ -67,7 +67,7 @@ export interface MainWorkColumnsProps {
   accessSpaceSelectionCount: number;
   accessSpaceSelectedPaths: ReturnType<typeof useAccessSpaceSelectedPaths>;
   accessSpaceSelectionContentKinds: ReturnType<typeof useAccessSpaceSelectionContentKinds>;
-  workColumnPresentation: WorkColumnPresentation;
+  mainColumnPresentation: MainColumnPresentation;
   documentTitlebarProps: DocumentTitlebarProps;
   canNavigateBack: boolean;
   canNavigateForward: boolean;
@@ -87,7 +87,7 @@ export interface MainWorkColumnsProps {
  * column. Owns the startup-chunk boundaries for the lazily loaded agent
  * titlebar and browser column.
  */
-export function MainWorkColumns({
+export function WorkspaceColumns({
   navigationState,
   browserColumnVisible,
   browserColumnLayout,
@@ -103,7 +103,7 @@ export function MainWorkColumns({
   accessSpaceSelectionCount,
   accessSpaceSelectedPaths,
   accessSpaceSelectionContentKinds,
-  workColumnPresentation,
+  mainColumnPresentation,
   documentTitlebarProps,
   canNavigateBack,
   canNavigateForward,
@@ -115,13 +115,13 @@ export function MainWorkColumns({
   workSurfaceBlockingLoading,
   notebookSwitching,
   language,
-}: MainWorkColumnsProps) {
+}: WorkspaceColumnsProps) {
   const sessionId = useColumnSessionId('column-1');
   const columnIndex = useColumnIndex('column-1');
   const columnHasSelection = hasMultipleDocumentsSelected && columnIndex === 0;
   const { t } = useI18n();
   // Expand/collapse window for the right column (column-2), driven by the
-  // work-column header toggle. The toggle commit pins the pre-toggle grid
+  // main-column header toggle. The toggle commit pins the pre-toggle grid
   // template (pinStart) so no frame flashes the end layout; the next commit
   // mounts the transition class and interpolates grid-template-columns.
   // Outside the window the templates snap as before (drag resize / viewport
@@ -157,8 +157,8 @@ export function MainWorkColumns({
    * 顶部从标题栏下方经过；隐藏头图后撤掉上移，集合内容从标题栏下方正常开始。
    * 集合内部的吸顶偏移（tab 条 / 表头）引用 `--work-titlebar-h`，随负 margin 一起开关。
    */
-  const collectionPath = collectionIndexPath(workColumnPresentation.content.status === 'surface'
-    ? workColumnPresentation.content.surface : null);
+  const collectionPath = collectionIndexPath(mainColumnPresentation.content.status === 'surface'
+    ? mainColumnPresentation.content.surface : null);
   const collectionBanner = useCollectionBannerControl(collectionPath);
   // Registry 尚未就绪时按默认可见处理，避免集合初次渲染时内容短暂跳位。
   const collectionBannerVisible = !collectionBanner.available || collectionBanner.visible;
@@ -219,19 +219,19 @@ export function MainWorkColumns({
       >
       {/* Fixed top navigation bar */}
       {columnHasSelection ? (
-        <WorkColumnTitlebar
+        <MainColumnTitlebar
           isWindows={isWindowsPlatform()}
           reserveWindowsControls={!browserColumnVisible}
           showTrafficLightSpacer={isMemoListHidden}
         >
           {null}
-        </WorkColumnTitlebar>
-      ) : workColumnPresentation.header.kind === 'agent' ? (
+        </MainColumnTitlebar>
+      ) : mainColumnPresentation.header.kind === 'agent' ? (
         // 占位用同一套 titlebar 容器（含 Windows 控件预留与红绿灯 spacer），
         // 保证 chunk 到达前后没有高度跳变；内容为空即可。
         <Suspense
           fallback={(
-            <WorkColumnTitlebar
+            <MainColumnTitlebar
               isWindows={isWindowsPlatform()}
               reserveWindowsControls={!browserColumnVisible}
               showTrafficLightSpacer={isMemoListHidden}
@@ -239,11 +239,11 @@ export function MainWorkColumns({
               header={resolveWorkspaceHeaderModel({ chrome: 'agent' })}
             >
               {null}
-            </WorkColumnTitlebar>
+            </MainColumnTitlebar>
           )}
         >
           <AgentConversationTitlebar
-            instanceId={workColumnPresentation.header.instanceId}
+            instanceId={mainColumnPresentation.header.instanceId}
             reserveWindowsControls={!browserColumnVisible}
             isMiddleColumnCollapsed={isMemoListHidden}
             onExpandSidebar={handleToggleMemoList}
@@ -261,24 +261,24 @@ export function MainWorkColumns({
 
       {/* Content area */}
       {columnHasSelection && (
-        <WorkColumnSelectionView paths={accessSpaceSelectedPaths} contentKinds={accessSpaceSelectionContentKinds} label={selectionLabel} />
+        <ColumnSelectionView paths={accessSpaceSelectedPaths} contentKinds={accessSpaceSelectionContentKinds} label={selectionLabel} />
       )}
       <div className="relative isolate flex-1 min-w-0 overflow-hidden" hidden={columnHasSelection}
         style={contentHostStyle}>
-        {recentExportPath && workColumnPresentation.header.kind === 'document' && (
+        {recentExportPath && mainColumnPresentation.header.kind === 'document' && (
           <MainLayoutExportNotice
             recentExportPath={recentExportPath}
             onDismiss={onDismissExportNotice}
           />
         )}
         <SurfaceBoundary
-          name="work-column"
+          name="main-column"
           language={language}
           resetKeys={[JSON.stringify(navigationState.target)]}
         >
-          <WorkColumnContentHost
+          <MainColumnContentHost
             webAddressBarVisible={documentTitlebarProps.webAddressBarVisible ?? false}
-            content={workColumnPresentation.content}
+            content={mainColumnPresentation.content}
             focused={!columnHasSelection && focusedColumnId === 'column-1'}
             startupIdentity={JSON.stringify(navigationState.target)}
             renderNoTargetEmpty={() => <EmptyWorkspaceActions columnId="column-1" />}
@@ -316,7 +316,7 @@ export function MainWorkColumns({
             animated={isMemoListAnimating}
             toggleAnimating={browserColumnToggling}
             selectionView={hasMultipleDocumentsSelected && columnIndex === 1
-              ? <WorkColumnSelectionView paths={accessSpaceSelectedPaths} contentKinds={accessSpaceSelectionContentKinds} label={selectionLabel} />
+              ? <ColumnSelectionView paths={accessSpaceSelectedPaths} contentKinds={accessSpaceSelectionContentKinds} label={selectionLabel} />
               : undefined}
           />
           </ColumnProvider>

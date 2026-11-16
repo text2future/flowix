@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { useWorkspaceSessionStore } from '../store/workspace-session-store';
-import { useWorkColumnStore } from '../store/work-column-store';
+import { useMainColumnStore } from '../store/main-column-store';
 import { useBrowserColumnStore } from '../store/browser-column-store';
 import { openSurfaceAtPosition as openAtIndex } from './open-surface-api';
 import { openSurfaceInColumn as openInColumn } from './session-opening-api';
@@ -59,11 +59,11 @@ it('leaves both runtime snapshots and navigation entries intact when indices exc
   const store = useWorkspaceSessionStore.getState();
   store.commitTarget('column-1', target);
   store.commitTarget('column-2', { ...target, url: 'https://other.example/' });
-  const first = useWorkColumnStore.getState();
+  const first = useMainColumnStore.getState();
   const second = useBrowserColumnStore.getState();
   const columns = useWorkspaceSessionStore.getState().sessions;
   store.swapColumnContents();
-  expect(useWorkColumnStore.getState()).toBe(first);
+  expect(useMainColumnStore.getState()).toBe(first);
   expect(useBrowserColumnStore.getState()).toBe(second);
   expect(useWorkspaceSessionStore.getState().sessions).toBe(columns);
 });

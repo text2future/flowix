@@ -28,8 +28,8 @@ vi.mock('../store/browser-column-store', () => ({
   getBrowserColumnEntries: () => mocks.tabs,
   useBrowserColumnStore: { getState: () => ({ updateEntries: vi.fn() }), setState: vi.fn() },
 }));
-vi.mock('../store/work-column-store', () => ({
-  useWorkColumnStore: { getState: () => ({ navigation: { target: { kind: 'external', path: mocks.documentPath }, pendingTarget: null, previousTarget: null } }), setState: vi.fn() },
+vi.mock('../store/main-column-store', () => ({
+  useMainColumnStore: { getState: () => ({ navigation: { target: { kind: 'external', path: mocks.documentPath }, pendingTarget: null, previousTarget: null } }), setState: vi.fn() },
 }));
 vi.mock('../store/workspace-restore-store', () => ({
   useWorkspaceRestoreStore: { getState: () => ({ desiredTarget: null }) },

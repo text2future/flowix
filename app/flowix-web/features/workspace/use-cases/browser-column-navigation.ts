@@ -27,9 +27,9 @@ import {
   enqueueBrowserColumnNavigation,
 } from './browser-column-coordinator';
 import {
-  prepareActiveWorkColumnDocumentLeave,
+  prepareActiveMainColumnDocumentLeave,
 } from './workspace-navigation';
-import { useWorkColumnStore } from '@features/workspace/store/work-column-store';
+import { useMainColumnStore } from '@features/workspace/store/main-column-store';
 
 export type BrowserColumnOpenResult = NonNullable<BrowserColumnNavigationResult>;
 
@@ -161,7 +161,7 @@ export function openBrowserColumnWebpage(url: string): Promise<BrowserColumnOpen
   return openBrowserColumnTarget({ kind: 'web', url: normalized });
 }
 
-/** Open the currently displayed work-column target in the right browser column. */
+/** Open the currently displayed main-column target in the right browser column. */
 export function openSessionTargetInBrowserColumn(
   target: SessionSurfaceTarget,
 ): Promise<BrowserColumnOpenResult | null> {
@@ -198,7 +198,7 @@ export function openSessionTargetInBrowserColumn(
   return enqueueBrowserColumnNavigation(async () => {
     const isStillCurrentTarget = () => {
       const identity = mainColumnTargetIdentity(target);
-      const currentIdentity = mainColumnTargetIdentity(useWorkColumnStore.getState().navigation.target);
+      const currentIdentity = mainColumnTargetIdentity(useMainColumnStore.getState().navigation.target);
       return !!identity && !!currentIdentity
         && contentIdentityKey(identity) === contentIdentityKey(currentIdentity);
     };
@@ -207,7 +207,7 @@ export function openSessionTargetInBrowserColumn(
     }
 
     // This legacy transfer opens the current Work content as a second view.
-    if (target.kind !== 'agent-conversation') await prepareActiveWorkColumnDocumentLeave();
+    if (target.kind !== 'agent-conversation') await prepareActiveMainColumnDocumentLeave();
     if (!isStillCurrentTarget()) return null;
 
     const preparedTarget = await prepareCollectionBrowserTarget(browserTarget);

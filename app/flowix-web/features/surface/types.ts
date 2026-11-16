@@ -13,14 +13,14 @@ import type { WorkspaceSurfaceCapability, SurfaceHeaderStyle, SurfaceEmptyReason
 
 import type { ExternalDocumentProps } from './workspace-surface-renderer-contract';
 
-export type WorkColumnSurfaceCapability = WorkspaceSurfaceCapability;
+export type MainColumnSurfaceCapability = WorkspaceSurfaceCapability;
 
 /** Visual chrome owned by the currently mounted surface. */
-export type WorkColumnSurfaceChrome = SurfaceHeaderStyle;
+export type MainColumnSurfaceChrome = SurfaceHeaderStyle;
 
-export type WorkColumnEmptyReason = Exclude<SurfaceEmptyReason, 'no-content'>;
+export type MainColumnEmptyReason = Exclude<SurfaceEmptyReason, 'no-content'>;
 
-export type WorkColumnEmptyStateTone = 'document' | 'agent';
+export type MainColumnEmptyStateTone = 'document' | 'agent';
 
 interface SurfaceBase {
   instanceKey: string;
@@ -153,7 +153,7 @@ export interface WebSurface extends SurfaceBase {
   url: string;
 }
 
-export type WorkColumnSurface = (
+export type MainColumnSurface = (
   | Extract<import('./browser-column-registry').BrowserColumnSurface, { kind: 'file-browser' }>
   | MDSurface
   | CodeSurface
@@ -176,17 +176,17 @@ export type WorkColumnSurface = (
   | PluginWorkbenchSurface
   | WebSurface) & { sessionEntryId?: string | null };
 
-export type WorkColumnSurfaceKind = WorkColumnSurface['kind'];
+export type MainColumnSurfaceKind = MainColumnSurface['kind'];
 
-export type WorkColumnContentPresentation =
+export type MainColumnContentPresentation =
   | {
       status: 'surface';
-      surface: WorkColumnSurface;
+      surface: MainColumnSurface;
     }
   | {
       status: 'empty';
-      reason: WorkColumnEmptyReason;
-      tone: WorkColumnEmptyStateTone;
+      reason: MainColumnEmptyReason;
+      tone: MainColumnEmptyStateTone;
       message: string;
       actions?: readonly import('@features/workspace/model/surface-contract').SurfaceAction[];
     };
@@ -216,7 +216,7 @@ export interface PluginWorkbenchContext {
   currentNoteContent: string;
 }
 
-export interface ResolveWorkColumnContentInput {
+export interface ResolveMainColumnContentInput {
   navigation: MainColumnNavigationState;
   document?: DocumentSurfaceContext | null;
   pluginWorkbench?: PluginWorkbenchContext | null;

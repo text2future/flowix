@@ -1,7 +1,7 @@
-import { seedWorkColumn } from '@features/workspace/test-support/workspace-fixtures';
+import { seedMainColumn } from '@features/workspace/test-support/workspace-fixtures';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useBrowserColumnStore } from '../store/browser-column-store';
-import { useWorkColumnStore } from '../store/work-column-store';
+import { useMainColumnStore } from '../store/main-column-store';
 import { useWorkspaceFocusStore } from '../store/workspace-focus-store';
 import { useWorkspaceSessionStore } from '../store/workspace-session-store';
 import { openExternallyCreatedNote, openCreatedDocumentFromNotice } from './open-externally-created-note';
@@ -15,13 +15,13 @@ describe('external note creation notifications', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useWorkspaceSessionStore.getState().reset();
-    seedWorkColumn(useWorkColumnStore.getInitialState());
+    seedMainColumn(useMainColumnStore.getInitialState());
     useBrowserColumnStore.getState().reset();
     useWorkspaceFocusStore.getState().reset();
   });
 
   it('keeps Work focus and does not duplicate the document being edited', async () => {
-    const work = useWorkColumnStore.getState();
+    const work = useMainColumnStore.getState();
     const requestId = work.beginNavigation(workTarget, null);
     work.commitNavigation(requestId, workTarget);
     await openExternallyCreatedNote('/notes/Note.md', '/notes', 'nb');
@@ -31,7 +31,7 @@ describe('external note creation notifications', () => {
   });
 
   it('does not steal focus for a document currently being opened in Work', async () => {
-    useWorkColumnStore.getState().beginNavigation(workTarget, null);
+    useMainColumnStore.getState().beginNavigation(workTarget, null);
     await openExternallyCreatedNote('/notes/Note.md', '/notes', 'nb');
     expect(openWorkspaceSurface).not.toHaveBeenCalled();
     expect(useWorkspaceFocusStore.getState().focusedColumnId).toBe('column-1');

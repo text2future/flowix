@@ -103,7 +103,7 @@
 
 /* The fullscreen surface is opaque so wheel hit-testing stays on messages. */
 .agent-thread-card.agent-thread-card--fullscreen {
-  /* Fullscreen is scoped to the work-column document container. Keeping the
+  /* Fullscreen is scoped to the main-column document container. Keeping the
    * card in that containing block makes it follow panel movement when the
    * memo list is shown or hidden. */
   position: fixed;
@@ -153,7 +153,7 @@
   user-select: none;
 }
 
-/* Fullscreen Thread Cards use the work-column titlebar as their chrome, so
+/* Fullscreen Thread Cards use the main-column titlebar as their chrome, so
  * the embedded card header is removed and its grid track is collapsed. */
 .agent-thread-card--fullscreen
   > .agent-thread-card__container {
@@ -290,7 +290,7 @@
   outline: none;
 }
 
-/* The work-column titlebar uses the same input class but is outside
+/* The main-column titlebar uses the same input class but is outside
  * .markdown-editor. Keep the edit affordance explicit so titlebar styles
  * cannot hide the hover/focus background. */
 .agent-thread-card__title-input:hover,

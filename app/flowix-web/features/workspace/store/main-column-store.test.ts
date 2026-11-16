@@ -1,13 +1,13 @@
 import { reserveSessionNavigationIntent } from './session-navigation-intent';
 import { getColumnSessionId } from './workspace-session-store';
-import { seedWorkColumn } from '@features/workspace/test-support/workspace-fixtures';
+import { seedMainColumn } from '@features/workspace/test-support/workspace-fixtures';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { useWorkColumnStore } from './work-column-store';
+import { useMainColumnStore } from './main-column-store';
 
-describe('work-column store', () => {
+describe('main-column store', () => {
   beforeEach(() => {
-    seedWorkColumn({
+    seedMainColumn({
       navigation: {
         phase: 'idle',
         showMainColumnLoading: false,
@@ -22,7 +22,7 @@ describe('work-column store', () => {
   });
 
   it('reserves preflight intent on the transaction revision without changing visible content', () => {
-    const store = useWorkColumnStore.getState();
+    const store = useMainColumnStore.getState();
     const target = { kind: 'web' as const, url: 'https://visible.test' };
     const committed = store.beginNavigation(target, null);
     store.commitNavigation(committed, target);
@@ -30,7 +30,7 @@ describe('work-column store', () => {
     const intent = reserveSessionNavigationIntent(getColumnSessionId('column-1')).requestId;
     expect(store.isCurrentNavigation(oldLoader)).toBe(false);
     expect(store.commitNavigation(oldLoader, { kind: 'empty' })).toBe(false);
-    expect(useWorkColumnStore.getState().navigation).toMatchObject({
+    expect(useMainColumnStore.getState().navigation).toMatchObject({
       requestId: intent, target, phase: 'preparing', pendingTarget: null,
       showMainColumnLoading: false, retryToken: null,
     });
@@ -38,19 +38,19 @@ describe('work-column store', () => {
     expect(store.isCurrentNavigation(intent)).toBe(false);
   });
 
-  it('owns the runtime work-column target independently from restore state', () => {
-    const requestId = useWorkColumnStore.getState().beginNavigation(
+  it('owns the runtime main-column target independently from restore state', () => {
+    const requestId = useMainColumnStore.getState().beginNavigation(
       { kind: 'external', path: '/notebook/readme.md', scopePath: '/notebook', transitionId: null },
       null,
     );
-    useWorkColumnStore.getState().commitNavigation(requestId, {
+    useMainColumnStore.getState().commitNavigation(requestId, {
       kind: 'external',
       path: '/notebook/readme.md',
       scopePath: '/notebook',
       transitionId: 3,
     });
 
-    expect(useWorkColumnStore.getState().navigation).toEqual({
+    expect(useMainColumnStore.getState().navigation).toEqual({
       phase: 'committed',
       showMainColumnLoading: false,
       requestId,
@@ -73,36 +73,36 @@ describe('work-column store', () => {
       path: '/notes/drafts/a.md', scopePath: '/notes', transitionId: null,
       fileBrowser: { folderPath: '/notes/drafts', notebookId: 'book', scopePath: '/notes', fileTreeVisible: true, fileTreeWidth: 220 },
     };
-    seedWorkColumn((state) => ({ navigation: { ...state.navigation, target } }));
-    useWorkColumnStore.getState().replaceExternalPath('/notes/drafts/a.md', '/notes/done/a.md');
-    expect(useWorkColumnStore.getState().navigation.target).toMatchObject({
+    seedMainColumn((state) => ({ navigation: { ...state.navigation, target } }));
+    useMainColumnStore.getState().replaceExternalPath('/notes/drafts/a.md', '/notes/done/a.md');
+    expect(useMainColumnStore.getState().navigation.target).toMatchObject({
       path: '/notes/done/a.md', fileBrowser: { folderPath: '/notes/done' },
     });
   });
 
   it('ignores stale commits and preserves the committed target while loading', () => {
-    const first = useWorkColumnStore.getState().beginNavigation({ kind: 'web', url: 'https://one.test' }, null);
-    useWorkColumnStore.getState().commitNavigation(first, { kind: 'web', url: 'https://one.test' });
-    const second = useWorkColumnStore.getState().beginNavigation({ kind: 'empty' }, null);
+    const first = useMainColumnStore.getState().beginNavigation({ kind: 'web', url: 'https://one.test' }, null);
+    useMainColumnStore.getState().commitNavigation(first, { kind: 'web', url: 'https://one.test' });
+    const second = useMainColumnStore.getState().beginNavigation({ kind: 'empty' }, null);
 
-    expect(useWorkColumnStore.getState().navigation).toMatchObject({
+    expect(useMainColumnStore.getState().navigation).toMatchObject({
       phase: 'loading',
       requestId: second,
       target: { kind: 'web', url: 'https://one.test' },
     });
-    expect(useWorkColumnStore.getState().commitNavigation(first, { kind: 'empty' })).toBe(false);
-    expect(useWorkColumnStore.getState().navigation.phase).toBe('loading');
+    expect(useMainColumnStore.getState().commitNavigation(first, { kind: 'empty' })).toBe(false);
+    expect(useMainColumnStore.getState().navigation.phase).toBe('loading');
   });
 
   it('can run a transaction without visually blocking the current surface', () => {
-    const requestId = useWorkColumnStore.getState().beginNavigation(
+    const requestId = useMainColumnStore.getState().beginNavigation(
       { kind: 'web', url: 'https://one.test' },
       null,
       true,
       false,
     );
 
-    expect(useWorkColumnStore.getState().navigation).toMatchObject({
+    expect(useMainColumnStore.getState().navigation).toMatchObject({
       requestId,
       phase: 'loading',
       showMainColumnLoading: false,
@@ -110,29 +110,29 @@ describe('work-column store', () => {
   });
 
   it('does not publish a creation reveal policy from failed or superseded navigation', () => {
-    const store = useWorkColumnStore.getState();
+    const store = useMainColumnStore.getState();
     const created = {
       kind: 'external' as const, path: '/notes/new.md', scopePath: '/notes',
       transitionId: null, treeReveal: 'created-note' as const,
     };
     const failedId = store.beginNavigation(created, null);
     store.failNavigation(failedId, new Error('open failed'));
-    expect(useWorkColumnStore.getState().navigation.target).toEqual({ kind: 'empty' });
+    expect(useMainColumnStore.getState().navigation.target).toEqual({ kind: 'empty' });
     const staleId = store.beginNavigation(created, null);
     const ordinary = { kind: 'external' as const, path: '/notes/other.md', scopePath: '/notes', transitionId: null };
     const currentId = store.beginNavigation(ordinary, null);
     expect(store.commitNavigation(staleId, created)).toBe(false);
     expect(store.commitNavigation(currentId, ordinary)).toBe(true);
-    expect(useWorkColumnStore.getState().navigation.target).toEqual(ordinary);
+    expect(useMainColumnStore.getState().navigation.target).toEqual(ordinary);
   });
 
   it('records the latest navigation failure without discarding the last surface', () => {
-    const requestId = useWorkColumnStore.getState().beginNavigation({ kind: 'web', url: 'https://one.test' }, 'retry-1');
-    useWorkColumnStore.getState().commitNavigation(requestId, { kind: 'web', url: 'https://one.test' });
-    const retryId = useWorkColumnStore.getState().beginNavigation({ kind: 'empty' }, 'retry-2');
+    const requestId = useMainColumnStore.getState().beginNavigation({ kind: 'web', url: 'https://one.test' }, 'retry-1');
+    useMainColumnStore.getState().commitNavigation(requestId, { kind: 'web', url: 'https://one.test' });
+    const retryId = useMainColumnStore.getState().beginNavigation({ kind: 'empty' }, 'retry-2');
 
-    expect(useWorkColumnStore.getState().failNavigation(retryId, new Error('save refused'))).toBe(true);
-    expect(useWorkColumnStore.getState().navigation).toEqual({
+    expect(useMainColumnStore.getState().failNavigation(retryId, new Error('save refused'))).toBe(true);
+    expect(useMainColumnStore.getState().navigation).toEqual({
       phase: 'failed',
       showMainColumnLoading: false,
       requestId: retryId,
@@ -150,22 +150,22 @@ describe('work-column store', () => {
   });
 
   it('dismisses a failure while retaining the last committed target', () => {
-    const committedId = useWorkColumnStore.getState().beginNavigation(
+    const committedId = useMainColumnStore.getState().beginNavigation(
       { kind: 'web', url: 'https://one.test' },
       null,
     );
-    useWorkColumnStore.getState().commitNavigation(
+    useMainColumnStore.getState().commitNavigation(
       committedId,
       { kind: 'web', url: 'https://one.test' },
     );
-    const failedId = useWorkColumnStore.getState().beginNavigation(
+    const failedId = useMainColumnStore.getState().beginNavigation(
       { kind: 'empty' },
       'retry-dismiss',
     );
-    useWorkColumnStore.getState().failNavigation(failedId, new Error('failed'));
+    useMainColumnStore.getState().failNavigation(failedId, new Error('failed'));
 
-    expect(useWorkColumnStore.getState().dismissNavigationFailure()).toBe('retry-dismiss');
-    expect(useWorkColumnStore.getState().navigation).toMatchObject({
+    expect(useMainColumnStore.getState().dismissNavigationFailure()).toBe('retry-dismiss');
+    expect(useMainColumnStore.getState().navigation).toMatchObject({
       phase: 'committed',
       target: { kind: 'web', url: 'https://one.test' },
       pendingTarget: null,

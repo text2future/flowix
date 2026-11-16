@@ -1,9 +1,9 @@
-import { seedWorkColumn } from '@features/workspace/test-support/workspace-fixtures';
+import { seedMainColumn } from '@features/workspace/test-support/workspace-fixtures';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CodeSurfaceFileBrowser } from './work-file-browser-view';
-import { useWorkColumnStore } from '@features/workspace/store/work-column-store';
+import { useMainColumnStore } from '@features/workspace/store/main-column-store';
 import { openSurfaceAtPosition } from '@features/workspace/public/open-surface-api';
 import { openSurfaceInColumn as openSessionSurface } from '@features/workspace/public/session-opening-api';
 import type { CodeSurfaceFileTree } from './code-surface-view';
@@ -16,12 +16,12 @@ vi.mock('./code-surface-view', () => ({ CodeSurfaceView: ({ fileTree }: { fileTr
   <button onClick={() => fileTree.onOpenFileInNewTab('/book/report.docx')}>browser</button>
 </> }));
 
-const initial = useWorkColumnStore.getState();
+const initial = useMainColumnStore.getState();
 let root: Root;
 let host: HTMLDivElement;
 beforeEach(async () => {
   vi.clearAllMocks();
-  seedWorkColumn({ navigation: { ...initial.navigation, phase: 'committed', target: {
+  seedMainColumn({ navigation: { ...initial.navigation, phase: 'committed', target: {
     kind: 'external', path: '/book/main.ts', scopePath: '/book', transitionId: null,
   } } });
   host = document.createElement('div');
@@ -31,7 +31,7 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   await act(async () => root.unmount());
-  seedWorkColumn(initial, true);
+  seedMainColumn(initial, true);
 });
 
 describe('Work file tree open destination', () => {

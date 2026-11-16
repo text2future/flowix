@@ -1,10 +1,10 @@
 import { setCollectionActiveView } from '@features/workspace/use-cases/collection-view-state';
 import { externalFileViewKind } from '@features/editor/public/code-file';
-import type { WorkColumnSurface } from './types';
+import type { MainColumnSurface } from './types';
 import type { WorkspaceSurfaceRendererData } from './workspace-surface-renderer-contract';
 
 /** Convert Work's navigation discriminants to the canonical renderer input. */
-export function workspaceSurfaceRendererDataFromWorkSurface(surface: WorkColumnSurface): WorkspaceSurfaceRendererData {
+export function workspaceSurfaceRendererDataFromWorkSurface(surface: MainColumnSurface): WorkspaceSurfaceRendererData {
   switch (surface.kind) {
     case 'file-browser': return { kind: 'file-browser', props: surface };
     case 'folder-collection': return { kind: 'collection', notebookId: surface.notebookId,

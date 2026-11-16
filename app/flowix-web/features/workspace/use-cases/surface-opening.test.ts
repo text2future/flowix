@@ -1,6 +1,6 @@
 import { canSwapSessions } from '../model/column-swap';
 import { getColumnSessionId, useWorkspaceSessionStore } from '../store/workspace-session-store';
-import { seedWorkColumn } from '@features/workspace/test-support/workspace-fixtures';
+import { seedMainColumn } from '@features/workspace/test-support/workspace-fixtures';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock('./workspace-navigation', () => ({
   openExternalTarget: mocks.openWork,
-  prepareActiveWorkColumnDocumentLeave: mocks.prepareDocumentLeave,
+  prepareActiveMainColumnDocumentLeave: mocks.prepareDocumentLeave,
   openCollectionTarget: vi.fn(),
   openMediaLibraryTarget: vi.fn(), openMediaTarget: vi.fn(),
   openPluginWorkbench: vi.fn(), openTableTarget: vi.fn(), openWebTarget: vi.fn(),
@@ -42,7 +42,7 @@ describe('public surface opening host contract', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useWorkspaceSessionStore.getState().reset();
-    seedWorkColumn({ navigation: {
+    seedMainColumn({ navigation: {
       phase: 'idle', requestId: 0, target: { kind: 'empty' }, pendingTarget: null,
       previousTarget: null, showMainColumnLoading: false, failure: null, retryToken: null,
     } });

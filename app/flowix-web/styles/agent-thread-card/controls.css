@@ -274,7 +274,7 @@ html[data-platform="mac"] .agent-thread-card__body-frame > .agent-thread-card__b
   padding-inline: 0;
 }
 
-/* 全屏 Thread Card 的 header 会被移到 work-column titlebar, 因此消息
+/* 全屏 Thread Card 的 header 会被移到 main-column titlebar, 因此消息
  * body 是 grid 的第一块可见区域。复用独立 Agent 对话的顶部滚动提示：
  * sticky 伪元素不会增加布局高度，只有 body 已向下滚动时才显示，避免
  * 在消息区顶部制造一条常驻分隔线。 */
@@ -375,7 +375,7 @@ html[data-platform="mac"] .agent-thread-card__body-frame > .agent-thread-card__b
   cursor: default;
 }
 
-/* The exit action lives in the work-column titlebar while an embedded card
+/* The exit action lives in the main-column titlebar while an embedded card
  * is fullscreen. Keep the card's own entry/exit control for inline mode and
  * avoid rendering a duplicate exit button in the fullscreen card header. */
 .flowix-main-layout .agent-thread-card--fullscreen .agent-thread-card__fullscreen,

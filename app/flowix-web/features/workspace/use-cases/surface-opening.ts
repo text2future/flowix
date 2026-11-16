@@ -12,7 +12,7 @@ export type * from '../model/surface-opening';
 export type { WorkspaceSurfaceOpenTarget, CollectionReferenceSurfaceTarget } from '../model/surface-target';
 import { contentIdentityKey } from '../model/surface-identity';
 import type { ContentIdentity } from '../model/surface-identity';
-import { useWorkColumnStore } from '../store/work-column-store';
+import { useMainColumnStore } from '../store/main-column-store';
 import type { WorkspaceColumnId, WorkspaceSurfaceKind } from '../surface-registry';
 import { workspaceColumnIndexOf } from '../surface-registry';
 import { collections, notebooks } from '@platform/tauri/client';
@@ -35,7 +35,7 @@ import {
   openPluginWorkbench,
   openContentleTarget,
   openWebTarget,
-  prepareActiveWorkColumnDocumentLeave,
+  prepareActiveMainColumnDocumentLeave,
   openWorkFileBrowserTarget,
 } from './workspace-navigation';
 import { selectAndOpenAgentConversation } from './agent-conversation-navigation';
@@ -196,10 +196,10 @@ async function openBrowserTarget(
   assertHostSupport(browserTargetSurfaceKind(target), 'column-2');
   if (target.kind !== 'agent-conversation') {
     const requestedIdentity = sessionTargetIdentity(target);
-    const activeWorkIdentity = mainColumnTargetIdentity(useWorkColumnStore.getState().navigation.target);
+    const activeWorkIdentity = mainColumnTargetIdentity(useMainColumnStore.getState().navigation.target);
     if (requestedIdentity && activeWorkIdentity
       && contentIdentityKey(activeWorkIdentity) === contentIdentityKey(requestedIdentity)) {
-      await prepareActiveWorkColumnDocumentLeave();
+      await prepareActiveMainColumnDocumentLeave();
     }
   }
   const result = await openBrowserColumnTarget(target, options);
@@ -291,12 +291,12 @@ async function performWorkspaceSurfaceOpen(
     }
   }
   if (!workIntentCurrent()) return cancelWork('superseded');
-  const previousWorkTarget = useWorkColumnStore.getState().navigation.target;
+  const previousWorkTarget = useMainColumnStore.getState().navigation.target;
   const pluginWasOpen = target.kind === 'plugin-workbench'
     && previousWorkTarget.kind === 'plugin-workbench'
     && previousWorkTarget.plugin.manifest.id === target.plugin.manifest.id;
   const finishWorkOpen = (): WorkWorkspaceOpenResult => {
-    const navigationTarget = useWorkColumnStore.getState().navigation.target;
+    const navigationTarget = useMainColumnStore.getState().navigation.target;
     const pluginMatches = target.kind === 'plugin-workbench'
       && navigationTarget.kind === 'plugin-workbench'
       && navigationTarget.plugin.manifest.id === target.plugin.manifest.id;

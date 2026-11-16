@@ -167,7 +167,7 @@ function tearDownLocalThreadState(set: SessionSet, threadId: string): void {
   });
 }
 
-/** Close the work-column conversation view when its underlying thread is
+/** Close the main-column conversation view when its underlying thread is
  * torn down, so the titlebar unmounts before the next render. */
 function closeConversationIfActive(threadId: string, get: SessionGet): void {
   const doc = useDocumentStore.getState();
@@ -211,7 +211,7 @@ export function createThreadLifecycleSlice(
     get().invalidateThread(threadId);
     try {
     // Provider action must succeed before touching local state. Keeping the
-    // cleanup out of `finally` prevents the work-column conversation from
+    // cleanup out of `finally` prevents the main-column conversation from
     // disappearing while archive/delete is still pending or has failed.
     if (action === "archive") {
       await agentClient.archiveAgentThread(typeKey.id, threadId);

@@ -1,9 +1,9 @@
 import { beforeEach, expect, it } from 'vitest';
 import { ensureFileDisplayIdentity } from '@/lib/file-display-registry';
-import { resolveWorkColumnPresentation } from '@features/surface/presentation';
+import { resolveMainColumnPresentation } from '@features/surface/presentation';
 import { resolveSessionDocumentContext } from './session-document-context';
 import { useWorkspaceSessionStore } from '../store/workspace-session-store';
-import { useWorkColumnStore } from '../store/work-column-store';
+import { useMainColumnStore } from '../store/main-column-store';
 
 beforeEach(() => useWorkspaceSessionStore.getState().reset());
 it('renders A after swapping it back while the singleton runtime still belongs to C', () => {
@@ -17,13 +17,13 @@ it('renders A after swapping it back while the singleton runtime still belongs t
   store.commitTarget('column-2', c);
   store.swapColumnContents();
   const loadedC = { fileIdentity: identityC, scopePath: '/book', transitionId: 2, openedAt: 0 };
-  const navigation = useWorkColumnStore.getState().navigation;
+  const navigation = useMainColumnStore.getState().navigation;
   const document = resolveSessionDocumentContext(navigation.target, loadedC, [{ id: 'book', path: '/book' }])!;
   expect(document.fileIdentity).toEqual(identityA);
   expect(document.notebookId).toBe('book');
   expect(document.relativePath).toBe('a.md');
   expect(document).not.toBe(loadedC);
-  const presentation = resolveWorkColumnPresentation({ navigation, emptyMessage: 'empty', document: {
+  const presentation = resolveMainColumnPresentation({ navigation, emptyMessage: 'empty', document: {
     identity: { kind: 'external', fileIdentity: document.fileIdentity, scopePath: document.scopePath,
       indexable: document.indexable, transitionId: 1 },
     instanceKey: document.fileIdentity.displayId,

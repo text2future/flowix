@@ -4,7 +4,7 @@ import { useWorkspaceRestoreStore } from '../store/workspace-restore-store';
 import { ensureCollectionDisplayTrackingStarted } from './collection-display-tracking';
 import { reconcileFileDisplays } from '@/lib/file-display-registry';
 import { useBrowserColumnStore } from '@features/workspace/store/browser-column-store';
-import { useWorkColumnStore } from '@features/workspace/store/work-column-store';
+import { useMainColumnStore } from '@features/workspace/store/main-column-store';
 import { getWorkspaceDocumentPaths, subscribeWorkspaceDocumentPaths } from '@features/document/public/workspace-api';
 
 /** Keep one runtime identity while an open document session or surface owns a local file. */
@@ -15,7 +15,7 @@ function startFileDisplayTracking(): () => void {
       if (!path) return;
       files.set(path, { path });
     };
-    const navigation = useWorkColumnStore.getState().navigation;
+    const navigation = useMainColumnStore.getState().navigation;
     const workTargets = [
       navigation.target,
       navigation.phase === 'loading' ? navigation.pendingTarget : null,
@@ -47,7 +47,7 @@ function startFileDisplayTracking(): () => void {
     reconcileCollectionDisplays(retained);
   };
 
-  const unsubscribeWorkColumn = useWorkColumnStore.subscribe(synchronize);
+  const unsubscribeMainColumn = useMainColumnStore.subscribe(synchronize);
   const unsubscribeBrowserColumn = useBrowserColumnStore.subscribe(synchronize);
   const unsubscribeHistory = subscribeWorkspaceDocumentHistory(synchronize);
   const unsubscribeRestore = useWorkspaceRestoreStore.subscribe(synchronize);
@@ -55,7 +55,7 @@ function startFileDisplayTracking(): () => void {
   synchronize();
 
   return () => {
-    unsubscribeWorkColumn();
+    unsubscribeMainColumn();
     unsubscribeBrowserColumn();
     unsubscribeDocument();
     unsubscribeHistory();

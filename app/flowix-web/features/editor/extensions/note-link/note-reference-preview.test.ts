@@ -1,17 +1,17 @@
-import { seedWorkColumn, seedBrowserColumn } from '@features/workspace/test-support/workspace-fixtures';
+import { seedMainColumn, seedBrowserColumn } from '@features/workspace/test-support/workspace-fixtures';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { Editor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import { notes } from '@platform/tauri/client';
 import { useNoteStore, type Notebook } from '@features/memo/store/note-store';
 import { useBrowserColumnStore } from '@features/workspace/store/browser-column-store';
-import { useWorkColumnStore } from '@features/workspace/store/work-column-store';
+import { useMainColumnStore } from '@features/workspace/store/main-column-store';
 import { useWorkspaceFocusStore } from '@features/workspace/store/workspace-focus-store';
 import { resetBrowserColumnCoordinator } from '@features/workspace/use-cases/browser-column-coordinator';
 import { ComposerNoteReference } from './view-note';
 
 const initialNotes = useNoteStore.getState();
-const initialWorkColumn = useWorkColumnStore.getState();
+const initialMainColumn = useMainColumnStore.getState();
 const initialBrowserColumn = useBrowserColumnStore.getState();
 const initialFocus = useWorkspaceFocusStore.getState();
 let editor: Editor | null = null;
@@ -24,7 +24,7 @@ afterEach(() => {
   document.body.replaceChildren();
   resetBrowserColumnCoordinator();
   useNoteStore.setState(initialNotes);
-  seedWorkColumn(initialWorkColumn);
+  seedMainColumn(initialMainColumn);
   seedBrowserColumn(initialBrowserColumn);
   useWorkspaceFocusStore.setState(initialFocus);
   vi.restoreAllMocks();
@@ -39,9 +39,9 @@ it('opens the referenced note from its composer preview while a conversation is 
   useBrowserColumnStore.getState().reset();
   resetBrowserColumnCoordinator();
   const conversation = { kind: 'agent-conversation' as const, instanceId: 'current-conversation' };
-  seedWorkColumn({
+  seedMainColumn({
     navigation: {
-      ...initialWorkColumn.navigation,
+      ...initialMainColumn.navigation,
       phase: 'committed', target: conversation,
     },
   });
@@ -78,7 +78,7 @@ it('opens the referenced note from its composer preview while a conversation is 
       kind: 'file-browser', activeFilePath: '/notes/Projects/Plan.md', scopePath: '/notes',
     });
   });
-  expect(useWorkColumnStore.getState().navigation.target).toEqual(conversation);
+  expect(useMainColumnStore.getState().navigation.target).toEqual(conversation);
   expect(document.querySelector<HTMLElement>('.agent-composer__note-reference-preview')?.hidden).toBe(true);
 
   card.click();
@@ -86,7 +86,7 @@ it('opens the referenced note from its composer preview while a conversation is 
   openButton.click();
   await vi.waitFor(() => expect(document.querySelector<HTMLElement>('.agent-composer__note-reference-preview')?.hidden).toBe(true));
   expect(useBrowserColumnStore.getState().current).not.toBeNull();
-  expect(useWorkColumnStore.getState().navigation.target).toEqual(conversation);
+  expect(useMainColumnStore.getState().navigation.target).toEqual(conversation);
 });
 
 it('keeps the current note (and its embedded conversation) in the work column', async () => {
@@ -102,9 +102,9 @@ it('keeps the current note (and its embedded conversation) in the work column', 
   const currentNote = {
     kind: 'external' as const, path: '/notes/Projects/Plan.md', scopePath: '/notes', transitionId: null,
   };
-  seedWorkColumn({
+  seedMainColumn({
     navigation: {
-      ...initialWorkColumn.navigation,
+      ...initialMainColumn.navigation,
       phase: 'committed', target: currentNote,
     },
   });
@@ -137,5 +137,5 @@ it('keeps the current note (and its embedded conversation) in the work column', 
     expect(useBrowserColumnStore.getState().current).not.toBeNull();
   });
   // The work column must not be emptied by opening the same note on the right.
-  expect(useWorkColumnStore.getState().navigation.target).toEqual(currentNote);
+  expect(useMainColumnStore.getState().navigation.target).toEqual(currentNote);
 });

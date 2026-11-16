@@ -13,7 +13,7 @@ import { WorkspaceHeaderShell } from './workspace-header-shell';
 import { WorkspaceHeaderBreadcrumb, type WorkspaceHeaderBreadcrumbItem } from './workspace-header-breadcrumb';
 import { WorkspaceHeaderIdentity } from './workspace-header-identity';
 import { WorkspaceHeaderNavigation } from './workspace-header-navigation';
-import { WorkColumnBrowserExpandButton } from './work-column-browser-expand-button';
+import { BrowserColumnExpandButton } from './browser-column-expand-button';
 
 export interface WorkspaceHeaderProps {
   /** Stable runtime namespace; physical placement comes from ColumnEnvironment. */
@@ -52,7 +52,7 @@ export function WorkspaceHeader({ columnId, isWindows, presentation, sidebar, na
 }: WorkspaceHeaderProps) {
   const { fullscreen, model: header } = useWorkspaceHeader(columnId, presentation);
   const iconButtonClass = `${TITLEBAR_ICON_BUTTON_CLASS} [-webkit-app-region:no-drag]`;
-  const expandButton = <WorkColumnBrowserExpandButton columnId={columnId} iconButtonClass={iconButtonClass} />;
+  const expandButton = <BrowserColumnExpandButton columnId={columnId} iconButtonClass={iconButtonClass} />;
   return <WorkspaceColumnContextMenu isWindows={isWindows} onCreateNote={onCreateNote}
     onCreateAgentConversation={onCreateAgentConversation} columnId={columnId}>
     <WorkspaceHeaderShell as="header" isWindows={isWindows} header={header}

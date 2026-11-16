@@ -1,4 +1,4 @@
-import { seedWorkColumn } from '@features/workspace/test-support/workspace-fixtures';
+import { seedMainColumn } from '@features/workspace/test-support/workspace-fixtures';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PluginDescriptor } from '@platform/tauri/client';
 import type { SessionSurfaceTarget } from '../model/session-target';
@@ -71,8 +71,8 @@ vi.mock('@platform/tauri/client', () => ({
   notebooks: { setCurrent: mocks.setCurrentNotebook },
 }));
 
-vi.mock('@features/workspace/store/work-column-store', () => ({
-  useWorkColumnStore: {
+vi.mock('@features/workspace/store/main-column-store', () => ({
+  useMainColumnStore: {
     getState: () => ({
       navigation: { phase: 'committed', showMainColumnLoading: false, requestId: mocks.navigationRevision, target: mocks.navigationTarget, pendingTarget: null, previousTarget: null, failure: null, retryToken: null },
       beginNavigation: mocks.beginNavigation,
@@ -184,7 +184,7 @@ describe('workspace navigation', () => {
     const { notes } = await import('@platform/tauri/client');
     const { openExternalTarget } = await import('./workspace-navigation');
     const opening = openExternalTarget('/new.md', { destination: 'column-1' });
-    // Markdown opens without the blocking work-column loader.
+    // Markdown opens without the blocking main-column loader.
     expect(mocks.beginNavigation).toHaveBeenCalledWith(
       expect.objectContaining({ kind: 'external', path: '/new.md' }), expect.any(String), false, false,
     );
@@ -198,13 +198,13 @@ describe('workspace navigation', () => {
   it('keeps A selected when B metadata resolves after the user clicks back to A', async () => {
     const { notes } = await import('@platform/tauri/client');
     const { openExternalTarget } = await import('./workspace-navigation');
-    const { useWorkColumnStore: mockedStore } = await import('../store/work-column-store');
-    const { useWorkColumnStore: realStore } = await vi.importActual<typeof import('../store/work-column-store')>(
-      '../store/work-column-store',
+    const { useMainColumnStore: mockedStore } = await import('../store/main-column-store');
+    const { useMainColumnStore: realStore } = await vi.importActual<typeof import('../store/main-column-store')>(
+      '../store/main-column-store',
     );
     const previousState = realStore.getState();
     const getState = vi.spyOn(mockedStore, 'getState').mockImplementation(realStore.getState);
-    seedWorkColumn({ navigation: {
+    seedMainColumn({ navigation: {
       phase: 'committed', showMainColumnLoading: false, requestId: 10,
       target: { kind: 'external', path: '/A.md', scopePath: null, transitionId: null },
       pendingTarget: null, previousTarget: null, failure: null, retryToken: null,
@@ -234,7 +234,7 @@ describe('workspace navigation', () => {
       finishB?.();
       await openingB;
       getState.mockRestore();
-      seedWorkColumn(previousState, true);
+      seedMainColumn(previousState, true);
       if (previousResolveLocation) vi.mocked(notes.resolveLocation).mockImplementation(previousResolveLocation);
     }
   });

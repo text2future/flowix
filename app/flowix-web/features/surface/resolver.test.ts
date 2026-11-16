@@ -4,12 +4,12 @@ import type {
   ExternalDocumentProps,
   DocumentSurfaceContext,
   MDSurface,
-  ResolveWorkColumnContentInput,
-  WorkColumnSurface,
+  ResolveMainColumnContentInput,
+  MainColumnSurface,
 } from './types';
 import type { SessionSurfaceTarget } from '@features/workspace/public/session-api';
 import type { MainColumnNavigationState } from '@features/workspace/public/shell-api';
-import { resolveWorkColumnContent } from './resolver';
+import { resolveMainColumnContent } from './resolver';
 import { ensureFileDisplayIdentity } from '@/lib/file-display-registry';
 
 function markdownSurface(options: {
@@ -83,8 +83,8 @@ function navigation(target: SessionSurfaceTarget | MainColumnNavigationState) {
       };
 }
 
-function surfaceFrom(input: ResolveWorkColumnContentInput): WorkColumnSurface {
-  const content = resolveWorkColumnContent(input);
+function surfaceFrom(input: ResolveMainColumnContentInput): MainColumnSurface {
+  const content = resolveMainColumnContent(input);
   if (content.status !== 'surface') throw new Error(`Expected surface, received ${content.status}`);
   return content.surface;
 }
@@ -154,7 +154,7 @@ describe('surface resolvers', () => {
       navigation: navigation({ kind: 'web', url: 'https://example.com' }),
       emptyMessage: 'empty',
     }).kind).toBe('web');
-    expect(resolveWorkColumnContent({ navigation: navigation({ kind: 'empty' }), emptyMessage: 'empty' })).toEqual({
+    expect(resolveMainColumnContent({ navigation: navigation({ kind: 'empty' }), emptyMessage: 'empty' })).toEqual({
       status: 'empty',
       message: 'empty',
       reason: 'no-target',

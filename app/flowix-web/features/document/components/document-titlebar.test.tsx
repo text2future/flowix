@@ -10,7 +10,7 @@ import { registerCollectionBannerControl } from '@/lib/collection-banner-visibil
 
 const mocks = vi.hoisted(() => ({ hideBrowser: vi.fn(), transfer: vi.fn(), commandOptions: vi.fn(), copyFullText: vi.fn() }));
 vi.mock('@features/workspace/public/shell-api', () => ({
-  useWorkColumnTransferViewModel: () => ({ canOpenInBrowserColumn: true, openInBrowserColumn: mocks.transfer }),
+  useMainColumnTransferViewModel: () => ({ canOpenInBrowserColumn: true, openInBrowserColumn: mocks.transfer }),
 }));
 vi.mock('@features/workspace/public/browser-column-api', () => ({ hideBrowserColumn: mocks.hideBrowser, toggleBrowserColumn: mocks.hideBrowser, useBrowserColumnVisible: () => true, useCanSwapColumnContents: () => false, swapColumnContents: vi.fn() }));
 vi.mock('@/lib/i18n', async (importOriginal) => ({
@@ -65,7 +65,7 @@ for (const [platform, Titlebar] of [['mac', DocumentTitlebarMac], ['windows', Do
     it('layers the preview color under the existing gradient and clears it on navigation', async () => {
       props.headerBackgroundColor = 'rgb(17, 34, 51)';
       await act(async () => root.render(<Titlebar {...props} />));
-      const header = container.querySelector<HTMLElement>('.work-column-titlebar')!;
+      const header = container.querySelector<HTMLElement>('.main-column-titlebar')!;
       expect(header.style.backgroundColor).toBe('rgb(17, 34, 51)');
       expect(header.style.backgroundImage).toBe('var(--titlebar-gradient)');
       props.headerBackgroundColor = null;
@@ -88,7 +88,7 @@ for (const [platform, Titlebar] of [['mac', DocumentTitlebarMac], ['windows', Do
       expect(path).not.toBeNull();
       // The hidden measurement layer repeats every label, so read the visible row only.
       expect(path.querySelector(':scope > span:not([aria-hidden])')!.textContent).toBe('书籍2026a');
-      expect(path.closest('.work-column-titlebar')).not.toBeNull();
+      expect(path.closest('.main-column-titlebar')).not.toBeNull();
       expect(container.textContent).not.toContain('note A');
       expect(container.querySelector('[aria-label="document.titlebar.back"]')).not.toBeNull();
     });

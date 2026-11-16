@@ -4,7 +4,7 @@ export {
   clearPluginWorkbenchTarget,
   closeAgentTarget,
   dismissNavigationFailure,
-  prepareActiveWorkColumnDocumentLeave,
+  prepareActiveMainColumnDocumentLeave,
   openFolderCollection,
   openFolderCollectionFromFolder,
   reconcileDeletedNotebook,

@@ -3,7 +3,7 @@
 import { resolveSessionDocumentContext } from '@features/workspace/public/session-runtime-api';
 
 import { MainListColumnSection } from './components/main-list-column-section';
-import { MainWorkColumns } from './components/main-work-columns';
+import { WorkspaceColumns } from './components/workspace-columns';
 import { MainLayoutStartupFailureOverlay } from './components/main-layout-startup-failure-overlay';
 
 import { setMemoListViewPreference, useMemoListViewPreference } from '@features/preferences/public/runtime-api';
@@ -39,7 +39,7 @@ import { useMainMiddleColumnController } from '@features/shell/hooks/use-main-mi
 import { useMainPanelController } from '@features/shell/hooks/use-main-panel-controller';
 import { useExternalFileDeletion } from '@features/shell/hooks/use-external-file-deletion';
 import { useMediaActions } from '@features/shell/hooks/use-media-actions';
-import { useWorkColumnPresentation } from '@features/shell/hooks/use-work-column-presentation';
+import { useMainColumnPresentation } from '@features/shell/hooks/use-main-column-presentation';
 import { useDocumentTitlebarProps } from '@features/shell/hooks/use-document-titlebar-props';
 import { useProductIntro } from '@features/shell/hooks/use-product-intro';
 import { useI18n } from '@/lib/i18n';
@@ -352,7 +352,7 @@ export function MainLayout({
     return () => window.removeEventListener('flowix:view-source-mode', handleViewSource);
   }, [handleViewSourceMode]);
 
-  const workColumnDocument: DocumentSurfaceContext | null = currentDocumentPath && currentFileIdentity
+  const mainColumnDocument: DocumentSurfaceContext | null = currentDocumentPath && currentFileIdentity
     ? activeExternalSession ? {
           identity: {
             kind: 'external' as const,
@@ -381,22 +381,22 @@ export function MainLayout({
         } : null
     : null;
   const {
-    workColumnPresentation,
+    mainColumnPresentation,
     workRuntimePresentation,
     workSurfaceBlockingLoading,
     workCapabilities,
     workHeaderStyle,
     isAgentConversationDetail,
-  } = useWorkColumnPresentation({
+  } = useMainColumnPresentation({
     navigation: navigationState,
     selectedNotebook,
-    workColumnDocument,
+    mainColumnDocument,
     activePlugin,
     currentDocumentPath,
     currentDocumentContentRef,
   });
   const documentTitlebarProps = useDocumentTitlebarProps({
-    workColumnPresentation,
+    mainColumnPresentation,
     workRuntimePresentation,
     workCapabilities,
     workHeaderStyle,
@@ -465,7 +465,7 @@ export function MainLayout({
             shouldRenderAgentConversationList={shouldRenderAgentConversationList}
             agentConversationListNode={agentConversationListNode}
           />
-          <MainWorkColumns
+          <WorkspaceColumns
             navigationState={navigationState}
             browserColumnVisible={browserColumnVisible}
             browserColumnLayout={browserColumnLayout}
@@ -481,7 +481,7 @@ export function MainLayout({
             accessSpaceSelectionCount={accessSpaceSelectionCount}
             accessSpaceSelectedPaths={accessSpaceSelectedPaths}
             accessSpaceSelectionContentKinds={accessSpaceSelectionContentKinds}
-            workColumnPresentation={workColumnPresentation}
+            mainColumnPresentation={mainColumnPresentation}
             documentTitlebarProps={documentTitlebarProps}
             canNavigateBack={canNavigateBack}
             canNavigateForward={canNavigateForward}
