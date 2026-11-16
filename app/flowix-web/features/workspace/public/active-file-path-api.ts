@@ -10,9 +10,9 @@
  */
 import { useBrowserColumnStore } from '../store/browser-column-store';
 import { useColumnTarget } from '../store/column-navigation';
-import type { WorkColumnTarget } from '../store/work-column-target';
+import type { SessionSurfaceTarget } from '../model/session-target';
 
-function filePath(target: WorkColumnTarget): string | null {
+function filePath(target: SessionSurfaceTarget): string | null {
   if (target.kind === 'external') return target.path;
   if (target.kind === 'file-browser') return target.activeFilePath;
   if (target.kind === 'media') return target.filePath;

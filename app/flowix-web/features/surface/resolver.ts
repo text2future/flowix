@@ -15,7 +15,7 @@ import type {
   WorkColumnEmptyStateTone,
   WorkColumnSurface,
 } from './types';
-import type { WorkColumnTarget } from '@features/workspace/store/work-column-target';
+import type { SessionSurfaceTarget } from '@features/workspace/public/session-api';
 import { requireFileDisplayIdentity } from '@/lib/file-display-registry';
 import { resetCurrentCollectionView } from '@features/workspace/public/collection-navigation-api';
 import { toast } from '@/lib/toast';
@@ -80,7 +80,7 @@ function resolveExternalDocumentSurface(
 }
 
 function resolveMediaTargetContent(
-  target: Extract<WorkColumnTarget, { kind: 'media' }>,
+  target: Extract<SessionSurfaceTarget, { kind: 'media' }>,
 ): WorkColumnContentPresentation {
   const filePath = target.filePath.trim();
   if (!filePath || !target.notebookPath?.trim()) {
@@ -106,7 +106,7 @@ function sameTransition(left: number | null | undefined, right: number | null): 
 }
 
 function isExternalDocumentContext(
-  target: Extract<WorkColumnTarget, { kind: 'external' }>,
+  target: Extract<SessionSurfaceTarget, { kind: 'external' }>,
   document: DocumentSurfaceContext,
 ): document is Extract<DocumentSurfaceContext, { identity: { kind: 'external' } }> {
   if (!('documentProps' in document) || document.identity.kind !== 'external') return false;
@@ -122,14 +122,14 @@ function isExternalDocumentContext(
 }
 
 function isPluginWorkbenchContext(
-  target: Extract<WorkColumnTarget, { kind: 'plugin-workbench' }>,
+  target: Extract<SessionSurfaceTarget, { kind: 'plugin-workbench' }>,
   context: PluginWorkbenchContext,
 ): boolean {
   return context.plugin.manifest.id === target.plugin.manifest.id;
 }
 
-function resolveWorkColumnTarget(
-  target: WorkColumnTarget,
+function resolveSessionTarget(
+  target: SessionSurfaceTarget,
   input: Pick<ResolveWorkColumnContentInput, 'document' | 'pluginWorkbench' | 'emptyMessage'>,
 ): WorkColumnContentPresentation {
   if ((target.kind === 'collection' || target.kind === 'table' || target.kind === 'media-library') && target.unavailableReason) {
@@ -225,7 +225,7 @@ function resolveWorkColumnTarget(
 export function resolveWorkColumnContent(
   input: ResolveWorkColumnContentInput,
 ): WorkColumnContentPresentation {
-  const content = resolveWorkColumnTarget(input.navigation.target, input);
+  const content = resolveSessionTarget(input.navigation.target, input);
   const sessionEntryId = primaryEntryIdForTarget(input.navigation.target);
   return content.status === 'surface' && sessionEntryId ? { ...content, surface: { ...content.surface, sessionEntryId } } : content;
 }

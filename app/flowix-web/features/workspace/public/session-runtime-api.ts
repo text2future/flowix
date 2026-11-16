@@ -20,7 +20,7 @@ export function updatePrimaryFileBrowserContext(expected: FileBrowserTarget, pat
 }
 
 /** Rendering keys are session-owned, so changing a URL never remounts its WebView. */
-export function primarySurfaceInstanceId(target: import('../store/work-column-target').WorkColumnTarget, fallback: string): string {
+export function primarySurfaceInstanceId(target: import('../model/session-target').SessionSurfaceTarget, fallback: string): string {
   const current = sessionFor(useWorkspaceSessionStore.getState(), 'column-1').navigation.current;
   return current?.target === target ? current.id : fallback;
 }
@@ -44,11 +44,11 @@ export function updatePrimarySurfaceMetadata(entryId: string | null, metadata: {
 }
 
 /** Bind at resolution time so a retained renderer never adopts a newer entry. */
-export function primaryEntryIdForTarget(target: import('../store/work-column-target').WorkColumnTarget): string | null {
+export function primaryEntryIdForTarget(target: import('../model/session-target').SessionSurfaceTarget): string | null {
   const current = sessionFor(useWorkspaceSessionStore.getState(), 'column-1').navigation.current;
   return current && sessionTargetKey(current.target) === sessionTargetKey(target) ? current.id : null;
 }
 
 export { resolveSessionDocumentContext } from '../use-cases/session-document-context';
 
-export { updateWorkColumnTargets } from '../store/session-mutations';
+export { updateMainColumnTargets } from '../store/session-mutations';

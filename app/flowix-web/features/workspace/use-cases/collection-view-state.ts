@@ -1,4 +1,4 @@
-import { updateWorkColumnTargets } from '../store/session-mutations';
+import { updateMainColumnTargets } from '../store/session-mutations';
 import { ensureCollectionDisplay, type CollectionDisplayDescriptor } from '@/lib/collection-display-registry';
 import { useWorkColumnStore } from '../store/work-column-store';
 import { useWorkspaceRestoreStore } from '../store/workspace-restore-store';
@@ -21,7 +21,7 @@ export function setCollectionActiveView(
     ensureCollectionDisplay({ ...target, viewId }, target.displayId);
     const { unavailableReason: _reason, ...rest } = target;
     const next = { ...rest, viewId };
-    updateWorkColumnTargets((current) => current === target ? next : current);
+    updateMainColumnTargets((current) => current === target ? next : current);
     useWorkspaceRestoreStore.getState().setDesiredTarget(next);
     return true;
   }

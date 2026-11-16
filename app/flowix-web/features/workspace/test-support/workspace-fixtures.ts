@@ -14,7 +14,7 @@ export function seedWorkColumn(input: WorkFixture | ((state: WorkColumnStore) =>
   const patch = typeof input === 'function' ? input(previous) : input;
   const next = { ...previous, ...patch };
   useWorkspaceSessionStore.getState().updateSession(getColumnSessionId('column-1'), (session) => {
-    const { target, showWorkColumnLoading, ...transaction } = next.navigation;
+    const { target, showMainColumnLoading, ...transaction } = next.navigation;
     const before = session.navigation.current;
     const same = before && sessionTargetKey(before.target) === sessionTargetKey(target);
     const current = target.kind === 'empty' ? null : {
@@ -22,7 +22,7 @@ export function seedWorkColumn(input: WorkFixture | ((state: WorkColumnStore) =>
       title: same ? before.title : '', icon: same ? before.icon : null, openedAt: same ? before.openedAt : 0,
     };
     return { ...session, notebookSwitchesInFlight: next.notebookSwitchesInFlight,
-      navigation: { ...session.navigation, current, transaction: { ...transaction, showBlockingLoading: showWorkColumnLoading } } };
+      navigation: { ...session.navigation, current, transaction: { ...transaction, showBlockingLoading: showMainColumnLoading } } };
   });
 }
 export function seedBrowserColumn(input: BrowserFixture | ((state: ReturnType<typeof useBrowserColumnStore.getState>) => BrowserFixture)) {

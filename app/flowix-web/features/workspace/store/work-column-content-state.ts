@@ -2,9 +2,8 @@ import type { ExternalDocumentSession } from '@features/document/public/workspac
 import { getWorkspaceDocumentState } from '@features/document/public/workspace-api';
 
 import { columnNavigation } from './column-navigation';
-import { EMPTY_WORK_COLUMN_TARGET, type WorkColumnTarget } from './work-column-target';
-import type { SessionNavigationState } from '../model/session-navigation';
-import type { WorkColumnNavigationFailure } from './work-column-target';
+import { EMPTY_SESSION_TARGET, type SessionSurfaceTarget } from '../model/session-target';
+import type { SessionNavigationState, SessionNavigationFailure } from '../model/session-navigation';
 
 export type WorkColumnSession
   =
@@ -14,19 +13,19 @@ export type WorkColumnSession
 export type WorkColumnContentState
   =
   | { status: 'empty' }
-  | { status: 'ready'; target: WorkColumnTarget; session: WorkColumnSession | null }
+  | { status: 'ready'; target: SessionSurfaceTarget; session: WorkColumnSession | null }
   | {
       status: 'transitioning';
-      from: WorkColumnTarget;
-      to: WorkColumnTarget;
+      from: SessionSurfaceTarget;
+      to: SessionSurfaceTarget;
       session: WorkColumnSession | null;
     }
   | {
       status: 'failed';
-      target: WorkColumnTarget;
-      attemptedTarget: WorkColumnTarget;
+      target: SessionSurfaceTarget;
+      attemptedTarget: SessionSurfaceTarget;
       session: WorkColumnSession | null;
-      failure: WorkColumnNavigationFailure;
+      failure: SessionNavigationFailure;
     };
 
 interface WorkColumnDocumentSnapshot {
@@ -53,7 +52,7 @@ export function resolveWorkColumnContentState(
   document: WorkColumnDocumentSnapshot,
 ): WorkColumnContentState {
   const session = activeSession(document);
-  const target = navigation.current?.target ?? EMPTY_WORK_COLUMN_TARGET;
+  const target = navigation.current?.target ?? EMPTY_SESSION_TARGET;
   const { transaction } = navigation;
 
   if (transaction.phase === 'loading' && transaction.pendingTarget) {

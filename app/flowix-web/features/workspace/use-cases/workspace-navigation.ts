@@ -36,8 +36,7 @@ import {
   type Notebook,
 } from '@features/memo/public/workspace-api';
 import { useWorkColumnStore } from '@features/workspace/store/work-column-store';
-import { EMPTY_WORK_COLUMN_TARGET, workColumnTargetFilePath, workColumnTargetShowsBlockingLoading } from '@features/workspace/store/work-column-target';
-import type { WorkColumnTarget } from '@features/workspace/store/work-column-target';
+import { EMPTY_SESSION_TARGET, sessionTargetFilePath, sessionTargetShowsBlockingLoading, type SessionSurfaceTarget } from '../model/session-target';
 import type { FolderCollectionSurfaceTarget } from '../model/surface-target';
 import type { LegacyFolderListTarget } from '../model/legacy-folder-list';
 import {
@@ -130,7 +129,7 @@ function activateExistingContentForNavigation(
 function pendingExternalTarget(
   path: string | null,
   options?: OpenExternalTargetOptions,
-): WorkColumnTarget {
+): SessionSurfaceTarget {
   return {
     kind: 'external',
     path: path ?? '',
@@ -140,7 +139,7 @@ function pendingExternalTarget(
   };
 }
 
-function pendingMediaTarget(params: OpenMediaTargetParams): WorkColumnTarget {
+function pendingMediaTarget(params: OpenMediaTargetParams): SessionSurfaceTarget {
   const resourceKind = params.resourceKind ?? resourceKindFromPath(params.filePath);
   if (resourceKind !== 'image' && resourceKind !== 'video') {
     throw new Error(`Unsupported media resource: ${params.filePath}`);
@@ -155,10 +154,10 @@ function pendingMediaTarget(params: OpenMediaTargetParams): WorkColumnTarget {
 }
 
 function beginNavigation(
-  pendingTarget: WorkColumnTarget,
+  pendingTarget: SessionSurfaceTarget,
   retry: RetryAction | null,
   preservePreviousTarget = false,
-  showWorkColumnLoading = true,
+  showMainColumnLoading = true,
 ): number {
   const previousRetryToken = useWorkColumnStore.getState().navigation.retryToken;
   if (previousRetryToken) retryActions.delete(previousRetryToken);
@@ -168,7 +167,7 @@ function beginNavigation(
     pendingTarget,
     retryToken,
     preservePreviousTarget,
-    showWorkColumnLoading,
+    showMainColumnLoading,
   );
   if (retryToken && retry) retryActions.set(retryToken, retry);
   return requestId;
@@ -176,7 +175,7 @@ function beginNavigation(
 
 function commitNavigation(
   requestId: number,
-  target: WorkColumnTarget,
+  target: SessionSurfaceTarget,
   history: 'push' | 'skip' = 'skip',
 ): boolean {
   const state = useWorkColumnStore.getState();
@@ -288,7 +287,7 @@ export async function openCollectionTarget(
     || findCollectionDisplayPath(descriptor.displayId)
     || (previousTarget.kind === 'collection' && previousTarget.notebookId === notebookId && previousTarget.collectionId === collectionId
       ? previousTarget.filePath : '');
-  const placeholder: Extract<WorkColumnTarget, { kind: 'collection' }> = {
+  const placeholder: Extract<SessionSurfaceTarget, { kind: 'collection' }> = {
     kind: 'collection', ...descriptor, filePath: knownPath, notebookPath: canonicalDirectoryPath(notebook.path), collectionType: 'table', name: '正在打开集合',
   };
   const requestId = beginNavigation(placeholder, null, false, false);
@@ -322,7 +321,7 @@ export async function openCollectionTarget(
       restoreRequestId: requestId,
     });
   }
-  const target: Extract<WorkColumnTarget, { kind: 'collection' }> = {
+  const target: Extract<SessionSurfaceTarget, { kind: 'collection' }> = {
     kind: 'collection', ...descriptor, filePath, notebookPath: canonicalDirectoryPath(notebook.path),
     collectionType: item?.collectionType ?? 'table', name: item?.name ?? '集合不可用',
     ...(unavailableReason ? { unavailableReason } : {}),
@@ -411,7 +410,7 @@ async function openCollectionFileDirectly(
   unavailableReason?: string,
   history: 'push' | 'skip' = 'skip',
 ): Promise<void> {
-  const target: WorkColumnTarget = type === 'table'
+  const target: SessionSurfaceTarget = type === 'table'
     ? { kind: 'table', filePath, notebookPath, notebookId, ...(unavailableReason ? { unavailableReason } : {}) }
     : type === 'media_library'
       ? { kind: 'media-library', filePath, notebookPath, notebookId, ...(unavailableReason ? { unavailableReason } : {}) }
@@ -565,15 +564,15 @@ function isCurrentNavigation(requestId: number): boolean {
 }
 
 async function runNavigation(
-  pendingTarget: WorkColumnTarget,
+  pendingTarget: SessionSurfaceTarget,
   operation: (requestId: number) => Promise<void>,
   retry: RetryAction,
   rollback?: (requestId: number) => Promise<void>,
   preservePreviousTarget = false,
-  showWorkColumnLoading = workColumnTargetShowsBlockingLoading(pendingTarget),
+  showMainColumnLoading = sessionTargetShowsBlockingLoading(pendingTarget),
 ): Promise<void> {
   const requestId = beginNavigation(
-    pendingTarget, retry, preservePreviousTarget, showWorkColumnLoading,
+    pendingTarget, retry, preservePreviousTarget, showMainColumnLoading,
   );
   try {
     if (!isCurrentNavigation(requestId)) return;
@@ -608,8 +607,8 @@ function captureDocumentSnapshot(): DocumentSnapshot {
   return { activeExternalSession, activeAgentConversationId };
 }
 
-export function historyEntryFromWorkColumnTarget(
-  target: WorkColumnTarget,
+export function historyEntryFromSessionTarget(
+  target: SessionSurfaceTarget,
 ): DocumentHistoryEntry | null {
   switch (target.kind) {
     case 'file-browser': return { ...target, openedAt: Date.now() };
@@ -720,7 +719,7 @@ export async function selectNotebook(
 
   try {
     await runNavigation(
-      EMPTY_WORK_COLUMN_TARGET,
+      EMPTY_SESSION_TARGET,
       async (requestId) => {
         if (!isCurrentNavigation(requestId)) return;
         await getWorkspaceDocumentState().clearDocument();
@@ -729,7 +728,7 @@ export async function selectNotebook(
 
         await notebookScope.switchTo(notebook.id, requestId, notebook);
         if (!isCurrentNavigation(requestId)) return;
-        commitNavigation(requestId, EMPTY_WORK_COLUMN_TARGET);
+        commitNavigation(requestId, EMPTY_SESSION_TARGET);
       },
       () => selectNotebook(notebook),
       async (requestId) => {
@@ -893,7 +892,7 @@ export async function openExternalTarget(
       if (!useWorkColumnStore.getState().isCurrentNavigation(requestId)) return;
       const scopePath = options?.scopePath ? canonicalPath(options.scopePath) : null;
       if (path === null && !getWorkspaceDocumentState().activeExternalSession) {
-        commitNavigation(requestId, EMPTY_WORK_COLUMN_TARGET);
+        commitNavigation(requestId, EMPTY_SESSION_TARGET);
       } else if (!publishExternalTargetIfCurrent(
         requestId,
         path,
@@ -978,7 +977,7 @@ export async function openWebTarget(
     return existing;
   }
 
-  const target: WorkColumnTarget = { kind: 'web', url: normalized };
+  const target: SessionSurfaceTarget = { kind: 'web', url: normalized };
   await runNavigation(
     target,
     async (requestId) => {
@@ -1064,7 +1063,7 @@ export async function openAgentTarget(
 
 export async function clearWorkspaceDocument(): Promise<void> {
   await runNavigation(
-    EMPTY_WORK_COLUMN_TARGET,
+    EMPTY_SESSION_TARGET,
     async (requestId) => {
       await getWorkspaceDocumentState().clearDocument();
       if (!useWorkColumnStore.getState().isCurrentNavigation(requestId)) return;
@@ -1072,7 +1071,7 @@ export async function clearWorkspaceDocument(): Promise<void> {
       if (document.activeExternalSession || document.activeAgentConversationId) {
         throw new Error('Document session was not cleared');
       }
-      commitNavigation(requestId, EMPTY_WORK_COLUMN_TARGET);
+      commitNavigation(requestId, EMPTY_SESSION_TARGET);
     },
     () => clearWorkspaceDocument(),
   );
@@ -1092,8 +1091,8 @@ function clearSelectedWorkspaceNoteIf(matchesPath: (path: string) => boolean): v
 export async function clearWorkspaceTargetForDeletedFile(filePath: string): Promise<boolean> {
   clearSelectedWorkspaceNoteIf((selectedPath) => samePath(selectedPath, filePath));
 
-  const matchesPath = (target: WorkColumnTarget | null | undefined) => {
-    const path = target ? workColumnTargetFilePath(target) : null;
+  const matchesPath = (target: SessionSurfaceTarget | null | undefined) => {
+    const path = target ? sessionTargetFilePath(target) : null;
     return Boolean(path && samePath(path, filePath));
   };
   const restoreStore = useWorkspaceRestoreStore.getState();
@@ -1130,10 +1129,10 @@ export async function clearWorkspaceTargetsForDeletedDirectory(directoryPath: st
   const navigation = useWorkColumnStore.getState().navigation;
   clearSelectedWorkspaceNoteIf(isInsideDeletedDirectory);
 
-  const workTargetIsInside = (target: WorkColumnTarget | null) => {
+  const workTargetIsInside = (target: SessionSurfaceTarget | null) => {
     if (!target) return false;
     if (target.kind === 'folder-collection') return isInsideDeletedDirectory(target.folderPath);
-    return isInsideDeletedDirectory(workColumnTargetFilePath(target));
+    return isInsideDeletedDirectory(sessionTargetFilePath(target));
   };
   const targetIsInside = workTargetIsInside(navigation.target);
   const pendingTargetIsInside = workTargetIsInside(navigation.pendingTarget);
@@ -1214,10 +1213,10 @@ export function closeAgentTarget(): void {
   const workspace = useWorkColumnStore.getState();
   const wasActive = !!getWorkspaceDocumentState().activeAgentConversationId
     || workspace.navigation.target.kind === 'agent-conversation';
-  const requestId = wasActive ? beginNavigation(EMPTY_WORK_COLUMN_TARGET, null) : null;
+  const requestId = wasActive ? beginNavigation(EMPTY_SESSION_TARGET, null) : null;
   getWorkspaceDocumentState().closeAgentConversation();
   if (requestId !== null && !getWorkspaceDocumentState().activeAgentConversationId) {
-    commitNavigation(requestId, EMPTY_WORK_COLUMN_TARGET);
+    commitNavigation(requestId, EMPTY_SESSION_TARGET);
   }
 }
 
@@ -1229,8 +1228,8 @@ export function closeAgentTarget(): void {
 export function clearPluginWorkbenchTarget(): boolean {
   const workspace = useWorkColumnStore.getState();
   if (workspace.navigation.target.kind !== 'plugin-workbench') return false;
-  const requestId = beginNavigation(EMPTY_WORK_COLUMN_TARGET, null);
-  commitNavigation(requestId, EMPTY_WORK_COLUMN_TARGET);
+  const requestId = beginNavigation(EMPTY_SESSION_TARGET, null);
+  commitNavigation(requestId, EMPTY_SESSION_TARGET);
   return true;
 }
 
@@ -1256,13 +1255,13 @@ export async function closePluginWorkbench(): Promise<boolean> {
   const previousTarget = workspace.navigation.target;
   if (previousTarget.kind !== 'plugin-workbench') return false;
   await runNavigation(
-    EMPTY_WORK_COLUMN_TARGET,
+    EMPTY_SESSION_TARGET,
     async (requestId) => {
       await getWorkspaceDocumentState().clearDocument();
       if (!useWorkColumnStore.getState().isCurrentNavigation(requestId)) return;
       getWorkspaceMemoState().setActivePluginId(null);
       if (!isCurrentNavigation(requestId)) return;
-      commitNavigation(requestId, EMPTY_WORK_COLUMN_TARGET);
+      commitNavigation(requestId, EMPTY_SESSION_TARGET);
     },
     () => closePluginWorkbench().then(() => undefined),
   );
@@ -1285,7 +1284,7 @@ export async function reconcileDeletedNotebook(
 
   const nextNotebook = notebooks[0] ?? null;
   const reconcile = () => runNavigation(
-    EMPTY_WORK_COLUMN_TARGET,
+    EMPTY_SESSION_TARGET,
     async (requestId) => {
       // Apply the replacement list and fallback selection atomically. This
       // prevents the main-window notebook sync effect from observing a brief
@@ -1304,7 +1303,7 @@ export async function reconcileDeletedNotebook(
         if (!isCurrentNavigation(requestId)) return;
       } else {
       }
-      commitNavigation(requestId, EMPTY_WORK_COLUMN_TARGET);
+      commitNavigation(requestId, EMPTY_SESSION_TARGET);
     },
     reconcile,
   );

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { SessionNavigationFailure, SessionNavigationState } from '../model/session-navigation';
-import type { WorkColumnTarget } from './work-column-target';
+import type { SessionSurfaceTarget } from '../model/session-target';
 import { resolveWorkColumnContentState } from './work-column-content-state';
 
 const emptyDocument = {
@@ -10,7 +10,7 @@ const emptyDocument = {
 };
 
 function navigation(
-  target: WorkColumnTarget,
+  target: SessionSurfaceTarget,
   overrides: Partial<SessionNavigationState['transaction']> = {},
 ): SessionNavigationState {
   return {
@@ -32,14 +32,14 @@ function navigation(
   };
 }
 
-const memoA: WorkColumnTarget = {
+const memoA: SessionSurfaceTarget = {
   kind: 'external',
   path: '/notes/a.md',
   scopePath: '/notes',
   transitionId: 1,
 };
 
-const memoB: WorkColumnTarget = { ...memoA, path: '/notes/b.md', transitionId: null };
+const memoB: SessionSurfaceTarget = { ...memoA, path: '/notes/b.md', transitionId: null };
 
 const sessionA = {
   fileIdentity: { displayId: 'display-a', path: '/notes/a.md' },

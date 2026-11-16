@@ -10,7 +10,7 @@ function resetWorkspace() {
   seedWorkColumn({
     navigation: {
       phase: 'idle',
-      showWorkColumnLoading: false,
+      showMainColumnLoading: false,
       requestId: 0,
       target: { kind: 'empty' },
       pendingTarget: null,
@@ -21,7 +21,7 @@ function resetWorkspace() {
   });
 }
 
-function commitWorkColumnTarget(target: Parameters<ReturnType<typeof useWorkColumnStore.getState>['beginNavigation']>[0]) {
+function commitSessionTarget(target: Parameters<ReturnType<typeof useWorkColumnStore.getState>['beginNavigation']>[0]) {
   const store = useWorkColumnStore.getState();
   const requestId = store.beginNavigation(target, null);
   store.commitNavigation(requestId, target);
@@ -34,7 +34,7 @@ describe('workspace content activation', () => {
   });
 
   it('focuses the third column when the memo is already its active target', () => {
-    commitWorkColumnTarget({
+    commitSessionTarget({
       kind: 'external',
       path: '/notes/a.md',
       scopePath: '/notes',
@@ -107,7 +107,7 @@ describe('workspace content activation', () => {
   });
 
   it('prefers the third column when legacy state contains the target twice', () => {
-    commitWorkColumnTarget({ kind: 'agent-conversation', instanceId: 'agent-a' });
+    commitSessionTarget({ kind: 'agent-conversation', instanceId: 'agent-a' });
     useBrowserColumnStore.getState().openContent({
       id: 'agent:agent-a',
       title: 'Agent A',

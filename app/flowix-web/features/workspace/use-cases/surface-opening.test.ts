@@ -26,7 +26,7 @@ vi.mock('./browser-column-navigation', () => ({
 vi.mock('./prepare-browser-document-for-work', () => ({ flushBrowserViewBeforeOpeningWork: mocks.flushBrowser }));
 vi.mock('./agent-conversation-navigation', () => ({ selectAndOpenAgentConversation: vi.fn() }));
 vi.mock('./workspace-content-activation', () => ({
-  workColumnTargetIdentity: () => mocks.workIdentity,
+  mainColumnTargetIdentity: () => mocks.workIdentity,
   findWorkspaceContentLocations: () => ({ browserColumn: null }),
   findWorkspaceContentForNavigation: (identity: { kind: 'external'; path: string }) =>
     mocks.workIdentity?.path === identity.path ? { host: 'column-1', state: 'active' } : null,
@@ -44,7 +44,7 @@ describe('public surface opening host contract', () => {
     useWorkspaceSessionStore.getState().reset();
     seedWorkColumn({ navigation: {
       phase: 'idle', requestId: 0, target: { kind: 'empty' }, pendingTarget: null,
-      previousTarget: null, showWorkColumnLoading: false, failure: null, retryToken: null,
+      previousTarget: null, showMainColumnLoading: false, failure: null, retryToken: null,
     } });
     mocks.prepareDocumentLeave.mockResolvedValue(undefined);
     mocks.flushBrowser.mockReset().mockResolvedValue(true);

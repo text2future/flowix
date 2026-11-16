@@ -1,4 +1,4 @@
-import { updateWorkColumnTargets } from '../store/session-mutations';
+import { updateMainColumnTargets } from '../store/session-mutations';
 import { canonicalPath } from '@/lib/path';
 import { findFileDisplayId, listFileDisplayIdentities, suspendFileDisplayReconciliation } from '@/lib/file-display-registry';
 import { rebaseWorkspaceDocumentLinkSources, getWorkspaceDocumentState, getWorkspaceDocumentHistory, replaceWorkspaceDocumentHistoryPath } from '@features/document/public/workspace-api';
@@ -64,7 +64,7 @@ export async function applyNotebookPathMove(input: {
     const pendingTarget = navigation.pendingTarget ? rebase(navigation.pendingTarget) : null;
     const previousTarget = navigation.previousTarget ? rebase(navigation.previousTarget) : null;
     if (target !== navigation.target || pendingTarget !== navigation.pendingTarget || previousTarget !== navigation.previousTarget) {
-      updateWorkColumnTargets(rebase);
+      updateMainColumnTargets(rebase);
     }
     const browser = useBrowserColumnStore.getState();
     browser.updateEntries((tab) => {

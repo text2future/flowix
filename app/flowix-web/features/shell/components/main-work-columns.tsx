@@ -285,7 +285,7 @@ export function MainWorkColumns({
           />
         </SurfaceBoundary>
         {(workSurfaceBlockingLoading
-          || (navigationState.phase === 'loading' && navigationState.showWorkColumnLoading)) && (
+          || (navigationState.phase === 'loading' && navigationState.showMainColumnLoading)) && (
           <CenteredLoadingSpinner
             className="pointer-events-none absolute inset-0 z-40"
             label={notebookSwitching ? t('memo.navigation.preparingNotebook') : undefined}

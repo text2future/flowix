@@ -1,18 +1,23 @@
 import { ensureCollectionDisplay, findCollectionDisplayPath } from '@/lib/collection-display-registry';
 import type { DocumentHistoryEntry } from '../model/legacy-document-history';
 import type { BrowserColumnEntry, BrowserColumnSessionState, BrowserViewTarget } from '../model/browser-column-session';
-import type { SessionNavigationEntry, SessionCurrentEntry } from '../model/session-navigation';
+import type { SessionNavigationEntry, SessionCurrentEntry, SessionNavigationTransaction } from '../model/session-navigation';
 import type { WorkspaceSurfaceOpenTarget } from '../model/surface-target';
-import type { WorkColumnNavigationState } from './work-column-target';
-import { EMPTY_WORK_COLUMN_TARGET } from './work-column-target';
+import { EMPTY_SESSION_TARGET, type SessionSurfaceTarget } from '../model/session-target';
 import type { WorkspaceSession } from '../model/workspace-session';
+
+/** Main-column navigation read model: the transaction plus its resolved target. */
+export interface MainColumnNavigationState extends Omit<SessionNavigationTransaction, 'showBlockingLoading'> {
+  showMainColumnLoading: boolean;
+  target: SessionSurfaceTarget;
+}
 
 const documentToSession = new WeakMap<object, SessionNavigationEntry>();
 const sessionToDocument = new WeakMap<object, DocumentHistoryEntry>();
 const sessionToBrowser = new WeakMap<object, BrowserColumnEntry>();
 const browserStacks = new WeakMap<object, BrowserColumnEntry[]>();
 const documentStacks = new WeakMap<object, DocumentHistoryEntry[]>();
-const transactions = new WeakMap<object, WeakMap<object, WorkColumnNavigationState>>();
+const transactions = new WeakMap<object, WeakMap<object, MainColumnNavigationState>>();
 
 export function fromDocumentHistory(entry: DocumentHistoryEntry): SessionNavigationEntry {
   const cached = documentToSession.get(entry);
@@ -117,15 +122,15 @@ export function projectBrowserStack(stack: readonly SessionNavigationEntry[]): B
   return value;
 }
 
-export function projectWorkNavigation(session: WorkspaceSession): WorkColumnNavigationState {
+export function projectMainColumnNavigation(session: WorkspaceSession): MainColumnNavigationState {
   const navigation = session.navigation;
   let targets = transactions.get(navigation.transaction);
   if (!targets) { targets = new WeakMap(); transactions.set(navigation.transaction, targets); }
-  const target = navigation.current?.target ?? EMPTY_WORK_COLUMN_TARGET;
+  const target = navigation.current?.target ?? EMPTY_SESSION_TARGET;
   let value = targets.get(target);
   if (!value) {
     const { showBlockingLoading, ...transaction } = navigation.transaction;
-    value = { ...transaction, target, showWorkColumnLoading: showBlockingLoading };
+    value = { ...transaction, target, showMainColumnLoading: showBlockingLoading };
     targets.set(target, value);
   }
   return value;

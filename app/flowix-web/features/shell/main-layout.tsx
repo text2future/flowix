@@ -46,26 +46,23 @@ import { useI18n } from '@/lib/i18n';
 import type { AppUpdaterState } from '@features/shell/hooks/use-app-updater';
 import type { DocumentSurfaceContext } from '@features/surface/public/shell-api';
 import type { PluginDescriptor } from '@platform/tauri/client';
-import {
-  useShellWorkspaceViewModel,
-  BROWSER_COLUMN_MIN_WIDTH,
-  type WorkColumnTarget,
-} from '@features/workspace/public/shell-api';
+import { useShellWorkspaceViewModel, BROWSER_COLUMN_MIN_WIDTH } from '@features/workspace/public/shell-api';
+import type { SessionSurfaceTarget } from '@features/workspace/public/session-api';
 import type { Editor } from '@tiptap/core';
 import { MainStatusBarHost } from '@features/shell/components/main-status-bar-host';
 import { OnboardingScreen } from '@features/onboarding';
 import { finishOnboardingNotebook } from '@features/shell/use-cases/finish-onboarding';
 import { documentHistoryEntryKey } from '@features/document/public/shell-api';
-import { historyEntryFromWorkColumnTarget } from '@features/workspace/public/shell-api';
+import { historyEntryFromSessionTarget } from '@features/workspace/public/shell-api';
 
 const DOCUMENT_PANEL_MIN_WIDTH = BROWSER_COLUMN_MIN_WIDTH;
 
 function isDifferentHistoryTarget(
   entry: DocumentHistoryEntry,
-  currentWorkColumnTarget: WorkColumnTarget,
+  currentSessionTarget: SessionSurfaceTarget,
 ): boolean {
   return documentHistoryEntryKey(entry)
-    !== documentHistoryEntryKey(historyEntryFromWorkColumnTarget(currentWorkColumnTarget));
+    !== documentHistoryEntryKey(historyEntryFromSessionTarget(currentSessionTarget));
 }
 
 export interface MainLayoutBusinessController {
@@ -207,10 +204,10 @@ export function MainLayout({
   const accessSpaceSelectedPaths = useAccessSpaceSelectedPaths();
   const accessSpaceSelectionContentKinds = useAccessSpaceSelectionContentKinds();
   const hasMultipleDocumentsSelected = accessSpaceSelectionCount > 1;
-  const workColumnTarget = navigationState.target;
-  const mediaTarget = workColumnTarget.kind === 'media' ? workColumnTarget : null;
-  const activePlugin = workColumnTarget.kind === 'plugin-workbench'
-    ? workColumnTarget.plugin
+  const sessionTarget = navigationState.target;
+  const mediaTarget = sessionTarget.kind === 'media' ? sessionTarget : null;
+  const activePlugin = sessionTarget.kind === 'plugin-workbench'
+    ? sessionTarget.plugin
     : null;
   const currentDocumentContentRef = useRef('');
   const currentDocumentEditorRef = useRef<Editor | null>(null);
@@ -425,9 +422,9 @@ export function MainLayout({
     } : undefined,
     activeExternalSession,
     selectedNotebook,
-    fileBrowserContext: workColumnTarget.kind === 'external'
-      ? workColumnTarget.fileBrowser ?? null
-      : workColumnTarget.kind === 'file-browser' ? workColumnTarget : null,
+    fileBrowserContext: sessionTarget.kind === 'external'
+      ? sessionTarget.fileBrowser ?? null
+      : sessionTarget.kind === 'file-browser' ? sessionTarget : null,
     notebooks,
   });
 

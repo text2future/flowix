@@ -84,7 +84,7 @@ function prepareWorkspace(oldPath: string): void {
   const target = { kind: 'external' as const, path: oldPath, scopePath: root, transitionId: null };
   seedWorkColumn({
     navigation: {
-      phase: 'committed', showWorkColumnLoading: false, requestId: 1,
+      phase: 'committed', showMainColumnLoading: false, requestId: 1,
       target, pendingTarget: null, previousTarget: null, failure: null, retryToken: null,
     },
   });
@@ -115,7 +115,7 @@ describe('main-window rename event integration', () => {
     seedWorkColumn((state) => ({
       navigation: {
         ...state.navigation,
-        phase: 'idle', showWorkColumnLoading: false,
+        phase: 'idle', showMainColumnLoading: false,
         target: { kind: 'empty' }, pendingTarget: null, previousTarget: null,
         failure: null, retryToken: null,
       },

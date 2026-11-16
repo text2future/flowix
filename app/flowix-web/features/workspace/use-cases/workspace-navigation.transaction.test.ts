@@ -111,7 +111,7 @@ function resetWorkspace() {
   seedWorkColumn({
     navigation: {
       phase: 'idle',
-      showWorkColumnLoading: false,
+      showMainColumnLoading: false,
       requestId: 0,
       target: { kind: 'empty' },
       pendingTarget: null,

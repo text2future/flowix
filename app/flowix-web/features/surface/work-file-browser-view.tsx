@@ -1,4 +1,4 @@
-import { updateWorkColumnTargets } from '@features/workspace/public/session-runtime-api';
+import { updateMainColumnTargets } from '@features/workspace/public/session-runtime-api';
 import { useCallback, useRef } from 'react';
 import { useWorkColumnStore } from '@features/workspace/store/work-column-store';
 import { openSurfaceInColumn as openSessionSurface } from '@features/workspace/public/session-opening-api';
@@ -27,7 +27,7 @@ export function CodeSurfaceFileBrowser({ surface }: { surface: CodeSurface }) {
     fileTreeVisible: true,
     fileTreeWidth: 220,
   };
-  const updateView = (patch: Partial<FileBrowserContext>) => updateWorkColumnTargets((current) =>
+  const updateView = (patch: Partial<FileBrowserContext>) => updateMainColumnTargets((current) =>
     current === target ? { ...target, fileBrowser: { ...context, ...patch } } : current);
   const selectFile = async (path: string) => {
     try {

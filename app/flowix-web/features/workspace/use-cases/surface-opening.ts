@@ -39,7 +39,7 @@ import {
   openWorkFileBrowserTarget,
 } from './workspace-navigation';
 import { selectAndOpenAgentConversation } from './agent-conversation-navigation';
-import { workColumnTargetIdentity, findWorkspaceContentForNavigation } from './workspace-content-activation';
+import { mainColumnTargetIdentity, findWorkspaceContentForNavigation } from './workspace-content-activation';
 import { sessionTargetIdentity } from '../model/session-target-key';
 import { flushBrowserViewBeforeOpeningWork } from './prepare-browser-document-for-work';
 import { NavigationCancelledError } from '@/lib/navigation-cancelled-error';
@@ -196,7 +196,7 @@ async function openBrowserTarget(
   assertHostSupport(browserTargetSurfaceKind(target), 'column-2');
   if (target.kind !== 'agent-conversation') {
     const requestedIdentity = sessionTargetIdentity(target);
-    const activeWorkIdentity = workColumnTargetIdentity(useWorkColumnStore.getState().navigation.target);
+    const activeWorkIdentity = mainColumnTargetIdentity(useWorkColumnStore.getState().navigation.target);
     if (requestedIdentity && activeWorkIdentity
       && contentIdentityKey(activeWorkIdentity) === contentIdentityKey(requestedIdentity)) {
       await prepareActiveWorkColumnDocumentLeave();

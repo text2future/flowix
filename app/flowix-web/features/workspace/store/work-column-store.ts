@@ -1,25 +1,22 @@
 import { getColumnSessionId, useWorkspaceSessionStore } from './workspace-session-store';
 import type { SessionNavigationState } from '../model/session-navigation';
-import { createWorkColumnView } from './session-read-models';
+import { createMainColumnView } from './session-read-models';
 import { canonicalPath } from '@/lib/path';
 
-import {
-  EMPTY_WORK_COLUMN_TARGET,
-  type WorkColumnNavigationState,
-  type WorkColumnTarget,
-} from './work-column-target';
+import { EMPTY_SESSION_TARGET, type SessionSurfaceTarget } from '../model/session-target';
+import type { MainColumnNavigationState } from './session-legacy-projections';
 
 /** Compatibility API for the first column. Canonical state belongs to WorkspaceSessionStore. */
 export interface WorkColumnStore {
-  navigation: WorkColumnNavigationState;
+  navigation: MainColumnNavigationState;
   notebookSwitchesInFlight: number;
   beginNavigation: (
-    pendingTarget: WorkColumnTarget,
+    pendingTarget: SessionSurfaceTarget,
     retryToken: string | null,
     preservePreviousTarget?: boolean,
-    showWorkColumnLoading?: boolean,
+    showMainColumnLoading?: boolean,
   ) => number;
-  commitNavigation: (requestId: number, target: WorkColumnTarget, history?: 'push' | 'skip') => boolean;
+  commitNavigation: (requestId: number, target: SessionSurfaceTarget, history?: 'push' | 'skip') => boolean;
   failNavigation: (requestId: number, error: unknown) => boolean;
   dismissNavigationFailure: () => string | null;
   isCurrentNavigation: (requestId: number) => boolean;
@@ -39,15 +36,15 @@ function updateNavigation(update: (state: SessionNavigationState) => SessionNavi
   });
 }
 
-export const useWorkColumnStore = createWorkColumnView<WorkColumnStore>({
+export const useWorkColumnStore = createMainColumnView<WorkColumnStore>({
   notebookSwitchesInFlight: 0,
-  navigation: { phase: 'idle', showWorkColumnLoading: false, requestId: 0,
-    target: EMPTY_WORK_COLUMN_TARGET, pendingTarget: null, previousTarget: null, failure: null, retryToken: null },
+  navigation: { phase: 'idle', showMainColumnLoading: false, requestId: 0,
+    target: EMPTY_SESSION_TARGET, pendingTarget: null, previousTarget: null, failure: null, retryToken: null },
   beginNavigation: (pendingTarget, retryToken, preservePreviousTarget = false, showBlockingLoading = true) => {
     const requestId = navigation().transaction.requestId + 1;
     updateNavigation((state) => ({ ...state, transaction: { ...state.transaction,
       phase: 'loading', showBlockingLoading, requestId, pendingTarget,
-      previousTarget: preservePreviousTarget ? state.transaction.previousTarget : state.current?.target ?? EMPTY_WORK_COLUMN_TARGET,
+      previousTarget: preservePreviousTarget ? state.transaction.previousTarget : state.current?.target ?? EMPTY_SESSION_TARGET,
       failure: null, retryToken } }));
     return requestId;
   },
@@ -76,7 +73,7 @@ export const useWorkColumnStore = createWorkColumnView<WorkColumnStore>({
   replaceExternalPath: (previousPath, path) => {
     const previousParent = canonicalPath(previousPath).replace(/\/[^/]*$/, '');
     const nextParent = canonicalPath(path).replace(/\/[^/]*$/, '');
-    const replace = (target: WorkColumnTarget): WorkColumnTarget => (
+    const replace = (target: SessionSurfaceTarget): SessionSurfaceTarget => (
       target.kind === 'external' && canonicalPath(target.path) === canonicalPath(previousPath)
         ? { ...target, path, fileBrowser: target.fileBrowser
           ? { ...target.fileBrowser, folderPath: target.fileBrowser.folderPath

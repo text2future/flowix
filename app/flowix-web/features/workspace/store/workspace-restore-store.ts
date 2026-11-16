@@ -2,8 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
 import { STORAGE_KEYS } from '@/lib/constants';
-import type { CollectionWorkspaceTarget } from './work-column-target';
-import type { FolderCollectionSurfaceTarget } from '../model/surface-target';
+import type { CollectionSurfaceTarget, FolderCollectionSurfaceTarget } from '../model/surface-target';
 import type { LegacyFolderListTarget } from '../model/legacy-folder-list';
 
 interface AgentConversationRestoreState {
@@ -15,7 +14,7 @@ export type PersistedWorkspaceTarget =
   | import('../model/surface-target').FileBrowserTarget
   | { kind: 'web'; url: string }
   | Extract<import('../model/surface-target').WorkspaceContentTarget, { kind: 'plugin-workbench' }>
-  | CollectionWorkspaceTarget
+  | CollectionSurfaceTarget
   | FolderCollectionSurfaceTarget
   | LegacyFolderListTarget
   | { kind: 'external'; path: string; scopePath: string | null }

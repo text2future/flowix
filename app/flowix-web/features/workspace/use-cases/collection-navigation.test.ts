@@ -3,7 +3,7 @@ import { createTableDocument, parseTableDocument, serializeTableDocument } from 
 import { createMediaLibrary, serializeMediaLibrary } from '@features/media-library/model';
 import { ensureCollectionDisplay, reconcileCollectionDisplays } from '@/lib/collection-display-registry';
 import { collectionDisplayName } from '@features/collection/model';
-import { workColumnTargetFilePath } from '../store/work-column-target';
+import { sessionTargetFilePath } from '../model/session-target';
 import { resolveWorkColumnContent } from '@features/surface/resolver';
 import { useWorkColumnStore } from '../store/work-column-store';
 import { useBrowserColumnStore } from '../store/browser-column-store';
@@ -113,7 +113,7 @@ it('opens a malformed calendar without withdrawing selection, then repairs it ev
   await openContentleTarget(path, '/book/11测试', null);
   const navigation = useWorkColumnStore.getState().navigation;
   expect(navigation.phase).toBe('committed');
-  expect(workColumnTargetFilePath(navigation.target)).toBe(path);
+  expect(sessionTargetFilePath(navigation.target)).toBe(path);
   expect(navigation.target).toMatchObject({ kind: 'table', notebookPath: '/book', notebookId: 'book', unavailableReason: '集合文件格式无效' });
   const presentation = resolveWorkColumnContent({ navigation, document: null, pluginWorkbench: null, emptyMessage: '' });
   expect(presentation).toMatchObject({ status: 'empty', actions: [{ id: 'reset-current-collection-view', enabled: true }] });

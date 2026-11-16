@@ -11,7 +11,7 @@ export { selectNotebook } from '@features/workspace/use-cases/workspace-navigati
 export {
   clearWorkspaceTargetForDeletedFile,
   clearWorkspaceTargetsForDeletedDirectory,
-  historyEntryFromWorkColumnTarget,
+  historyEntryFromSessionTarget,
 } from '@features/workspace/use-cases/workspace-navigation';
 export { openSurfaceAtPosition } from './open-surface-api';
 export type { OpenSurfaceAtPositionRequest } from './open-surface-api';
@@ -26,7 +26,7 @@ export {
   BROWSER_COLUMN_DEFAULT_SPLIT_RATIO,
   BROWSER_COLUMN_MIN_WIDTH,
 } from '@features/workspace/store/browser-column-store';
-export type { WorkColumnTarget } from '@features/workspace/store/work-column-target';
+export type { MainColumnNavigationState } from '../store/session-legacy-projections';
 
 export function getWorkspaceNavigationRevision(): number {
   return columnRequestId('column-1');

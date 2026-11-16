@@ -1,9 +1,9 @@
 import { seedWorkColumn } from '@features/workspace/test-support/workspace-fixtures';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PluginDescriptor } from '@platform/tauri/client';
-import type { WorkColumnTarget } from '@features/workspace/store/work-column-target';
+import type { SessionSurfaceTarget } from '../model/session-target';
 
-function pluginWorkbenchTarget(id: string): Extract<WorkColumnTarget, { kind: 'plugin-workbench' }> {
+function pluginWorkbenchTarget(id: string): Extract<SessionSurfaceTarget, { kind: 'plugin-workbench' }> {
   return {
     kind: 'plugin-workbench',
     plugin: { manifest: { id } } as unknown as PluginDescriptor,
@@ -24,7 +24,7 @@ const mocks = vi.hoisted(() => ({
   failNavigation: vi.fn().mockReturnValue(true),
   isCurrentNavigation: vi.fn().mockReturnValue(true),
   navigationRevision: 1,
-  navigationTarget: pluginWorkbenchTarget('plugin-a') as WorkColumnTarget,
+  navigationTarget: pluginWorkbenchTarget('plugin-a') as SessionSurfaceTarget,
   memoState: {
     selectedNotebook: null as { id: string; path: string } | null,
     selectedNotebookId: null as string | null,
@@ -74,7 +74,7 @@ vi.mock('@platform/tauri/client', () => ({
 vi.mock('@features/workspace/store/work-column-store', () => ({
   useWorkColumnStore: {
     getState: () => ({
-      navigation: { phase: 'committed', showWorkColumnLoading: false, requestId: mocks.navigationRevision, target: mocks.navigationTarget, pendingTarget: null, previousTarget: null, failure: null, retryToken: null },
+      navigation: { phase: 'committed', showMainColumnLoading: false, requestId: mocks.navigationRevision, target: mocks.navigationTarget, pendingTarget: null, previousTarget: null, failure: null, retryToken: null },
       beginNavigation: mocks.beginNavigation,
       commitNavigation: mocks.commitNavigation,
       failNavigation: mocks.failNavigation,
@@ -205,7 +205,7 @@ describe('workspace navigation', () => {
     const previousState = realStore.getState();
     const getState = vi.spyOn(mockedStore, 'getState').mockImplementation(realStore.getState);
     seedWorkColumn({ navigation: {
-      phase: 'committed', showWorkColumnLoading: false, requestId: 10,
+      phase: 'committed', showMainColumnLoading: false, requestId: 10,
       target: { kind: 'external', path: '/A.md', scopePath: null, transitionId: null },
       pendingTarget: null, previousTarget: null, failure: null, retryToken: null,
     } });

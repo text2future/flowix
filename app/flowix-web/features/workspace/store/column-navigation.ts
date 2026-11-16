@@ -1,5 +1,5 @@
 import { sessionFor } from '../model/workspace-session';
-import { EMPTY_WORK_COLUMN_TARGET, type WorkColumnTarget } from './work-column-target';
+import { EMPTY_SESSION_TARGET, type SessionSurfaceTarget } from '../model/session-target';
 import { useWorkspaceSessionStore } from './workspace-session-store';
 import type { SessionNavigationState } from '../model/session-navigation';
 import type { WorkspaceSession, WorkspaceSessionReference } from '../model/workspace-session';
@@ -14,8 +14,8 @@ export function columnNavigation(id: WorkspaceSessionReference): SessionNavigati
 }
 
 /** The target a column currently shows; `empty` until something is committed. */
-export function columnTarget(id: WorkspaceSessionReference): WorkColumnTarget {
-  return columnNavigation(id).current?.target ?? EMPTY_WORK_COLUMN_TARGET;
+export function columnTarget(id: WorkspaceSessionReference): SessionSurfaceTarget {
+  return columnNavigation(id).current?.target ?? EMPTY_SESSION_TARGET;
 }
 
 export function columnRequestId(id: WorkspaceSessionReference): number {
@@ -26,6 +26,6 @@ export function useColumnNavigation<T>(id: WorkspaceSessionReference, selector: 
   return useWorkspaceSessionStore((root) => selector(sessionFor(root, id).navigation));
 }
 
-export function useColumnTarget(id: WorkspaceSessionReference): WorkColumnTarget {
-  return useWorkspaceSessionStore((root) => sessionFor(root, id).navigation.current?.target ?? EMPTY_WORK_COLUMN_TARGET);
+export function useColumnTarget(id: WorkspaceSessionReference): SessionSurfaceTarget {
+  return useWorkspaceSessionStore((root) => sessionFor(root, id).navigation.current?.target ?? EMPTY_SESSION_TARGET);
 }

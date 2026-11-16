@@ -796,14 +796,9 @@
       "count": 1
     }
   },
-  "app/flowix-web/features/surface/resolver.ts": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
   "app/flowix-web/features/surface/types.ts": {
     "no-restricted-imports": {
-      "count": 3
+      "count": 2
     }
   },
   "app/flowix-web/features/surface/use-document-list-data.ts": {

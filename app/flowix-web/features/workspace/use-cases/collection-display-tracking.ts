@@ -1,4 +1,4 @@
-import { updateWorkColumnTargets } from '../store/session-mutations';
+import { updateMainColumnTargets } from '../store/session-mutations';
 import { parseCollectionDocumentV2 } from '@features/collection/model';
 import { collections, externalDocuments, notebooks, type CollectionChangedEvent, type CollectionIndexItem } from '@platform/tauri/client';
 import { subscribe } from '@platform/tauri/event-bus';
@@ -7,7 +7,7 @@ import { canonicalDirectoryPath } from '@/lib/path';
 import { bindCollectionDisplayPath, collectionDisplays, findCollectionDisplayPath } from '@/lib/collection-display-registry';
 import { useWorkColumnStore } from '../store/work-column-store';
 import { useWorkspaceRestoreStore } from '../store/workspace-restore-store';
-import type { WorkColumnTarget } from '../store/work-column-target';
+import type { SessionSurfaceTarget } from '../model/session-target';
 import { getWorkspaceMemoState } from '@features/memo/public/workspace-api';
 import { subscribeLocalCollectionChanges } from '@features/collection/events';
 import { findFileDisplayId } from '@/lib/file-display-registry';
@@ -59,7 +59,7 @@ function applyCollectionIndexItemAtRoot(
   browser.updateEntries((tab) => tab.target.kind === 'file-browser' && tab.target.collectionDisplay?.notebookId === notebookId && tab.target.collectionDisplay.collectionId === item.collectionId
     ? { ...tab, title: item.name ?? tab.title, target: { ...tab.target, activeFilePath: path, scopePath: root, collectionType: item.collectionType, collectionUnavailableReason: item.identityConflict ? '集合身份冲突，请先修复副本' : item.parseState !== 'valid' ? '集合文件格式或版本暂不可用' : undefined } } : tab.target.kind === 'collection' && tab.target.notebookId === notebookId && tab.target.collectionId === item.collectionId
     ? { ...tab, title: item.name ?? tab.title, target: { ...tab.target, filePath: path, notebookPath: root, name: item.name ?? tab.target.name, unavailableReason: item.identityConflict ? '集合身份冲突，请先修复副本' : item.parseState !== 'valid' ? '集合文件格式或版本暂不可用' : undefined } } : tab);
-  const update = <T extends WorkColumnTarget | null>(target: T): T => {
+  const update = <T extends SessionSurfaceTarget | null>(target: T): T => {
     if (target?.kind !== 'collection' || target.notebookId !== notebookId || target.collectionId !== item.collectionId) return target;
     const { unavailableReason: _previousError, ...rest } = target;
     const unavailableReason = item.identityConflict ? '集合身份冲突，请先修复副本' : item.parseState !== 'valid' ? '集合文件格式或版本暂不可用' : undefined;
@@ -68,7 +68,7 @@ function applyCollectionIndexItemAtRoot(
   const state = useWorkColumnStore.getState();
   const navigation = state.navigation;
   if ([navigation.target, navigation.pendingTarget, navigation.previousTarget].some((target) => target?.kind === 'collection' && target.notebookId === notebookId && target.collectionId === item.collectionId)) {
-    updateWorkColumnTargets(update);
+    updateMainColumnTargets(update);
   }
   const desired = useWorkspaceRestoreStore.getState().desiredTarget;
   if (desired?.kind === 'collection' && desired.notebookId === notebookId && desired.collectionId === item.collectionId) {
@@ -90,8 +90,8 @@ function setCollectionUnavailable(notebookId: string, collectionId: string, reas
   browser.updateEntries((tab) => tab.target.kind === 'file-browser' && tab.target.collectionDisplay && matches(tab.target.collectionDisplay)
     ? { ...tab, target: { ...tab.target, collectionUnavailableReason: reason } } : tab.target.kind === 'collection' && matches(tab.target)
       ? { ...tab, target: { ...tab.target, unavailableReason: reason } } : tab);
-  const update = (target: WorkColumnTarget | null) => target?.kind === 'collection' && matches(target) ? { ...target, unavailableReason: reason } : target;
-  updateWorkColumnTargets((target) => update(target)!);
+  const update = (target: SessionSurfaceTarget | null) => target?.kind === 'collection' && matches(target) ? { ...target, unavailableReason: reason } : target;
+  updateMainColumnTargets((target) => update(target)!);
   const desired = useWorkspaceRestoreStore.getState().desiredTarget;
   if (desired?.kind === 'collection' && matches(desired)) useWorkspaceRestoreStore.getState().setDesiredTarget({ ...desired, unavailableReason: reason });
 }

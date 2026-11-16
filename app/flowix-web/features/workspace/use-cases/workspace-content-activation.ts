@@ -7,7 +7,7 @@ import {
   contentIdentityKey,
   type ContentIdentity,
 } from '@features/workspace/store/workspace-content-identity';
-import type { WorkColumnTarget } from '@features/workspace/store/work-column-target';
+import type { SessionSurfaceTarget } from '../model/session-target';
 import { useWorkspaceFocusStore } from '@features/workspace/store/workspace-focus-store';
 import { getWorkColumnContentState } from '@features/workspace/store/work-column-content-state';
 import { activateBrowserColumnEntry } from './browser-column-coordinator';
@@ -20,7 +20,7 @@ export interface WorkspaceContentLocations {
   browserColumn: Extract<WorkspaceContentLocation, { host: 'column-2' }> | null;
 }
 
-export function workColumnTargetIdentity(target: WorkColumnTarget): ContentIdentity | null {
+export function mainColumnTargetIdentity(target: SessionSurfaceTarget): ContentIdentity | null {
   switch (target.kind) {
     case 'folder-collection':
       return { kind: 'folder-collection', notebookId: target.notebookId, folderPath: target.folderPath, viewMode: target.viewMode };
@@ -126,7 +126,7 @@ export function findWorkspaceContentLocations(
 
   const workColumn = getWorkColumnContentState();
   const pendingIdentity = workColumn.status === 'transitioning'
-    ? workColumnTargetIdentity(workColumn.to)
+    ? mainColumnTargetIdentity(workColumn.to)
     : null;
   const pendingMatch = pendingIdentity && contentIdentityKey(pendingIdentity) === key;
 
@@ -135,7 +135,7 @@ export function findWorkspaceContentLocations(
     : workColumn.status === 'transitioning'
       ? workColumn.from
       : workColumn.target;
-  const workIdentity = workTarget ? workColumnTargetIdentity(workTarget) : null;
+  const workIdentity = workTarget ? mainColumnTargetIdentity(workTarget) : null;
   const activeMatch = workIdentity && contentIdentityKey(workIdentity) === key;
 
   const browserColumn = useBrowserColumnStore.getState();

@@ -6,11 +6,11 @@ import { serializeHybridCollectionDocument } from '@features/collection/model';
 import { ensureCollectionDisplay } from '@/lib/collection-display-registry';
 import { useWorkColumnStore } from '../store/work-column-store';
 import { useBrowserColumnStore } from '../store/browser-column-store';
-import type { WorkColumnTarget } from '../store/work-column-target';
+import type { SessionSurfaceTarget } from '../model/session-target';
 import { resetBrowserColumnCoordinator } from './browser-column-coordinator';
-import { openBrowserColumnText, openWorkColumnTargetInBrowserColumn, selectBrowserColumnFile } from './browser-column-navigation';
+import { openBrowserColumnText, openSessionTargetInBrowserColumn, selectBrowserColumnFile } from './browser-column-navigation';
 
-function activate(target: WorkColumnTarget) {
+function activate(target: SessionSurfaceTarget) {
   const store = useWorkColumnStore.getState();
   store.commitNavigation(store.beginNavigation(target, null), target);
 }
@@ -64,9 +64,9 @@ describe('browser column collection navigation', () => {
   it('opens a second collection view at the current path and retains Work', async () => {
     const item = fixture('table', '移动后.index.yaml');
     const display = ensureCollectionDisplay({ notebookId: 'notes', collectionId: item.collectionId!, viewId: 'selected-view' });
-    const target: WorkColumnTarget = { kind: 'collection', ...display, collectionType: 'table', filePath: '/notes/旧.index.yaml', notebookPath: '/notes', name: '项目' };
+    const target: SessionSurfaceTarget = { kind: 'collection', ...display, collectionType: 'table', filePath: '/notes/旧.index.yaml', notebookPath: '/notes', name: '项目' };
     activate(target);
-    await openWorkColumnTargetInBrowserColumn(target);
+    await openSessionTargetInBrowserColumn(target);
     expect(useBrowserColumnStore.getState().current!.target).toMatchObject({
       activeFilePath: '/notes/移动后.index.yaml', collectionType: 'table', collectionDisplay: display,
     });
@@ -79,16 +79,16 @@ describe('browser column collection navigation', () => {
   ] as const)('opens a second view for the legacy %s target', async (kind, type, filename) => {
     fixture(type, filename);
     activate({ kind, filePath: `/notes/${filename}`, notebookPath: '/notes', notebookId: 'notes' });
-    await openWorkColumnTargetInBrowserColumn(useWorkColumnStore.getState().navigation.target);
+    await openSessionTargetInBrowserColumn(useWorkColumnStore.getState().navigation.target);
     expect(useBrowserColumnStore.getState().current!.target).toMatchObject({ collectionType: type });
   });
 
   it('preserves the work column when collection resolution fails', async () => {
     const item = fixture('table', '项目.index.yaml');
     vi.mocked(collections.resolve).mockResolvedValue({ ...item, identityConflict: true });
-    const target: WorkColumnTarget = { kind: 'table', filePath: '/notes/项目.index.yaml', notebookPath: '/notes', notebookId: 'notes' };
+    const target: SessionSurfaceTarget = { kind: 'table', filePath: '/notes/项目.index.yaml', notebookPath: '/notes', notebookId: 'notes' };
     activate(target);
-    await expect(openWorkColumnTargetInBrowserColumn(target)).rejects.toThrow('集合身份冲突');
+    await expect(openSessionTargetInBrowserColumn(target)).rejects.toThrow('集合身份冲突');
     expect(useBrowserColumnStore.getState().current).toBeNull();
     expect(useWorkColumnStore.getState().navigation.target).toEqual(target);
   });

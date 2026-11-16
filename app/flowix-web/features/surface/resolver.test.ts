@@ -7,7 +7,8 @@ import type {
   ResolveWorkColumnContentInput,
   WorkColumnSurface,
 } from './types';
-import type { WorkColumnNavigationState, WorkColumnTarget } from '@features/workspace/store/work-column-target';
+import type { SessionSurfaceTarget } from '@features/workspace/public/session-api';
+import type { MainColumnNavigationState } from '@features/workspace/public/shell-api';
 import { resolveWorkColumnContent } from './resolver';
 import { ensureFileDisplayIdentity } from '@/lib/file-display-registry';
 
@@ -67,12 +68,12 @@ function plugin(id = 'mindmap'): PluginDescriptor {
   };
 }
 
-function navigation(target: WorkColumnTarget | WorkColumnNavigationState) {
+function navigation(target: SessionSurfaceTarget | MainColumnNavigationState) {
   return 'phase' in target
     ? target
     : {
         phase: 'committed' as const,
-        showWorkColumnLoading: false,
+        showMainColumnLoading: false,
         requestId: 1,
         target,
         pendingTarget: null,
@@ -164,7 +165,7 @@ describe('surface resolvers', () => {
 });
 
 it('keeps a collection surface mounted across views while preserving display identities', () => {
-  const target: Extract<WorkColumnTarget, { kind: 'collection' }> = {
+  const target: Extract<SessionSurfaceTarget, { kind: 'collection' }> = {
     kind: 'collection', notebookId: 'nb', collectionId: 'collection-a', viewId: 'table',
     displayId: 'table-display', filePath: '/notebook/table.table.yaml', notebookPath: '/notebook', collectionType: 'table', name: 'Table',
   };

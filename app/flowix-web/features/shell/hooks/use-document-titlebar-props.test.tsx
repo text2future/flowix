@@ -18,7 +18,7 @@ it.each(['note', 'collection'] as const)('derives primary file-browser %s menus 
   const scopePath = kind === 'collection' ? '/other' : '/other/repo';
   const fileIdentity = ensureFileDisplayIdentity(path);
   const presentation = resolveWorkColumnPresentation({
-    navigation: { phase: 'committed', showWorkColumnLoading: false, requestId: 1,
+    navigation: { phase: 'committed', showMainColumnLoading: false, requestId: 1,
       target: { kind: 'file-browser', activeFilePath: path, folderPath: scopePath, scopePath, notebookId: 'other',
         fileTreeVisible: true, fileTreeWidth: 220, collectionType: kind === 'collection' ? 'table' : undefined },
       pendingTarget: null, previousTarget: null, failure: null, retryToken: null },

@@ -57,7 +57,7 @@ export function useMainWindowBusinessController(): MainWindowBusinessController 
     triggerRefresh,
   } = useWorkspaceMemoViewModel();
   const setMemoListVisible = useSettingsStore((state) => state.setMemoListVisible);
-  const workColumnTargetKind = useWorkspaceTargetKind();
+  const mainColumnTargetKind = useWorkspaceTargetKind();
   const navigationPhase = useWorkspaceNavigationPhase();
   const [notebookToDelete, setNotebookToDelete] = useState<Notebook | null>(null);
   const [notebookCreateRequest, setNotebookCreateRequest] = useState(0);
@@ -139,7 +139,7 @@ export function useMainWindowBusinessController(): MainWindowBusinessController 
 
   const openPlugin = useCallback(async (plugin: PluginDescriptor) => {
     if (plugin.manifest.kind === 'artifact-tool') {
-      if (workColumnTargetKind === 'plugin-workbench') clearPluginWorkbenchTarget();
+      if (mainColumnTargetKind === 'plugin-workbench') clearPluginWorkbenchTarget();
       setActiveFilter('all');
       setActivePluginId(plugin.manifest.id);
       setMemoListVisible(true);
@@ -151,7 +151,7 @@ export function useMainWindowBusinessController(): MainWindowBusinessController 
     } catch (error) {
       logger.warn('open plugin failed to clear document', { error });
     }
-  }, [setActiveFilter, setActivePluginId, setMemoListVisible, workColumnTargetKind]);
+  }, [setActiveFilter, setActivePluginId, setMemoListVisible, mainColumnTargetKind]);
 
   const handleSwitchFolderCollectionType = useCallback(async (
     target: { filePath: string; notebookPath: string; notebookId: string },

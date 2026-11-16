@@ -5,7 +5,7 @@ import { emptySessionTransaction } from '../model/session-navigation';
 import { getColumnSessionId, useWorkspaceSessionStore } from './workspace-session-store';
 
 /** In-place target maintenance must preserve entry identity and navigation intent. */
-export function updateWorkColumnTargets(transform: (target: SessionSurfaceTarget) => SessionSurfaceTarget) {
+export function updateMainColumnTargets(transform: (target: SessionSurfaceTarget) => SessionSurfaceTarget) {
   useWorkspaceSessionStore.getState().updateSession(getColumnSessionId('column-1'), (session) => {
     const navigation = session.navigation;
     const current = navigation.current;

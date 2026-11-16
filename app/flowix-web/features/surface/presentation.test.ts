@@ -1,14 +1,15 @@
 import { ensureFileDisplayIdentity } from '@/lib/file-display-registry';
 import { collectionIndexPath } from './collection-frame';
 import { describe, expect, it } from 'vitest';
-import type { WorkColumnNavigationState, WorkColumnTarget } from '@features/workspace/store/work-column-target';
+import type { SessionSurfaceTarget } from '@features/workspace/public/session-api';
+import type { MainColumnNavigationState } from '@features/workspace/public/shell-api';
 import { workspaceSurfaceContentPresentation } from '@features/workspace/public/surface-api';
 import { resolveWorkColumnRuntimePresentation, resolveWorkColumnPresentation } from './presentation';
 
-function navigation(target: WorkColumnTarget): WorkColumnNavigationState {
+function navigation(target: SessionSurfaceTarget): MainColumnNavigationState {
   return {
     phase: 'committed',
-    showWorkColumnLoading: false,
+    showMainColumnLoading: false,
     requestId: 1,
     target,
     pendingTarget: null,

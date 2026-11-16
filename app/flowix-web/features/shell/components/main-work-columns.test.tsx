@@ -42,7 +42,7 @@ afterEach(async () => {
 
 function props(): MainWorkColumnsProps {
   return {
-    navigationState: { target: { kind: 'collection', filePath: '/book/folder/.index.yaml' }, phase: 'ready', showWorkColumnLoading: false } as unknown as MainWorkColumnsProps['navigationState'],
+    navigationState: { target: { kind: 'collection', filePath: '/book/folder/.index.yaml' }, phase: 'ready', showMainColumnLoading: false } as unknown as MainWorkColumnsProps['navigationState'],
     browserColumnVisible: false,
     browserColumnLayout: { mainColumnWidth: 900, browserColumnWidth: 400 } as MainWorkColumnsProps['browserColumnLayout'],
     browserColumnLayoutKey: 'layout',

@@ -17,11 +17,11 @@ import {
   useBrowserColumnStore,
   type BrowserViewTarget,
 } from '@features/workspace/store/browser-column-store';
-import type { WorkColumnTarget } from '@features/workspace/store/work-column-target';
+import type { SessionSurfaceTarget } from '../model/session-target';
 import { sessionTargetIdentity } from '@features/workspace/model/session-target-key';
 import {
   findWorkspaceContentLocations,
-  workColumnTargetIdentity,
+  mainColumnTargetIdentity,
 } from './workspace-content-activation';
 import {
   enqueueBrowserColumnNavigation,
@@ -162,8 +162,8 @@ export function openBrowserColumnWebpage(url: string): Promise<BrowserColumnOpen
 }
 
 /** Open the currently displayed work-column target in the right browser column. */
-export function openWorkColumnTargetInBrowserColumn(
-  target: WorkColumnTarget,
+export function openSessionTargetInBrowserColumn(
+  target: SessionSurfaceTarget,
 ): Promise<BrowserColumnOpenResult | null> {
   const browserTarget: BrowserViewTarget | null = (() => {
   switch (target.kind) {
@@ -197,8 +197,8 @@ export function openWorkColumnTargetInBrowserColumn(
 
   return enqueueBrowserColumnNavigation(async () => {
     const isStillCurrentTarget = () => {
-      const identity = workColumnTargetIdentity(target);
-      const currentIdentity = workColumnTargetIdentity(useWorkColumnStore.getState().navigation.target);
+      const identity = mainColumnTargetIdentity(target);
+      const currentIdentity = mainColumnTargetIdentity(useWorkColumnStore.getState().navigation.target);
       return !!identity && !!currentIdentity
         && contentIdentityKey(identity) === contentIdentityKey(currentIdentity);
     };

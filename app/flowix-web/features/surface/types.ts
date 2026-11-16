@@ -6,7 +6,7 @@ import type {
 } from '@features/plugin/public/surface-api';
 import type { PluginArtifactRendererId } from '@features/plugin/plugin-note';
 import type { PluginDescriptor } from '@platform/tauri/client';
-import type { WorkColumnNavigationState } from '@features/workspace/store/work-column-target';
+import type { MainColumnNavigationState } from '@features/workspace/public/shell-api';
 import type { FileDisplayIdentity } from '@/lib/file-display-registry';
 import type { TableDocumentViewProps } from '@features/multidimensional-table/public/surface-api';
 import type { WorkspaceSurfaceCapability, SurfaceHeaderStyle, SurfaceEmptyReason } from '@features/workspace/public/surface-api';
@@ -217,7 +217,7 @@ export interface PluginWorkbenchContext {
 }
 
 export interface ResolveWorkColumnContentInput {
-  navigation: WorkColumnNavigationState;
+  navigation: MainColumnNavigationState;
   document?: DocumentSurfaceContext | null;
   pluginWorkbench?: PluginWorkbenchContext | null;
   emptyMessage: string;

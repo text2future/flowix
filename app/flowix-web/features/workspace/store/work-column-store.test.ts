@@ -10,7 +10,7 @@ describe('work-column store', () => {
     seedWorkColumn({
       navigation: {
         phase: 'idle',
-        showWorkColumnLoading: false,
+        showMainColumnLoading: false,
         requestId: 0,
         target: { kind: 'empty' },
         pendingTarget: null,
@@ -32,7 +32,7 @@ describe('work-column store', () => {
     expect(store.commitNavigation(oldLoader, { kind: 'empty' })).toBe(false);
     expect(useWorkColumnStore.getState().navigation).toMatchObject({
       requestId: intent, target, phase: 'preparing', pendingTarget: null,
-      showWorkColumnLoading: false, retryToken: null,
+      showMainColumnLoading: false, retryToken: null,
     });
     store.beginNavigation({ kind: 'empty' }, null);
     expect(store.isCurrentNavigation(intent)).toBe(false);
@@ -52,7 +52,7 @@ describe('work-column store', () => {
 
     expect(useWorkColumnStore.getState().navigation).toEqual({
       phase: 'committed',
-      showWorkColumnLoading: false,
+      showMainColumnLoading: false,
       requestId,
       target: {
         kind: 'external',
@@ -105,7 +105,7 @@ describe('work-column store', () => {
     expect(useWorkColumnStore.getState().navigation).toMatchObject({
       requestId,
       phase: 'loading',
-      showWorkColumnLoading: false,
+      showMainColumnLoading: false,
     });
   });
 
@@ -134,7 +134,7 @@ describe('work-column store', () => {
     expect(useWorkColumnStore.getState().failNavigation(retryId, new Error('save refused'))).toBe(true);
     expect(useWorkColumnStore.getState().navigation).toEqual({
       phase: 'failed',
-      showWorkColumnLoading: false,
+      showMainColumnLoading: false,
       requestId: retryId,
       target: { kind: 'web', url: 'https://one.test' },
       pendingTarget: { kind: 'empty' },
