@@ -4,12 +4,12 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CodeSurfaceFileBrowser } from './work-file-browser-view';
 import { useWorkColumnStore } from '@features/workspace/store/work-column-store';
-import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
-import { openWorkspaceSurface as openSessionSurface } from '@features/workspace/public/session-opening-api';
+import { openSurfaceAtPosition } from '@features/workspace/public/open-surface-api';
+import { openSurfaceInColumn as openSessionSurface } from '@features/workspace/public/session-opening-api';
 import type { CodeSurfaceFileTree } from './code-surface-view';
 
-vi.mock('@features/workspace/public/session-opening-api', () => ({ openWorkspaceSurface: vi.fn().mockResolvedValue(null) }));
-vi.mock('@features/workspace/public/open-surface-api', () => ({ openWorkspaceSurface: vi.fn().mockResolvedValue(null) }));
+vi.mock('@features/workspace/public/session-opening-api', () => ({ openSurfaceInColumn: vi.fn().mockResolvedValue(null) }));
+vi.mock('@features/workspace/public/open-surface-api', () => ({ openSurfaceAtPosition: vi.fn().mockResolvedValue(null) }));
 vi.mock('./code-surface-view', () => ({ CodeSurfaceView: ({ fileTree }: { fileTree: CodeSurfaceFileTree }) => <>
   <button onClick={() => fileTree.onSelectFile('/book/report.docx')}>docx</button>
   <button onClick={() => fileTree.onSelectFile('/book/archive.bin')}>unsupported</button>
@@ -43,6 +43,6 @@ describe('Work file tree open destination', () => {
   it('opens Browser when explicitly requested', async () => {
     const button = [...host.querySelectorAll('button')].find((item) => item.textContent === 'browser')!;
     await act(async () => button.click());
-    expect(openWorkspaceSurface).toHaveBeenCalledWith(expect.objectContaining({ index: 1 }));
+    expect(openSurfaceAtPosition).toHaveBeenCalledWith(expect.objectContaining({ index: 1 }));
   });
 });

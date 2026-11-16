@@ -9,7 +9,7 @@ import { toast } from '@/lib/toast';
 import { cn } from '@/lib/utils';
 import { useColumnNavigation } from '@features/workspace/public/column-navigation-api';
 import { useActiveFilePath } from '@features/workspace/public/active-file-path-api';
-import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
+import { openSurfaceAtPosition } from '@features/workspace/public/open-surface-api';
 import { MemoCard } from '@features/memo/components/memo-card';
 import { openPathNoteSession } from '@features/memo/use-cases/open-memo-session';
 import { middleColumnSelectionKey } from '@features/memo/components/memo-list-selection';
@@ -126,7 +126,7 @@ export function MemoListCardsContent({
     const currentNotebook = useNoteStore.getState().selectedNotebook;
     if (!currentNotebook?.path) return;
     const path = joinNotebookMemoPath(currentNotebook.path, memo.relativePath) ?? memo.relativePath;
-    void openWorkspaceSurface({
+    void openSurfaceAtPosition({
       index: 1,
       target: { kind: 'external', path, scopePath: currentNotebook.path, transitionId: null },
     }).catch((error) => {

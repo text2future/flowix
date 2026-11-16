@@ -8,7 +8,7 @@ import { AgentIcon } from '@features/agent/components/agent-icon';
 import { formatTimeAgo } from '@/lib/format-time-ago';
 import { useI18n } from '@/lib/i18n';
 import { openNoteByNotebookPath, openNoteByPhysicalPath } from '@features/memo/public/note-navigation-api';
-import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
+import { openSurfaceAtPosition } from '@features/workspace/public/open-surface-api';
 import { toast } from '@/lib/toast';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@shared/ui/hover-card';
 
@@ -44,7 +44,7 @@ function ConversationPreviewCard({ instance }: { instance: AgentConversationInst
     const open = source.notebookId && source.relativePath
       ? openNoteByNotebookPath(source.notebookId, source.relativePath)
       : source.documentPath
-        ? openNoteByPhysicalPath(source.documentPath).catch(() => openWorkspaceSurface({
+        ? openNoteByPhysicalPath(source.documentPath).catch(() => openSurfaceAtPosition({
           index: 0,
           target: { kind: 'external', path: source.documentPath!, scopePath: null, transitionId: null },
         }).then(() => undefined))

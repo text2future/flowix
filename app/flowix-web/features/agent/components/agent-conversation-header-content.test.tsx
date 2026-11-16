@@ -9,7 +9,7 @@ vi.mock('../store/agent-session-store', () => ({ useAgentSessionStore: (selector
 vi.mock('./agent-conversation-identity', () => ({ AgentConversationIdentity: ({ title }: { title: string }) => <span>{title}</span> }));
 vi.mock('./agent-conversation-more-menu', () => ({ AgentConversationMoreMenu: () => <button>agent commands</button> }));
 vi.mock('@features/memo/public/note-navigation-api', () => ({ openNoteByNotebookPath: io.notebook, openNoteByPhysicalPath: io.physical }));
-vi.mock('@features/workspace/public/session-opening-api', () => ({ openWorkspaceSurface: io.open }));
+vi.mock('@features/workspace/public/session-opening-api', () => ({ openSurfaceInColumn: io.open }));
 vi.mock('@/lib/toast', () => ({ toast: { error: vi.fn() } }));
 vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }));
 let root: Root;

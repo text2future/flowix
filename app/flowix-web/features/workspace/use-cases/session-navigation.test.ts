@@ -7,12 +7,12 @@ vi.mock('./surface-opening', () => ({ openWorkspaceSurface: open }));
 import { useWorkspaceSessionStore } from '../store/workspace-session-store';
 import { navigateWorkspaceSession } from './session-navigation';
 import type { WorkspaceSessionReference } from '../model/workspace-session';
-import type { OpenWorkspaceSurfaceRequest } from '../model/surface-opening';
+import type { WorkspaceSurfaceOpenRequest } from '../model/surface-opening';
 import type { SessionSurfaceTarget } from '../model/session-target';
 
 beforeEach(() => {
   useWorkspaceSessionStore.getState().reset();
-  open.mockReset().mockImplementation(async (request: OpenWorkspaceSurfaceRequest) => {
+  open.mockReset().mockImplementation(async (request: WorkspaceSurfaceOpenRequest) => {
     const id: WorkspaceSessionReference = request.host === 'column-1' ? 0 : 1;
     useWorkspaceSessionStore.getState().commitTarget(getSessionId(id), request.target as SessionSurfaceTarget, {
       history: 'skip', entryId: request.options?.navigationEntryId,

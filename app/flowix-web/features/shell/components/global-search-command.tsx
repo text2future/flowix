@@ -35,7 +35,7 @@ import {
 } from '@features/memo/public/global-search-api';
 import { joinNotebookMemoPath } from '@/lib/path';
 import { selectNotebook } from '@features/workspace/public/search-navigation-api';
-import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
+import { openSurfaceAtPosition } from '@features/workspace/public/open-surface-api';
 import { selectDocumentsToOpen } from '@features/workspace/public/document-open-api';
 import { toast } from '@/lib/toast';
 import {
@@ -359,7 +359,7 @@ function RunningAgentConversationsGroup({ onClose }: RunningAgentConversationsGr
 
   const openRunningInstance = async (instance: AgentConversationInstance) => {
     prepareAgentConversationSelection(instance);
-    await openWorkspaceSurface({ index: 0, target: { kind: 'agent-conversation', instanceId: instance.instanceId } });
+    await openSurfaceAtPosition({ index: 0, target: { kind: 'agent-conversation', instanceId: instance.instanceId } });
     onClose();
   };
 

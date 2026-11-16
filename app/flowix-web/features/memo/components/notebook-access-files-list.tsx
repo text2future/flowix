@@ -12,7 +12,7 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } 
 import { NotebookIcon } from '@features/memo/components/notebook-icon';
 import type { Notebook } from '@features/memo/store/note-store';
 import { createFileBrowserTarget } from '@features/workspace/public/browser-column-api';
-import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
+import { openSurfaceAtPosition } from '@features/workspace/public/open-surface-api';
 import { canUseNativeContextMenu, logNativeContextMenuError, popupNativeContextMenu } from '@platform/tauri/native-context-menu';
 import { loadNativeMenuIcons } from '@platform/tauri/native-menu-icons';
 
@@ -98,14 +98,14 @@ export function NotebookAccessFilesList({
         const canBrowse = !item.missing;
         const isBrowsing = false;
         const browseFolder = () => {
-          void openWorkspaceSurface({
+          void openSurfaceAtPosition({
             index: 0,
             target: createFileBrowserTarget(null, item.path, item.path),
           });
           onOpenFile?.(item.path);
         };
         const browseFolderInBrowserColumn = () => {
-          void openWorkspaceSurface({
+          void openSurfaceAtPosition({
             index: 1,
             target: createFileBrowserTarget(null, item.path, item.path),
           });

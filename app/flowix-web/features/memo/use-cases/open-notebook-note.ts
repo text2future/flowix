@@ -1,4 +1,4 @@
-import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
+import { openSurfaceAtPosition } from '@features/workspace/public/open-surface-api';
 import type { WorkspaceNavigationSource } from '@features/workspace/public/open-surface-api';
 import type { WorkspaceContentLocation } from '@features/workspace/public/note-navigation-api';
 import type { Notebook } from '@features/memo/store/note-store';
@@ -14,7 +14,7 @@ export async function openNotebookNote(
   // (surface open, browser flush, location resolve) is measurable. A journey
   // already begun for this path (e.g. by the file tree) wins.
   beginDocumentOpenJourney(path, { source: options.source ?? 'unspecified' });
-  const result = await openWorkspaceSurface({
+  const result = await openSurfaceAtPosition({
     index: options.destination ?? 0,
     ...(options.source ? { source: options.source } : {}),
     target: { kind: 'external', path, scopePath: notebook.path, transitionId: null, ...(options.treeReveal ? { treeReveal: options.treeReveal } : {}) },

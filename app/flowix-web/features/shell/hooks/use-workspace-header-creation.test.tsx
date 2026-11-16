@@ -12,7 +12,7 @@ vi.mock('@features/memo/public/note-creation-api', () => ({
 vi.mock('@features/agent/public/header-api', () => ({
   useNewConversationAgentSelection: () => ({ options: [] }), createBrowserColumnAgentConversation: io.agent, discardUnopenedBrowserColumnAgentConversation: io.discard,
 }));
-vi.mock('@features/workspace/public/session-opening-api', () => ({ openWorkspaceSurface: io.open }));
+vi.mock('@features/workspace/public/session-opening-api', () => ({ openSurfaceInColumn: io.open }));
 vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }));
 vi.mock('@/lib/toast', () => ({ toast: { error: vi.fn() } }));
 let root: Root;

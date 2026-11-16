@@ -1,5 +1,5 @@
 import { findWorkspaceContentLocations } from './workspace-content-activation';
-import { openWorkspaceSurface } from '../public/open-surface-api';
+import { openSurfaceAtPosition } from '../public/open-surface-api';
 
 /** Background notifications must not reactivate or duplicate an open document. */
 export async function openExternallyCreatedNote(
@@ -10,7 +10,7 @@ export async function openExternallyCreatedNote(
   const locations = findWorkspaceContentLocations({ kind: 'external', path });
   if (locations.workColumn || locations.browserColumn) return;
 
-  await openWorkspaceSurface({
+  await openSurfaceAtPosition({
     index: 1,
     target: { kind: 'external', path, scopePath: notebookPath, transitionId: null },
     options: { notebookId },
@@ -19,7 +19,7 @@ export async function openExternallyCreatedNote(
 
 /** A deliberate card action uses normal navigation, including activating an existing tab. */
 export async function openCreatedDocumentFromNotice(path: string, notebookPath: string, notebookId: string): Promise<boolean> {
-  const result = await openWorkspaceSurface({
+  const result = await openSurfaceAtPosition({
     index: 1,
     target: { kind: 'external', path, scopePath: notebookPath, transitionId: null },
     options: { notebookId },

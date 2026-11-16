@@ -21,7 +21,7 @@ import { useSpaceTreeVisibility } from '@features/preferences/public/runtime-api
 import { updateNoteLinksAfterMove } from '@features/memo/services/note-link-rewriter';
 import { openNotebookNote } from '@features/memo/use-cases/open-notebook-note';
 import { openFolderCollectionFromFolder } from '@features/workspace/public/main-window-api';
-import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
+import { openSurfaceAtPosition } from '@features/workspace/public/open-surface-api';
 import { createFileBrowserTarget } from '@features/workspace/public/browser-column-api';
 import { useColumnTarget } from '@features/workspace/public/column-navigation-api';
 import { clearWorkspaceTargetsForDeletedDirectory } from '@features/workspace/public/shell-api';
@@ -137,13 +137,13 @@ export const NotebookFolderView = memo(function NotebookFolderView({
       if (resourceKindFromPath(filePath) !== 'note') {
         const resourceKind = resourceKindFromPath(filePath);
         if (resourceKind === 'image' || resourceKind === 'video') {
-          await openWorkspaceSurface({
+          await openSurfaceAtPosition({
             index: 0,
             source: 'notebook-tree',
             target: { kind: 'media', filePath, notebookId: notebook.id, notebookPath: notebook.path, resourceKind },
           });
         } else {
-          await openWorkspaceSurface({
+          await openSurfaceAtPosition({
             index: 0,
             source: 'notebook-tree',
             target: { kind: 'external', path: filePath, scopePath: notebook.path, transitionId: null },
@@ -167,13 +167,13 @@ export const NotebookFolderView = memo(function NotebookFolderView({
       if (resourceKindFromPath(filePath) !== 'note') {
         const resourceKind = resourceKindFromPath(filePath);
         if (resourceKind === 'image' || resourceKind === 'video') {
-          await openWorkspaceSurface({
+          await openSurfaceAtPosition({
             index: 1,
             source: 'notebook-tree-new-tab',
             target: { kind: 'media', filePath, notebookId: notebook.id, notebookPath: notebook.path, resourceKind },
           });
         } else {
-          await openWorkspaceSurface({
+          await openSurfaceAtPosition({
             index: 1,
             source: 'notebook-tree-new-tab',
             target: createFileBrowserTarget(filePath, notebook.path, notebook.path),
@@ -181,7 +181,7 @@ export const NotebookFolderView = memo(function NotebookFolderView({
         }
         return;
       }
-      await openWorkspaceSurface({
+      await openSurfaceAtPosition({
         index: 1,
         source: 'notebook-tree-new-tab',
         target: { kind: 'external', path: filePath, scopePath: notebook.path, transitionId: null },

@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback } from 'react';
-import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
+import { openSurfaceAtPosition } from '@features/workspace/public/open-surface-api';
 import { useI18n } from '@/lib/i18n';
 import { createLogger } from '@/lib/logger';
 import { toast } from '@/lib/toast';
@@ -21,7 +21,7 @@ export function useRepositoryFileOpen(): {
 } {
   const { t } = useI18n();
   const open = useCallback((path: string, scopePath: string, index: RepositoryFileHost) => {
-    void openWorkspaceSurface({
+    void openSurfaceAtPosition({
       index: index,
       target: { kind: 'external', path, scopePath, transitionId: null },
     }).catch((error) => {

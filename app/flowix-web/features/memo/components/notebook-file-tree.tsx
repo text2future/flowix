@@ -44,7 +44,7 @@ import { NotebookCreateContextMenuItems } from '@features/memo/components/notebo
 import { useNoteStore } from '@features/memo/store/note-store';
 import { useCustomFilterStore } from '@features/memo/store/custom-filter-store';
 import { useNotebookPinnedNotes } from '@features/memo/components/use-notebook-pinned-notes';
-import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
+import { openSurfaceAtPosition } from '@features/workspace/public/open-surface-api';
 import {
   flattenVisibleTree,
   type FolderTreeController,
@@ -384,7 +384,7 @@ export function NotebookFileTree({
   ) => {
     const mediaLibrary = mediaLibraryByPath.get(canonicalPath(path));
     if (!mediaLibrary || !notebookId) return false;
-    void openWorkspaceSurface({
+    void openSurfaceAtPosition({
       index: host === 'column-1' ? 0 : 1,
       target: {
         kind: 'collection-reference',
@@ -406,7 +406,7 @@ export function NotebookFileTree({
     const pinnedCollection = pinnedSectionItems.find(item => item.pinnedEntryKind === 'collection' && samePath(item.fullPath, path));
     if (tableDocumentByPath.has(key) || workDocumentCollectionByPath.has(key)
       || (pinnedCollection && pinnedCollection.pinnedCollectionType !== 'media_library')) {
-      void openWorkspaceSurface({
+      void openSurfaceAtPosition({
         index: 0,
         target: { kind: 'external', path, scopePath: notebookPath, transitionId: null },
         options: { notebookId },

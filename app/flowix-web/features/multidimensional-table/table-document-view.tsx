@@ -42,7 +42,7 @@ import { canonicalizePropertyKey } from '@features/properties/property-key';
 import { getAllPresets, type PropertyPreset } from '@features/document/properties/presets';
 import { usePropertyPresets } from '@features/properties/public-api';
 import { createFileBrowserTarget } from '@features/workspace/public/browser-column-api';
-import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
+import { openSurfaceAtPosition } from '@features/workspace/public/open-surface-api';
 import { CollectionTitle } from '@features/collection/public/title-api';
 import { displayTitleFromFilename } from '@/lib/utils';
 import { collectionDisplayName } from '@features/collection/model';
@@ -788,7 +788,7 @@ function TableDocumentViewSession({
   const openLinkedNote = useCallback((note: NoteEntry) => {
     if (!notebookPath) return;
     const path = joinNotebookMemoPath(notebookPath, note.relativePath);
-    if (path) void openWorkspaceSurface({
+    if (path) void openSurfaceAtPosition({
       index: 1,
       target: { ...createFileBrowserTarget(path, notebookPath), notebookId: resolvedNotebookId },
     });

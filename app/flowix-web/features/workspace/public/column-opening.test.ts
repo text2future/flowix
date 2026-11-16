@@ -2,9 +2,9 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import { useWorkspaceSessionStore } from '../store/workspace-session-store';
 import { useWorkColumnStore } from '../store/work-column-store';
 import { useBrowserColumnStore } from '../store/browser-column-store';
-import { openWorkspaceSurface as openAtIndex } from './open-surface-api';
-import { openWorkspaceSurface as openInColumn } from './session-opening-api';
-import type { OpenWorkspaceSurfaceRequest } from '../model/surface-opening';
+import { openSurfaceAtPosition as openAtIndex } from './open-surface-api';
+import { openSurfaceInColumn as openInColumn } from './session-opening-api';
+import type { WorkspaceSurfaceOpenRequest } from '../model/surface-opening';
 
 const io = vi.hoisted(() => ({ open: vi.fn() }));
 vi.mock('../use-cases/surface-opening', () => ({ openWorkspaceSurface: io.open }));
@@ -12,7 +12,7 @@ const target = { kind: 'web' as const, url: 'https://example.com/' };
 
 beforeEach(() => {
   useWorkspaceSessionStore.getState().reset();
-  io.open.mockReset().mockImplementation(async (request: OpenWorkspaceSurfaceRequest) => {
+  io.open.mockReset().mockImplementation(async (request: WorkspaceSurfaceOpenRequest) => {
     if (request.target.kind !== 'web') throw new Error('Expected a web target');
     useWorkspaceSessionStore.getState().commitTarget(request.host, request.target);
     return { status: 'opened', host: request.host };
@@ -31,7 +31,7 @@ it('resolves both opening indices to the columns currently occupying them', asyn
 
 it('keeps an asynchronous open attached to the column captured before a swap', async () => {
   let finish!: () => void;
-  io.open.mockImplementationOnce((request: OpenWorkspaceSurfaceRequest) => new Promise((resolve) => {
+  io.open.mockImplementationOnce((request: WorkspaceSurfaceOpenRequest) => new Promise((resolve) => {
     finish = () => {
       if (request.target.kind !== 'web') throw new Error('Expected a web target');
       useWorkspaceSessionStore.getState().commitTarget(request.host, request.target);

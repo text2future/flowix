@@ -6,7 +6,7 @@ vi.mock('@platform/tauri/client', () => ({ files: { resolveLocation: mocks.resol
 vi.mock('@platform/tauri/opener', () => ({ openUrl: mocks.external }));
 vi.mock('@features/memo/public/note-navigation-api', () => ({ openNoteByDeepLink: mocks.note }));
 vi.mock('@features/document/public/heading-navigation-api', () => ({ publishHeadingAnchorRequest: mocks.heading }));
-vi.mock('../public/open-surface-api', () => ({ openWorkspaceSurface: mocks.open }));
+vi.mock('../public/open-surface-api', () => ({ openSurfaceAtPosition: mocks.open }));
 vi.mock('@features/memo/public/workspace-api', () => ({
   getWorkspaceMemoState: () => ({ notebooks: [{ id: 'book', path: '/book' }, { id: 'target', path: '/other' }] }),
 }));

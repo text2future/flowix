@@ -17,7 +17,7 @@ vi.mock('@features/workspace/public/browser-column-api', () => ({
     notebookId: null, restoreNotebookContext: true, fileTreeVisible: true, fileTreeWidth: 220,
   }),
 }));
-vi.mock('@features/workspace/public/open-surface-api', () => ({ openWorkspaceSurface: navigation.openSurface }));
+vi.mock('@features/workspace/public/open-surface-api', () => ({ openSurfaceAtPosition: navigation.openSurface }));
 vi.mock('@features/memo/public/note-navigation-api', () => ({
   openNoteByDeepLink: vi.fn(async () => undefined),
 }));

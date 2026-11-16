@@ -62,7 +62,7 @@ import {
 } from "@features/agent/thread-card/messages";
 import { AgentConversationSurfaceController } from "@features/agent/thread-card/surface/agent-conversation-surface-controller";
 import { getAgentConversationRuntimeCwd } from "@features/agent/conversation-presentation";
-import { openWorkspaceSurface } from "@features/workspace/public/open-surface-api";
+import { openSurfaceAtPosition } from "@features/workspace/public/open-surface-api";
 import {
   getAgentMessageTypographyCssVars,
   useAgentMessageFontStore,
@@ -794,7 +794,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
         source: { kind: "dedicated", notebookId: source?.source.notebookId ?? null },
       });
       // fork 出的新会话与「新建会话」同默认：开进第一列（侧边栏打开同款落点）。
-      await openWorkspaceSurface({ index: 0, target: { kind: 'agent-conversation', instanceId: fork.instanceId, blankIfMissing: true } });
+      await openSurfaceAtPosition({ index: 0, target: { kind: 'agent-conversation', instanceId: fork.instanceId, blankIfMissing: true } });
     } catch (error) {
       logger.error(`Failed to fork ${this.typeKey} conversation`, { error });
       toast.error(error instanceof Error ? error.message : String(error));
@@ -808,7 +808,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
       // opening so the Browser Column receives this card's conversation ID.
       const instance = await this.ensureInstanceBinding();
       if (!instance || this.isDestroyed) return;
-      await openWorkspaceSurface({
+      await openSurfaceAtPosition({
         index: 1,
         target: { kind: "agent-conversation", instanceId: instance.instanceId },
       });

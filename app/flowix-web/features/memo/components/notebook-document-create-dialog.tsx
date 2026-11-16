@@ -4,7 +4,7 @@ import { Input } from '@shared/ui/input';
 import { useRef, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { toast } from '@/lib/toast';
-import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
+import { openSurfaceAtPosition } from '@features/workspace/public/open-surface-api';
 import { createTableDocumentFile, type TableViewType } from '@features/multidimensional-table/public/create-api';
 import { createMediaLibraryFile } from '@features/media-library/model';
 import { createWorkDocumentsCollectionFile } from '@features/collection/public/work-documents-model-api';
@@ -66,7 +66,7 @@ export function NotebookDocumentCreateDialog({ request, onClose }: {
       }
       onClose();
       await request.refresh?.();
-      await openWorkspaceSurface({
+      await openSurfaceAtPosition({
         index: 0,
         target: { kind: 'external', path: filePath, scopePath: notebook.path, transitionId: null },
         options: { notebookId: notebook.id },

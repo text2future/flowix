@@ -1,6 +1,5 @@
 import { canonicalPath } from '@/lib/path';
-import type { WorkspaceContentTarget } from './surface-target';
-import type { BrowserColumnTarget } from './browser-column-target';
+import type { WorkspaceSurfaceOpenTarget } from './surface-target';
 import type { LegacyFolderListTarget } from './legacy-folder-list';
 
 export function movedFilePath(path: string, previous: string, next: string, directory: boolean): string {
@@ -11,7 +10,7 @@ export function movedFilePath(path: string, previous: string, next: string, dire
 }
 
 /** Rebase address hints, preserving display identity, view selection and host state. */
-export function rebaseWorkspaceTargetPath<T extends WorkspaceContentTarget | BrowserColumnTarget | LegacyFolderListTarget | import('./surface-target').CollectionReferenceSurfaceTarget>(
+export function rebaseWorkspaceTargetPath<T extends WorkspaceSurfaceOpenTarget | LegacyFolderListTarget>(
   target: T, previous: string, next: string, directory: boolean,
 ): T {
   const move = (path: string) => movedFilePath(path, previous, next, directory);

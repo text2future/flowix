@@ -1,8 +1,8 @@
 import { setCollectionActiveView } from './collection-view-state';
 import {
   useBrowserColumnStore,
-  browserColumnTargetIdentity,
 } from '@features/workspace/store/browser-column-store';
+import { sessionTargetIdentity } from '../model/session-target-key';
 import {
   contentIdentityKey,
   type ContentIdentity,
@@ -42,8 +42,6 @@ export function workColumnTargetIdentity(target: WorkColumnTarget): ContentIdent
       return null;
   }
 }
-
-export { browserColumnTargetIdentity };
 
 function currentCollectionView(location: WorkspaceContentLocation): string | null {
   if (location.host === 'column-1') {
@@ -141,8 +139,10 @@ export function findWorkspaceContentLocations(
   const activeMatch = workIdentity && contentIdentityKey(workIdentity) === key;
 
   const browserColumn = useBrowserColumnStore.getState();
-  const tab = browserColumn.current && contentIdentityKey(browserColumnTargetIdentity(browserColumn.current.target)) === key
-    ? browserColumn.current : null;
+  const currentBrowserEntry = browserColumn.current;
+  const browserIdentity = currentBrowserEntry ? sessionTargetIdentity(currentBrowserEntry.target) : null;
+  const tab = currentBrowserEntry && browserIdentity && contentIdentityKey(browserIdentity) === key
+    ? currentBrowserEntry : null;
   return {
     workColumn: pendingMatch
       ? { host: 'column-1', state: 'pending' }

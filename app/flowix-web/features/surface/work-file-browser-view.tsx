@@ -1,8 +1,8 @@
 import { updateWorkColumnTargets } from '@features/workspace/public/session-runtime-api';
 import { useCallback, useRef } from 'react';
 import { useWorkColumnStore } from '@features/workspace/store/work-column-store';
-import { openWorkspaceSurface as openSessionSurface } from '@features/workspace/public/session-opening-api';
-import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
+import { openSurfaceInColumn as openSessionSurface } from '@features/workspace/public/session-opening-api';
+import { openSurfaceAtPosition } from '@features/workspace/public/open-surface-api';
 import { CodeSurfaceView } from './code-surface-view';
 import type { FileBrowserContext } from '@features/workspace/store/file-browser-target';
 import { toast } from '@/lib/toast';
@@ -65,7 +65,7 @@ export function CodeSurfaceFileBrowser({ surface }: { surface: CodeSurface }) {
       ...context, kind: 'file-browser', activeFilePath: target.path,
       onSelectFile: (path) => { void selectFile(path); },
       onOpenFileInNewTab: (path) => {
-        void openWorkspaceSurface({
+        void openSurfaceAtPosition({
           index: 1,
           target: { ...context, kind: 'file-browser', activeFilePath: path, folderPath: null },
         });

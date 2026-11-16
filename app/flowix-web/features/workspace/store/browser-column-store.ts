@@ -15,18 +15,18 @@ import { displayTitleFromFilename } from '@/lib/utils';
 import { canonicalUrl } from '../model/surface-identity';
 import { useWorkspaceFocusStore } from './workspace-focus-store';
 import { BROWSER_COLUMN_DEFAULT_SPLIT_RATIO, clampFileTreeWidth, clampSplitRatio } from '../model/browser-column-layout';
-import { browserColumnTargetKey, type BrowserColumnTarget } from '../model/browser-column-target';
-import type { BrowserColumnEntry, BrowserColumnSessionState } from '../model/browser-column-session';
+import { sessionTargetKey } from '../model/session-target-key';
+import type { BrowserColumnEntry, BrowserColumnSessionState, BrowserViewTarget } from '../model/browser-column-session';
 import type { WorkspaceWebRuntime as BrowserColumnWebRuntime } from '../model/surface-contract';
 
 export { BROWSER_COLUMN_MIN_WIDTH, BROWSER_COLUMN_DEFAULT_SPLIT_RATIO, BROWSER_COLUMN_FILE_TREE_DEFAULT_WIDTH,
   BROWSER_COLUMN_FILE_TREE_MIN_WIDTH, BROWSER_COLUMN_FILE_TREE_MAX_WIDTH } from '../model/browser-column-layout';
 
-export type { BrowserColumnTarget } from '../model/browser-column-target';
-export { browserColumnTargetIdentity, browserColumnTargetKey } from '../model/browser-column-target';
+export type { BrowserViewTarget } from '../model/browser-column-session';
+export { sessionTargetKey };
 
 /** Opening in Work uses the same public support declaration as normal navigation. */
-export function canOpenBrowserColumnTargetInWorkColumn(target: BrowserColumnTarget): boolean {
+export function canOpenBrowserColumnTargetInWorkColumn(target: BrowserViewTarget): boolean {
   if (target.kind === 'file-browser') {
     if (!target.activeFilePath) return workspaceSurfaceSupportsHost('file-browser', 'column-1');
     const fileKind = target.collectionType === 'table' ? 'table'
@@ -35,7 +35,7 @@ export function canOpenBrowserColumnTargetInWorkColumn(target: BrowserColumnTarg
       : resolveWorkspaceFileSurfaceKind(target.activeFilePath);
     return workspaceSurfaceSupportsHost(`file-${fileKind}`, 'column-1');
   }
-  return workspaceSurfaceSupportsHost(target.kind === 'agent_conversation' ? 'agent-conversation'
+  return workspaceSurfaceSupportsHost(target.kind === 'agent-conversation' ? 'agent-conversation'
     : target.kind === 'folder-collection' ? 'collection' : target.kind, 'column-1');
 }
 
@@ -164,15 +164,13 @@ export const useBrowserColumnStore = createBrowserColumnView<BrowserColumnState>
   openContent: (incoming, options) => {
     const state = useBrowserColumnStore.getState();
     const current = state.current;
-    const same = current && browserColumnTargetKey(current.target) === browserColumnTargetKey(incoming.target);
+    const same = current && sessionTargetKey(current.target) === sessionTargetKey(incoming.target);
     const input = same && current.target.kind === 'file-browser' && incoming.target.kind === 'file-browser'
       ? { ...incoming.target, fileTreeVisible: current.target.fileTreeVisible, fileTreeWidth: current.target.fileTreeWidth }
       : incoming.target;
     const occupied = [current, ...state.backStack, ...state.forwardStack].some((entry) => entry?.id === incoming.id);
     const id = same ? current.id : options?.history === 'skip' ? incoming.id : occupied ? `browser:${crypto.randomUUID()}` : incoming.id;
-    // Only the explicit open request accepts the old agent discriminant.
-    const target = input.kind === 'agent_conversation' ? { kind: 'agent-conversation' as const, instanceId: input.instanceId } : input;
-    useWorkspaceSessionStore.getState().commitTarget(session().id, target, {
+    useWorkspaceSessionStore.getState().commitTarget(session().id, input, {
       entryId: id, title: incoming.title, icon: incoming.icon, history: options?.history ?? 'push',
     });
     if (useWorkspaceSessionStore.getState().placement[1] === 'column-2') useWorkspaceSessionStore.getState().setBrowserLayout({ visible: true });

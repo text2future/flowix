@@ -83,7 +83,7 @@ vi.mock('@platform/tauri/client', () => ({
 
 import { useWorkColumnStore } from '../store/work-column-store';
 import { useBrowserColumnStore } from '../store/browser-column-store';
-import { openWorkspaceSurface } from '../public/open-surface-api';
+import { openSurfaceAtPosition } from '../public/open-surface-api';
 import { clearWorkspaceDocument, selectNotebook } from './workspace-navigation';
 import { NotebookFolderView } from '@features/memo/components/notebook-folder-view';
 import { useWorkspaceFocusStore } from '../store/workspace-focus-store';
@@ -154,7 +154,7 @@ describe('notebook tree navigation with an Agent in Browser', () => {
     });
     useBrowserColumnStore.getState().openContent({
       id: 'agent:active', title: 'Agent', icon: null,
-      target: { kind: 'agent_conversation', instanceId: 'active' },
+      target: { kind: 'agent-conversation', instanceId: 'active' },
     });
     useWorkspaceFocusStore.getState().focusColumn('column-2');
     container = document.createElement('div');
@@ -324,9 +324,9 @@ describe('notebook tree navigation with an Agent in Browser', () => {
   it('retires a collection file waiting on metadata before its adapter starts a transaction', async () => {
     let finishRead!: (source: string) => void;
     mocks.readDocument.mockReset().mockImplementationOnce(() => new Promise<string>(resolve => { finishRead = resolve; }));
-    let opening!: ReturnType<typeof openWorkspaceSurface>;
+    let opening!: ReturnType<typeof openSurfaceAtPosition>;
     await act(async () => {
-      opening = openWorkspaceSurface({ index: 0, target: {
+      opening = openSurfaceAtPosition({ index: 0, target: {
         kind: 'table', filePath: '/notes/slow.table.yaml', notebookPath: '/notes', notebookId: 'notes',
       } });
     });

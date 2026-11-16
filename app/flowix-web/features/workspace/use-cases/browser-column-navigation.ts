@@ -15,12 +15,12 @@ import { displayTitleFromFilename } from '@/lib/utils';
 import { canonicalUrl, contentIdentityKey } from '@features/workspace/store/workspace-content-identity';
 import {
   useBrowserColumnStore,
-  type BrowserColumnTarget,
+  type BrowserViewTarget,
 } from '@features/workspace/store/browser-column-store';
 import type { WorkColumnTarget } from '@features/workspace/store/work-column-target';
+import { sessionTargetIdentity } from '@features/workspace/model/session-target-key';
 import {
   findWorkspaceContentLocations,
-  browserColumnTargetIdentity,
   workColumnTargetIdentity,
 } from './workspace-content-activation';
 import {
@@ -34,7 +34,7 @@ import { useWorkColumnStore } from '@features/workspace/store/work-column-store'
 export type BrowserColumnOpenResult = NonNullable<BrowserColumnNavigationResult>;
 
 /** Allocate file identity before publishing a target that a surface resolver will read. */
-function ensureBrowserTargetFileIdentity(target: BrowserColumnTarget): void {
+function ensureBrowserTargetFileIdentity(target: BrowserViewTarget): void {
   if (target.kind === 'media') {
     ensureFileDisplayIdentity(target.filePath);
   } else if (target.kind === 'file-browser' && target.activeFilePath && !target.collectionDisplay) {
@@ -42,7 +42,7 @@ function ensureBrowserTargetFileIdentity(target: BrowserColumnTarget): void {
   }
 }
 
-export function targetContentTitle(target: BrowserColumnTarget): string {
+export function targetContentTitle(target: BrowserViewTarget): string {
   const filenameFromPath = (path: string) => path.split(/[\\/]/).pop() ?? path;
 
   switch (target.kind) {
@@ -59,12 +59,12 @@ export function targetContentTitle(target: BrowserColumnTarget): string {
       } catch {
         return target.url;
       }
-    case 'agent_conversation':
+    case 'agent-conversation':
       return 'Agent 会话';
   }
 }
 
-export function targetContentIcon(target: BrowserColumnTarget): string | null {
+export function targetContentIcon(target: BrowserViewTarget): string | null {
   if (target.kind !== 'web') return null;
   try {
     const parsed = new URL(target.url);
@@ -74,7 +74,7 @@ export function targetContentIcon(target: BrowserColumnTarget): string | null {
   }
 }
 
-export function openBrowserColumnTarget(target: BrowserColumnTarget, options?: { history?: 'push' | 'skip'; navigationEntryId?: string }): Promise<BrowserColumnNavigationResult> {
+export function openBrowserColumnTarget(target: BrowserViewTarget, options?: { history?: 'push' | 'skip'; navigationEntryId?: string }): Promise<BrowserColumnNavigationResult> {
   return enqueueBrowserColumnNavigation(async () => {
     target = await prepareCollectionBrowserTarget(target);
     const scope = createNotebookNavigationScope(() => getSessionId(0) === 'column-2', 'column-2');
@@ -82,7 +82,8 @@ export function openBrowserColumnTarget(target: BrowserColumnTarget, options?: {
       if (getSessionId(0) === 'column-2' && 'notebookId' in target && target.notebookId) {
         await scope.switchTo(target.notebookId, 0);
       }
-      const alreadyOpen = !!findWorkspaceContentLocations(browserColumnTargetIdentity(target)).browserColumn;
+      const identity = sessionTargetIdentity(target);
+      const alreadyOpen = !!identity && !!findWorkspaceContentLocations(identity).browserColumn;
       ensureBrowserTargetFileIdentity(target);
       const id = options?.navigationEntryId ?? `browser:${crypto.randomUUID()}`;
       const surfaceId = useBrowserColumnStore.getState().openContent({
@@ -164,7 +165,7 @@ export function openBrowserColumnWebpage(url: string): Promise<BrowserColumnOpen
 export function openWorkColumnTargetInBrowserColumn(
   target: WorkColumnTarget,
 ): Promise<BrowserColumnOpenResult | null> {
-  const browserTarget: BrowserColumnTarget | null = (() => {
+  const browserTarget: BrowserViewTarget | null = (() => {
   switch (target.kind) {
     case 'folder-collection': return { kind: 'folder-collection', notebookId: target.notebookId,
       notebookPath: target.notebookPath, folderPath: target.folderPath, folderName: target.folderName, viewMode: target.viewMode };
@@ -184,7 +185,7 @@ export function openWorkColumnTargetInBrowserColumn(
       case 'external':
         return { ...createFileBrowserTarget(target.path, target.scopePath), ...target.fileBrowser };
       case 'agent-conversation':
-        return { kind: 'agent_conversation', instanceId: target.instanceId };
+        return { kind: 'agent-conversation', instanceId: target.instanceId };
       case 'web':
         return { kind: 'web', url: target.url };
       default:
@@ -214,9 +215,9 @@ export function openWorkColumnTargetInBrowserColumn(
 
     ensureBrowserTargetFileIdentity(preparedTarget);
     const id = `browser:${crypto.randomUUID()}`;
-    const existingContent = findWorkspaceContentLocations(
-      browserColumnTargetIdentity(preparedTarget),
-    ).browserColumn;
+    const preparedIdentity = sessionTargetIdentity(preparedTarget);
+    const existingContent = preparedIdentity
+      ? findWorkspaceContentLocations(preparedIdentity).browserColumn : null;
     const surfaceId = useBrowserColumnStore.getState().openContent({
       id,
       title: targetContentTitle(preparedTarget),
@@ -233,7 +234,7 @@ export function removeBrowserColumnContentByPath(path: string): string[] {
 }
 
 /** Resolve identity before a browser surface can mount. */
-export async function prepareCollectionBrowserTarget(target: BrowserColumnTarget): Promise<BrowserColumnTarget> {
+export async function prepareCollectionBrowserTarget(target: BrowserViewTarget): Promise<BrowserViewTarget> {
   if (target.kind === 'file-browser') {
     target = { ...target, ...resolveFileBrowserContext(target.activeFilePath, target) };
   }

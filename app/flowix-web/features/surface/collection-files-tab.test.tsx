@@ -6,7 +6,7 @@ const calls = vi.hoisted(() => ({
   getDirChildren: vi.fn(),
   summaries: new Map<string, unknown>(),
   openFolderCollection: vi.fn(),
-  openWorkspaceSurface: vi.fn(),
+  openSurfaceInColumn: vi.fn(),
   watchRoot: vi.fn(async () => 'lease-1'),
   unwatchRoot: vi.fn(async () => {}),
   listTables: vi.fn(async () => []),
@@ -48,7 +48,7 @@ vi.mock('@features/workspace/public/main-window-api', () => ({
   openFolderCollectionFromFolder: calls.openFolderCollection,
 }));
 vi.mock('@features/workspace/public/session-opening-api', () => ({
-  openWorkspaceSurface: calls.openWorkspaceSurface,
+  openSurfaceInColumn: calls.openSurfaceInColumn,
 }));
 // 图标只关心「行里有没有」，不关心具体画法。
 vi.mock('@features/content/public/content-api', () => ({
@@ -223,7 +223,7 @@ describe('collection files tab', () => {
     expect([...node.querySelectorAll('[data-file-name]')].map((row) => row.textContent)).toEqual(['a', 'b']);
     expect(reportPresentation.mock.calls.every(([update]) => update.state.status === 'ready')).toBe(true);
     await act(async () => node.querySelector<HTMLButtonElement>('[data-file-row]')!.click());
-    expect(calls.openWorkspaceSurface.mock.lastCall?.[0].target.path).toBe('/book/renamed/a.md');
+    expect(calls.openSurfaceInColumn.mock.lastCall?.[0].target.path).toBe('/book/renamed/a.md');
     await act(async () => finish([
       item({ id: 'b', name: 'b.md', fullPath: '/book/renamed/b.md', type: 'file' }),
       item({ id: 'a', name: 'a.md', fullPath: '/book/renamed/a.md', type: 'file' }),
@@ -332,7 +332,7 @@ describe('collection files tab', () => {
     await act(async () => node.querySelectorAll<HTMLButtonElement>('button[data-file-row]')[0]?.click());
 
     expect(calls.openFolderCollection).not.toHaveBeenCalled();
-    expect(calls.openWorkspaceSurface).toHaveBeenCalledWith({
+    expect(calls.openSurfaceInColumn).toHaveBeenCalledWith({
       columnId: 'column-2',
       target: { kind: 'external', path: '/book/客户周报/周报.md', scopePath: '/book', transitionId: null },
     });

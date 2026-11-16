@@ -48,7 +48,7 @@ describe('one canonical session state source', () => {
 
   it('normalizes legacy agent spelling once, without retaining a Browser backend', () => {
     useBrowserColumnStore.getState().openContent({
-      id: 'agent', title: 'Agent', icon: null, target: { kind: 'agent_conversation', instanceId: 'conversation' },
+      id: 'agent', title: 'Agent', icon: null, target: { kind: 'agent-conversation', instanceId: 'conversation' },
     });
     expect(getWorkspaceSessionNavigation(1).current?.target).toEqual({
       kind: 'agent-conversation', instanceId: 'conversation',
@@ -56,7 +56,7 @@ describe('one canonical session state source', () => {
     useWorkspaceSessionStore.getState().commitTarget(getSessionId(1), web('https://next.example/'), { history: 'push' });
     expect(useBrowserColumnStore.getState().current?.target).toEqual(web('https://next.example/'));
     expect(useBrowserColumnStore.getState().backStack[0].target).toEqual({
-      kind: 'agent_conversation', instanceId: 'conversation',
+      kind: 'agent-conversation', instanceId: 'conversation',
     });
   });
 

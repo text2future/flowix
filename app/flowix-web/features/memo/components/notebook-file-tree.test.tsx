@@ -459,7 +459,7 @@ describe('NotebookFileTree pointer dragging', () => {
 
   it.each(['table', 'media_library', 'work_documents'])('uses shared selection for a pinned %s', async (kind) => {
     const { root, tree } = await mount(successfulMove);
-    const openSurface = vi.spyOn(openSurfaceApi, 'openWorkspaceSurface').mockResolvedValue({ status: 'cancelled', host: 'column-1', reason: 'navigation-cancelled' });
+    const openSurface = vi.spyOn(openSurfaceApi, 'openSurfaceAtPosition').mockResolvedValue({ status: 'cancelled', host: 'column-1', reason: 'navigation-cancelled' });
     const relativePath = kind === 'media_library' ? 'pinned.lib.yaml' : 'pinned.index.yaml';
     vi.mocked(pinnedEntries.list).mockResolvedValueOnce({
       entries: [{ entryKind: 'collection', relativePath, title: 'Pinned collection',
@@ -1132,7 +1132,7 @@ describe('NotebookFileTree pointer dragging', () => {
       relativePath: 'library.lib.yaml', collectionId: 'media-1', name: 'Library',
       modifiedMs: 1, inViews: false,
     }]);
-    const openSurface = vi.spyOn(openSurfaceApi, 'openWorkspaceSurface').mockResolvedValue({ status: 'cancelled', host: 'column-1', reason: 'navigation-cancelled' });
+    const openSurface = vi.spyOn(openSurfaceApi, 'openSurfaceAtPosition').mockResolvedValue({ status: 'cancelled', host: 'column-1', reason: 'navigation-cancelled' });
     const { root, tree } = await mountFlatNotes(successfulMove);
     const first = item('/notes/a.md', 'document');
     const library = item('/notes/library.lib.yaml', 'document');

@@ -438,14 +438,14 @@ export function CollectionFilesTab({ rootPath, notebookId, notebookPath, collect
         await openFolderCollectionFromFolder(notebookId, item.fullPath, host);
         return;
       }
-      const { openWorkspaceSurface } = await import('@features/workspace/public/session-opening-api');
+      const { openSurfaceInColumn } = await import('@features/workspace/public/session-opening-api');
       if (item.resourceKind === 'image' || item.resourceKind === 'video') {
-        await openWorkspaceSurface({ columnId: host, target: {
+        await openSurfaceInColumn({ columnId: host, target: {
           kind: 'media', filePath: item.fullPath, notebookId, notebookPath, resourceKind: item.resourceKind,
         } });
         return;
       }
-      await openWorkspaceSurface({
+      await openSurfaceInColumn({
         columnId: host,
         target: { kind: 'external', path: item.fullPath, scopePath: notebookPath, transitionId: null },
       });
@@ -471,8 +471,8 @@ export function CollectionFilesTab({ rootPath, notebookId, notebookPath, collect
       const { createShellNote } = await import('@features/memo/public/note-creation-api');
       const created = await createShellNote(notebookId, relativeRoot);
       reload();
-      const { openWorkspaceSurface } = await import('@features/workspace/public/session-opening-api');
-      await openWorkspaceSurface({
+      const { openSurfaceInColumn } = await import('@features/workspace/public/session-opening-api');
+      await openSurfaceInColumn({
         columnId: host,
         target: { kind: 'external', path: created.path, scopePath: notebookPath, transitionId: null },
         options: { initialFocus: 'title', notebookId },

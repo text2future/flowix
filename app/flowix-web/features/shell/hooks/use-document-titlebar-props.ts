@@ -1,7 +1,7 @@
 import { resolveWorkspaceHeaderModel } from '@features/workspace/public/header-api';
 import { getWorkspaceAgentRepositories } from '@features/agent/public/workspace-api';
 import { useSessionAddressBar } from '@features/workspace/public/session-header-api';
-import { openWorkspaceSurface } from '@features/workspace/public/session-opening-api';
+import { openSurfaceInColumn } from '@features/workspace/public/session-opening-api';
 import { resolveWorkspaceFileSurfaceKind, type FileBrowserContext } from '@features/workspace/public/surface-api';
 import { notebookRelativeDirectoryPath } from '@/lib/path';
 import { collectionDisplayDescriptor } from '@/lib/collection-display-registry';
@@ -195,7 +195,7 @@ export function useDocumentTitlebarProps(input: UseDocumentTitlebarPropsInput): 
         fileTreeVisible: currentFileBrowserContext?.fileTreeVisible ?? true,
         fileTreeWidth: currentFileBrowserContext?.fileTreeWidth ?? 220,
       };
-      void openWorkspaceSurface({
+      void openSurfaceInColumn({
         columnId: 'column-1',
         target: { kind: 'external', path: filePath, scopePath, transitionId: null, fileBrowser: nextFileBrowserContext },
       }).catch(() => { toast.error(t('memo.fileTree.openFailed')); });

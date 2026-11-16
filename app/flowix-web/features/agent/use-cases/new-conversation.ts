@@ -1,7 +1,7 @@
 import { buildInitialInstanceRuntimeConfig } from '@features/agent/store/initial-runtime-config';
 import { useAgentSessionStore } from '@features/agent/store/agent-session-store';
 import { useAgentRuntimeStore } from '@features/agent/store/agent-runtime-store';
-import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
+import { openSurfaceAtPosition } from '@features/workspace/public/open-surface-api';
 import { useNoteStore } from '@features/memo/store/note-store';
 import { isAgentTypeEnabled } from '@features/preferences/public/runtime-api';
 import { AGENT_TYPES, isAgentTypeSelectable } from '@/lib/agent-types';
@@ -51,7 +51,7 @@ function openAgentConversation(
 ): void {
   if (destination === 1) {
     // 与对话列表点行同一条路径：browser 列自己管理 surface 与可见性。
-    void openWorkspaceSurface({
+    void openSurfaceAtPosition({
       index: 1,
       target: { kind: 'agent-conversation', instanceId },
     }).catch((error: unknown) => {
@@ -59,7 +59,7 @@ function openAgentConversation(
     });
     return;
   }
-  void openWorkspaceSurface({
+  void openSurfaceAtPosition({
     index: 0,
     target: { kind: 'agent-conversation', instanceId, blankIfMissing: true },
   });

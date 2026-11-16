@@ -19,7 +19,7 @@ import {
   type PluginField,
 } from '@platform/tauri/client';
 import type { SurfaceNotice, SurfacePresentationUpdate } from '@features/workspace/public/surface-api';
-import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
+import { openSurfaceAtPosition } from '@features/workspace/public/open-surface-api';
 import { useWorkColumnStore } from '@features/workspace/store/work-column-store';
 import { runPlugin } from './plugin-runner';
 import {
@@ -101,7 +101,7 @@ export function AgentPluginWorkbench({
 
   const handleOpenArtifact = useCallback(() => {
     if (!artifact) return;
-    const opening = openWorkspaceSurface({
+    const opening = openSurfaceAtPosition({
       index: 1,
       target: { kind: 'external', path: artifact.path, scopePath: null, transitionId: null },
     });

@@ -1,14 +1,15 @@
 import { getColumnSessionId } from '../store/workspace-session-store';
 import { reserveSessionNavigationIntent, isSessionNavigationIntentCurrent, releaseSessionNavigationIntent, type SessionNavigationIntent } from '../store/session-navigation-intent';
 import { createLogger } from '@/lib/logger';
-import { canOpenBrowserColumnTargetInWorkColumn, useBrowserColumnStore, type BrowserColumnTarget } from '../store/browser-column-store';
+import { canOpenBrowserColumnTargetInWorkColumn, useBrowserColumnStore } from '../store/browser-column-store';
+import type { BrowserViewTarget } from '../model/browser-column-session';
 import type {
-  OpenWorkspaceSurfaceRequest, WorkWorkspaceSurfaceRequest, BrowserWorkspaceSurfaceRequest,
+  WorkspaceSurfaceOpenRequest,
   WorkWorkspaceOpenResult, BrowserWorkspaceOpenResult, WorkspaceContentLocation, WorkspaceSurfaceOpenResult,
 } from '../model/surface-opening';
-import type { WorkWorkspaceSurfaceTarget, BrowserWorkspaceSurfaceTarget, CollectionReferenceSurfaceTarget } from '../model/surface-target';
+import type { OpenableWorkspaceSurfaceTarget, CollectionReferenceSurfaceTarget } from '../model/surface-target';
 export type * from '../model/surface-opening';
-export type { WorkspaceSurfaceOpenTarget, BrowserWorkspaceSurfaceTarget, CollectionReferenceSurfaceTarget } from '../model/surface-target';
+export type { WorkspaceSurfaceOpenTarget, CollectionReferenceSurfaceTarget } from '../model/surface-target';
 import { contentIdentityKey } from '../model/surface-identity';
 import type { ContentIdentity } from '../model/surface-identity';
 import { useWorkColumnStore } from '../store/work-column-store';
@@ -37,7 +38,8 @@ import {
   openWorkFileBrowserTarget,
 } from './workspace-navigation';
 import { selectAndOpenAgentConversation } from './agent-conversation-navigation';
-import { browserColumnTargetIdentity, workColumnTargetIdentity, findWorkspaceContentForNavigation } from './workspace-content-activation';
+import { workColumnTargetIdentity, findWorkspaceContentForNavigation } from './workspace-content-activation';
+import { sessionTargetIdentity } from '../model/session-target-key';
 import { flushBrowserViewBeforeOpeningWork } from './prepare-browser-document-for-work';
 import { NavigationCancelledError } from '@/lib/navigation-cancelled-error';
 import { markDocumentOpenJourney } from '@/lib/document-open-perf';
@@ -49,7 +51,7 @@ function fileKind(path: string): WorkspaceSurfaceKind {
   return workspaceFileSurfaceKind(resolveWorkspaceFileSurfaceKind(path));
 }
 
-function workTargetSurfaceKind(target: WorkWorkspaceSurfaceTarget): WorkspaceSurfaceKind {
+function workTargetSurfaceKind(target: OpenableWorkspaceSurfaceTarget): WorkspaceSurfaceKind {
   switch (target.kind) {
     case 'file-browser': return browserTargetSurfaceKind(target);
     case 'folder-collection': return 'collection';
@@ -67,9 +69,9 @@ function workTargetSurfaceKind(target: WorkWorkspaceSurfaceTarget): WorkspaceSur
   }
 }
 
-function workTargetIdentity(target: WorkWorkspaceSurfaceTarget): ContentIdentity | null {
+function workTargetIdentity(target: OpenableWorkspaceSurfaceTarget): ContentIdentity | null {
   switch (target.kind) {
-    case 'file-browser': return browserColumnTargetIdentity(target);
+    case 'file-browser': return sessionTargetIdentity(target);
     case 'folder-collection': return { kind: 'folder-collection', notebookId: target.notebookId, folderPath: target.folderPath, viewMode: target.viewMode };
     case 'external': return { kind: 'external', path: target.path };
     case 'table': case 'media-library': return { kind: 'external', path: target.filePath };
@@ -82,13 +84,13 @@ function workTargetIdentity(target: WorkWorkspaceSurfaceTarget): ContentIdentity
   }
 }
 
-function browserTargetSurfaceKind(target: BrowserColumnTarget): WorkspaceSurfaceKind {
+function browserTargetSurfaceKind(target: BrowserViewTarget): WorkspaceSurfaceKind {
   switch (target.kind) {
     case 'plugin-workbench': return 'plugin-workbench';
     case 'folder-collection': return 'collection';
     case 'media': return 'media';
     case 'web': return 'web';
-    case 'agent_conversation': return 'agent-conversation';
+    case 'agent-conversation': return 'agent-conversation';
     case 'file-browser':
       if (!target.activeFilePath) return 'file-browser';
       if (target.collectionType === 'table' || /\.table\.ya?ml$/i.test(target.activeFilePath)) return 'file-table';
@@ -100,9 +102,9 @@ function browserTargetSurfaceKind(target: BrowserColumnTarget): WorkspaceSurface
 }
 
 export function browserTargetFromOpenTarget(
-  target: Exclude<BrowserWorkspaceSurfaceTarget, CollectionReferenceSurfaceTarget>,
+  target: Exclude<OpenableWorkspaceSurfaceTarget, CollectionReferenceSurfaceTarget>,
   notebookId?: string | null,
-): BrowserColumnTarget {
+): BrowserViewTarget {
   switch (target.kind) {
     case 'plugin-workbench': return target;
     case 'folder-collection':
@@ -139,7 +141,7 @@ export function browserTargetFromOpenTarget(
         resourceKind: target.resourceKind,
       };
     case 'agent-conversation':
-      return { kind: 'agent_conversation', instanceId: target.instanceId };
+      return { kind: 'agent-conversation', instanceId: target.instanceId };
     case 'web':
       return { kind: 'web', url: target.url };
   }
@@ -187,14 +189,15 @@ function assertHostSupport(kind: WorkspaceSurfaceKind, host: WorkspaceColumnId):
 }
 
 async function openBrowserTarget(
-  target: BrowserColumnTarget,
+  target: BrowserViewTarget,
   options?: import('../model/surface-opening').WorkspaceOpenNavigationOptions,
 ): Promise<BrowserWorkspaceOpenResult> {
   assertHostSupport(browserTargetSurfaceKind(target), 'column-2');
-  if (target.kind !== 'agent_conversation') {
-    const requestedIdentity = browserColumnTargetIdentity(target);
+  if (target.kind !== 'agent-conversation') {
+    const requestedIdentity = sessionTargetIdentity(target);
     const activeWorkIdentity = workColumnTargetIdentity(useWorkColumnStore.getState().navigation.target);
-    if (activeWorkIdentity && contentIdentityKey(activeWorkIdentity) === contentIdentityKey(requestedIdentity)) {
+    if (requestedIdentity && activeWorkIdentity
+      && contentIdentityKey(activeWorkIdentity) === contentIdentityKey(requestedIdentity)) {
       await prepareActiveWorkColumnDocumentLeave();
     }
   }
@@ -204,20 +207,17 @@ async function openBrowserTarget(
     : { status: 'cancelled', host: 'column-2', reason: 'navigation-cancelled' };
 }
 
-export function openWorkspaceSurface(request: BrowserWorkspaceSurfaceRequest): Promise<BrowserWorkspaceOpenResult>;
-export function openWorkspaceSurface(request: WorkWorkspaceSurfaceRequest): Promise<WorkWorkspaceOpenResult>;
-export function openWorkspaceSurface(request: OpenWorkspaceSurfaceRequest): Promise<BrowserWorkspaceOpenResult | WorkWorkspaceOpenResult>;
-/** Route a shared surface target through the selected host adapter. */
+/** Route a shared surface target through the selected column adapter. */
 export async function openWorkspaceSurface(
-  request: OpenWorkspaceSurfaceRequest,
-): Promise<BrowserWorkspaceOpenResult | WorkWorkspaceOpenResult> {
+  request: WorkspaceSurfaceOpenRequest,
+): Promise<WorkspaceSurfaceOpenResult> {
   return openPreparedWorkspaceSurface(request);
 }
 
 /** Resolve a local target under the same navigation intent as its eventual open. */
 export async function openPreparedWorkspaceSurface(
-  request: OpenWorkspaceSurfaceRequest,
-  prepare?: (isCurrent: () => boolean) => Promise<Pick<OpenWorkspaceSurfaceRequest, 'target' | 'options'>>,
+  request: WorkspaceSurfaceOpenRequest,
+  prepare?: (isCurrent: () => boolean) => Promise<Pick<WorkspaceSurfaceOpenRequest, 'target' | 'options'>>,
 ): Promise<WorkspaceSurfaceOpenResult> {
   const navigationId = ++navigationSequence;
   const intent = request.host === 'column-1' || prepare
@@ -252,7 +252,7 @@ export async function openPreparedWorkspaceSurface(
 }
 
 async function performWorkspaceSurfaceOpen(
-  request: OpenWorkspaceSurfaceRequest,
+  request: WorkspaceSurfaceOpenRequest,
   navigationId: number,
   intent: SessionNavigationIntent | undefined,
 ): Promise<BrowserWorkspaceOpenResult | WorkWorkspaceOpenResult> {
@@ -377,14 +377,7 @@ export async function openBrowserColumnContentInWorkColumn(
   if (!entry || !canOpenBrowserColumnTargetInWorkColumn(entry.target)) {
     return { status: 'cancelled', host: 'column-1', reason: 'navigation-cancelled' };
   }
-  const target = browserTargetToWorkTarget(entry.target);
-  if (!target) return { status: 'cancelled', host: 'column-1', reason: 'navigation-cancelled' };
-  return openWorkspaceSurface({ host: 'column-1', target });
-}
-
-export function browserTargetToWorkTarget(target: BrowserColumnTarget): WorkWorkspaceSurfaceTarget {
-  return target.kind === 'agent_conversation'
-    ? { kind: 'agent-conversation', instanceId: target.instanceId } : target;
+  return openWorkspaceSurface({ host: 'column-1', target: entry.target });
 }
 
 export type { WorkspaceColumnId };

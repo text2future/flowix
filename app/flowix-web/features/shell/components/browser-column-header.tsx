@@ -44,7 +44,7 @@ export function BrowserColumnHeader(props: BrowserColumnHeaderProps) {
   const navigation = useWorkspaceSessionNavigation('column-2');
   const notebooks = useShellNotebooks();
   const selectedNotebook = useShellSelectedNotebook();
-  const agentInstanceId = current?.target.kind === 'agent_conversation' ? current.target.instanceId : null;
+  const agentInstanceId = current?.target.kind === 'agent-conversation' ? current.target.instanceId : null;
   const collectionPath = browserCollectionIndexPath(current);
   const target = current?.target.kind === 'file-browser' ? {
     ...current.target,
@@ -57,7 +57,7 @@ export function BrowserColumnHeader(props: BrowserColumnHeaderProps) {
     : null;
   const notebookRelativePath = notebookPath && path ? notebookRelativeDirectoryPath(notebookPath, path) : null;
   const sourceKind: WorkspaceSurfaceKind = path ? `file-${resolveWorkspaceFileSurfaceKind(path)}`
-    : current?.target.kind === 'web' ? 'web' : current?.target.kind === 'agent_conversation' ? 'agent-conversation'
+    : current?.target.kind === 'web' ? 'web' : current?.target.kind === 'agent-conversation' ? 'agent-conversation'
       : current?.target.kind === 'media' ? 'media' : current?.target.kind === 'plugin-workbench' ? 'plugin-workbench'
         : collectionPath ? 'collection' : 'file-browser';
   const collection = collectionPath ? {
@@ -106,7 +106,7 @@ export function BrowserColumnHeader(props: BrowserColumnHeaderProps) {
     webAddressBarVisible={props.webAddressBarVisible}
     onToggleWebAddressBar={current?.target.kind === 'web' ? props.onToggleWebAddressBar : undefined}
     onCloseColumn={props.onCloseColumn} onCreateNote={props.onCreateNote} onCreateAgentConversation={props.onCreateAgentConversation}
-    actions={(header, iconButtonClass) => current?.target.kind === 'agent_conversation' ? null
+    actions={(header, iconButtonClass) => current?.target.kind === 'agent-conversation' ? null
       : mediaTarget ? <BrowserColumnMediaActions {...mediaTarget} collectionPath={collectionPath} iconButtonClass={iconButtonClass} />
       : path && target ? <WorkspaceDocumentHeaderActions columnId="column-2" key={`${current?.id}:${path}`}
         path={path} scopePath={target.scopePath} notebookId={target.notebookId} header={header}

@@ -9,7 +9,7 @@ import { I18nProvider } from '@/lib/i18n/provider';
 import { useI18n } from '@/lib/i18n';
 import { useCollectionReference } from '@features/collection/public/collection-reference-api';
 import { useCollectionNameEdit, CollectionTitle } from '@features/collection/public/title-api';
-import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
+import { openSurfaceAtPosition } from '@features/workspace/public/open-surface-api';
 import { toast } from '@/lib/toast';
 import { Button } from '@shared/ui/button';
 import { CollectionActionsSlot } from '@shared/ui/collection-actions';
@@ -136,7 +136,7 @@ function WorkDocumentsReferenceContent({ attrs, currentNotebookId, editable, onR
   const openOriginal = async () => {
     if (!notebook || !attrs.collectionId) return;
     try {
-      await openWorkspaceSurface({
+      await openSurfaceAtPosition({
         index: 0,
         target: { kind: 'collection-reference', notebookId: notebook.id, collectionId: attrs.collectionId, viewId: null, collectionKind: 'work_documents' },
       });

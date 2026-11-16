@@ -1,7 +1,6 @@
 import { ensureCollectionDisplay, findCollectionDisplayPath } from '@/lib/collection-display-registry';
 import type { DocumentHistoryEntry } from '../model/legacy-document-history';
-import type { BrowserColumnEntry, BrowserColumnSessionState } from '../model/browser-column-session';
-import type { BrowserColumnTarget } from '../model/browser-column-target';
+import type { BrowserColumnEntry, BrowserColumnSessionState, BrowserViewTarget } from '../model/browser-column-session';
 import type { SessionNavigationEntry, SessionCurrentEntry } from '../model/session-navigation';
 import type { WorkspaceSurfaceOpenTarget } from '../model/surface-target';
 import type { WorkColumnNavigationState } from './work-column-target';
@@ -68,13 +67,9 @@ export function projectDocumentStack(stack: readonly SessionNavigationEntry[]): 
   return value;
 }
 
-function toCanonicalBrowserTarget(target: BrowserColumnTarget): SessionCurrentEntry['target'] {
-  return target.kind === 'agent_conversation' ? { kind: 'agent-conversation', instanceId: target.instanceId } : target;
-}
-
 export function fromBrowserEntry(entry: BrowserColumnEntry, previous?: SessionNavigationEntry): SessionCurrentEntry {
   const value: SessionCurrentEntry = {
-    ...entry, target: toCanonicalBrowserTarget(entry.target), openedAt: previous?.openedAt ?? Date.now(),
+    ...entry, openedAt: previous?.openedAt ?? Date.now(),
   };
   sessionToBrowser.set(value, entry);
   return value;
@@ -84,9 +79,9 @@ export function toBrowserEntry(entry: SessionNavigationEntry): BrowserColumnEntr
   const cached = sessionToBrowser.get(entry);
   if (cached) return cached;
   const target = entry.target;
-  let browserTarget: BrowserColumnTarget;
+  let browserTarget: BrowserViewTarget;
   switch (target.kind) {
-    case 'agent-conversation': browserTarget = { kind: 'agent_conversation', instanceId: target.instanceId }; break;
+    case 'agent-conversation': browserTarget = { kind: 'agent-conversation', instanceId: target.instanceId }; break;
     case 'external': browserTarget = {
       kind: 'file-browser', activeFilePath: target.path, folderPath: null,
       notebookId: null, scopePath: target.scopePath, fileTreeVisible: true, fileTreeWidth: 220, ...target.fileBrowser,

@@ -1,6 +1,6 @@
 'use client';
 
-import { openWorkspaceSurface as openSurfaceAtHost } from '@features/workspace/public/open-surface-api';
+import { openSurfaceAtPosition as openSurfaceAtHost } from '@features/workspace/public/open-surface-api';
 
 import { memo, useCallback, useLayoutEffect, useMemo, type ReactNode } from 'react';
 import type { CollectionIndexItem } from '@platform/tauri/client';
@@ -8,7 +8,7 @@ import { type CollectionDisplayDescriptor } from '@/lib/collection-display-regis
 import { requireFileDisplayIdentity, type FileDisplayIdentity } from '@/lib/file-display-registry';
 import { resolveFileBrowserContext, setCollectionActiveView, updatePrimaryFileBrowserContext } from '@features/workspace/public/session-runtime-api';
 import { selectBrowserColumnFile } from '@features/workspace/public/browser-column-api';
-import { openWorkspaceSurface } from '@features/workspace/public/session-opening-api';
+import { openSurfaceInColumn } from '@features/workspace/public/session-opening-api';
 import { browserSessionRuntime, type BrowserColumnEntry, type BrowserColumnWebRuntime } from '@features/workspace/public/browser-column-api';
 import { canonicalUrl } from '@/lib/url';
 import type { WorkspaceSurfaceCapability, SurfaceAppearance, SurfaceHeaderStyle, WorkspaceSurfaceKind } from '@features/workspace/public/surface-api';
@@ -128,7 +128,7 @@ export function resolveBrowserColumnSurface(
       const updatePrimaryContext = (patch: Partial<import('@features/workspace/public/surface-api').FileBrowserContext>) =>
         updatePrimaryFileBrowserContext(sourceTarget, patch);
       const selectPrimary = (activeFilePath: string | null, folderPath?: string) => {
-        void openWorkspaceSurface({ columnId: 'column-1', target: {
+        void openSurfaceInColumn({ columnId: 'column-1', target: {
           ...sourceTarget, ...(folderPath === undefined ? {} : { folderPath }),
           activeFilePath, collectionDisplay: undefined, collectionType: undefined,
         } });
@@ -172,7 +172,7 @@ export function resolveBrowserColumnSurface(
         title: entry.title,
         runtime: webRuntime ?? null,
       };
-    case 'agent_conversation':
+    case 'agent-conversation':
       return { ...base, kind: 'agent-conversation', instanceId: entry.target.instanceId };
   }
 }

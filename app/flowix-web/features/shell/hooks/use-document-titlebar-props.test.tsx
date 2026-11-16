@@ -6,11 +6,11 @@ import { resolveWorkColumnPresentation, resolveWorkColumnRuntimePresentation, ty
 import { workspaceSurfaceContentPresentation } from '@features/workspace/public/surface-api';
 import { useDocumentTitlebarProps, type UseDocumentTitlebarPropsInput } from './use-document-titlebar-props';
 
-const mocks = vi.hoisted(() => ({ openWorkspaceSurface: vi.fn() }));
+const mocks = vi.hoisted(() => ({ openSurfaceInColumn: vi.fn() }));
 vi.mock('@features/workspace/public/session-header-api', () => ({ useSessionAddressBar: () => ({ visible: false, toggle: undefined }) }));
 vi.mock('@features/workspace/public/session-opening-api', async (importOriginal) => ({
   ...await importOriginal<typeof import('@features/workspace/public/session-opening-api')>(),
-  openWorkspaceSurface: mocks.openWorkspaceSurface,
+  openSurfaceInColumn: mocks.openSurfaceInColumn,
 }));
 
 it.each(['note', 'collection'] as const)('derives primary file-browser %s menus from their own notebook context', async (kind) => {
@@ -150,7 +150,7 @@ it('keeps Work file-browser ownership and tree preferences when opening a breadc
     notebookId: 'book', scopePath: '/book/repo', folderPath: '/book/repo',
     fileTreeVisible: false, fileTreeWidth: 312,
   };
-  mocks.openWorkspaceSurface.mockResolvedValue({ status: 'opened' });
+  mocks.openSurfaceInColumn.mockResolvedValue({ status: 'opened' });
   const input: UseDocumentTitlebarPropsInput = {
     workColumnPresentation: presentation, workRuntimePresentation: runtime, workCapabilities: [],
     workHeaderStyle: 'document', browserColumnVisible: true, mainEditorMode: 'rich', handleSetMainEditorMode: vi.fn(),
@@ -169,7 +169,7 @@ it('keeps Work file-browser ownership and tree preferences when opening a breadc
   try {
     await act(async () => root.render(<Probe />));
     await act(async () => result!.onBreadcrumbFileOpen?.('/book/repo/sub/next.md', '/book/repo/sub'));
-    expect(mocks.openWorkspaceSurface).toHaveBeenCalledWith({
+    expect(mocks.openSurfaceInColumn).toHaveBeenCalledWith({
       columnId: 'column-1',
       target: {
         kind: 'external', path: '/book/repo/sub/next.md', scopePath: '/book/repo', transitionId: null,
@@ -181,6 +181,6 @@ it('keeps Work file-browser ownership and tree preferences when opening a breadc
     });
   } finally {
     await act(async () => root.unmount());
-    mocks.openWorkspaceSurface.mockReset();
+    mocks.openSurfaceInColumn.mockReset();
   }
 });

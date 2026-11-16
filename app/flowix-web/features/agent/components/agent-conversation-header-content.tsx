@@ -13,7 +13,7 @@ import {
 import { useAgentSessionStore } from '@features/agent/store/agent-session-store';
 import { openNoteByNotebookPath, openNoteByPhysicalPath } from '@features/memo/public/note-navigation-api';
 import type { WorkspaceColumnId } from '@features/workspace/public/surface-api';
-import { openWorkspaceSurface } from '@features/workspace/public/session-opening-api';
+import { openSurfaceInColumn } from '@features/workspace/public/session-opening-api';
 import { getAgentConversationPresentation } from '@features/agent/conversation-presentation';
 import { toast } from '@/lib/toast';
 import { AgentConversationMoreMenu } from '@features/agent/components/agent-conversation-more-menu';
@@ -33,7 +33,7 @@ export function AgentConversationHeaderContent({ instanceId, columnId, beforeMor
     const open = source?.notebookId && source.relativePath
       ? openNoteByNotebookPath(source.notebookId, source.relativePath, null, { columnId })
       : source?.documentPath
-        ? openNoteByPhysicalPath(source.documentPath, null, { columnId }).catch(() => openWorkspaceSurface({
+        ? openNoteByPhysicalPath(source.documentPath, null, { columnId }).catch(() => openSurfaceInColumn({
           columnId: columnId,
           target: { kind: 'external', path: source.documentPath!, scopePath: null, transitionId: null },
         }).then(() => undefined))

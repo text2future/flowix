@@ -5,12 +5,12 @@ import { useBrowserColumnStore } from '../store/browser-column-store';
 import { useWorkspaceFocusStore } from '../store/workspace-focus-store';
 import { useWorkspaceSessionStore } from '../store/workspace-session-store';
 
-export { openWorkspaceSurface } from './open-surface-api';
-export type { OpenWorkspaceSurfaceRequest, BrowserWorkspaceSurfaceRequest } from './open-surface-api';
+export { openSurfaceAtPosition } from './open-surface-api';
+export type { OpenSurfaceAtPositionRequest } from './open-surface-api';
 export { createFileBrowserTarget, removeBrowserColumnContentByPath, selectBrowserColumnFile, navigateBrowserColumnHistory } from '../use-cases/browser-column-navigation';
 export { openBrowserColumnContentInWorkColumn } from '../use-cases/surface-opening';
 export { BROWSER_COLUMN_MIN_WIDTH, canOpenBrowserColumnTargetInWorkColumn } from '../store/browser-column-store';
-export type { BrowserColumnEntry, BrowserColumnTarget, BrowserColumnWebRuntime } from '../store/browser-column-store';
+export type { BrowserColumnEntry, BrowserViewTarget, BrowserColumnWebRuntime } from '../store/browser-column-store';
 export { closeBrowserColumnContent, clearBrowserColumnSession } from '../use-cases/browser-column-closing';
 
 export function useBrowserColumnViewModel() {

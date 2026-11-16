@@ -1,14 +1,14 @@
 /** Open a notebook-relative or physical target: Markdown, collection files, HTML, media. */
 
-import { openWorkspaceSurface as openInColumn } from '@features/workspace/public/session-opening-api';
-import type { OpenWorkspaceSurfaceRequest } from '@features/workspace/public/open-surface-api';
+import { openSurfaceInColumn as openInColumn } from '@features/workspace/public/session-opening-api';
+import type { OpenSurfaceAtPositionRequest } from '@features/workspace/public/open-surface-api';
 import { notes as notesClient } from '@platform/tauri/client';
 import { useNoteStore } from '@features/memo/store/note-store';
 import { setCurrentWorkspaceNotebook } from '@features/memo/public/workspace-api';
 import { canonicalDirectoryPath, canonicalPath, joinNotebookMemoPath } from '@/lib/path';
 import {
   clearWorkspaceDocument,
-  openWorkspaceSurface as openAtIndex,
+  openSurfaceAtPosition as openAtIndex,
 } from '@features/workspace/public/note-navigation-api';
 import type { WorkspaceContentLocation } from '@features/workspace/public/note-navigation-api';
 import type { WorkspaceNavigationSource, WorkspaceSurfaceOpenResult } from '@features/workspace/public/open-surface-api';
@@ -292,7 +292,7 @@ export async function openNotebookById(notebookId: string): Promise<boolean> {
   return true;
 }
 
-function openNoteTarget(options: OpenNoteDestinationOptions | undefined, request: OpenWorkspaceSurfaceRequest) {
+function openNoteTarget(options: OpenNoteDestinationOptions | undefined, request: OpenSurfaceAtPositionRequest) {
   if (!options?.columnId) return openAtIndex(request);
   const { index: _index, ...rest } = request;
   return openInColumn({ ...rest, columnId: options.columnId });

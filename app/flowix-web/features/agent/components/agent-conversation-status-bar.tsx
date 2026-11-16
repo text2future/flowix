@@ -8,7 +8,7 @@ import {
   type ConversationRunSummary,
 } from '@features/agent/store/conversation-run-index';
 import { useWorkspaceRestoreStore } from '@features/workspace/store/workspace-restore-store';
-import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
+import { openSurfaceAtPosition } from '@features/workspace/public/open-surface-api';
 import { getAgentType } from '@/lib/agent-types';
 import { useI18n } from '@/lib/i18n';
 import { toast } from '@/lib/toast';
@@ -87,7 +87,7 @@ export function AgentConversationStatusBar() {
 
   const openConversation = useCallback((instance: AgentConversationInstance) => {
     if (instance.threadId) markThreadRead(instance.threadId);
-    void openWorkspaceSurface({ index: 0, target: { kind: 'agent-conversation', instanceId: instance.instanceId } }).catch((error) => {
+    void openSurfaceAtPosition({ index: 0, target: { kind: 'agent-conversation', instanceId: instance.instanceId } }).catch((error) => {
       toast.error(error instanceof Error ? error.message : t('status.agent.conversationNotFound'));
     });
   }, [markThreadRead, t]);

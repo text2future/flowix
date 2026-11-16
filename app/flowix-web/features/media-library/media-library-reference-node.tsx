@@ -12,7 +12,7 @@ import { ArrowUpRightIcon, ArrowsLeftRightIcon, FunnelIcon, PlusIcon } from '@ph
 import { dialogs, externalDocuments, files, collections, mediaResources, type MediaResource, type NotebookFolderOption } from '@platform/tauri/client';
 import { resourceKindFromPath } from '@features/editor/public/code-file';
 import { useNoteStore } from '@features/memo/store/note-store';
-import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
+import { openSurfaceAtPosition } from '@features/workspace/public/open-surface-api';
 import { canonicalDirectoryPath, canonicalPath, joinNotebookMemoPath, notebookRelativeDirectoryPath } from '@/lib/path';
 import { displayTitleFromFilename } from '@/lib/utils';
 import { useCollectionReference } from '@features/collection/use-collection-reference';
@@ -461,7 +461,7 @@ function MediaLibraryReferenceSurface({ attrs, currentNotebookId, editable, onRe
     try {
       const resolved = await resolveMediaLibraryPath(notebook, attrs.collectionId!);
       if (resolved.relativePath !== attrs.relativePath) onRelativePathChange(resolved.relativePath);
-      await openWorkspaceSurface({
+      await openSurfaceAtPosition({
         index: 0,
         target: { kind: 'collection-reference', notebookId: notebook.id, collectionId: attrs.collectionId, collectionKind: 'media_library' },
       });

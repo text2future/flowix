@@ -509,8 +509,8 @@ export async function openFolderCollectionFromFolder(
   if (host === 'column-1') {
     await openFolderCollectionChooserTarget(target, undefined, options?.history ?? 'push');
   } else {
-    const { openWorkspaceSurface } = await import('@features/workspace/public/session-opening-api');
-    await openWorkspaceSurface({ columnId: host, target, options });
+    const { openSurfaceInColumn } = await import('@features/workspace/public/session-opening-api');
+    await openSurfaceInColumn({ columnId: host, target, options });
   }
 }
 

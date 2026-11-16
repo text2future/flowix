@@ -4,7 +4,7 @@ import type { MediaResource } from '@platform/tauri/client';
 import { joinNotebookMemoPath } from '@/lib/path';
 import { toast } from '@/lib/toast';
 import { Button } from '@shared/ui/button';
-import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
+import { openSurfaceAtPosition } from '@features/workspace/public/open-surface-api';
 import { requestMediaPreview } from '@features/surface/media-preview-tasks';
 import imagePlaceholder from '@/assets/placeholder-image-card.jpg';
 import videoPlaceholder from '@/assets/placeholder-video-card.jpg';
@@ -38,7 +38,7 @@ function PhotoWallItem({ item, height, notebookId, notebookPath }: { item: Prepa
   const filePath = joinNotebookMemoPath(notebookPath, resource.relativePath);
   const title = resource.relativePath.split(/[\\/]/).pop() ?? resource.relativePath;
   return <button type="button" title={title} aria-label={`打开：${title}`} onClick={() => {
-    if (filePath) void openWorkspaceSurface({
+    if (filePath) void openSurfaceAtPosition({
       index: 1,
       target: { kind: 'media', filePath, notebookId, notebookPath, resourceKind: resource.kind },
     }).catch((reason) => toast.error(reason instanceof Error ? reason.message : '无法打开媒体资源'));

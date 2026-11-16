@@ -54,7 +54,7 @@ import { AgentBackgroundTerminals } from '@features/agent/components/agent-backg
 import { CodexApprovalQueue } from '@features/agent/components/codex-approval-queue';
 import { buildInitialInstanceRuntimeConfig } from '@features/agent/store/initial-runtime-config';
 import { defaultThreadTitle } from '@features/agent/store/thread-titles';
-import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
+import { openSurfaceAtPosition } from '@features/workspace/public/open-surface-api';
 import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
 import {
   agentFileScopePathForRuntime,
@@ -329,7 +329,7 @@ function AgentConversationDetailContent({
         source: { kind: 'dedicated', notebookId: currentInstance.source.notebookId ?? null },
       });
       // fork 出的新会话与「新建会话」同默认：开进第一列（侧边栏打开同款落点）。
-      await openWorkspaceSurface({ index: 0, target: { kind: 'agent-conversation', instanceId: fork.instanceId, blankIfMissing: true } });
+      await openSurfaceAtPosition({ index: 0, target: { kind: 'agent-conversation', instanceId: fork.instanceId, blankIfMissing: true } });
     } catch (error) {
       logger.error(`Failed to fork ${agentType} conversation`, { error });
       toast.error(error instanceof Error ? error.message : String(error));

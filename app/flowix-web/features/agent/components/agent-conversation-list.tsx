@@ -20,7 +20,7 @@ import {
   requestNewConversationAgentSelection,
 } from '@features/agent/use-cases/new-conversation';
 import { useActiveAgentConversationInstanceId } from '@features/workspace/public/active-conversation-api';
-import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
+import { openSurfaceAtPosition } from '@features/workspace/public/open-surface-api';
 import { useNoteStore } from '@features/memo/store/note-store';
 import { isAgentConversationRunning } from '@features/agent/store/conversation-run-index';
 import { useNewConversationAgentSelection } from '@features/agent/hooks/use-new-conversation-agent-selection';
@@ -254,7 +254,7 @@ export function AgentConversationList({ isActive = true, onBack }: AgentConversa
   const revealConversation = useCallback((instance: AgentConversationInstance) => {
     prepareConversation(instance);
     if (instance.threadId) markThreadRead(instance.threadId);
-    void openWorkspaceSurface({ index: 0, target: { kind: 'agent-conversation', instanceId: instance.instanceId } }).catch((error) => {
+    void openSurfaceAtPosition({ index: 0, target: { kind: 'agent-conversation', instanceId: instance.instanceId } }).catch((error) => {
       logger.error('Failed to open conversation in work column', { error });
       toast.error(error instanceof Error ? error.message : String(error));
     });
@@ -264,7 +264,7 @@ export function AgentConversationList({ isActive = true, onBack }: AgentConversa
   const openConversationInBrowserColumn = useCallback((instance: AgentConversationInstance) => {
     prepareConversation(instance);
     if (instance.threadId) markThreadRead(instance.threadId);
-    void openWorkspaceSurface({ index: 1, target: { kind: 'agent-conversation', instanceId: instance.instanceId } }).catch((error) => {
+    void openSurfaceAtPosition({ index: 1, target: { kind: 'agent-conversation', instanceId: instance.instanceId } }).catch((error) => {
       logger.error('Failed to open conversation in browser column', { error });
       toast.error(error instanceof Error ? error.message : String(error));
     });

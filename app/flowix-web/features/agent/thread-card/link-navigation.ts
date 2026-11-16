@@ -7,7 +7,7 @@ import { getCurrentAppLanguage } from '@features/preferences/public/runtime-api'
 import { externalFileViewKind } from '@features/editor/code-file';
 import { openNoteByDeepLink } from '@features/memo/public/note-navigation-api';
 import { createFileBrowserTarget } from '@features/workspace/public/browser-column-api';
-import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
+import { openSurfaceAtPosition } from '@features/workspace/public/open-surface-api';
 import type { WorkspaceSurfaceOpenResult } from '@features/workspace/public/open-surface-api';
 import {
   cancelAgentLocationRequest,
@@ -142,7 +142,7 @@ export async function openAgentLink(
       await openNoteByDeepLink(target.url, null, { destination: 1, source: 'agent-message' });
       return;
     case 'web':
-      await openWorkspaceSurface({ index: 1, source: 'agent-message', target: { kind: 'web', url: target.url } });
+      await openSurfaceAtPosition({ index: 1, source: 'agent-message', target: { kind: 'web', url: target.url } });
       return;
     case 'external':
       await openUrl(target.url);
@@ -162,11 +162,11 @@ export async function openAgentLink(
       let opened: WorkspaceSurfaceOpenResult;
       try {
         opened = scopePath
-          ? await openWorkspaceSurface({
+          ? await openSurfaceAtPosition({
             index: 1, source: 'agent-message',
             target: createFileBrowserTarget(target.path, scopePath, scopePath),
           })
-          : await openWorkspaceSurface({
+          : await openSurfaceAtPosition({
             index: 1, source: 'agent-message',
             target: { kind: 'external', path: target.path, scopePath: null, transitionId: null },
           });

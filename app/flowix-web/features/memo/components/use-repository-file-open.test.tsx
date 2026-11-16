@@ -2,9 +2,9 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const openWorkspaceSurface = vi.hoisted(() => vi.fn(() => Promise.resolve({ status: 'opened' })));
+const openSurfaceAtPosition = vi.hoisted(() => vi.fn(() => Promise.resolve({ status: 'opened' })));
 
-vi.mock('@features/workspace/public/open-surface-api', () => ({ openWorkspaceSurface }));
+vi.mock('@features/workspace/public/open-surface-api', () => ({ openSurfaceAtPosition }));
 vi.mock('@/lib/logger', () => ({ createLogger: () => ({ error: vi.fn(), warn: vi.fn() }) }));
 vi.mock('@/lib/toast', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
@@ -32,7 +32,7 @@ function mountProbe(): {
 
 describe('repository file open placement', () => {
   beforeEach(() => {
-    openWorkspaceSurface.mockClear();
+    openSurfaceAtPosition.mockClear();
   });
 
   afterEach(() => {
@@ -47,7 +47,7 @@ describe('repository file open placement', () => {
 
     handlers.openRepositoryFile('/repo/notes/a.md', '/repo');
 
-    expect(openWorkspaceSurface).toHaveBeenCalledWith({
+    expect(openSurfaceAtPosition).toHaveBeenCalledWith({
       index: 0,
       target: { kind: 'external', path: '/repo/notes/a.md', scopePath: '/repo', transitionId: null },
     });
@@ -58,7 +58,7 @@ describe('repository file open placement', () => {
 
     handlers.openRepositoryFileInBrowser('/repo/notes/a.md', '/repo');
 
-    expect(openWorkspaceSurface).toHaveBeenCalledWith({
+    expect(openSurfaceAtPosition).toHaveBeenCalledWith({
       index: 1,
       target: { kind: 'external', path: '/repo/notes/a.md', scopePath: '/repo', transitionId: null },
     });

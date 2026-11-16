@@ -5,7 +5,7 @@ import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import type { EditorView, NodeView as ProseMirrorNodeView } from '@tiptap/pm/view';
 import { X } from 'lucide-react';
 import { ArrowUpRightIcon, ArrowsLeftRightIcon } from '@phosphor-icons/react';
-import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
+import { openSurfaceAtPosition } from '@features/workspace/public/open-surface-api';
 import { useNoteStore } from '@features/memo/store/note-store';
 import { useAppLanguage } from '@features/preferences/public/runtime-api';
 import { I18nProvider } from '@/lib/i18n/provider';
@@ -237,7 +237,7 @@ function TableReferenceSurface({ attrs, currentNotebookId, editable, onViewChang
   const openOriginal = useCallback(async () => {
     if (!notebook || !attrs.collectionId) return;
     try {
-      await openWorkspaceSurface({
+      await openSurfaceAtPosition({
         index: 0,
         target: { kind: 'collection-reference', notebookId: notebook.id, collectionId: attrs.collectionId, viewId: attrs.viewId, collectionKind: 'table' },
       });

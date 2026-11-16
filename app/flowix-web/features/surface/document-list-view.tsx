@@ -374,8 +374,8 @@ export function DocumentListView({ listContext, mediaLibrary = false, workDocume
       setCreateOpen(false);
       setNewTitle('');
       refresh();
-      const { openWorkspaceSurface } = await import('@features/workspace/public/open-surface-api');
-      await openWorkspaceSurface({
+      const { openSurfaceAtPosition } = await import('@features/workspace/public/open-surface-api');
+      await openSurfaceAtPosition({
         index: 0,
         target: { kind: 'external', path: created.path, scopePath: listContext.notebookPath, transitionId: null },
       });
@@ -388,8 +388,8 @@ export function DocumentListView({ listContext, mediaLibrary = false, workDocume
   const openItem = useCallback(async (item: DocumentPageItem) => {
     try {
       if (workDocuments) {
-        const { openWorkspaceSurface } = await import('@features/workspace/public/open-surface-api');
-        await openWorkspaceSurface({
+        const { openSurfaceAtPosition } = await import('@features/workspace/public/open-surface-api');
+        await openSurfaceAtPosition({
           index: 1,
           target: { kind: 'external', path: item.fullPath, scopePath: listContext.notebookPath, transitionId: null },
           options: { notebookId: listContext.notebookId },
@@ -406,16 +406,16 @@ export function DocumentListView({ listContext, mediaLibrary = false, workDocume
         await openPath(item.fullPath);
         return;
       }
-      const { openWorkspaceSurface } = await import('@features/workspace/public/session-opening-api');
+      const { openSurfaceInColumn } = await import('@features/workspace/public/session-opening-api');
       const kind = item.resourceKind ?? resourceKindFromPath(item.fullPath);
       if (kind === 'image' || kind === 'video') {
-        await openWorkspaceSurface({ columnId: workspaceHost, target: {
+        await openSurfaceInColumn({ columnId: workspaceHost, target: {
           kind: 'media', filePath: item.fullPath, notebookId: listContext.notebookId,
           notebookPath: listContext.notebookPath, resourceKind: kind,
         } });
       } else {
         const target = { kind: 'external' as const, path: item.fullPath, scopePath: listContext.notebookPath, transitionId: null };
-        await openWorkspaceSurface({ columnId: workspaceHost, target });
+        await openSurfaceInColumn({ columnId: workspaceHost, target });
       }
     } catch {
       toast.error('打开文件失败');

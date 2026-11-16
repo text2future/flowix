@@ -121,7 +121,7 @@ describe('agent conversation navigation', () => {
       id: 'agent:conversation-a',
       title: 'Conversation A',
       icon: null,
-      target: { kind: 'agent_conversation', instanceId: 'conversation-a' },
+      target: { kind: 'agent-conversation', instanceId: 'conversation-a' },
     });
     mocks.openAgentConversation.mockClear();
 

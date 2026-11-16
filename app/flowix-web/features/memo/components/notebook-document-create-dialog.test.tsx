@@ -6,7 +6,7 @@ import { NotebookDocumentCreateDialog, type NotebookDocumentCreateRequest } from
 import { createTableDocumentFile } from '@features/multidimensional-table/public/create-api';
 import { createMediaLibraryFile } from '@features/media-library/model';
 import { createWorkDocumentsCollectionFile } from '@features/collection/public/work-documents-model-api';
-import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
+import { openSurfaceAtPosition } from '@features/workspace/public/open-surface-api';
 import { toast } from '@/lib/toast';
 
 vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }));
@@ -14,7 +14,7 @@ vi.mock('@/lib/toast', () => ({ toast: { error: vi.fn() } }));
 vi.mock('@features/multidimensional-table/public/create-api', () => ({ createTableDocumentFile: vi.fn() }));
 vi.mock('@features/media-library/model', () => ({ createMediaLibraryFile: vi.fn() }));
 vi.mock('@features/collection/public/work-documents-model-api', () => ({ createWorkDocumentsCollectionFile: vi.fn() }));
-vi.mock('@features/workspace/public/open-surface-api', () => ({ openWorkspaceSurface: vi.fn() }));
+vi.mock('@features/workspace/public/open-surface-api', () => ({ openSurfaceAtPosition: vi.fn() }));
 vi.mock('@shared/ui/dialog', () => {
   const Surface = ({ children }: { children: ReactNode }) => <div>{children}</div>;
   return { Dialog: Surface, DialogContent: Surface, DialogHeader: Surface, DialogTitle: Surface, DialogDescription: Surface };
@@ -53,9 +53,9 @@ describe('notebook document creation', () => {
     await submit();
     expect(createTableDocumentFile).toHaveBeenCalledWith('/other', 'sub', `memo.create.${viewType}DefaultName`, viewType);
     expect(onTableCreated).toHaveBeenCalledWith({ relativePath: 'sub/new.table.yml', collectionId: 'collection-1', viewId: 'view-1' });
-    expect(onTableCreated.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(openWorkspaceSurface).mock.invocationCallOrder[0]);
+    expect(onTableCreated.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(openSurfaceAtPosition).mock.invocationCallOrder[0]);
     expect(refresh).toHaveBeenCalledOnce();
-    expect(openWorkspaceSurface).toHaveBeenCalledWith(expect.objectContaining({ options: { notebookId: notebook.id }, target: expect.objectContaining({ scopePath: '/other' }) }));
+    expect(openSurfaceAtPosition).toHaveBeenCalledWith(expect.objectContaining({ options: { notebookId: notebook.id }, target: expect.objectContaining({ scopePath: '/other' }) }));
     expect(onClose).toHaveBeenCalledOnce();
   });
 
@@ -64,7 +64,7 @@ describe('notebook document creation', () => {
     await render({ kind: 'media-library', notebook, parentFolder: () => 'media' });
     await submit();
     expect(createMediaLibraryFile).toHaveBeenCalledWith('/other', 'media', 'memo.create.mediaLibraryDefaultName');
-    expect(openWorkspaceSurface).toHaveBeenCalledWith(expect.objectContaining({ target: expect.objectContaining({ path: '/other/library.lib.yaml' }) }));
+    expect(openSurfaceAtPosition).toHaveBeenCalledWith(expect.objectContaining({ target: expect.objectContaining({ path: '/other/library.lib.yaml' }) }));
   });
 
   it('creates work documents in the resolved default folder', async () => {
@@ -80,7 +80,7 @@ describe('notebook document creation', () => {
     await submit();
     expect(toast.error).toHaveBeenCalledWith('disk full');
     expect(onClose).not.toHaveBeenCalled();
-    expect(openWorkspaceSurface).not.toHaveBeenCalled();
+    expect(openSurfaceAtPosition).not.toHaveBeenCalled();
     await submit();
     expect(onClose).toHaveBeenCalledOnce();
   });

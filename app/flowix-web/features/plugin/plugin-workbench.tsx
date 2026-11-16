@@ -10,7 +10,7 @@ import {
 import { joinNotebookMemoPath } from '@/lib/path';
 import { useNoteStore } from '@features/memo/store/note-store';
 import { notes, type PluginDescriptor } from '@platform/tauri/client';
-import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
+import { openSurfaceAtPosition } from '@features/workspace/public/open-surface-api';
 import type { SurfacePresentationUpdate, SurfaceNotice } from '@features/workspace/public/surface-api';
 import { AgentPluginWorkbench } from './plugin-agent-workbench';
 import { normalizePluginId } from './plugin-note';
@@ -132,7 +132,7 @@ function ArtifactToolWorkbench({
                   className="flex w-full items-center gap-3 border-b border-[var(--divider)] px-4 py-3 text-left last:border-b-0 hover:bg-[var(--muted)]"
                   onClick={() => {
                     const path = joinNotebookMemoPath(selectedNotebook.path, note.relativePath);
-                    if (path) void openWorkspaceSurface({
+                    if (path) void openSurfaceAtPosition({
                       index: 1,
                       target: { kind: 'external', path, scopePath: null, transitionId: null },
                     });

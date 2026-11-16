@@ -5,7 +5,7 @@ import { useWorkColumnStore } from '@features/workspace/store/work-column-store'
 import { columnRequestId } from '@features/workspace/store/column-navigation';
 import { useBrowserColumnStore } from '@features/workspace/store/browser-column-store';
 import { useWorkspaceFocusStore } from '@features/workspace/store/workspace-focus-store';
-import { openWorkspaceSurface } from './open-surface-api';
+import { openSurfaceAtPosition } from './open-surface-api';
 
 export { selectNotebook } from '@features/workspace/use-cases/workspace-navigation';
 export {
@@ -13,8 +13,8 @@ export {
   clearWorkspaceTargetsForDeletedDirectory,
   historyEntryFromWorkColumnTarget,
 } from '@features/workspace/use-cases/workspace-navigation';
-export { openWorkspaceSurface } from './open-surface-api';
-export type { OpenWorkspaceSurfaceRequest } from './open-surface-api';
+export { openSurfaceAtPosition } from './open-surface-api';
+export type { OpenSurfaceAtPositionRequest } from './open-surface-api';
 export { deleteMainExternalDocument } from '@features/workspace/use-cases/delete-main-external-document';
 export { renameWorkspaceFile } from '../use-cases/rename-workspace-file';
 
@@ -62,7 +62,7 @@ export function useWorkColumnTransferViewModel() {
     if (target.kind === 'empty' || target.kind === 'plugin-workbench') {
       return Promise.resolve(null);
     }
-    return openWorkspaceSurface({ index: 1, target }).catch((error: unknown) => {
+    return openSurfaceAtPosition({ index: 1, target }).catch((error: unknown) => {
       toast.error('无法在右栏打开', { description: error instanceof Error ? error.message : String(error) });
       return null;
     });

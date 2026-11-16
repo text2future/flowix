@@ -9,7 +9,7 @@ vi.mock('@features/document/public/resource-context', () => ({ getDocumentResour
 vi.mock('@platform/tauri/client', () => ({ files: { resolveLocation: mocks.resolve } }));
 vi.mock('@features/workspace/public/session-api', () => ({ columnAtIndex: () => 'column-1' }));
 vi.mock('@features/workspace/public/session-opening-api', () => ({
-  openPreparedWorkspaceSurface: async (request: object, prepare: () => Promise<object>) =>
+  openPreparedSurfaceInColumn: async (request: object, prepare: () => Promise<object>) =>
     mocks.open({ ...request, ...await prepare() }),
 }));
 

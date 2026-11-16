@@ -2,8 +2,8 @@ import { SESSION_HISTORY_LIMIT } from '../model/session-limits';
 import { restoreWorkspaceWebRuntime } from '../model/web-navigation';
 import type { CollectionDisplayDescriptor } from '@/lib/collection-display-registry';
 import { canonicalUrl } from '../model/surface-identity';
-import { browserColumnTargetKey, type BrowserColumnTarget } from '../model/browser-column-target';
-import type { BrowserColumnEntry, BrowserColumnSessionState } from '../model/browser-column-session';
+import { sessionTargetKey } from '../model/session-target-key';
+import type { BrowserColumnEntry, BrowserColumnSessionState, BrowserViewTarget } from '../model/browser-column-session';
 import { BROWSER_COLUMN_DEFAULT_SPLIT_RATIO, BROWSER_COLUMN_FILE_TREE_DEFAULT_WIDTH, clampFileTreeWidth, clampSplitRatio } from '../model/browser-column-layout';
 
 const LEGACY_SPLIT_RATIO_STORAGE_KEY = 'flowix.workspace.fourth-column.split-ratio';
@@ -23,7 +23,7 @@ function parseCollectionDisplay(value: unknown): CollectionDisplayDescriptor | n
     notebookId: value.notebookId, viewId: nonEmptyString(value.viewId) ? value.viewId : null };
 }
 
-function parseBrowserColumnTarget(value: unknown): BrowserColumnTarget | null {
+function parseBrowserColumnTarget(value: unknown): BrowserViewTarget | null {
   if (!isRecord(value) || typeof value.kind !== 'string') return null;
 
   switch (value.kind) {
@@ -95,8 +95,9 @@ function parseBrowserColumnTarget(value: unknown): BrowserColumnTarget | null {
       return url ? { kind: 'web', url } : null;
     }
     case 'agent_conversation':
+    case 'agent-conversation':
       return nonEmptyString(value.instanceId)
-        ? { kind: 'agent_conversation', instanceId: value.instanceId }
+        ? { kind: 'agent-conversation', instanceId: value.instanceId }
         : null;
     default:
       return null;
@@ -130,13 +131,13 @@ function normalizePersistedTabs(value: unknown, activeTabId: unknown): BrowserCo
     const filePath = tab.target.kind === 'file-browser' ? tab.target.activeFilePath : null;
     // Keep agent configuration out of automatic session restoration.
     if (filePath?.split(/[\\/]/).pop() === 'AGENTS.md') continue;
-    const targetKey = browserColumnTargetKey(tab.target);
+    const targetKey = sessionTargetKey(tab.target);
     if (!targetKey) continue;
     seenIds.add(tab.id);
     if (seenKeys.has(targetKey)) {
       // Keep the active duplicate's context and tree preferences at the old slot.
       if (tab.id === activeTabId) {
-        const index = tabs.findIndex((candidate) => browserColumnTargetKey(candidate.target) === targetKey);
+        const index = tabs.findIndex((candidate) => sessionTargetKey(candidate.target) === targetKey);
         tabs[index] = tab;
       }
       continue;

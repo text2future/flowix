@@ -91,6 +91,6 @@ export interface CollectionReferenceSurfaceTarget {
 }
 
 export type WorkspaceSurfaceOpenTarget = WorkspaceContentTarget | FileBrowserTarget | CollectionReferenceSurfaceTarget;
-/** Empty is a host state, not an open request. */
-export type WorkWorkspaceSurfaceTarget = FileBrowserTarget | Exclude<WorkspaceContentTarget, { kind: 'empty' }> | CollectionReferenceSurfaceTarget;
-export type BrowserWorkspaceSurfaceTarget = WorkWorkspaceSurfaceTarget;
+/** Empty is a column state, not an open request. */
+export type OpenableWorkspaceSurfaceTarget
+  = FileBrowserTarget | Exclude<WorkspaceContentTarget, { kind: 'empty' }> | CollectionReferenceSurfaceTarget;

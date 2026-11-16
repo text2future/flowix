@@ -112,7 +112,7 @@ describe('workspace content activation', () => {
       id: 'agent:agent-a',
       title: 'Agent A',
       icon: null,
-      target: { kind: 'agent_conversation', instanceId: 'agent-a' },
+      target: { kind: 'agent-conversation', instanceId: 'agent-a' },
     });
 
     expect(activateExistingWorkspaceContent({

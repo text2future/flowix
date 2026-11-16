@@ -2,7 +2,7 @@ import { canonicalPath } from '@/lib/path';
 import { dialogs, files } from '@platform/tauri/client';
 import { requestExternalDocumentOpen, type ExternalDocumentOpenRequest } from '@platform/open-target/types';
 import { resolveFileBrowserContext } from './file-browser-context';
-import { openWorkspaceSurface } from '../public/session-opening-api';
+import { openSurfaceInColumn } from '../public/session-opening-api';
 import { columnAtIndex } from '../public/session-api';
 
 type FileHost = 0 | 1;
@@ -37,7 +37,7 @@ export async function openDocumentFile(path: string, index: FileHost) {
     fileTreeVisible: true, fileTreeWidth: 220,
   });
   const target = { kind: 'external' as const, path, scopePath: context.scopePath, fileBrowser: context };
-  return openWorkspaceSurface({ columnId, target, options: { notebookId: context.notebookId } });
+  return openSurfaceInColumn({ columnId, target, options: { notebookId: context.notebookId } });
 }
 
 /** Both actions share placement, ownership, duplicate activation and per-file retry. */

@@ -2,7 +2,7 @@ import { getDocumentResourceSnapshot } from '@features/document/public/resource-
 import { prepareLocalLinkNavigation } from '@features/editor/public/link-navigation-api';
 import { NavigationCancelledError } from '@/lib/navigation-cancelled-error';
 import { columnAtIndex } from '@features/workspace/public/session-api';
-import { openPreparedWorkspaceSurface } from '@features/workspace/public/session-opening-api';
+import { openPreparedSurfaceInColumn } from '@features/workspace/public/session-opening-api';
 import { publishHeadingAnchorRequest } from '@features/document/use-cases/heading-anchor-publish';
 import type { ResolvedEditorLocalLink } from '@features/editor/public/link-navigation-api';
 
@@ -13,7 +13,7 @@ export async function openDocumentLocalLink(
   documentPath?: string,
 ): Promise<void> {
   let path = target.path;
-  const opened = await openPreparedWorkspaceSurface({
+  const opened = await openPreparedSurfaceInColumn({
     columnId: columnAtIndex(0),
     target: { kind: 'external', path, scopePath, transitionId: null },
   }, async isCurrent => {

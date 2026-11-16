@@ -70,7 +70,7 @@ vi.mock("@features/memo/public/note-navigation-api", () => ({
 }));
 
 vi.mock("@features/workspace/public/open-surface-api", () => ({
-  openWorkspaceSurface: vi.fn(async () => ({
+  openSurfaceAtPosition: vi.fn(async () => ({
     status: "opened",
     surfaceId: "browser:test",
     // 行号/锚点定位会读 opened.location 的 host 与 surfaceId。
@@ -83,7 +83,7 @@ vi.mock("@tauri-apps/plugin-opener", () => ({
   openUrl: vi.fn(async () => undefined),
 }));
 
-/** 取出传给 openWorkspaceSurface 的所有 target，供“打开到哪里”的断言使用。 */
+/** 取出传给 openSurfaceAtPosition 的所有 target，供“打开到哪里”的断言使用。 */
 function openedTargets(fn: unknown): Array<Record<string, unknown>> {
   const calls = (fn as { mock?: { calls: unknown[][] } }).mock?.calls ?? [];
   return calls
@@ -788,10 +788,10 @@ describe("AgentThreadCard NodeView streaming", () => {
       await import("@features/agent/thread-card");
     const { useChatStore } = await import("@features/agent/store/agent-session-test-facade");
     const { openPath, openUrl } = await import("@tauri-apps/plugin-opener");
-    const { openWorkspaceSurface } = await import("@features/workspace/public/open-surface-api");
+    const { openSurfaceAtPosition } = await import("@features/workspace/public/open-surface-api");
     vi.mocked(openPath).mockClear();
     vi.mocked(openUrl).mockClear();
-    vi.mocked(openWorkspaceSurface).mockClear();
+    vi.mocked(openSurfaceAtPosition).mockClear();
 
     const threadId = "thread-card-local-file-link";
     const host = document.createElement("div");
@@ -839,7 +839,7 @@ describe("AgentThreadCard NodeView streaming", () => {
 
     // 工作空间外的 docx 有专用预览面（externalFileViewKind → 'docx'），
     // 统一分流后不再回退系统默认应用，而是经浏览器列打开。
-    expect(openedTargets(openWorkspaceSurface)).toEqual([
+    expect(openedTargets(openSurfaceAtPosition)).toEqual([
       expect.objectContaining({
         kind: "external",
         path: "/Users/rop/Desktop/人物档案/tool-smoke-test/outputs/tool-smoke-report.docx",
@@ -855,9 +855,9 @@ describe("AgentThreadCard NodeView streaming", () => {
       await import("@features/agent/thread-card");
     const { useChatStore } = await import("@features/agent/store/agent-session-test-facade");
     const { openPath } = await import("@tauri-apps/plugin-opener");
-    const { openWorkspaceSurface } = await import("@features/workspace/public/open-surface-api");
+    const { openSurfaceAtPosition } = await import("@features/workspace/public/open-surface-api");
     vi.mocked(openPath).mockClear();
-    vi.mocked(openWorkspaceSurface).mockClear();
+    vi.mocked(openSurfaceAtPosition).mockClear();
 
     const threadId = "thread-card-markdown-link";
     const host = document.createElement("div");
@@ -899,7 +899,7 @@ describe("AgentThreadCard NodeView streaming", () => {
     )?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     await flushPromises();
 
-    expect(openedTargets(openWorkspaceSurface)).toEqual([
+    expect(openedTargets(openSurfaceAtPosition)).toEqual([
       expect.objectContaining({
         kind: "external",
         path: "/Users/rop/Documents/Outside Note.md",
@@ -911,12 +911,12 @@ describe("AgentThreadCard NodeView streaming", () => {
   it('opens a Tauri HTTP Windows file href as a local file and keeps its line reference', async () => {
     const { AgentThreadCard } = await import('@features/agent/thread-card');
     const { useChatStore } = await import('@features/agent/store/agent-session-test-facade');
-    const { openWorkspaceSurface } = await import('@features/workspace/public/open-surface-api');
+    const { openSurfaceAtPosition } = await import('@features/workspace/public/open-surface-api');
     const { peekAgentLocationRequest, consumeAgentLocationRequest } = await import(
       '@features/document/use-cases/agent-location-navigation',
     );
     const threadId = 'thread-card-tauri-windows-file-link';
-    vi.mocked(openWorkspaceSurface).mockClear();
+    vi.mocked(openSurfaceAtPosition).mockClear();
     vi.stubGlobal('navigator', { platform: 'Win32', userAgent: 'Windows' });
 
     const host = document.createElement('div');
@@ -941,7 +941,7 @@ describe("AgentThreadCard NodeView streaming", () => {
     vi.useFakeTimers();
     link?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     await flushPromises();
-    const targets = openedTargets(openWorkspaceSurface);
+    const targets = openedTargets(openSurfaceAtPosition);
     expect(targets).toEqual([
       expect.objectContaining({ kind: 'external', path: 'D:/Notes/推广设计/Flowix Agent.md' }),
     ]);
@@ -958,7 +958,7 @@ describe("AgentThreadCard NodeView streaming", () => {
     const { useChatStore, useAgentConversationStore } = await import(
       "@features/agent/store/agent-session-test-facade",
     );
-    const { openWorkspaceSurface } = await import("@features/workspace/public/open-surface-api");
+    const { openSurfaceAtPosition } = await import("@features/workspace/public/open-surface-api");
     const threadId = "thread-card-workspace-file-link";
     const instance = useAgentConversationStore.getState().createInstance({
       agentType: "codex",
@@ -974,7 +974,7 @@ describe("AgentThreadCard NodeView streaming", () => {
       },
       source: { kind: "thread-card" },
     });
-    vi.mocked(openWorkspaceSurface).mockClear();
+    vi.mocked(openSurfaceAtPosition).mockClear();
 
     const host = document.createElement("div");
     document.body.append(host);
@@ -1020,7 +1020,7 @@ describe("AgentThreadCard NodeView streaming", () => {
     workspaceLink?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     await flushPromises();
 
-    expect(openedTargets(openWorkspaceSurface)).toEqual([
+    expect(openedTargets(openSurfaceAtPosition)).toEqual([
       expect.objectContaining({
         kind: "file-browser",
         activeFilePath: "/Users/rop/Desktop/vibe/flowix-main/src/main.ts",
@@ -1034,9 +1034,9 @@ describe("AgentThreadCard NodeView streaming", () => {
     const { useChatStore } = await import(
       "@features/agent/store/agent-session-test-facade",
     );
-    const { openWorkspaceSurface } = await import("@features/workspace/public/open-surface-api");
+    const { openSurfaceAtPosition } = await import("@features/workspace/public/open-surface-api");
     const threadId = "thread-card-tool-file-link";
-    vi.mocked(openWorkspaceSurface).mockClear();
+    vi.mocked(openSurfaceAtPosition).mockClear();
 
     const host = document.createElement("div");
     document.body.append(host);
@@ -1082,7 +1082,7 @@ describe("AgentThreadCard NodeView streaming", () => {
     link?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     await flushPromises();
 
-    expect(openedTargets(openWorkspaceSurface)).toEqual([
+    expect(openedTargets(openSurfaceAtPosition)).toEqual([
       expect.objectContaining({ kind: "external", path: "/Users/rop/Documents/Outside.ts" }),
     ]);
   });
