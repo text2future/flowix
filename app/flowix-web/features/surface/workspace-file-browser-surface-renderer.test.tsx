@@ -6,6 +6,7 @@ import type { WorkspaceSurfaceRenderContext, WorkspaceSurfaceRendererData } from
 import type { SurfacePresentationUpdate } from '@features/workspace/model/surface-contract';
 import { resetCurrentCollectionView } from '@features/workspace/public/collection-navigation-api';
 import { bindCollectionDisplayPath, ensureCollectionDisplay } from '@/lib/collection-display-registry';
+import { surfaceRenderPolicy } from './surface-render-policy';
 
 const observations = vi.hoisted(() => ({ renders: vi.fn(), reads: vi.fn(), mounts: vi.fn(), unmounts: vi.fn() }));
 vi.mock('./workspace-surface-renderer-registry', () => ({
@@ -39,7 +40,7 @@ it.each(['column-1', 'column-2'] as const)('opens a hybrid collection in the col
   await act(async () => root.render(<FileBrowserRenderer
     surface={{ ...surface, props: { ...surface.props, activeFilePath: path, collectionType: 'hybrid',
       collectionDisplay: display, fileIdentity: { path, displayId: display.displayId } } }}
-    context={{ host, viewId: `hybrid-${host}`, focused: true, readOnly: false,
+    context={{ host, viewId: `hybrid-${host}`, focused: true, readOnly: false, policy: surfaceRenderPolicy(host, `hybrid-${host}`),
       reportPresentation: (update) => { updates.push(update); } }}
   />));
   expect(observations.renders).toHaveBeenCalledWith(expect.objectContaining({ kind: 'file-table',
@@ -51,7 +52,7 @@ it.each(['column-1', 'column-2'] as const)('resets an unavailable collection in 
   const updates: SurfacePresentationUpdate[] = [];
   await act(async () => root.render(<FileBrowserRenderer
     surface={{ ...surface, props: { ...surface.props, collectionUnavailableReason: 'Invalid collection' } }}
-    context={{ host, viewId: 'collection-view', focused: true, readOnly: false,
+    context={{ host, viewId: 'collection-view', focused: true, readOnly: false, policy: surfaceRenderPolicy(host, 'collection-view'),
       reportPresentation: (update) => { updates.push(update); } }}
   />));
   const unavailable = updates.find((update) => update.state?.status === 'unavailable')?.state;
@@ -71,7 +72,7 @@ it('does not restart loading or replace a ready editor when layout, focus or rep
   const updates: SurfacePresentationUpdate[] = [];
   const render = async (focused: boolean) => act(async () => root.render(<FileBrowserRenderer
     surface={{ ...surface, props: { ...surface.props } }}
-    context={{ host: 'column-2', viewId: 'browser-view', focused, readOnly: false, reportPresentation: (update) => { updates.push(update); } }}
+    context={{ host: 'column-2', viewId: 'browser-view', focused, readOnly: false, policy: surfaceRenderPolicy('column-2', 'browser-view'), reportPresentation: (update) => { updates.push(update); } }}
   />));
   await render(true);
   const editor = node.querySelector('textarea')!;

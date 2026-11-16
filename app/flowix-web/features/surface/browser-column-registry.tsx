@@ -25,6 +25,7 @@ import { registerWorkspaceSurfacePresentationOwner, reportWorkspaceSurfacePresen
 import type { SurfacePresentationUpdate } from '@features/workspace/public/surface-api';
 import type { SurfaceLifecycle } from '@features/workspace/public/surface-api';
 import { registerWorkspaceSurfaceLifecycle, registerWorkspaceColumnIdView } from '@features/workspace/public/surface-lifecycle-api';
+import { surfaceRenderPolicy } from './surface-render-policy';
 
 export type BrowserColumnSurfaceCapability = WorkspaceSurfaceCapability;
 
@@ -205,7 +206,7 @@ function createBrowserWebNavigationPort(surfaceId: string): WorkspaceWebNavigati
   };
 }
 
-function BrowserRegisteredSurfaceView({ surface, focused, webAddressBarVisible = false }: { surface: BrowserColumnSurface; focused: boolean; webAddressBarVisible?: boolean }) {
+function BrowserRegisteredSurfaceView({ surface, columnId = 'column-2', focused, webAddressBarVisible = false }: { surface: BrowserColumnSurface; columnId?: 'column-1' | 'column-2'; focused: boolean; webAddressBarVisible?: boolean }) {
   const presentationIdentity = surface.kind === 'plugin-workbench' ? surface.plugin.manifest.id : surface.kind === 'collection'
     ? `${surface.notebookId}:${surface.folderPath}`
     : surface.kind === 'file-browser'
@@ -218,12 +219,13 @@ function BrowserRegisteredSurfaceView({ surface, focused, webAddressBarVisible =
   const presentationOwner = useMemo(() => ({}), [surface.surfaceId, presentationIdentity]);
   const webNavigation = useMemo(() => surface.kind === 'web' ? createBrowserWebNavigationPort(surface.surfaceId) : undefined,
     [surface.kind, surface.surfaceId]);
+  const policy = useMemo(() => surfaceRenderPolicy(columnId, surface.surfaceId), [columnId, surface.surfaceId]);
   const onCollectionActiveViewChange = useCallback((viewId: string) => {
     const entry = (browserSessionRuntime().current?.id === surface.surfaceId ? browserSessionRuntime().current : null);
     if (entry?.target.kind !== 'file-browser' || !entry.target.collectionDisplay) return;
     const { notebookId, collectionId } = entry.target.collectionDisplay;
-    setCollectionActiveView({ host: 'column-2', surfaceId: surface.surfaceId }, { notebookId, collectionId }, viewId);
-  }, [surface.surfaceId]);
+    setCollectionActiveView(policy.collectionLocation, { notebookId, collectionId }, viewId);
+  }, [policy, surface.surfaceId]);
   const reportPresentation = useCallback((update: SurfacePresentationUpdate) => {
     const accepted = reportWorkspaceSurfacePresentation(surface.surfaceId, update, presentationOwner);
     if (!accepted) return;
@@ -240,31 +242,32 @@ function BrowserRegisteredSurfaceView({ surface, focused, webAddressBarVisible =
   const registerLifecycle = useCallback((lifecycle: SurfaceLifecycle | null, owner?: object) => {
     registerWorkspaceSurfaceLifecycle(surface.surfaceId, lifecycle, owner);
   }, [surface.surfaceId]);
-  useLayoutEffect(() => registerWorkspaceColumnIdView('column-2', surface.surfaceId), [surface.surfaceId]);
+  useLayoutEffect(() => registerWorkspaceColumnIdView(columnId, surface.surfaceId), [columnId, surface.surfaceId]);
   useLayoutEffect(() => registerWorkspaceSurfacePresentationOwner(surface.surfaceId, presentationOwner, {
     state: workspaceSurfaceInitialLoadingState(silentLoading, retainInitialContent),
   }),
     [presentationOwner, retainInitialContent, silentLoading, surface.surfaceId]);
-  const context = useMemo(() => ({ sessionEntryId: surface.surfaceId, host: 'column-2' as const, viewId: surface.surfaceId, focused,
+  const context = useMemo(() => ({ sessionEntryId: surface.surfaceId, host: columnId, viewId: surface.surfaceId, focused,
+      policy,
       initialFocus: surface.kind === 'file-browser' ? surface.documentProps.initialFocus : undefined,
       webNavigation, webAddressBarVisible, onCollectionActiveViewChange,
       readOnly: surface.kind === 'file-browser' && Boolean(surface.documentProps.readOnly),
       reportPresentation, registerLifecycle }),
-    [surface, focused, webNavigation, webAddressBarVisible, onCollectionActiveViewChange, reportPresentation, registerLifecycle]);
+    [surface, columnId, policy, focused, webNavigation, webAddressBarVisible, onCollectionActiveViewChange, reportPresentation, registerLifecycle]);
   return <WorkspaceSurfaceRendererView surface={data} context={context} />;
 }
 
 /** Browser provides view data and navigation ports; all kinds use the common registry. */
-export function getBrowserColumnSurfaceDefinition(surface: BrowserColumnSurface): BrowserColumnSurfaceDefinition {
+export function getBrowserColumnSurfaceDefinition(surface: BrowserColumnSurface, columnId: 'column-1' | 'column-2' = 'column-2'): BrowserColumnSurfaceDefinition {
   const definition = getWorkspaceSurfaceRendererDefinition(browserSurfaceData(surface));
   return { contentKind: definition.kind, appearance: definition.appearance, chrome: definition.appearance.headerStyle,
-    capabilities: definition.capabilities, render: () => <BrowserRegisteredSurfaceView surface={surface} focused={false} /> };
+    capabilities: definition.capabilities, render: () => <BrowserRegisteredSurfaceView surface={surface} columnId={columnId} focused={false} /> };
 }
 
 export function browserColumnSurfaceSupports(surface: BrowserColumnSurface, capability: BrowserColumnSurfaceCapability): boolean {
   return getBrowserColumnSurfaceDefinition(surface).capabilities.includes(capability);
 }
 
-export const BrowserColumnSurfaceHost = memo(function BrowserColumnSurfaceHost({ surface, focused = false, webAddressBarVisible = false }: { surface: BrowserColumnSurface; focused?: boolean; webAddressBarVisible?: boolean }) {
-  return <BrowserRegisteredSurfaceView key={`${surface.kind}:${surface.instanceKey}`} surface={surface} focused={focused} webAddressBarVisible={webAddressBarVisible} />;
+export const BrowserColumnSurfaceHost = memo(function BrowserColumnSurfaceHost({ surface, columnId = 'column-2', focused = false, webAddressBarVisible = false }: { surface: BrowserColumnSurface; columnId?: 'column-1' | 'column-2'; focused?: boolean; webAddressBarVisible?: boolean }) {
+  return <BrowserRegisteredSurfaceView key={`${surface.kind}:${surface.instanceKey}`} surface={surface} columnId={columnId} focused={focused} webAddressBarVisible={webAddressBarVisible} />;
 });

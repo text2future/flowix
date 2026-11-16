@@ -22,6 +22,7 @@ import {
   WorkspaceSurfaceRendererView,
 } from './workspace-surface-renderer-registry';
 import { WorkspaceSurfaceStateView } from './workspace-surface-state-view';
+import { surfaceRenderPolicy } from './surface-render-policy';
 
 import { primaryCurrentEntryId, updatePrimarySurfaceMetadata } from '@features/workspace/public/session-runtime-api';
 import { workspaceSurfaceRendererDataFromWorkSurface } from './work-column-surface-adapter';
@@ -58,6 +59,7 @@ export function getWorkColumnSurfaceDefinition(
       surface={data}
       context={{
         sessionEntryId, host: 'column-1', viewId: surface.instanceKey, focused,
+        policy: surfaceRenderPolicy('column-1', surface.instanceKey),
         initialFocus: initialFocusForSurface(surface),
         readOnly: 'props' in surface && 'readOnly' in surface.props ? Boolean(surface.props.readOnly) : false,
         reportPresentation: reportPresentation ?? ((update) => reportWorkspaceSurfacePresentation(surface.instanceKey, update)),

@@ -231,7 +231,7 @@ export function WorkspaceSurfaceRendererView({
   useEffect(() => registerStartupSurfaceHostView(context.host, context.viewId), [context.host, context.viewId]);
   const appearance = runtime.appearance ?? definition.appearance;
   const resolvedState = runtime.state ?? state;
-  const loadingOwner = context.host === 'column-1' ? 'host' : 'surface';
+  const loadingOwner = context.policy.loadingOwner;
   const contentIdentity = surface.kind === 'file-browser'
     ? surface.props.fileIdentity?.displayId ?? surface.props.activeFilePath ?? 'folder'
     : 'fileIdentity' in surface ? surface.fileIdentity.displayId : '';

@@ -40,14 +40,12 @@ export function FileBrowserRenderer({ surface: data, context }: {
   const resetUnavailableCollectionView = useCallback(async () => {
     if (!surface.activeFilePath) return;
     try {
-      const location = context.host === 'column-2'
-        ? { host: context.host, surfaceId: context.viewId } as const
-        : { host: context.host } as const;
+      const location = context.policy.collectionLocation;
       await resetCurrentCollectionView(surface.activeFilePath, surface.scopePath, surface.notebookId, location);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '重置当前视图失败');
     }
-  }, [context.host, context.viewId, surface.activeFilePath, surface.notebookId, surface.scopePath]);
+  }, [context.policy, surface.activeFilePath, surface.notebookId, surface.scopePath]);
   const unavailableState = useMemo(() => ({
     status: 'unavailable' as const,
     reason: 'unsupported' as const,

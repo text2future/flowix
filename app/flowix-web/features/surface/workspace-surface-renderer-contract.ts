@@ -6,6 +6,7 @@ import type { TableDocumentViewProps } from '@features/multidimensional-table/pu
 import type { PluginDocumentViewProps, PluginWorkbenchProps } from '@features/plugin/public/surface-api';
 import type { SurfaceLifecycle, SurfacePresentationUpdate, SurfaceViewContext, WorkspaceWebRuntime } from '@features/workspace/model/surface-contract';
 import type { FileBrowserViewSurface } from './file-browser-view';
+import type { SurfaceRenderPolicy } from './surface-render-policy';
 
 export interface WorkspaceWebNavigationPort {
   getRuntime: () => WorkspaceWebRuntime | null;
@@ -48,6 +49,8 @@ export type WorkspaceSurfaceRendererData =
 
 export interface WorkspaceSurfaceRenderContext extends Pick<SurfaceViewContext,
   'host' | 'viewId' | 'focused' | 'readOnly' | 'initialFocus'> {
+  /** Per-column render decisions. Renderers read this instead of branching on `host`. */
+  policy: SurfaceRenderPolicy;
   sessionEntryId?: string | null;
   reportPresentation?: (update: SurfacePresentationUpdate) => void;
   onRendererError?: () => void;

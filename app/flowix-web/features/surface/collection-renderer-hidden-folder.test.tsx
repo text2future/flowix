@@ -44,6 +44,7 @@ import { CollectionRenderer, WorkDocumentsCollectionRenderer, MediaLibraryRender
 import { createWorkDocumentsCollection, serializeWorkDocumentsCollection } from '@features/collection/public/work-documents-model-api';
 import { createMediaLibrary, serializeMediaLibrary } from '@features/media-library/model';
 import type { WorkspaceSurfaceRenderContext, WorkspaceSurfaceRendererData } from './workspace-surface-renderer-contract';
+import { surfaceRenderPolicy } from './surface-render-policy';
 import { createFolderHybridCollectionContent } from '@features/collection/public/folder-api';
 
 const surface: Extract<WorkspaceSurfaceRendererData, { kind: 'collection' }> = {
@@ -58,6 +59,7 @@ const context: WorkspaceSurfaceRenderContext = {
   viewId: 'work',
   focused: true,
   readOnly: false,
+  policy: surfaceRenderPolicy('column-1', 'work'),
 };
 
 let root: Root | undefined;

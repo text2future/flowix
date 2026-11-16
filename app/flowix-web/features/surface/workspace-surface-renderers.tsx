@@ -1,6 +1,6 @@
 'use client';
 
-import { lazy, useCallback, useEffect, useState } from 'react';
+import { lazy, useCallback, useEffect, useState, type ReactNode } from 'react';
 
 import { useExternalFileContentDetection } from '@features/editor/use-external-file-content-detection';
 import { externalFileViewKind } from '@features/editor/public/code-file';
@@ -88,6 +88,12 @@ type RendererProps<K extends WorkspaceSurfaceRendererData['kind']> = {
   context: WorkspaceSurfaceRenderContext;
 };
 
+/** The column owns the file tree shell for some kinds; see SurfaceFileShellOwner. */
+function wrapInColumnFileShell(context: WorkspaceSurfaceRenderContext, content: ReactNode): ReactNode {
+  if (context.policy.fileShell !== 'host') return content;
+  return context.wrapInFileBrowser?.(content) ?? content;
+}
+
 export function MarkdownRenderer({ surface, context }: RendererProps<'file-markdown'>) {
   // Markdown never blocks: see workspaceSurfaceSilentLoading. While the
   // document session resolves, the surface paints its own note skeleton
@@ -103,7 +109,7 @@ export function MarkdownRenderer({ surface, context }: RendererProps<'file-markd
       documentProps={{ ...surface.documentProps, workspaceHost: context.host,
         initialFocus: context.initialFocus ?? surface.documentProps.initialFocus,
         onContentStateChange: context.reportPresentation ? onContentStateChange : undefined }}
-      navigationViewId={context.host === 'column-2' ? context.viewId : undefined}
+      navigationViewId={context.policy.navigationViewId}
       reportPresentation={context.reportPresentation}
       registerLifecycle={context.registerLifecycle}
     />
@@ -126,7 +132,7 @@ export function CodeRenderer({ surface, context }: RendererProps<'file-code'>) {
     initialFocus: context.initialFocus ?? surface.documentProps.initialFocus,
     onContentStateChange: context.reportPresentation ? onContentStateChange : undefined,
   }, context.registerLifecycle);
-  if (context.host === 'column-1') {
+  if (context.policy.fileShell === 'surface') {
     const workSurface = {
       kind: 'code' as const,
       instanceKey: surface.instanceKey,
@@ -138,10 +144,10 @@ export function CodeRenderer({ surface, context }: RendererProps<'file-code'>) {
   const content = <DocumentContainer
     {...documentProps}
     fileIdentity={surface.fileIdentity}
-    navigationViewId={context.viewId}
+    navigationViewId={context.policy.navigationViewId}
     externalScopePath={surface.scopePath}
   />;
-  return context.wrapInFileBrowser?.(content) ?? content;
+  return wrapInColumnFileShell(context, content);
 }
 
 export function CsvRenderer({ surface, context }: RendererProps<'file-csv'>) {
@@ -211,7 +217,7 @@ export function HtmlRenderer({ surface, context }: RendererProps<'file-html'>) {
 
 export function DocxRenderer({ surface, context }: RendererProps<'file-docx'>) {
   const preview = <DocxPreview filePath={surface.fileIdentity.path} scopePath={surface.scopePath} reportPresentation={context.reportPresentation} />;
-  return context.host === 'column-2' ? context.wrapInFileBrowser?.(preview) ?? preview : preview;
+  return wrapInColumnFileShell(context, preview);
 }
 
 export function UnavailableRenderer({ surface, context }: RendererProps<'file-unavailable'>) {
@@ -241,7 +247,7 @@ export function UnavailableRenderer({ surface, context }: RendererProps<'file-un
   }, [baseFileKind, context.reportPresentation, hasDocumentProps, contentDetectionLoading, resolvedFileKind]);
   if (baseFileKind === 'docx') {
     const preview = <DocxPreview filePath={filePath} scopePath={surface.scopePath} reportPresentation={context.reportPresentation} />;
-    return context.host === 'column-2' ? context.wrapInFileBrowser?.(preview) ?? preview : preview;
+    return wrapInColumnFileShell(context, preview);
   }
   if (baseFileKind === 'csv') return <CsvPreview filePath={filePath} scopePath={surface.scopePath}
     onSurfaceLifecycleReady={documentProps.onSurfaceLifecycleReady} reportPresentation={context.reportPresentation} />;
@@ -254,10 +260,10 @@ export function UnavailableRenderer({ surface, context }: RendererProps<'file-un
       {...documentProps}
       initialFocus={context.initialFocus ?? surface.documentProps.initialFocus}
       fileIdentity={surface.fileIdentity}
-      navigationViewId={context.host === 'column-2' ? context.viewId : undefined}
+      navigationViewId={context.policy.navigationViewId}
       externalScopePath={surface.scopePath}
     />;
-    return context.host === 'column-2' ? context.wrapInFileBrowser?.(content) ?? content : content;
+    return wrapInColumnFileShell(context, content);
   }
   return <UnavailableFileView filePath={filePath} openContainingFolder scopePath={surface.scopePath} reportPresentation={context.reportPresentation} />;
 }

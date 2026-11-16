@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WebRenderer } from './workspace-web-surface-renderer';
 import { createWorkspaceWebRuntime } from '@features/workspace/model/web-navigation';
 import type { WorkspaceWebNavigationPort } from './workspace-surface-renderer-contract';
+import { surfaceRenderPolicy } from './surface-render-policy';
 
 vi.mock('@platform/tauri/opener', () => ({ openUrl: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('@shared/ui/web-frame-scrollbar', () => ({ connectWebFrameScrollbar: vi.fn(() => () => {}) }));
@@ -40,7 +41,7 @@ async function click(label: string) {
 
 describe('shared web renderer', () => {
   it('provides navigation, history and reload in Work without Browser state', async () => {
-    await act(async () => root.render(<WebRenderer surface={{ kind: 'web', url }} context={{ host: 'column-1', viewId: 'work-web', focused: true, readOnly: false }} />));
+    await act(async () => root.render(<WebRenderer surface={{ kind: 'web', url }} context={{ host: 'column-1', viewId: 'work-web', focused: true, readOnly: false, policy: surfaceRenderPolicy('column-1', 'work-web') }} />));
     await navigate('https://example.org/next');
     expect(host.querySelector('iframe')!.src).toBe('https://example.org/next');
     await click('后退');
@@ -58,7 +59,7 @@ describe('shared web renderer', () => {
       getRuntime: vi.fn(() => runtime), setRuntime: vi.fn(), navigate: vi.fn(), back: vi.fn(),
       forward: vi.fn(), reload: vi.fn(), updateMetadata: vi.fn(),
     };
-    await act(async () => root.render(<WebRenderer surface={{ kind: 'web', url, runtime }} context={{ host: 'column-2', viewId: 'tab-web', focused: true, readOnly: false, webNavigation: port }} />));
+    await act(async () => root.render(<WebRenderer surface={{ kind: 'web', url, runtime }} context={{ host: 'column-2', viewId: 'tab-web', focused: true, readOnly: false, policy: surfaceRenderPolicy('column-2', 'tab-web'), webNavigation: port }} />));
     await click('后退'); await click('前进'); await click('重新加载');
     await navigate('https://example.org/');
     expect(port.back).toHaveBeenCalledOnce();
@@ -69,7 +70,7 @@ describe('shared web renderer', () => {
   });
 
   it('clears the timeout after a cross-origin iframe load', async () => {
-    await act(async () => root.render(<WebRenderer surface={{ kind: 'web', url }} context={{ host: 'column-1', viewId: 'work-web', focused: true, readOnly: false }} />));
+    await act(async () => root.render(<WebRenderer surface={{ kind: 'web', url }} context={{ host: 'column-1', viewId: 'work-web', focused: true, readOnly: false, policy: surfaceRenderPolicy('column-1', 'work-web') }} />));
     const frame = host.querySelector('iframe')!;
     Object.defineProperty(frame, 'contentWindow', { get: () => { throw new DOMException('Cross origin', 'SecurityError'); } });
     await act(async () => { frame.dispatchEvent(new Event('load')); vi.advanceTimersByTime(6000); });
@@ -82,7 +83,7 @@ it('retains the mounted iframe and current page when only the container geometry
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
       <section style={{ gridColumn: column }}>
         <WebRenderer surface={{ kind: 'web', url }} context={{
-          host: 'column-1', viewId: 'relocatable-web', focused: true, readOnly: false,
+          host: 'column-1', viewId: 'relocatable-web', focused: true, readOnly: false, policy: surfaceRenderPolicy('column-1', 'relocatable-web'),
         }} />
       </section>
     </div>,
@@ -99,7 +100,7 @@ it('retains the mounted iframe and current page when only the container geometry
 it('keeps standalone web navigation outside workspace session state', async () => {
   const before = useWorkspaceSessionStore.getState();
   await act(async () => root.render(<WebRenderer surface={{ kind: 'web', url }} context={{
-    host: 'column-1', viewId: 'standalone-web', focused: true, readOnly: false,
+    host: 'column-1', viewId: 'standalone-web', focused: true, readOnly: false, policy: surfaceRenderPolicy('column-1', 'standalone-web'),
   }} />));
   await navigate('https://local.example/');
   expect(host.querySelector('iframe')?.getAttribute('src')).toBe('https://local.example/');
@@ -109,7 +110,7 @@ it('keeps standalone web navigation outside workspace session state', async () =
 
 it('opens the market without a bridge and offers nonblocking recovery when navigation stalls', async () => {
   const marketUrl = 'https://skills.flowix.cc/i/index';
-  await act(async () => root.render(<WebRenderer surface={{ kind: 'web', url: marketUrl }} context={{ host: 'column-1', viewId: 'market', focused: true, readOnly: false }} />));
+  await act(async () => root.render(<WebRenderer surface={{ kind: 'web', url: marketUrl }} context={{ host: 'column-1', viewId: 'market', focused: true, readOnly: false, policy: surfaceRenderPolicy('column-1', 'market') }} />));
   let frame = host.querySelector('iframe')!;
   await act(async () => { frame.dispatchEvent(new Event('load')); vi.advanceTimersByTime(20_000); });
   expect(host.textContent).not.toContain('技能市场未响应');
@@ -133,7 +134,7 @@ it('opens the market without a bridge and offers nonblocking recovery when navig
 
 
 it('clears a market navigation warning on load without requiring host context', async () => {
-  await act(async () => root.render(<WebRenderer surface={{ kind: 'web', url: 'https://skills.flowix.cc/i/' }} context={{ host: 'column-1', viewId: 'slow-market', focused: true, readOnly: false }} />));
+  await act(async () => root.render(<WebRenderer surface={{ kind: 'web', url: 'https://skills.flowix.cc/i/' }} context={{ host: 'column-1', viewId: 'slow-market', focused: true, readOnly: false, policy: surfaceRenderPolicy('column-1', 'slow-market') }} />));
   await act(async () => { vi.advanceTimersByTime(15_000); });
   expect(host.textContent).toContain('网页加载较慢');
   await act(async () => { host.querySelector('iframe')!.dispatchEvent(new Event('load')); });

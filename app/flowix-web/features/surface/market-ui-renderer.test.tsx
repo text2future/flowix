@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { MarketUiRenderer } from './market-ui-renderer';
 import { skillMarketUi } from '@platform/tauri/client';
+import { surfaceRenderPolicy } from './surface-render-policy';
 
 vi.mock('@platform/tauri/client', () => ({
   skillMarketUi: { ensure: vi.fn() },
@@ -13,7 +14,7 @@ vi.mock('./use-market-bridge', () => ({ useMarketBridge: vi.fn() }));
 
 let host: HTMLDivElement;
 let root: Root;
-const context = { host: 'column-1' as const, viewId: 'market', focused: true, readOnly: false };
+const context = { host: 'column-1' as const, viewId: 'market', focused: true, readOnly: false, policy: surfaceRenderPolicy('column-1', 'market') };
 const path = '/Users/demo/skill-market-ui/prod/versions/1.0.0/index.html';
 const installedPage = { entryPath: path, cached: false };
 beforeEach(() => { vi.clearAllMocks(); host = document.createElement('div'); document.body.append(host); root = createRoot(host); });
