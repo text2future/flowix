@@ -793,7 +793,7 @@
   },
   "app/flowix-web/features/surface/registry.tsx": {
     "no-restricted-imports": {
-      "count": 2
+      "count": 1
     }
   },
   "app/flowix-web/features/surface/resolver.ts": {

@@ -2,7 +2,7 @@
 
 import { openSurfaceAtPosition as openSurfaceAtHost } from '@features/workspace/public/open-surface-api';
 
-import { memo, useCallback, useLayoutEffect, useMemo, type ReactNode } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 import type { CollectionIndexItem } from '@platform/tauri/client';
 import { type CollectionDisplayDescriptor } from '@/lib/collection-display-registry';
 import { requireFileDisplayIdentity, type FileDisplayIdentity } from '@/lib/file-display-registry';
@@ -13,19 +13,11 @@ import { browserSessionRuntime, type BrowserColumnEntry, type BrowserColumnWebRu
 import { canonicalUrl } from '@/lib/url';
 import type { WorkspaceSurfaceCapability, SurfaceAppearance, SurfaceHeaderStyle, WorkspaceSurfaceKind } from '@features/workspace/public/surface-api';
 import type { FileBrowserViewSurface } from './file-browser-view';
-import {
-  getWorkspaceSurfaceRendererDefinition,
-  workspaceSurfaceInitialLoadingState,
-  workspaceSurfaceRetainsInitialContent,
-  workspaceSurfaceSilentLoading,
-  WorkspaceSurfaceRendererView,
-} from './workspace-surface-renderer-registry';
+import { getWorkspaceSurfaceRendererDefinition } from './workspace-surface-renderer-registry';
 import type { ExternalDocumentProps, WorkspaceSurfaceRendererData, WorkspaceWebNavigationPort } from './workspace-surface-renderer-contract';
-import { registerWorkspaceSurfacePresentationOwner, reportWorkspaceSurfacePresentation } from './workspace-surface-runtime';
 import type { SurfacePresentationUpdate } from '@features/workspace/public/surface-api';
-import type { SurfaceLifecycle } from '@features/workspace/public/surface-api';
-import { registerWorkspaceSurfaceLifecycle, registerWorkspaceColumnIdView } from '@features/workspace/public/surface-lifecycle-api';
 import { surfaceRenderPolicy } from './surface-render-policy';
+import { SurfaceHostView } from './surface-host-view';
 
 export type BrowserColumnSurfaceCapability = WorkspaceSurfaceCapability;
 
@@ -90,7 +82,6 @@ export interface BrowserColumnSurfaceDefinition {
   appearance: Readonly<SurfaceAppearance>;
   chrome: BrowserColumnSurfaceChrome;
   capabilities: readonly BrowserColumnSurfaceCapability[];
-  render: () => ReactNode;
 }
 
 interface BrowserColumnSurfaceOptions {
@@ -206,62 +197,25 @@ function createBrowserWebNavigationPort(surfaceId: string): WorkspaceWebNavigati
   };
 }
 
-function BrowserRegisteredSurfaceView({ surface, columnId = 'column-2', focused, webAddressBarVisible = false }: { surface: BrowserColumnSurface; columnId?: 'column-1' | 'column-2'; focused: boolean; webAddressBarVisible?: boolean }) {
-  const presentationIdentity = surface.kind === 'plugin-workbench' ? surface.plugin.manifest.id : surface.kind === 'collection'
+/** Identity of the content being presented; the presentation owner resets when it changes. */
+function browserPresentationScope(surface: BrowserColumnSurface): string {
+  const identity = surface.kind === 'plugin-workbench' ? surface.plugin.manifest.id : surface.kind === 'collection'
     ? `${surface.notebookId}:${surface.folderPath}`
     : surface.kind === 'file-browser'
-    ? `${surface.fileIdentity?.displayId ?? ''}:${surface.activeFilePath ?? surface.folderPath ?? 'folder'}:${surface.collectionType ?? ''}`
-    : surface.kind === 'media'
-      ? surface.fileIdentity.displayId
-      : surface.kind === 'web'
-        ? canonicalUrl(surface.url) ?? surface.url
-      : surface.instanceId;
-  const presentationOwner = useMemo(() => ({}), [surface.surfaceId, presentationIdentity]);
-  const webNavigation = useMemo(() => surface.kind === 'web' ? createBrowserWebNavigationPort(surface.surfaceId) : undefined,
-    [surface.kind, surface.surfaceId]);
-  const policy = useMemo(() => surfaceRenderPolicy(columnId, surface.surfaceId), [columnId, surface.surfaceId]);
-  const onCollectionActiveViewChange = useCallback((viewId: string) => {
-    const entry = (browserSessionRuntime().current?.id === surface.surfaceId ? browserSessionRuntime().current : null);
-    if (entry?.target.kind !== 'file-browser' || !entry.target.collectionDisplay) return;
-    const { notebookId, collectionId } = entry.target.collectionDisplay;
-    setCollectionActiveView(policy.collectionLocation, { notebookId, collectionId }, viewId);
-  }, [policy, surface.surfaceId]);
-  const reportPresentation = useCallback((update: SurfacePresentationUpdate) => {
-    const accepted = reportWorkspaceSurfacePresentation(surface.surfaceId, update, presentationOwner);
-    if (!accepted) return;
-    if (update.title !== undefined || update.icon !== undefined) {
-      const metadata: { title?: string; icon?: string | null } = {};
-      if (update.title !== undefined) metadata.title = update.title;
-      if (update.icon !== undefined) metadata.icon = update.icon;
-      browserSessionRuntime().updateContentMetadata(surface.surfaceId, metadata);
-    }
-  }, [presentationOwner, surface.surfaceId]);
-  const data = useMemo(() => browserSurfaceData(surface), [surface]);
-  const retainInitialContent = workspaceSurfaceRetainsInitialContent(data);
-  const silentLoading = workspaceSurfaceSilentLoading(data);
-  const registerLifecycle = useCallback((lifecycle: SurfaceLifecycle | null, owner?: object) => {
-    registerWorkspaceSurfaceLifecycle(surface.surfaceId, lifecycle, owner);
-  }, [surface.surfaceId]);
-  useLayoutEffect(() => registerWorkspaceColumnIdView(columnId, surface.surfaceId), [columnId, surface.surfaceId]);
-  useLayoutEffect(() => registerWorkspaceSurfacePresentationOwner(surface.surfaceId, presentationOwner, {
-    state: workspaceSurfaceInitialLoadingState(silentLoading, retainInitialContent),
-  }),
-    [presentationOwner, retainInitialContent, silentLoading, surface.surfaceId]);
-  const context = useMemo(() => ({ sessionEntryId: surface.surfaceId, host: columnId, viewId: surface.surfaceId, focused,
-      policy,
-      initialFocus: surface.kind === 'file-browser' ? surface.documentProps.initialFocus : undefined,
-      webNavigation, webAddressBarVisible, onCollectionActiveViewChange,
-      readOnly: surface.kind === 'file-browser' && Boolean(surface.documentProps.readOnly),
-      reportPresentation, registerLifecycle }),
-    [surface, columnId, policy, focused, webNavigation, webAddressBarVisible, onCollectionActiveViewChange, reportPresentation, registerLifecycle]);
-  return <WorkspaceSurfaceRendererView surface={data} context={context} />;
+      ? `${surface.fileIdentity?.displayId ?? ''}:${surface.activeFilePath ?? surface.folderPath ?? 'folder'}:${surface.collectionType ?? ''}`
+      : surface.kind === 'media'
+        ? surface.fileIdentity.displayId
+        : surface.kind === 'web'
+          ? canonicalUrl(surface.url) ?? surface.url
+          : surface.instanceId;
+  return `${surface.surfaceId}:${identity}`;
 }
 
 /** Browser provides view data and navigation ports; all kinds use the common registry. */
-export function getBrowserColumnSurfaceDefinition(surface: BrowserColumnSurface, columnId: 'column-1' | 'column-2' = 'column-2'): BrowserColumnSurfaceDefinition {
+export function getBrowserColumnSurfaceDefinition(surface: BrowserColumnSurface): BrowserColumnSurfaceDefinition {
   const definition = getWorkspaceSurfaceRendererDefinition(browserSurfaceData(surface));
   return { contentKind: definition.kind, appearance: definition.appearance, chrome: definition.appearance.headerStyle,
-    capabilities: definition.capabilities, render: () => <BrowserRegisteredSurfaceView surface={surface} columnId={columnId} focused={false} /> };
+    capabilities: definition.capabilities };
 }
 
 export function browserColumnSurfaceSupports(surface: BrowserColumnSurface, capability: BrowserColumnSurfaceCapability): boolean {
@@ -269,5 +223,38 @@ export function browserColumnSurfaceSupports(surface: BrowserColumnSurface, capa
 }
 
 export const BrowserColumnSurfaceHost = memo(function BrowserColumnSurfaceHost({ surface, columnId = 'column-2', focused = false, webAddressBarVisible = false }: { surface: BrowserColumnSurface; columnId?: 'column-1' | 'column-2'; focused?: boolean; webAddressBarVisible?: boolean }) {
-  return <BrowserRegisteredSurfaceView key={`${surface.kind}:${surface.instanceKey}`} surface={surface} columnId={columnId} focused={focused} webAddressBarVisible={webAddressBarVisible} />;
+  const surfaceId = surface.surfaceId;
+  const data = useMemo(() => browserSurfaceData(surface), [surface]);
+  const policy = useMemo(() => surfaceRenderPolicy(columnId, surfaceId), [columnId, surfaceId]);
+  const webNavigation = useMemo(() => surface.kind === 'web' ? createBrowserWebNavigationPort(surfaceId) : undefined,
+    [surface.kind, surfaceId]);
+  const onCollectionActiveViewChange = useCallback((viewId: string) => {
+    const entry = browserSessionRuntime().current?.id === surfaceId ? browserSessionRuntime().current : null;
+    if (entry?.target.kind !== 'file-browser' || !entry.target.collectionDisplay) return;
+    const { notebookId, collectionId } = entry.target.collectionDisplay;
+    setCollectionActiveView(policy.collectionLocation, { notebookId, collectionId }, viewId);
+  }, [policy, surfaceId]);
+  const writeMetadata = useCallback((update: SurfacePresentationUpdate) => {
+    if (update.title === undefined && update.icon === undefined) return;
+    const metadata: { title?: string; icon?: string | null } = {};
+    if (update.title !== undefined) metadata.title = update.title;
+    if (update.icon !== undefined) metadata.icon = update.icon;
+    browserSessionRuntime().updateContentMetadata(surfaceId, metadata);
+  }, [surfaceId]);
+  return <SurfaceHostView
+    key={`${surface.kind}:${surface.instanceKey}`}
+    surface={data}
+    columnId={columnId}
+    viewId={surfaceId}
+    sessionEntryId={surfaceId}
+    focused={focused}
+    readOnly={surface.kind === 'file-browser' && Boolean(surface.documentProps.readOnly)}
+    initialFocus={surface.kind === 'file-browser' ? surface.documentProps.initialFocus : undefined}
+    presentationScope={browserPresentationScope(surface)}
+    policy={policy}
+    webNavigation={webNavigation}
+    webAddressBarVisible={webAddressBarVisible}
+    onCollectionActiveViewChange={onCollectionActiveViewChange}
+    writeMetadata={writeMetadata}
+  />;
 });

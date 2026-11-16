@@ -1,12 +1,6 @@
 'use client';
 
-import {
-  type ReactNode,
-  useCallback,
-  useLayoutEffect,
-  useMemo,
-} from 'react';
-import { useDocumentStore } from '@features/document/store/document-store';
+import { useCallback, type ReactNode } from 'react';
 import type {
   WorkColumnContentPresentation, WorkColumnSurface,
   WorkColumnSurfaceCapability, WorkColumnSurfaceChrome,
@@ -14,40 +8,27 @@ import type {
 import { workspaceSurfaceAppearance } from '@features/workspace/public/surface-api';
 import type { WorkspaceSurfaceKind } from '@features/workspace/public/surface-api';
 import type { SurfaceAppearance } from '@features/workspace/public/surface-api';
-import {
-  getWorkspaceSurfaceRendererDefinition,
-  workspaceSurfaceInitialLoadingState,
-  workspaceSurfaceRetainsInitialContent,
-  workspaceSurfaceSilentLoading,
-  WorkspaceSurfaceRendererView,
-} from './workspace-surface-renderer-registry';
+import { getWorkspaceSurfaceRendererDefinition } from './workspace-surface-renderer-registry';
 import { WorkspaceSurfaceStateView } from './workspace-surface-state-view';
 import { surfaceRenderPolicy } from './surface-render-policy';
+import { SurfaceHostView } from './surface-host-view';
+import { useDocumentStore } from '@features/document/store/document-store';
 
 import { primaryCurrentEntryId, updatePrimarySurfaceMetadata } from '@features/workspace/public/session-runtime-api';
 import { workspaceSurfaceRendererDataFromWorkSurface } from './work-column-surface-adapter';
-import { registerStartupSurfaceHostView, registerWorkspaceSurfacePresentationOwner, reportEmptyWorkspaceSurfaceForIdentity, reportWorkspaceSurfacePresentation } from './workspace-surface-runtime';
-import type { SurfaceLifecycle, SurfacePresentationUpdate } from '@features/workspace/model/surface-contract';
-import { registerWorkspaceColumnIdView, registerWorkspaceSurfaceLifecycle } from '@features/workspace/public/surface-lifecycle-api';
+import { reportEmptyWorkspaceSurfaceForIdentity } from './workspace-surface-runtime';
 
 export interface WorkColumnSurfaceDefinition {
   contentKind: WorkspaceSurfaceKind;
   appearance: Readonly<SurfaceAppearance>;
   chrome: WorkColumnSurfaceChrome;
   capabilities: readonly WorkColumnSurfaceCapability[];
-  render: () => ReactNode;
 }
 
-/** Work adapts navigation data; renderer registration belongs to the common registry. */
+/** Work adapts navigation data; mounting belongs to SurfaceHostView. */
 export function getWorkColumnSurfaceDefinition(
   surface: WorkColumnSurface,
-  reportPresentation?: (update: SurfacePresentationUpdate) => void,
-  registerLifecycle?: (lifecycle: SurfaceLifecycle | null, owner?: object) => void,
-  focused = false,
-  onRendererError?: () => void,
-  webAddressBarVisible = false,
 ): WorkColumnSurfaceDefinition {
-  const sessionEntryId = surface.sessionEntryId;
   const data = workspaceSurfaceRendererDataFromWorkSurface(surface);
   const definition = getWorkspaceSurfaceRendererDefinition(data);
   return {
@@ -55,19 +36,6 @@ export function getWorkColumnSurfaceDefinition(
     appearance: definition.appearance,
     chrome: definition.appearance.headerStyle,
     capabilities: definition.capabilities,
-    render: () => <WorkspaceSurfaceRendererView
-      surface={data}
-      context={{
-        sessionEntryId, host: 'column-1', viewId: surface.instanceKey, focused,
-        policy: surfaceRenderPolicy('column-1', surface.instanceKey),
-        initialFocus: initialFocusForSurface(surface),
-        readOnly: 'props' in surface && 'readOnly' in surface.props ? Boolean(surface.props.readOnly) : false,
-        reportPresentation: reportPresentation ?? ((update) => reportWorkspaceSurfacePresentation(surface.instanceKey, update)),
-        onRendererError,
-        webAddressBarVisible,
-        registerLifecycle,
-      }}
-    />,
   };
 }
 
@@ -120,49 +88,31 @@ function transitionForSurface(surface: WorkColumnSurface): { id: number; finishO
 
 function WorkColumnSurfaceMount({ surface, focused, webAddressBarVisible }: { surface: WorkColumnSurface; focused: boolean; webAddressBarVisible: boolean }) {
   const entryId = primaryCurrentEntryId();
+  const viewId = surface.instanceKey;
   const transition = transitionForSurface(surface);
-  const transitionId = transition?.id ?? null;
-  const finishTransitionOnMount = transition?.finishOnMount ?? false;
-  const presentationScope = `${surface.kind}:${surface.instanceKey}:${'fileIdentity' in surface ? surface.fileIdentity?.path ?? '' : ''}`;
-  const presentationOwner = useMemo(() => ({}), [presentationScope]);
-  const surfaceData = workspaceSurfaceRendererDataFromWorkSurface(surface);
-  const silentLoading = workspaceSurfaceSilentLoading(surfaceData);
-  const retainInitialContent = workspaceSurfaceRetainsInitialContent(surfaceData);
-  const reportPresentation = useCallback((update: SurfacePresentationUpdate) => {
-    if (reportWorkspaceSurfacePresentation(surface.instanceKey, update, presentationOwner)) {
-      updatePrimarySurfaceMetadata(entryId, update);
-      if (transitionId !== null && update.state && ['ready', 'error', 'unavailable'].includes(update.state.status)) {
-        useDocumentStore.getState().finishDocumentTransition(transitionId,
-          update.state.status === 'ready' ? 'ready' : 'unavailable');
-      }
-    }
-  }, [entryId, presentationOwner, surface.instanceKey, transitionId]);
-  const registerLifecycle = useCallback((lifecycle: SurfaceLifecycle | null, owner?: object) => {
-    registerWorkspaceSurfaceLifecycle(surface.instanceKey, lifecycle, owner);
-  }, [surface.instanceKey]);
-  const onRendererError = useCallback(() => {
-    if (transitionId !== null) {
-      useDocumentStore.getState().finishDocumentTransition(transitionId, 'unavailable');
-    }
-  }, [transitionId]);
+  const writeMetadata = useCallback((update: Parameters<typeof updatePrimarySurfaceMetadata>[1]) => {
+    updatePrimarySurfaceMetadata(entryId, update);
+  }, [entryId]);
+  const settleTransition = useCallback((transitionId: number, outcome: 'ready' | 'unavailable') => {
+    useDocumentStore.getState().finishDocumentTransition(transitionId, outcome);
+  }, []);
 
-  useLayoutEffect(() => registerStartupSurfaceHostView('column-1', surface.instanceKey), [surface.instanceKey]);
-  useLayoutEffect(() => registerWorkspaceColumnIdView('column-1', surface.instanceKey), [surface.instanceKey]);
-
-  useLayoutEffect(() => {
-    // These views have no DocumentContainer to finish the transition after
-    // reading content; their own loading UI remains active.
-    if (finishTransitionOnMount && transitionId !== null) {
-      useDocumentStore.getState().finishDocumentTransition(transitionId);
-    }
-  }, [finishTransitionOnMount, transitionId]);
-
-  useLayoutEffect(() => registerWorkspaceSurfacePresentationOwner(surface.instanceKey, presentationOwner, {
-    state: workspaceSurfaceInitialLoadingState(silentLoading, retainInitialContent),
-  }),
-    [presentationOwner, retainInitialContent, silentLoading, surface.instanceKey]);
-
-  return getWorkColumnSurfaceDefinition(surface, reportPresentation, registerLifecycle, focused, onRendererError, webAddressBarVisible).render();
+  return <SurfaceHostView
+    surface={workspaceSurfaceRendererDataFromWorkSurface(surface)}
+    columnId="column-1"
+    viewId={viewId}
+    sessionEntryId={surface.sessionEntryId}
+    focused={focused}
+    readOnly={'props' in surface && 'readOnly' in surface.props ? Boolean(surface.props.readOnly) : false}
+    initialFocus={initialFocusForSurface(surface)}
+    presentationScope={`${surface.kind}:${surface.instanceKey}:${'fileIdentity' in surface ? surface.fileIdentity?.path ?? '' : ''}`}
+    policy={surfaceRenderPolicy('column-1', viewId)}
+    transitionId={transition?.id ?? null}
+    transitionFinishOnMount={transition?.finishOnMount ?? false}
+    settleTransition={settleTransition}
+    webAddressBarVisible={webAddressBarVisible}
+    writeMetadata={writeMetadata}
+  />;
 }
 
 export function WorkColumnSurfaceHost({ surface, focused = false, webAddressBarVisible = false }: { surface: WorkColumnSurface; focused?: boolean; webAddressBarVisible?: boolean }) {
