@@ -175,6 +175,8 @@ impl CloudMembership {
 #[serde(rename_all = "camelCase")]
 pub struct CloudAiCredential {
     pub api_key: String,
+    #[serde(default)]
+    pub model_base_url: Option<String>,
     pub model: CloudAiModel,
     #[serde(default)]
     pub models: Vec<CloudAiModel>,
