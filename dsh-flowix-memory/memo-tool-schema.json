@@ -25,7 +25,7 @@
         "artifact.describe",
         "artifact.create"
       ],
-      "description": "Structured operation. Collections support create, add-fields, add, list, describe and query. Use collection.add with a stable requestId for retry-safe structured records; add-note accepts complete Markdown."
+      "description": "Structured operation. Collections support create, add-fields, add, list, describe and query. Use collection.add for structured records; its requestId deduplicates only within the current server process. add-note accepts complete Markdown."
     },
     "notebook": {
       "type": "string",
@@ -96,11 +96,11 @@
     },
     "record": {
       "type": "object",
-      "description": "Structured collection.add record: title, properties, and optional content."
+      "description": "Structured collection.add record: title names the note file; properties and content supply its fields and body."
     },
     "requestId": {
       "type": "string",
-      "description": "Stable request ID for create, artifact.create, collection.add and collection.add-note. Reuse the same ID and arguments when retrying."
+      "description": "Request ID for create, artifact.create, collection.add and collection.add-note. Collection deduplication lasts only for the current server process; check for an existing note before retrying after restart."
     },
     "where": {
       "type": "array",

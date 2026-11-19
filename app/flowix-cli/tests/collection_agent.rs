@@ -1,6 +1,6 @@
 use flowix_core::memo_file::{MemoFile, NotebookConfig};
 use serde_json::{json, Value};
-use std::{fs, path::Path, process::{Command, Output, Stdio}};
+use std::{fs, path::Path, process::{Command, Output}};
 
 fn invoke(config: &Path, root: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_flowix-cli")).current_dir(root).env("FLOWIX_HOME", config).args(args).arg("--json").output().unwrap()
@@ -10,7 +10,7 @@ fn parsed(output: Output) -> (bool, Value) {
 }
 
 #[test]
-fn structured_records_are_typed_filterable_and_retry_safe() {
+fn structured_records_are_typed_and_filterable() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("book");
     let config = temp.path().join("config");
@@ -23,19 +23,10 @@ fn structured_records_are_typed_filterable_and_retry_safe() {
     let id = created["collectionId"].as_str().unwrap();
     let input = temp.path().join("record.json");
     fs::write(&input, serde_json::to_vec(&json!({"title":"产品 A","properties":{"状态":"订阅","分数":4.5,"领域":["写作"]},"content":"记录正文"})).unwrap()).unwrap();
-    let args = ["collection", "add", "--id", id, "--file", input.to_str().unwrap(), "--request-id", "stable-1", "--json"];
-    let children: Vec<_> = (0..4).map(|_| Command::new(env!("CARGO_BIN_EXE_flowix-cli")).env("FLOWIX_HOME", &config).current_dir(&root).args(args).stdout(Stdio::piped()).spawn().unwrap()).collect();
-    let values: Vec<_> = children.into_iter().map(|child| parsed(child.wait_with_output().unwrap())).collect();
-    for (ok, value) in &values { assert!(ok, "{value}"); assert_eq!(value["note"]["address"], values[0].1["note"]["address"]); }
-    let address = values[0].1["note"]["address"].as_str().unwrap();
-    // Simulate a process dying after creating the note but before linking it.
+    let (ok, created_note) = parsed(invoke(&config, &root, &["collection", "add", "--id", id, "--file", input.to_str().unwrap(), "--request-id", "stable-1"]));
+    assert!(ok, "{created_note}");
+    let address = created_note["note"]["address"].as_str().unwrap();
     let collection = root.join("产品.index.yaml");
-    let mut document: Value = serde_yaml::from_str(&fs::read_to_string(&collection).unwrap()).unwrap();
-    document["payload"]["dataset"]["records"]["include"] = json!([]);
-    fs::write(&collection, serde_yaml::to_string(&document).unwrap()).unwrap();
-    let (ok, recovered) = parsed(invoke(&config, &root, &["collection", "add", "--id", id, "--file", input.to_str().unwrap(), "--request-id", "stable-1"]));
-    assert!(ok, "{recovered}");
-    assert_eq!(recovered["note"]["address"], address);
     let (ok, shown) = parsed(invoke(&config, &root, &["show", address]));
     assert!(ok, "{shown}");
     assert_eq!(shown["note"]["properties"]["flowix_property_types"]["状态"], "Select");
@@ -54,10 +45,6 @@ fn structured_records_are_typed_filterable_and_retry_safe() {
     let (ok, by_id) = parsed(invoke(&config, &root, &["collection", "query", "--id", id, "--where", &option_filter]));
     assert!(ok, "{by_id}");
     assert_eq!(by_id["page"]["total"], 2);
-    fs::write(&input, r#"{"title":"产品 A","properties":{"状态":"免费"}}"#).unwrap();
-    let (ok, conflict) = parsed(invoke(&config, &root, &["collection", "add", "--id", id, "--file", input.to_str().unwrap(), "--request-id", "stable-1"]));
-    assert!(!ok, "{conflict}");
-    assert_eq!(conflict["error"]["code"], "REQUEST_ID_CONFLICT");
     fs::write(&input, r#"{"title":"B","properties":{"分数":"错误"}}"#).unwrap();
     let (ok, invalid) = parsed(invoke(&config, &root, &["collection", "add", "--id", id, "--file", input.to_str().unwrap()]));
     assert!(!ok, "{invalid}");
@@ -72,18 +59,11 @@ fn structured_records_are_typed_filterable_and_retry_safe() {
     let renamed = format!("{}/renamed.md", Path::new(relative).parent().unwrap().display());
     fs::rename(root.join(relative), root.join(&renamed)).unwrap();
     flowix_core::collection_store::rebase_collection_paths(&MemoFile::new(config.clone()), "book", relative, &renamed);
-    let (ok, retried) = parsed(invoke(&config, &root, &["collection", "add", "--id", id, "--file", input.to_str().unwrap(), "--request-id", "stable-1"]));
-    assert!(ok, "{retried}");
-    assert_eq!(retried["note"]["relativePath"], renamed);
     let (ok, after_rename) = parsed(invoke(&config, &root, &["collection", "query", "--id", id]));
     assert!(ok, "{after_rename}");
     assert_eq!(after_rename["page"]["total"], 2);
     let removed_content = fs::read(root.join(&renamed)).unwrap();
     fs::remove_file(root.join(&renamed)).unwrap();
-    let (ok, missing) = parsed(invoke(&config, &root, &["collection", "add", "--id", id, "--file", input.to_str().unwrap(), "--request-id", "stable-1"]));
-    assert!(!ok, "{missing}");
-    assert_eq!(missing["error"]["code"], "REQUEST_ID_CONFLICT");
-    assert!(!root.join(&renamed).exists());
     let (ok, partial) = parsed(invoke(&config, &root, &["collection", "query", "--id", id]));
     assert!(ok, "{partial}");
     assert_eq!(partial["complete"], false);

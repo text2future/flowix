@@ -801,6 +801,9 @@ pub struct CollectionNoteResult {
     pub address: String,
 }
 
+type CollectionRequestCache = HashMap<(String, String, String), (String, CollectionNoteResult)>;
+static COLLECTION_REQUESTS: OnceLock<Mutex<CollectionRequestCache>> = OnceLock::new();
+
 /// Create a Markdown note in a table collection and explicitly link it in the
 /// notes dataset. The collection file lock serializes concurrent adds and its
 /// source content is re-read under that lock before the revision is advanced.
@@ -863,6 +866,21 @@ pub fn add_note_with_request_schema(
         }
     })?;
 
+    // The cache is deliberately process-local. Holding the guard through the
+    // write also serializes concurrent requests with the same key.
+    let mut requests = if request_id.is_some() {
+        Some(COLLECTION_REQUESTS.get_or_init(Default::default).lock().map_err(|_| "COLLECTION_REQUEST_LOCK_FAILED")?)
+    } else {
+        None
+    };
+    let request_key = request_id.map(|id| (collection_path.to_string_lossy().into_owned(), notebook_id.to_owned(), id.to_owned()));
+    let payload_hash = format!("{:x}", Sha256::digest(format!("{}\0{}", title, content).as_bytes()));
+    if let (Some(cache), Some(key)) = (requests.as_ref(), request_key.as_ref()) {
+        if let Some((previous, result)) = cache.get(key) {
+            return if previous == &payload_hash { Ok(result.clone()) } else { Err("REQUEST_ID_CONFLICT".into()) };
+        }
+    }
+
     let mut created_note_path = None;
     let mut collection_committed = false;
     let operation = memo.with_file_write(
@@ -920,6 +938,7 @@ pub fn add_note_with_request_schema(
                 } else {
                     format!(".flowix/database/{}", document.collection.id)
                 };
+                let mut recovered_legacy = false;
                 let note_path = if let Some(request_id) = request_id {
                     let request_hash = Sha256::digest(request_id.as_bytes()).iter().map(|b| format!("{b:02x}")).collect::<String>();
                     let payload_hash = Sha256::digest(format!("{}\0{}", title, content).as_bytes()).iter().map(|b| format!("{b:02x}")).collect::<String>();
@@ -946,11 +965,11 @@ pub fn add_note_with_request_schema(
                         if records.iter().any(|record| record["note_path"] == relative) {
                             return Ok(CollectionNoteResult { notebook_id: notebook_id.to_owned(), collection_id: resolved_id.clone(), collection_path, collection_revision: document.collection.revision, address: format!("{notebook_id}::{relative}"), note_path: relative });
                         }
+                        recovered_legacy = true;
                         relative
                     } else {
-                        let created = memo.create_note_by_path(notebook_id, Some(&parent), &filename, &expected).map_err(|e| e.to_string())?;
+                        let created = memo.create_note_by_path(notebook_id, Some(&parent), title, content).map_err(|e| e.to_string())?;
                         created_note_path = Some(created.clone());
-                        if created != relative { return Err("REQUEST_ID_CONFLICT".into()); }
                         created
                     }
                 } else {
@@ -958,13 +977,12 @@ pub fn add_note_with_request_schema(
                     created_note_path = Some(created.clone());
                     created
                 };
-                let record_id = match request_id {
-                    Some(id) => {
-                        let hash = Sha256::digest(id.as_bytes()).iter().map(|b| format!("{b:02x}")).collect::<String>();
-                        format!("rec_{}", &hash[..32])
-                    },
-                    None => format!("rec_{}", uuid::Uuid::now_v7().simple()),
-                };
+                // Preserve the deterministic ID only when recovering a legacy
+                // hashed file. New requests are tracked solely in memory.
+                let record_id = if recovered_legacy {
+                    let hash = Sha256::digest(request_id.expect("checked").as_bytes()).iter().map(|b| format!("{b:02x}")).collect::<String>();
+                    format!("rec_{}", &hash[..32])
+                } else { format!("rec_{}", uuid::Uuid::now_v7().simple()) };
                 records.push(serde_json::json!({
                     "id": record_id,
                     "updated_at": chrono::Utc::now()
@@ -997,7 +1015,12 @@ pub fn add_note_with_request_schema(
     .and_then(|result| result);
 
     match operation {
-        Ok(result) => Ok(result),
+        Ok(result) => {
+            if let (Some(cache), Some(key)) = (requests.as_mut(), request_key) {
+                cache.insert(key, (payload_hash, result.clone()));
+            }
+            Ok(result)
+        },
         Err(error) => {
             if !collection_committed {
                 if let Some(note_path) = created_note_path {

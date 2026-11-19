@@ -12,9 +12,9 @@ flowix collection add --path '产品库.index.yaml' --file record.json --request
 flowix collection query --path '产品库.index.yaml' --where '状态=已核验' --fields '状态,评分' --json
 ```
 
-`--request-id` 由调用方为每个逻辑写入指定，重试时复用同一个 ID 和完全相同的记录。重复请求返回相同笔记地址；不同内容复用 ID 返回 `REQUEST_ID_CONFLICT`。笔记写入后、关联提交前中断时，重试会恢复关联；若已关联的笔记被删除或修改，重试返回冲突。没有请求 ID 时，每次调用都会新增记录。字段错误返回 `INVALID_FIELD_VALUE` 和 `details.field`、`details.expected`，选择字段还提供 `details.allowed`。
+`title` 用作笔记标题和文件名，同名时按现有规则增加后缀。`--request-id` 用于当前进程内的去重：相同 ID 和内容返回第一次的结果，内容不同时返回 `REQUEST_ID_CONFLICT`。进程退出后记录消失，独立 CLI 命令各自运行在不同进程中，无法依靠该 ID 跨命令去重。结果不明或进程重启后，请先查询是否已创建，再决定是否重试；中断后的自动恢复不受保证。旧版已创建的哈希文件仍按原有规则识别。没有请求 ID 时，每次调用都会新增记录。
 
-新写入的请求使用稳定记录 ID，笔记经 Flowix 移动或重命名并更新集合路径后，同一请求仍可重试并返回新地址。旧版本创建的随机记录 ID 不具备这一保证。结构化写入期间字段定义发生变化时返回 `COLLECTION_SCHEMA_CHANGED`，调用方应重新读取字段后再决定如何重试。
+字段错误返回 `INVALID_FIELD_VALUE` 和 `details.field`、`details.expected`，选择字段还提供 `details.allowed`。结构化写入期间字段定义发生变化时返回 `COLLECTION_SCHEMA_CHANGED`，调用方应重新读取字段后再决定如何重试。
 
 `--where` 支持重复指定精确相等条件；选择字段可使用选项 ID 或标签，多选字段匹配其中一项，多个条件同时满足。数值和布尔值使用 JSON 写法。查询返回 `propertiesByKey` 供 Agent 直接读取，同时保留按字段 ID 索引的 `properties`。MCP 中对应 `collection.create`、`collection.add-fields`、`collection.add` 和 `collection.query`，分别使用 `fieldDefinitions`、`record`、`requestId` 和 `where` 参数。
 
