@@ -16,6 +16,7 @@ import { Tooltip } from '@shared/ui/tooltip';
 import { toast } from '@/lib/toast';
 import { useI18n } from '@/lib/i18n';
 import { FieldRow, SectionHeader } from '@features/preferences/sections/primitives';
+import { useUserSettingsStore } from '@features/preferences/store/user-settings-store';
 
 interface EnvironmentConfigSectionProps {
   productInfo: ProductInfo | null;
@@ -23,13 +24,18 @@ interface EnvironmentConfigSectionProps {
 
 export function EnvironmentConfigSection({ productInfo }: EnvironmentConfigSectionProps) {
   const { t } = useI18n();
+  const region = useUserSettingsStore((state) => state.settings.region);
+  const updateSettings = useUserSettingsStore((state) => state.updateSettings);
+  const flushSettings = useUserSettingsStore((state) => state.flushPending);
   const [switchingCloudEnvironment, setSwitchingCloudEnvironment] = useState(false);
   const [confirmingProdSwitch, setConfirmingProdSwitch] = useState(false);
   const [versionInitializationCompleted, setVersionInitializationCompleted] = useState<boolean | null>(null);
   const [savingVersionInitialization, setSavingVersionInitialization] = useState(false);
   const cloudEnvironmentLabel = productInfo?.cloudEnvironment === 'prod'
     ? t('preferences.environmentConfig.cloudEnvironment.prod')
-    : t('preferences.environmentConfig.cloudEnvironment.staging');
+    : productInfo?.cloudEnvironment === 'cn-staging'
+      ? t('preferences.environmentConfig.cloudEnvironment.cnStaging')
+      : t('preferences.environmentConfig.cloudEnvironment.staging');
 
   useEffect(() => {
     let active = true;
@@ -67,6 +73,10 @@ export function EnvironmentConfigSection({ productInfo }: EnvironmentConfigSecti
     setSwitchingCloudEnvironment(true);
     let preferenceSaved = false;
     try {
+      if (environment !== 'prod') {
+        await updateSettings({ region: environment === 'cn-staging' ? 'mainland' : 'overseas' });
+        await flushSettings();
+      }
       await product.setCloudEnvironment(environment);
       preferenceSaved = true;
       await relaunch();
@@ -79,9 +89,17 @@ export function EnvironmentConfigSection({ productInfo }: EnvironmentConfigSecti
     }
   };
 
+  const switchRegion = async () => {
+    const nextRegion = region === 'mainland' ? 'overseas' : 'mainland';
+    await updateSettings({ region: nextRegion });
+    if (productInfo?.cloudEnvironment === 'prod') return;
+    await flushSettings();
+    await applyCloudEnvironment(nextRegion === 'mainland' ? 'cn-staging' : 'staging');
+  };
+
   const handleCloudEnvironmentChange = (value: string) => {
     if (!productInfo?.isDevBuild) return;
-    const environment = value === 'staging' || value === 'prod' ? value : null;
+    const environment = value === 'staging' || value === 'cn-staging' || value === 'prod' ? value : null;
     if (!environment || environment === productInfo.cloudEnvironment) return;
     if (environment === 'prod') {
       setConfirmingProdSwitch(true);
@@ -104,8 +122,20 @@ export function EnvironmentConfigSection({ productInfo }: EnvironmentConfigSecti
 
       {productInfo?.isDevBuild && (
         <FieldRow
+          title={t('preferences.environmentConfig.region.title')}
+        >
+          <div className="flex items-center gap-3">
+            <span>{region === 'mainland' ? 'mainland' : 'overseas'}</span>
+            <Button variant="outline" disabled={switchingCloudEnvironment} onClick={() => void switchRegion()}>
+              {region === 'mainland' ? t('preferences.environmentConfig.region.switchOverseas') : t('preferences.environmentConfig.region.switchMainland')}
+            </Button>
+          </div>
+        </FieldRow>
+      )}
+
+      {productInfo?.isDevBuild && (
+        <FieldRow
           title={t('preferences.environmentConfig.cloudEnvironment.title')}
-          description={t('preferences.environmentConfig.cloudEnvironment.description')}
           controlId="preferences-cloud-environment"
         >
           <Select
@@ -119,6 +149,9 @@ export function EnvironmentConfigSection({ productInfo }: EnvironmentConfigSecti
             <SelectContent className="flowix-preferences-select-content">
               <SelectItem value="staging">
                 {t('preferences.environmentConfig.cloudEnvironment.staging')}
+              </SelectItem>
+              <SelectItem value="cn-staging">
+                {t('preferences.environmentConfig.cloudEnvironment.cnStaging')}
               </SelectItem>
               <SelectItem value="prod">
                 {t('preferences.environmentConfig.cloudEnvironment.prod')}

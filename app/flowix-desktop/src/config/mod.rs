@@ -12,7 +12,7 @@ pub use path_scope::{path_is_inside, path_is_inside_reserved_directory};
 pub use property_presets::{PropertyPresetChange, PropertyPresetRegistry, PropertyPresetStore};
 pub use security_bookmark::SecurityBookmarkStore;
 pub use user::{
-    dsh_credential_ref_for_route, AiConfigFile, AiModelConfig, AiModelEntry,
+    dsh_credential_ref_for_route, AiConfigFile, AiMemoryLocation, AiModelConfig, AiModelEntry,
     CloudDevRefreshTokenStore, PreferenceFile, Theme, UserConfigError, UserConfigStore,
     DSH_SETTINGS_FILE_NAME,
 };

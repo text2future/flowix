@@ -87,7 +87,17 @@ export class FeaturedNotesController {
         void this.refreshFeaturedNotes(empty, panel);
       });
       this.featuredNotesPanel = panel;
-      if (empty.classList.contains("agent-thread-card__empty--expanded")) {
+      // Expanded empty-state notes float above the composer so they remain
+      // independent from the welcome content and the message viewport.
+      const composer = empty
+        .closest<HTMLElement>(".agent-thread-card__container")
+        ?.querySelector<HTMLElement>(":scope > .agent-composer");
+      if (empty.classList.contains("agent-thread-card__empty--expanded") && composer) {
+        panel.setAttribute("data-no-composer-focus", "");
+        composer.prepend(panel);
+      } else if (empty.classList.contains("agent-thread-card__empty--expanded")) {
+        // Keep controller-only hosts without a composer usable (for example
+        // isolated renderers); production surfaces always mount the composer.
         empty.after(panel);
       } else {
         empty.append(panel);

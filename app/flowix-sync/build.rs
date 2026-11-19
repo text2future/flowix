@@ -11,8 +11,8 @@ fn main() {
         "prod"
     };
     match environment {
-        "staging" | "prod" => (),
-        other => panic!("FLOWIX_CLOUD_ENVIRONMENT must be staging or prod, got {other:?}"),
+        "staging" | "cn-staging" | "prod" => (),
+        other => panic!("FLOWIX_CLOUD_ENVIRONMENT must be staging, cn-staging, or prod, got {other:?}"),
     }
     println!("cargo:rustc-env=FLOWIX_CLOUD_ENVIRONMENT={environment}");
 }

@@ -45,6 +45,7 @@ const zhCN = {
   "billing.dialog.faq.renewal.question": "我的订阅会自动续费吗？",
   "billing.dialog.faq.renewal.answer": "会的。你的订阅会在每个计费周期结束时自动续费，以确保你可以持续使用相关功能。你可以随时在偏好设置 / 账户 / 订单记录中取消订阅，当前套餐仍会一直有效至本计费周期结束。",
   "billing.dialog.purchase": "立即升级",
+  "billing.dialog.aiAlreadyActive": "AI 会员已开通",
   "billing.dialog.currentlyActive": "当前已开通",
   "billing.dialog.downgradeUnsupported": "不支持降级",
   "billing.dialog.pendingOrder": "有订单待支付，请先完成或取消该订单",
@@ -55,6 +56,8 @@ const zhCN = {
   "billing.dialog.perYear": "/每年",
   "billing.dialog.perMonth": "/每月",
   "billing.dialog.perOnce": "/永久",
+  "billing.dialog.onceMonth": "/月",
+  "billing.dialog.onceYear": "/年",
 } as const;
 
 export default zhCN;

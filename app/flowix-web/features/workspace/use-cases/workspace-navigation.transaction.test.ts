@@ -157,6 +157,26 @@ describe('workspace navigation transaction', () => {
     mocks.memoState.loadMemos.mockResolvedValue(undefined);
   });
 
+  it('does not let an older queued browser open invalidate a later prepared link', async () => {
+    const { openWorkspaceSurface, openPreparedWorkspaceSurface } = await import('./surface-opening');
+    const browser = useBrowserColumnStore.getState();
+    browser.openContent({ id: 'saving-tab', title: 'Current', icon: null, target: { kind: 'web', url: 'https://current.example' } });
+    let finishSave!: (ok: boolean) => void;
+    registerWorkspaceSurfaceLifecycle('saving-tab', { status: 'ready', flush: () => new Promise((resolve) => { finishSave = resolve; }) });
+    const first = openWorkspaceSurface({ host: 'column-2', target: { kind: 'web', url: 'https://old.example' } });
+    await vi.waitFor(() => expect(finishSave).toBeTypeOf('function'));
+    let finishPreparation!: (value: { target: { kind: 'web'; url: string } }) => void;
+    const next = { kind: 'web' as const, url: 'https://new.example' };
+    const second = openPreparedWorkspaceSurface({ host: 'column-2', target: next },
+      () => new Promise((resolve) => { finishPreparation = resolve; }));
+    finishSave(true);
+    await expect(first).resolves.toMatchObject({ status: 'cancelled' });
+    registerWorkspaceSurfaceLifecycle('saving-tab', null);
+    finishPreparation({ target: next });
+    await expect(second).resolves.toMatchObject({ status: 'opened' });
+    expect(useBrowserColumnStore.getState().current?.target).toEqual(next);
+  });
+
   it('does not replace the primary sidebar notebook when opening a folder in the secondary session', async () => {
     const sessions = useWorkspaceSessionStore.getState();
     sessions.reset();

@@ -268,11 +268,10 @@ pub fn run() {
             // A saved Preferences selection is the source of truth. The build
             // target only supplies the initial/default environment.
             let cloud_environment = if is_dev_build {
-                let saved_environment = user_config_for_state
-                    .get_preference()
-                    .cloud_environment;
-                flowix_sync::CloudEnvironment::parse(&saved_environment)
+                let preference = user_config_for_state.get_preference();
+                flowix_sync::CloudEnvironment::parse(&preference.cloud_environment)
                     .unwrap_or_else(flowix_sync::default_cloud_environment)
+                    .for_dev_region(&preference.region)
             } else {
                 flowix_sync::CloudEnvironment::Prod
             };
@@ -796,6 +795,8 @@ pub fn run() {
             // file
             commands::file::get_file_tree,
             commands::file::get_dir_children,
+            commands::file::list_editor_components,
+            commands::file::read_editor_component,
             commands::document_list::list_document_page,
             commands::document_list::list_work_documents_page,
             commands::collection::list_collections,

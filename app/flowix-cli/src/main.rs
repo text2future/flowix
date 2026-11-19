@@ -27,7 +27,8 @@ fn main() -> ExitCode {
                         "ok": false,
                         "error": {
                             "code": e.code(),
-                            "message": e.to_string()
+                            "message": e.to_string(),
+                            "details": e.details()
                         }
                     })
                 );

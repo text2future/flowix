@@ -2,6 +2,7 @@
 use crate::{errors::CliError, store};
 use flowix_core::{memo_file::NotebookConfig, NoteService};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::{io::Read, path::Path};
 
 fn address(
@@ -10,8 +11,7 @@ fn address(
     let mf = store::open()?;
     let configs = mf.read_notebook_configs()?;
     let (notebook, relative) = if let Some((key, relative)) = raw.split_once("::") {
-        let notebook = store::find_notebook(&configs, key)
-            .ok_or_else(|| CliError::NotFound(format!("notebook not found: {key}")))?;
+        let notebook = store::find_notebook(&configs, key)?;
         (notebook, relative.replace('\\', "/"))
     } else if Path::new(raw).is_absolute() {
         let absolute = std::fs::canonicalize(raw)?;
@@ -31,8 +31,7 @@ fn address(
         (notebook.0, notebook.1.to_string_lossy().replace('\\', "/"))
     } else {
         let key = store::resolve_notebook_key(None)?;
-        let notebook = store::find_notebook(&configs, &key)
-            .ok_or_else(|| CliError::NotFound(format!("notebook not found: {key}")))?;
+        let notebook = store::find_notebook(&configs, &key)?;
         (notebook, raw.replace('\\', "/"))
     };
     if relative.is_empty()
@@ -46,11 +45,21 @@ fn address(
         ));
     }
     let notebook = notebook.clone();
+    if !store::notebook_directory_available(&notebook)? {
+        return Err(CliError::NotFound(format!(
+            "notebook directory is not available: {}",
+            notebook.path
+        )));
+    }
     Ok((mf, notebook, relative))
 }
 
 fn locator(notebook_id: &str, relative_path: &str) -> String {
     format!("{notebook_id}::{relative_path}")
+}
+
+pub(crate) fn version(body: &str) -> String {
+    format!("sha256:{:x}", Sha256::digest(body.as_bytes()))
 }
 
 fn document_json(document: &flowix_core::service::NoteDocument) -> Value {
@@ -62,6 +71,7 @@ fn document_json(document: &flowix_core::service::NoteDocument) -> Value {
         "path": document.path,
         "note": document.entry,
         "body": document.body,
+        "version": version(&document.body),
     })
 }
 
@@ -79,15 +89,21 @@ pub(crate) fn show(raw: &str) -> Result<Value, CliError> {
     Ok(document_json(&document))
 }
 
+#[cfg(test)]
 pub(crate) fn create(notebook_key: &str, content: &str) -> Result<Value, CliError> {
     create_with_title(notebook_key, None, content)
 }
 
+#[cfg(test)]
 pub(crate) fn create_with_title(
     notebook_key: &str,
     title: Option<&str>,
     content: &str,
 ) -> Result<Value, CliError> {
+    create_in_folder(notebook_key, title, None, content)
+}
+
+pub(crate) fn create_in_folder(notebook_key: &str, title: Option<&str>, folder: Option<&str>, content: &str) -> Result<Value, CliError> {
     let title = match title {
         Some(title) if title.trim().is_empty() => {
             return Err(CliError::Usage("create: --title cannot be empty".into()));
@@ -100,8 +116,11 @@ pub(crate) fn create_with_title(
     }
     let mf = store::open()?;
     let notebook = store::resolve_notebook_config(&mf, notebook_key)?;
-    let parent = flowix_core::memo_file::default_create_folder_for_notebook(Path::new(&notebook.path))
-        .map_err(CliError::Other)?;
+    let parent = match folder {
+        Some("") | Some(".") => None,
+        Some(folder) => Some(folder.to_owned()),
+        None => flowix_core::memo_file::default_create_folder_for_notebook(Path::new(&notebook.path)).map_err(CliError::Other)?,
+    };
     let document = NoteService::new(&mf).create(
         &notebook.id,
         parent.as_deref(),
@@ -146,12 +165,13 @@ pub(crate) fn edit(
     )
 }
 
-pub(crate) fn write(raw: &str, content: &str) -> Result<Value, CliError> {
+pub(crate) fn write(raw: &str, content: &str, expected_version: Option<&str>) -> Result<Value, CliError> {
     if content.trim().is_empty() {
         return Err(CliError::Usage("write: content is empty".into()));
     }
     let (mf, notebook, relative) = address(raw)?;
     let current = NoteService::new(&mf).get(&notebook.id, &relative)?;
+    check_version(&current.body, expected_version)?;
     let saved =
         NoteService::new(&mf).save(&notebook.id, &relative, content, Some(&current.body))?;
     match saved {
@@ -164,9 +184,17 @@ pub(crate) fn write(raw: &str, content: &str) -> Result<Value, CliError> {
     }
 }
 
-pub(crate) fn delete(raw: &str) -> Result<Value, CliError> {
+fn check_version(body: &str, expected: Option<&str>) -> Result<(), CliError> {
+    if expected.is_some_and(|expected| expected != version(body)) {
+        return Err(CliError::VersionConflict("note version changed; operation was not applied".into()));
+    }
+    Ok(())
+}
+
+pub(crate) fn delete(raw: &str, expected_version: Option<&str>) -> Result<Value, CliError> {
     let (mf, notebook, relative) = address(raw)?;
     let document = NoteService::new(&mf).get(&notebook.id, &relative)?;
+    check_version(&document.body, expected_version)?;
     let removed = NoteService::new(&mf).delete_checked(&notebook.id, &relative, &document.body)?;
     Ok(
         json!({"ok": removed, "action": "deleted", "notebookId": notebook.id,
@@ -179,6 +207,8 @@ pub(crate) fn search(
     notebook_filter: Option<&str>,
     tag_filter: Option<&str>,
     limit: usize,
+    offset: usize,
+    snapshot: Option<&str>,
 ) -> Result<Value, CliError> {
     if query.trim().is_empty() || limit == 0 {
         return Err(CliError::Usage(
@@ -197,11 +227,19 @@ pub(crate) fn search(
         .transpose()?;
     let mf = store::open()?;
     let configs = mf.read_notebook_configs()?;
-    let selected = if let Some(key) = notebook_filter {
+    let mut selected = if let Some(key) = notebook_filter {
         vec![store::resolve_notebook_config(&mf, key)?]
     } else {
-        configs
+        let mut available = Vec::new();
+        for notebook in configs {
+            if store::notebook_directory_available(&notebook)? {
+                available.push(notebook);
+            }
+        }
+        available
     };
+    selected.sort_by(|a, b| a.id.cmp(&b.id));
+    let notebook_ids: Vec<_> = selected.iter().map(|notebook| notebook.id.clone()).collect();
     let mut hits = Vec::new();
     for notebook in selected {
         mf.reconcile_note_index_blocking(&notebook.id)?;
@@ -209,22 +247,24 @@ pub(crate) fn search(
             &notebook.id,
             query,
             normalized_tag.as_deref(),
-            limit.saturating_sub(hits.len()),
+            i64::MAX as usize,
         )? {
             hits.push(
                 json!({"notebookId": notebook.id, "relativePath": hit.relative_path,
                 "address": locator(&notebook.id, &hit.relative_path), "title": hit.title,
                 "snippet": hit.snippet}),
             );
-            if hits.len() >= limit {
-                break;
-            }
-        }
-        if hits.len() >= limit {
-            break;
         }
     }
-    Ok(json!({"ok": true, "action": "search", "query": query, "matches": hits}))
+    let token = version(&serde_json::to_string(&json!({"query":query,"tag":normalized_tag,"notebooks":notebook_ids,"matches":hits})).map_err(|e| CliError::Other(e.to_string()))?);
+    if snapshot.is_some_and(|expected| expected != token) {
+        return Err(CliError::DataChanged("search results changed during pagination; restart at offset 0".into()));
+    }
+    let total = hits.len();
+    let matches: Vec<_> = hits.into_iter().skip(offset).take(limit).collect();
+    let next = offset.saturating_add(matches.len());
+    let truncated = next < total;
+    Ok(json!({"ok": true, "action": "search", "query": query, "matches": matches, "truncated": truncated, "limit": limit, "offset": offset, "total": total, "next_offset": truncated.then_some(next), "snapshot": token}))
 }
 
 pub(crate) fn read_input(
@@ -256,6 +296,8 @@ pub(crate) fn print(value: Value, json: bool) -> Result<(), CliError> {
             serde_json::to_string_pretty(&value)
                 .map_err(|error| CliError::Other(error.to_string()))?
         );
+    } else if let Some(body) = value.get("body").and_then(Value::as_str) {
+        print!("{body}");
     } else if let Some(note) = value.get("note") {
         println!(
             "{}",
@@ -318,8 +360,8 @@ mod tests {
             let duplicate = create_with_title("work", Some("我的文档"), "Second body")?;
             assert_ne!(named["note"]["address"], duplicate["note"]["address"]);
             assert_eq!(show(named["note"]["address"].as_str().unwrap())?["body"], "# Body");
-            delete(named["note"]["address"].as_str().unwrap())?;
-            delete(duplicate["note"]["address"].as_str().unwrap())?;
+            delete(named["note"]["address"].as_str().unwrap(), None)?;
+            delete(duplicate["note"]["address"].as_str().unwrap(), None)?;
             let created = create("work", "# Hello\nBody\n")?;
             let address = created["note"]["address"].as_str().unwrap();
             assert!(address.starts_with("work::Untitled.md"));
@@ -330,13 +372,13 @@ mod tests {
             edit(address, "Body", "Changed", false)?;
             assert!(show(address)?["body"].as_str().unwrap().contains("Changed"));
             assert_eq!(
-                search("Changed", None, None, 10)?["matches"]
+                search("Changed", None, None, 10, 0, None)?["matches"]
                     .as_array()
                     .unwrap()
                     .len(),
                 1
             );
-            delete(address)?;
+            delete(address, None)?;
             assert!(list("work")?["notes"].as_array().unwrap().is_empty());
             Ok(())
         })();

@@ -48,6 +48,7 @@ interface MenuInstance {
   hasNavigated: boolean;
   availableItems: SlashMenuItem[];
   items: SlashMenuItem[];
+  onOpenComponentPicker?: (editor: Editor) => void;
 }
 
 let menuState: SlashMenuState | null = null;
@@ -273,7 +274,11 @@ function detectInsertedSlash(tr: Transaction): number | null {
 }
 
 /** 原生输入路径 (未经过 handleTextInput) 插入 `/` 后补开菜单。 */
-function openMenuAfterNativeSlashInput(view: EditorView, editor: Editor): void {
+function openMenuAfterNativeSlashInput(
+  view: EditorView,
+  editor: Editor,
+  onOpenComponentPicker?: (editor: Editor) => void,
+): void {
   const insertedAt = slashMenuPluginKey.getState(view.state);
   if (insertedAt == null) return;
 
@@ -285,7 +290,7 @@ function openMenuAfterNativeSlashInput(view: EditorView, editor: Editor): void {
   const deleteFrom = getSlashTriggerDeleteFrom(view, triggerFrom);
   if (deleteFrom === null) return;
 
-  openMenu(view, editor, triggerFrom, deleteFrom);
+  openMenu(view, editor, triggerFrom, deleteFrom, onOpenComponentPicker);
 }
 
 function isBlockStartTrigger(editor: Editor): boolean {
@@ -509,7 +514,13 @@ async function handleAddAgentClick(view: EditorView, openId: number): Promise<vo
   }
 }
 
-function openMenu(view: EditorView, editor: Editor, triggerFrom: number, deleteFrom: number) {
+function openMenu(
+  view: EditorView,
+  editor: Editor,
+  triggerFrom: number,
+  deleteFrom: number,
+  onOpenComponentPicker?: (editor: Editor) => void,
+) {
   closeMenu();
 
   const openId = menuOpenId;
@@ -523,6 +534,7 @@ function openMenu(view: EditorView, editor: Editor, triggerFrom: number, deleteF
     hasNavigated: false,
     availableItems,
     items: availableItems,
+    onOpenComponentPicker,
   };
 
   menuContainer = document.createElement('div');
@@ -624,6 +636,14 @@ function handleSelect(item: SlashMenuItem): void {
 
   const editor = activeEditor;
   const slashBlockRange = getSlashBlockRange(editor);
+
+  if (item.id === 'component') {
+    const openPicker = menuInstance?.onOpenComponentPicker;
+    prepareSlashBlockTarget(editor);
+    closeMenu();
+    openPicker?.(editor);
+    return;
+  }
 
   if (item.id === 'create-child-note') {
     void createChildNoteReference(editor);
@@ -792,14 +812,19 @@ function refreshAvailableAgentItems(view: EditorView) {
   refreshMenuFromEditor(view, true);
 }
 
-export const SlashMenu = Extension.create({
+export const SlashMenu = Extension.create<{ onOpenComponentPicker?: (editor: Editor) => void }>({
   name: 'slashMenu',
   // An open menu owns navigation/confirmation ahead of paragraph, list, and
   // Tab handlers. Gap input normalization (1200) still runs before it.
   priority: 1150,
 
+  addOptions() {
+    return { onOpenComponentPicker: undefined };
+  },
+
   addProseMirrorPlugins() {
     const editor = this.editor;
+    const onOpenComponentPicker = this.options.onOpenComponentPicker;
 
     return [
       new Plugin<number | null>({
@@ -837,7 +862,7 @@ export const SlashMenu = Extension.create({
             update(updatedView) {
               if (updatedView.isDestroyed || updatedView !== view) return;
               if (menuState) refreshMenuFromEditor(updatedView);
-              else openMenuAfterNativeSlashInput(updatedView, editor);
+              else openMenuAfterNativeSlashInput(updatedView, editor, onOpenComponentPicker);
             },
             destroy() {
               if (!view.isDestroyed) {
@@ -860,7 +885,7 @@ export const SlashMenu = Extension.create({
               return false;
             }
 
-            openMenu(view, editor, from, deleteFrom);
+            openMenu(view, editor, from, deleteFrom, onOpenComponentPicker);
             return false;
           },
 

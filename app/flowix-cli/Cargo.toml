@@ -25,6 +25,11 @@ clap = { workspace = true }
 clap_complete = { workspace = true }
 shell-words = { workspace = true }
 rusqlite = { workspace = true }
+uuid = { workspace = true }
+sha2 = { workspace = true }
+
+[dev-dependencies]
+serde_yaml = { workspace = true }
 
 # Windows 专用: 启动时把 console codepage 切到 UTF-8, 非 Windows 不构建。
 [target.'cfg(windows)'.dependencies]

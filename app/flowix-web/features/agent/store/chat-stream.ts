@@ -18,6 +18,7 @@ export interface DispatchChatStreamArgs {
   threadId: string;
   instanceId?: string;
   content: string;
+  displayContent?: string;
   llmContent: string;
   runId: string;
   userPayload: OutgoingUserPayload;
@@ -41,6 +42,7 @@ export async function dispatchChatStream({
   threadId,
   instanceId,
   content,
+  displayContent,
   llmContent,
   runId,
   userPayload,
@@ -77,6 +79,7 @@ export async function dispatchChatStream({
   if (instanceId) markConversationWorkspaceStarted(instanceId);
   await agentClient.chatStream(threadId, {
     content,
+    displayContent,
     llmContent,
     runId,
     systemReminderDirectory: userPayload.systemReminderDirectory,

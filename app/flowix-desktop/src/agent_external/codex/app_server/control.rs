@@ -127,6 +127,7 @@ impl CodexAppServerManager {
             .unwrap_or_else(|| crate::agent_external::resolve_run_id(flowix_thread_id, None));
         let message = AgentUserMessage {
             content: command.to_string(),
+            display_content: None,
             llm_content: None,
             image_paths: Vec::new(),
             run_id: Some(run_id.clone()),

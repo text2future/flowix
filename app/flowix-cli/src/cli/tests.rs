@@ -38,6 +38,15 @@ fn help_variants() {
 }
 
 #[test]
+fn plugin_help_explains_discovery_and_creation_contract() {
+    let mut command = cli_command();
+    let help = command.find_subcommand_mut("plugin").unwrap().render_long_help().to_string();
+    for expected in ["explicitly requests", "plugin describe", "stdin", "exactly one H1", "notebookId", "notePath"] {
+        assert!(help.contains(expected), "missing {expected} in {help}");
+    }
+}
+
+#[test]
 fn version_variants() {
     for flag in ["--version", "-V"] {
         assert!(
@@ -100,6 +109,7 @@ fn list_basic() {
         Ok(Some(Cli::List {
             notebook: Some(notebook),
             json: false,
+            ..
         })) if notebook == "Default Notebook"
     ));
 }
@@ -261,7 +271,7 @@ fn plugin_create_requires_notebook() {
 fn delete_basic() {
     assert!(matches!(
         parse_args(&["delete", "abc123"]),
-        Ok(Some(Cli::Delete { id, json: false })) if id == "abc123"
+        Ok(Some(Cli::Delete { id, json: false, .. })) if id == "abc123"
     ));
 }
 

@@ -392,9 +392,14 @@
   color: var(--foreground);
 }
 
+.agent-thread-card__image-preview[open] {
+  animation: agent-thread-card-image-preview-fade-in 140ms ease-out both;
+}
+
 .agent-thread-card__image-preview::backdrop {
   background: rgb(0 0 0 / 78%);
   backdrop-filter: blur(2px);
+  animation: agent-thread-card-image-preview-backdrop-in 150ms ease-out both;
 }
 
 .agent-thread-card__image-preview-image {
@@ -406,6 +411,7 @@
   object-fit: contain;
   border-radius: 8px;
   box-shadow: 0 12px 48px rgb(0 0 0 / 35%);
+  animation: agent-thread-card-image-preview-image-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
 .agent-thread-card__image-preview-image[hidden] {
@@ -471,6 +477,35 @@
 .agent-thread-card__image-preview-close:focus-visible {
   outline: 2px solid white;
   outline-offset: 2px;
+}
+
+@keyframes agent-thread-card-image-preview-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes agent-thread-card-image-preview-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes agent-thread-card-image-preview-image-in {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-thread-card__image-preview[open],
+  .agent-thread-card__image-preview::backdrop,
+  .agent-thread-card__image-preview-image {
+    animation: none;
+  }
 }
 
 .agent-conversation-surface.agent-conversation-detail .agent-thread-card__message-content table {
@@ -1163,35 +1198,25 @@
 
 /* Featured notes stay on one horizontal row; arrows page through overflow. */
 .agent-conversation-surface .agent-thread-card__featured-notes {
-  position: relative;
+  position: absolute;
+  z-index: 4;
+  right: 0;
+  bottom: calc(100% + 8px);
+  left: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   column-gap: 8px;
   width: 100%;
   flex: 0 0 auto;
   align-self: stretch;
-  margin-top: 24px;
+  margin: 0;
+  padding: 0;
   background-color: var(--agent-bg, var(--document-bg));
   color: var(--foreground);
 }
 
-.agent-conversation-surface
-  .agent-thread-card__empty--expanded
-  + .agent-thread-card__featured-notes {
-  position: sticky;
-  bottom: 0;
-  z-index: 2;
-  width: calc(100% - 2 * var(--agent-content-inline-inset));
-  max-width: var(--agent-content-max-width);
-  margin: auto auto 0;
-  padding-block: 12px 0;
-}
-
-.agent-conversation-surface .agent-thread-card__body:has(
-  > .agent-thread-card__empty--expanded
-    + .agent-thread-card__featured-notes
-) {
-  padding-bottom: 0;
+.agent-conversation-surface .agent-composer > .agent-thread-card__featured-notes {
+  max-width: 100%;
 }
 
 /* 弹层与运算符菜单已挂到 document.body, 不再是 .agent-conversation-surface 的后代,

@@ -352,6 +352,7 @@ fn queued_follow_up_from_submission(
         client_user_message_id,
         message: AgentUserMessage {
             content: content.clone(),
+            display_content: None,
             llm_content: Some(content),
             image_paths,
             run_id: Some(run_id.clone()),

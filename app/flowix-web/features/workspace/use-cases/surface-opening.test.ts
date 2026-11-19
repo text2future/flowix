@@ -81,7 +81,7 @@ describe('public surface opening host contract', () => {
     await expect(openWorkspaceSurface({ host: 'column-2', target, options: { notebookId: 'book' } }))
       .resolves.toEqual({ status: 'activated', host: 'column-2', location: { host: 'column-2', surfaceId: 'a' } });
     // Notebook ownership is in the target; navigation policy is passed separately.
-    expect(mocks.openBrowser).toHaveBeenCalledWith(expect.objectContaining({ notebookId: 'book', activeFilePath: target.path }), { notebookId: 'book' });
+    expect(mocks.openBrowser).toHaveBeenCalledWith(expect.objectContaining({ notebookId: 'book', activeFilePath: target.path }), { notebookId: 'book' }, expect.any(Function));
     expect(mocks.openMain).not.toHaveBeenCalled();
   });
 
@@ -187,6 +187,27 @@ describe('public surface opening host contract', () => {
     await expect(first).resolves.toMatchObject({ status: 'cancelled' });
     expect(mocks.openMain).toHaveBeenCalledTimes(1);
     expect(mocks.openMain).toHaveBeenCalledWith(next.path, expect.anything());
+  });
+
+  it('keeps a later browser preparation current when an earlier queued open finishes', async () => {
+    let finishFirst!: () => void;
+    let finishSecond!: (value: { target: typeof target }) => void;
+    mocks.openBrowser.mockImplementationOnce(async (_target, _options, isCurrent: () => boolean) => {
+      await new Promise<void>((resolve) => { finishFirst = resolve; });
+      if (!isCurrent()) return null;
+      useWorkspaceSessionStore.getState().commitTarget(getColumnSessionId('column-2'), { kind: 'web', url: 'https://old.example' });
+      return { host: 'column-2', surfaceId: 'old', alreadyOpen: false };
+    });
+    const first = openWorkspaceSurface({ host: 'column-2', target });
+    await vi.waitFor(() => expect(finishFirst).toBeTypeOf('function'));
+    const next = { ...target, path: '/notes/newer.md' };
+    const second = openPreparedWorkspaceSurface({ host: 'column-2', target: next },
+      () => new Promise((resolve) => { finishSecond = resolve; }));
+    finishFirst();
+    await expect(first).resolves.toMatchObject({ status: 'cancelled' });
+    finishSecond({ target: next });
+    await expect(second).resolves.toMatchObject({ status: 'activated' });
+    expect(mocks.openBrowser).toHaveBeenLastCalledWith(expect.objectContaining({ activeFilePath: next.path }), undefined, expect.any(Function));
   });
 
   it('releases the preparation intent when target resolution fails', async () => {

@@ -138,7 +138,16 @@ pub(crate) fn emit_mutation_result(
     }
 }
 
-/// Tree and title actions share the same collection operation when the directory owns an index.
+/// Legacy: rename a folder that still owns a folder-placed `.index.yaml`.
+///
+/// 文件夹早已不是集合（外观搬进 `folder_index`，目录里的 `.index.yaml` 由启动
+/// 任务迁到 `.flowix/legacy-folder-index/`），所以正常笔记本上这里第一行就返回
+/// `None`，改名走 `rename_path_and_notify` 的纯文件系统路径。
+///
+/// 保留它是因为迁移**可能失败**（`migrate` 对移动失败保留原文件并报错），而且
+/// 迁移标记是每个笔记本一次性写入的，旧版本客户端经云同步写回来的 `.index.yaml`
+/// 不会被二次迁移。这些边缘笔记本里，`.index.yaml` 仍是这个目录唯一的集合真相，
+/// 走普通改名会把集合 ID / revision 一起丢掉。删掉这段之前先确认没有这种笔记本。
 pub(crate) fn rename_folder_collection_at_path(
     memo: &MemoFile,
     folder: &Path,

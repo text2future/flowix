@@ -1,3 +1,5 @@
+import { appendAdjacentContentContext } from "@features/agent/store/adjacent-document-context";
+import type { AdjacentContent } from "@features/workspace/public/adjacent-content-api";
 import type { ChatMessage } from "@/types";
 import type {
   AgentMessageAttachment,
@@ -22,9 +24,11 @@ export interface PreparedUserMessage {
 
 export interface PrepareUserMessageOptions {
   content: string;
+  displayContent?: string;
   isFirstMessage: boolean;
   agentType: AgentTypeKey;
   currentNoteContent?: string;
+  adjacentContent?: AdjacentContent;
   systemReminderDirectory?: string;
   attachments?: AgentMessageAttachment[];
 }
@@ -69,8 +73,8 @@ export function createAgentMessageAttachments(
 /**
  * 把"用户键入文字 + 上下文元数据"装成一条 outgoing user message ── LLM
  * 实际看到的 `llmContent` 可能额外拼了首条消息的当前笔记摘要，
- * 但 `userMessage.content` 始终只保存用户实际输入，避免
- * 把内部 workspace/CLI 指令渲染到消息列表。
+ * 但 `userMessage.content` 只保存消息列表的展示文本（可含附件位置标记），
+ * 避免把内部 workspace/CLI 指令渲染到消息列表；推理始终使用独立的 llmContent。
  *
  * 注意 `llmContent` 与 `userPayload.llmContent` 同值, 但 dispatched 的 IPC
  * 需要 `userPayload` 携带 system-reminder 路径字段 (cwd 等等), 因此
@@ -78,26 +82,28 @@ export function createAgentMessageAttachments(
  */
 export function prepareUserMessage({
   content,
+  displayContent,
   isFirstMessage,
   agentType,
   currentNoteContent,
+  adjacentContent,
   systemReminderDirectory,
   attachments,
 }: PrepareUserMessageOptions): PreparedUserMessage {
   const userPayload = buildUserLlmContent(content, systemReminderDirectory);
-  const llmContent = appendFirstMessageContext(
+  const llmContent = appendAdjacentContentContext(appendFirstMessageContext(
     userPayload.llmContent,
     isFirstMessage,
     currentNoteContent,
     agentType,
-  );
+  ), adjacentContent);
   return {
     userPayload,
     llmContent,
     userMessage: {
       id: `user-${Date.now()}`,
       role: "user",
-      content,
+      content: displayContent ?? content,
       attachments: attachments?.length ? attachments : undefined,
       llmContent,
       systemReminderDirectory: userPayload.systemReminderDirectory,

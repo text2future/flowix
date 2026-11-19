@@ -7,6 +7,10 @@
   padding: 4px;
 }
 
+.agent-thread-card__codex-settings-popover--place-above {
+  transform-origin: bottom left;
+}
+
 .agent-pi-model-picker {
   display: flex;
   min-height: 0;

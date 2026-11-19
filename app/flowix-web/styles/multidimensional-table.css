@@ -872,15 +872,27 @@ button.multidimensional-table__primary-title--placeholder {
 
 .agent-thread-card__featured-notes-view-create-row {
   display: block;
-  padding: 0.375rem 0 0.125rem;
+  padding: 0 0 0.125rem;
+}
+
+/* 分割线和上下间距参照 Agent「管理仓库」设置项。 */
+.agent-thread-card__featured-notes-view-create::before {
+  position: absolute;
+  top: -4px;
+  right: 8px;
+  left: 8px;
+  border-top: 1px solid var(--border);
+  content: "";
 }
 
 .agent-thread-card__featured-notes-view-create {
+  position: relative;
   display: flex;
   width: 100%;
   min-height: 1.75rem;
   align-items: center;
   justify-content: center;
+  margin-top: 8px;
   padding: 0 0.5rem;
   border: 0;
   border-radius: 0.5rem;

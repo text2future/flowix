@@ -143,6 +143,7 @@ pub async fn plugin_run(
     let app = app_handle.clone();
     let state_agent = AgentUserMessage {
         content: prepared.clone(),
+        display_content: None,
         llm_content: None,
         image_paths: Vec::new(),
         run_id: Some(run_id.clone()),

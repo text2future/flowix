@@ -1,144 +1,54 @@
 'use client';
 
-import { subscribe } from '@platform/tauri/event-bus';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { files, type CollectionChangedEvent, type DocTreeItem } from '@platform/tauri/client';
-import { canonicalDirectoryPath, canonicalPath } from '@/lib/path';
+import { files, type DocTreeItem } from '@platform/tauri/client';
+import { subscribeNotebookChanges } from '@platform/tauri/notebook-change-events';
+import { canonicalDirectoryPath, canonicalPath, joinNotebookMemoPath } from '@/lib/path';
 import { createLogger } from '@/lib/logger';
+import { perfCount, perfMark } from '@/lib/perf-probe';
+import { useNoteStore } from '../store/note-store';
 import { mergeNoteMetadata, noteMetadata } from '../services/note-metadata-service';
+import {
+  clearDirectoryTransients,
+  emptySnapshot,
+  isPathAtOrBelow,
+  patchDirectoryState,
+  pruneExpandedSubtrees,
+  readDirectoryState,
+  rebasePathSet,
+  rebaseSnapshot,
+  reconcileDirectoryChildren,
+  reconcileRootChildren,
+  type DirectoryState,
+  type FolderTreeSnapshot,
+} from './folder-tree-model';
+import { useFolderCollectionEvents } from './use-folder-collection-events';
 
 const logger = createLogger('folder-tree');
 const REFRESH_DEDUP_WINDOW_MS = 350;
 const WATCHER_REFRESH_DEBOUNCE_MS = 250;
+/**
+ * How long a root `path-moved` keeps the old root off-limits. The owning surface
+ * re-roots on the same broadcast, so this only has to cover one event loop turn
+ * plus a render; the bound exists so a move that nobody re-roots (the tree is
+ * opened by a surface that does not follow path changes) cannot leave the root
+ * refresh permanently disabled.
+ */
+const ROOT_MOVE_PENDING_MS = 5_000;
 /** 需要走 `canonicalPath` 的路径：带反斜杠、重复斜杠或尾斜杠。 */
 const NEEDS_CANONICAL = /\\|\/\/|\/$/;
-
-function deleteCachedSubtree(nodes: Map<string, DocTreeItem>, path: string): void {
-  const key = canonicalPath(path);
-  const node = nodes.get(key);
-  if (node?.type === 'folder') {
-    for (const child of node.children ?? []) {
-      deleteCachedSubtree(nodes, child.fullPath);
-    }
-  }
-  nodes.delete(key);
-}
-
-function pruneExpandedSubtrees(expanded: Set<string>, removedFolderPaths: string[]): Set<string> {
-  if (removedFolderPaths.length === 0) return expanded;
-  const removedKeys = removedFolderPaths.map(canonicalDirectoryPath);
-  let changed = false;
-  const next = new Set<string>();
-  for (const path of expanded) {
-    const isRemoved = removedKeys.some((root) => path === root || path.startsWith(`${root}/`));
-    if (isRemoved) changed = true;
-    else next.add(path);
-  }
-  return changed ? next : expanded;
-}
-
-function isPathAtOrBelow(path: string, directoryPath: string): boolean {
-  return path === directoryPath || path.startsWith(`${directoryPath}/`);
-}
-
-function rebasePathSet(paths: Set<string>, previousPath: string, nextPath: string): Set<string> {
-  let changed = false;
-  const next = new Set<string>();
-  for (const path of paths) {
-    if (isPathAtOrBelow(path, previousPath)) {
-      next.add(`${nextPath}${path.slice(previousPath.length)}`);
-      changed = true;
-    } else {
-      next.add(path);
-    }
-  }
-  return changed ? next : paths;
-}
-
-function reconcileDirectoryChildren(
-  previous: Map<string, DocTreeItem>,
-  parentKey: string,
-  children: DocTreeItem[],
-): Map<string, DocTreeItem> {
-  const next = new Map(previous);
-  const parent = previous.get(parentKey);
-  const nextChildKeys = new Set(children.map((child) => canonicalPath(child.fullPath)));
-
-  for (const oldChild of parent?.children ?? []) {
-    if (!nextChildKeys.has(canonicalPath(oldChild.fullPath))) {
-      deleteCachedSubtree(next, oldChild.fullPath);
-    }
-  }
-
-  const reconciledChildren = children.map((child) => {
-    const childKey = canonicalPath(child.fullPath);
-    const cached = previous.get(childKey);
-    const reconciled = child.type === 'folder' && cached?.children
-      ? { ...child, children: cached.children }
-      : child;
-    next.set(childKey, reconciled);
-    return reconciled;
-  });
-
-  if (parent) {
-    next.set(parentKey, { ...parent, children: reconciledChildren });
-  } else {
-    // The parent entry can be missing while its children are being fetched:
-    // a fresh session only holds root-level nodes, and the pinned group may
-    // expand a nested folder before the files tree ever loads its ancestors.
-    // Without an entry, flattening stops at `nodes.get(parent)?.children` and
-    // the expansion renders as an empty list even though the children above
-    // were just fetched. Insert a minimal folder node carrying them.
-    next.set(parentKey, {
-      id: `folder:${parentKey}`,
-      fullPath: parentKey,
-      name: parentKey.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? parentKey,
-      type: 'folder',
-      parentId: null,
-      children: reconciledChildren,
-      sizeBytes: null,
-      modifiedMs: 0,
-      createdMs: null,
-      memoCreatedMs: null,
-    });
-  }
-  return next;
-}
-
-function reconcileRootChildren(
-  previous: Map<string, DocTreeItem>,
-  previousRootChildren: DocTreeItem[],
-  children: DocTreeItem[],
-): Map<string, DocTreeItem> {
-  const next = new Map(previous);
-  const nextChildKeys = new Set(children.map((child) => canonicalPath(child.fullPath)));
-  for (const oldChild of previousRootChildren) {
-    if (!nextChildKeys.has(canonicalPath(oldChild.fullPath))) {
-      deleteCachedSubtree(next, oldChild.fullPath);
-    }
-  }
-  for (const child of children) {
-    const childKey = canonicalPath(child.fullPath);
-    const cached = previous.get(childKey);
-    next.set(
-      childKey,
-      child.type === 'folder' && cached?.children
-        ? { ...child, children: cached.children }
-        : child,
-    );
-  }
-  return next;
-}
 
 /**
  * VSCode 风格文件树数据 hook ── 惰性单层加载。
  *
  * 后端 `get_file_tree` / `get_dir_children` 只列直接子项 (folder 的
- * children 是空占位), 这里维护两层状态:
- *   - nodes: path → DocTreeItem (扁平 node 表, 渲染时按 expanded 集合
- *     从根出发走 children 递归拍平)
- *   - expanded: 已展开的 folder path 集合 (Set<string>, canonical 化)
+ * children 是空占位)。可见数据全在一个快照里 (`FolderTreeSnapshot`:
+ * nodes / rootChildren / expanded / directories), 对外仍以 `FolderTreeState`
+ * 暴露; 渲染时按 expanded 集合从根出发走 children 递归拍平。
+ *
+ * 收成一个快照的唯一理由是改名: 路径键控的状态必须整体搬到新路径, 而搬运
+ * 只有一处 ({@link rebaseSnapshot}) 能碰它们, 新增字段漏不掉。
  *
  * 展开一个 folder 时才对它调 `getDirChildren`, 结果 merge 进 nodes;
  * 收起再展开不重新拉 (VSCode 同款行为), 刷新走 `refresh(dirPath)`。
@@ -168,16 +78,84 @@ export interface FolderTreeOptions {
 export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
   const enabled = options?.enabled !== false;
   const rootKey = canonicalDirectoryPath(folderPath);
-  const [rootChildren, setRootChildren] = useState<DocTreeItem[]>([]);
-  const [nodes, setNodes] = useState<Map<string, DocTreeItem>>(() => new Map());
-  const nodesRef = useRef(nodes);
-  nodesRef.current = nodes;
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
-  const [dirtyDirectories, setDirtyDirectories] = useState<Set<string>>(() => new Set());
+  /**
+   * Notebook this tree belongs to, resolved from the mounted folder (longest
+   * match wins). `path-moved` carries notebook-relative paths while the cache is
+   * keyed by absolute paths, so this is what makes the move self-describing
+   * without threading a new prop through every mount point. The id matters too:
+   * two notebooks can contain the same relative path, and a move in one must not
+   * rebase a tree that belongs to the other.
+   */
+  const notebooks = useNoteStore((state) => state.notebooks);
+  const [notebookId, notebookRoot] = useMemo(() => {
+    let matched: string | null = null;
+    let path = '';
+    for (const candidate of notebooks) {
+      const candidatePath = canonicalDirectoryPath(candidate.path);
+      if (!isPathAtOrBelow(rootKey, candidatePath)) continue;
+      if (matched === null || candidatePath.length > path.length) {
+        matched = candidate.id;
+        path = candidatePath;
+      }
+    }
+    return [matched, path || null] as const;
+  }, [notebooks, rootKey]);
+  /**
+   * A `path-moved` for this tree's own root. The mounting surface re-roots in
+   * response, and the root change that follows must be treated as a rename
+   * (rebase + revalidate in place) instead of navigation to unrelated content.
+   * Recorded here because the surface re-roots *after* the broadcast, and
+   * "the parent directory matches" cannot tell a rename from a sibling switch.
+   */
+  const pendingRootMoveRef = useRef<{ from: string; to: string; at: number } | null>(null);
+  /**
+   * Whether this tree is currently waiting for its surface to re-root away from
+   * `root`. Self-expiring: if nothing re-roots within {@link ROOT_MOVE_PENDING_MS}
+   * the mark is dropped, because a stale mark would silently disable every later
+   * watcher refresh of the root (the branch below returns before reading).
+   */
+  const isRootMidMove = useCallback((root: string) => {
+    const move = pendingRootMoveRef.current;
+    if (!move || move.from !== root) return false;
+    if (Date.now() - move.at > ROOT_MOVE_PENDING_MS) {
+      pendingRootMoveRef.current = null;
+      return false;
+    }
+    return true;
+  }, []);
+  const [snapshot, setSnapshot] = useState<FolderTreeSnapshot>(emptySnapshot);
+  const snapshotRef = useRef(snapshot);
+  snapshotRef.current = snapshot;
+  const { nodes, rootChildren, expanded, directories } = snapshot;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [loadingDirectories, setLoadingDirectories] = useState<Set<string>>(() => new Set());
-  const [directoryErrors, setDirectoryErrors] = useState<Set<string>>(() => new Set());
+  // Rebasing moves the data; this counts how many times React had to redraw it.
+  // Together with `tree.rebase` it answers "did that rename stall the tree?".
+  useEffect(() => {
+    perfCount('tree.render');
+  });
+  /**
+   * The only write path into the snapshot. Every path-keyed field the tree shows
+   * lives in one atom, so a rename migrates all of it in one function
+   * (`rebaseSnapshot`) and a future field cannot be forgotten by one setter.
+   */
+  const commit = useCallback((next: FolderTreeSnapshot) => {
+    if (next === snapshotRef.current) return;
+    snapshotRef.current = next;
+    setSnapshot(next);
+  }, []);
+  const patchSnapshot = useCallback((recipe: (current: FolderTreeSnapshot) => FolderTreeSnapshot) => {
+    commit(recipe(snapshotRef.current));
+  }, [commit]);
+  const setExpandedPaths = useCallback((recipe: (expanded: Set<string>) => Set<string>) => {
+    patchSnapshot((current) => {
+      const expanded = recipe(current.expanded);
+      return expanded === current.expanded ? current : { ...current, expanded };
+    });
+  }, [patchSnapshot]);
+  const setDirectoryState = useCallback((path: string, patch: Partial<DirectoryState>) => {
+    patchSnapshot((current) => patchDirectoryState(current, path, patch));
+  }, [patchSnapshot]);
   // 请求代际: 每次 folderPath 变化 / 手动刷新自增, 迟到响应按代丢弃。
   const generationRef = useRef(0);
   const mountedRef = useRef(true);
@@ -188,7 +166,7 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
     if (!items || !mountedRef.current || generation !== generationRef.current) return items;
     const listed = new Set(items.map((item) => canonicalPath(item.fullPath)));
     const parent = canonicalDirectoryPath(directory);
-    for (const item of nodesRef.current.values()) {
+    for (const item of snapshotRef.current.nodes.values()) {
       const path = canonicalPath(item.fullPath);
       if (path.slice(0, path.lastIndexOf('/')) === parent && !listed.has(path)
         && noteMetadata.get(path).revision <= checkpoint) noteMetadata.deletePrefix(path);
@@ -199,194 +177,95 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
   }, []);
   const directoryRefreshesRef = useRef(new Map<string, Promise<void>>());
   const directoryRefreshSequenceRef = useRef(new Map<string, number>());
-  const lastRefreshAtRef = useRef(new Map<string, number>());
   const pendingWatcherDirectoriesRef = useRef(new Set<string>());
   const watcherRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rootRefreshRef = useRef<Promise<void> | null>(null);
   const rootRefreshSequenceRef = useRef(0);
-  const rootChildrenRef = useRef(rootChildren);
-  rootChildrenRef.current = rootChildren;
-  const expandedRef = useRef(expanded);
-  expandedRef.current = expanded;
   const pendingRenamesRef = useRef(0);
   const pendingRenameRefreshDirectoriesRef = useRef(new Set<string>());
 
-  /** Keep path-keyed tree data and UI state attached to a renamed/moved path. */
-  const rebasePath = useCallback((
-    previousPath: string,
-    nextPath: string,
-  ) => {
+  /**
+   * Keep path-keyed tree data and UI state attached to a renamed/moved path.
+   *
+   * All of it — nodes, root rows, expansion, per-directory flags — moves in one
+   * pure transition (`rebaseSnapshot`). Nothing here enumerates individual
+   * fields, so adding one to the snapshot cannot leave a stale path behind.
+   */
+  const rebasePath = useCallback((previousPath: string, nextPath: string) => {
     const previous = canonicalDirectoryPath(previousPath);
     const nextPathKey = canonicalDirectoryPath(nextPath);
-    if (previous === nextPathKey || isPathAtOrBelow(nextPathKey, previous)) return;
-
+    const startedAt = performance.now();
+    const next = rebaseSnapshot(snapshotRef.current, previous, nextPathKey, rootKey);
+    if (!next) {
+      // A duplicate delivery (the command receipt and the broadcast carry the
+      // same change) or a move outside this tree. Touching state here would
+      // rebuild the whole node map and re-render every row for nothing.
+      perfCount('tree.rebase.duplicate');
+      return;
+    }
+    // Requests started under the old path must not repopulate stale entries.
+    // The parent reads are included: they still list the row under its old name.
+    rootRefreshSequenceRef.current += 1;
     const oldParent = canonicalDirectoryPath(previous.slice(0, previous.lastIndexOf('/')) || '/');
     const newParent = canonicalDirectoryPath(nextPathKey.slice(0, nextPathKey.lastIndexOf('/')) || '/');
-    const nextName = nextPathKey.slice(nextPathKey.lastIndexOf('/') + 1);
-    const currentNodes = nodesRef.current;
-    // Discard reads started before the path changed, including parent reads.
-    rootRefreshSequenceRef.current += 1;
     for (const parent of new Set([oldParent, newParent])) {
       directoryRefreshSequenceRef.current.set(parent, (directoryRefreshSequenceRef.current.get(parent) ?? 0) + 1);
     }
-    const source = currentNodes.get(previous)
-      ?? rootChildrenRef.current.find((item) => canonicalPath(item.fullPath) === previous);
-    const nextParentId = currentNodes.get(newParent)?.id ?? null;
-
-    const mapPath = (path: string) => {
-      const canonical = canonicalPath(path);
-      return isPathAtOrBelow(canonical, previous)
-        ? `${nextPathKey}${canonical.slice(previous.length)}`
-        : canonical;
-    };
-    const mapItem = (item: DocTreeItem): DocTreeItem => {
-      const canonical = canonicalPath(item.fullPath);
-      const isRoot = canonical === previous;
-      return {
-        ...item,
-        fullPath: mapPath(item.fullPath),
-        ...(isRoot ? { name: nextName, ...(oldParent !== newParent ? { parentId: nextParentId } : {}) } : {}),
-        ...(item.children ? { children: item.children.map(mapItem) } : {}),
-      };
-    };
-
-    const rebasedNodes = new Map<string, DocTreeItem>();
-    for (const [key, item] of currentNodes) {
-      const rebasedItem = mapItem(item);
-      rebasedNodes.set(mapPath(key), rebasedItem);
-    }
-
-    const rebasedSource = source ? mapItem(source) : undefined;
-    if (oldParent === newParent && rebasedSource) {
-      const parent = rebasedNodes.get(newParent);
-      if (parent?.children) {
-        rebasedNodes.set(newParent, {
-          ...parent,
-          children: [...parent.children.filter((child) => canonicalPath(child.fullPath) !== nextPathKey), rebasedSource],
-        });
-      }
-    }
-    if (oldParent !== newParent) {
-      const oldParentNode = rebasedNodes.get(oldParent);
-      if (oldParentNode?.children) {
-        rebasedNodes.set(oldParent, {
-          ...oldParentNode,
-          children: oldParentNode.children.filter((child) => canonicalPath(child.fullPath) !== nextPathKey),
-        });
-      }
-      const newParentNode = rebasedNodes.get(newParent);
-      if (newParentNode?.children && rebasedSource) {
-        rebasedNodes.set(newParent, {
-          ...newParentNode,
-          children: [
-            ...newParentNode.children.filter((child) => canonicalPath(child.fullPath) !== nextPathKey),
-            rebasedSource,
-          ],
-        });
-      }
-    }
-
-    nodesRef.current = rebasedNodes;
-    setNodes(rebasedNodes);
-    const rebasedRootChildren = rootChildrenRef.current.map(mapItem);
-    let nextRootChildren = rebasedRootChildren;
-    if (oldParent === newParent && newParent === rootKey && rebasedSource) {
-      nextRootChildren = [...nextRootChildren.filter((child) => canonicalPath(child.fullPath) !== nextPathKey), rebasedSource];
-    }
-    if (oldParent !== newParent) {
-      if (oldParent === rootKey) {
-        nextRootChildren = nextRootChildren.filter((child) => canonicalPath(child.fullPath) !== nextPathKey);
-      }
-      if (newParent === rootKey && rebasedSource) {
-        nextRootChildren = [
-          ...nextRootChildren.filter((child) => canonicalPath(child.fullPath) !== nextPathKey),
-          rebasedSource,
-        ];
-      }
-    }
-    rootChildrenRef.current = nextRootChildren;
-    setRootChildren(nextRootChildren);
-    const rebasedExpanded = rebasePathSet(expandedRef.current, previous, nextPathKey);
-    expandedRef.current = rebasedExpanded;
-    setExpanded(rebasedExpanded);
-    setDirtyDirectories((current) => rebasePathSet(current, previous, nextPathKey));
-    setDirectoryErrors((current) => rebasePathSet(current, previous, nextPathKey));
-    // Requests started under the old path must not repopulate stale cache entries.
     for (const key of directoryRefreshSequenceRef.current.keys()) {
       if (isPathAtOrBelow(key, previous)) {
         directoryRefreshSequenceRef.current.set(key, (directoryRefreshSequenceRef.current.get(key) ?? 0) + 1);
       }
     }
-    setLoadingDirectories((current) => {
-      const next = new Set(current);
-      for (const key of current) {
-        if (isPathAtOrBelow(key, previous)) next.delete(key);
-      }
-      return next.size === current.size ? current : next;
-    });
-    for (const [key, value] of lastRefreshAtRef.current) {
-      if (!isPathAtOrBelow(key, previous)) continue;
-      lastRefreshAtRef.current.delete(key);
-      lastRefreshAtRef.current.set(`${nextPathKey}${key.slice(previous.length)}`, value);
-    }
-    pendingWatcherDirectoriesRef.current = rebasePathSet(
-      pendingWatcherDirectoriesRef.current,
-      previous,
-      nextPathKey,
-    );
+    commit(next);
+    // Pending reads are request bookkeeping, not rendered state, so they stay
+    // out of the snapshot and move here — next to the state they belong to.
+    pendingWatcherDirectoriesRef.current = rebasePathSet(pendingWatcherDirectoriesRef.current, previous, nextPathKey);
     pendingRenameRefreshDirectoriesRef.current = rebasePathSet(
       pendingRenameRefreshDirectoriesRef.current,
       previous,
       nextPathKey,
     );
-  }, [rootKey]);
-
-  const mutationPathsRef = useRef(new Set<string>());
-  const mutationDirectoriesRef = useRef(new Set<string>());
-  const ignoreCollectionPathEvents = useCallback((paths: readonly string[] | undefined) => {
-    if (!paths?.length) return false;
-    const known = mutationPathsRef.current;
-    const knownDirectories = mutationDirectoriesRef.current;
-    if (!paths.every((path) => {
-      const canonical = canonicalPath(path);
-      return known.has(canonical)
-        || [...knownDirectories].some((directory) => isPathAtOrBelow(canonical, directory))
-        || /__collection_rename_/.test(path);
-    })) return false;
-    return true;
-  }, []);
-  useEffect(() => {
-    const root = canonicalPath(folderPath).replace(/\/$/, '');
-    const applied = new Map<string, number>();
-    mutationPathsRef.current.clear();
-    mutationDirectoriesRef.current.clear();
-    const timers = new Set<ReturnType<typeof setTimeout>>();
-    const stop = subscribe<CollectionChangedEvent>('collection-changed', (event) => {
-      if (!event.notebookPath || !event.previousRelativePath || !event.relativePath) return;
-      if (event.indexSequence < (applied.get(event.collectionId) ?? -1)) return;
-      applied.set(event.collectionId, event.indexSequence);
-      const previous = canonicalPath(`${event.notebookPath}/${event.directoryMove?.previousRelativePath ?? event.previousRelativePath}`);
-      const nextPath = canonicalPath(`${event.notebookPath}/${event.directoryMove?.relativePath ?? event.relativePath}`);
-      if (!previous.startsWith(`${root}/`) || !nextPath.startsWith(`${root}/`)) return;
-      const known = mutationPathsRef.current;
-      known.add(previous); known.add(nextPath);
-      const previousDirectory = event.directoryMove ? previous : null;
-      const nextDirectory = event.directoryMove ? nextPath : null;
-      if (previousDirectory) mutationDirectoriesRef.current.add(previousDirectory);
-      if (nextDirectory) mutationDirectoriesRef.current.add(nextDirectory);
-      // Bound suppression to the immediately following filesystem notifications.
-      const timer = setTimeout(() => {
-        known.delete(previous); known.delete(nextPath);
-        if (previousDirectory) mutationDirectoriesRef.current.delete(previousDirectory);
-        if (nextDirectory) mutationDirectoriesRef.current.delete(nextDirectory);
-        timers.delete(timer);
-      }, 2000);
-      timers.add(timer);
-      if (previous === nextPath) return;
-      rebasePath(previous, nextPath);
+    perfMark('tree.rebase', performance.now() - startedAt, {
+      nodes: next.nodes.size,
+      expanded: next.expanded.size,
+      directories: next.directories.size,
+      sameParent: oldParent === newParent,
     });
-    return () => { stop(); for (const timer of timers) clearTimeout(timer); };
-  }, [folderPath, rebasePath]);
+  }, [commit, rootKey]);
+
+  const ignoreCollectionPathEvents = useFolderCollectionEvents(rootKey, rebasePath);
+
+  /**
+   * `path-moved` is the only notification a plain folder rename produces —
+   * `collection-changed` requires a collection below the moved directory, so a
+   * folder without one never reaches the subscription above. Driving the rebase
+   * from the broadcast instead of from whoever issued the rename keeps every
+   * entry point (tree row, title bar, external tool, another window) on one
+   * channel, so a new caller cannot forget it.
+   */
+  useEffect(() => {
+    if (!notebookId || !notebookRoot) return;
+    return subscribeNotebookChanges((change) => {
+      if (change.kind !== 'path-moved' || change.notebookId !== notebookId) return;
+      const previous = joinNotebookMemoPath(notebookRoot, change.previousRelativePath);
+      const next = joinNotebookMemoPath(notebookRoot, change.relativePath);
+      if (!previous || !next) return;
+      const previousKey = canonicalPath(previous);
+      const nextKey = canonicalPath(next);
+      // Moves outside this subtree belong to another tree.
+      if (!isPathAtOrBelow(previousKey, rootKey)) return;
+      if (previousKey === rootKey) {
+        // This tree's own root moved. Rebasing here would repoint the cache at a
+        // path the `folderPath` prop no longer names; the owning surface decides
+        // where to point next, and the effect below applies the move to the data
+        // once that root change arrives.
+        pendingRootMoveRef.current = { from: previousKey, to: nextKey, at: Date.now() };
+        return;
+      }
+      rebasePath(previousKey, nextKey);
+    });
+  }, [notebookId, notebookRoot, rebasePath, rootKey]);
+
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -404,30 +283,46 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
     };
   }, [folderPath]);
 
-  const loadRoot = useCallback(async () => {
+  /**
+   * `silent` keeps the current rows visible until the new listing arrives. It is
+   * used when a rename moves the root: the content is identical, so a skeleton
+   * would be a flash of nothing for a mutation the user just confirmed.
+   * Switching to an unrelated folder still shows the skeleton, because keeping
+   * another directory's rows on screen would be misleading.
+   */
+  const loadRoot = useCallback(async (options?: { silent?: boolean }) => {
     const generation = ++generationRef.current;
-    setLoading(true);
-    setError(null);
-    setLoadingDirectories(new Set());
-    setDirectoryErrors(new Set());
+    const silent = options?.silent === true;
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+      patchSnapshot(clearDirectoryTransients);
+    }
     try {
       const items = await readWithLatestMetadata(folderPath, () => files.getTree(folderPath));
       if (!mountedRef.current || generation !== generationRef.current) return;
       if (items === null) {
-        setRootChildren([]);
-        setNodes(new Map());
-        setExpanded(new Set());
-        setDirtyDirectories(new Set());
+        commit(emptySnapshot());
         setError('unreadable');
+        return;
+      }
+      if (silent) {
+        // Same-parent rename: the caller already rebased the cache onto the new
+        // root, so this read only calibrates the top level and must not throw
+        // away the expanded subtrees it just moved.
+        patchSnapshot((current) => ({
+          ...current,
+          rootChildren: items,
+          nodes: reconcileRootChildren(current.nodes, current.rootChildren, items),
+        }));
+        setError(null);
         return;
       }
       const next = new Map<string, DocTreeItem>();
       for (const item of items) next.set(canonicalPath(item.fullPath), item);
-      setRootChildren(items);
-      setNodes(next);
-      setDirtyDirectories(new Set());
-      // 根目录变了, 展开状态整体作废 (旧 path 不可能出现在新根下)。
-      setExpanded(new Set());
+      // A new root invalidates everything path-keyed under the old one: rows,
+      // expansion, and the per-directory flags that describe them.
+      commit({ nodes: next, rootChildren: items, expanded: new Set(), directories: new Map() });
     } catch (err) {
       logger.warn('load root failed', { folderPath, err });
       if (!mountedRef.current || generation !== generationRef.current) return;
@@ -437,16 +332,29 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
         setLoading(false);
       }
     }
-  }, [folderPath, readWithLatestMetadata]);
+  }, [commit, folderPath, patchSnapshot, readWithLatestMetadata]);
 
   const autoLoadKey = rootKey;
   const lastAutoLoadKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!enabled || lastAutoLoadKeyRef.current === autoLoadKey) return;
+    const previousRoot = lastAutoLoadKeyRef.current;
     lastAutoLoadKeyRef.current = autoLoadKey;
-    void loadRoot();
-  }, [autoLoadKey, enabled, loadRoot]);
+    // A root rename is a same-content move: rebase the loaded tree onto the new
+    // root and revalidate in place, so renaming from the title bar neither
+    // remounts the rows nor collapses what the user expanded. Only a move this
+    // tree was actually told about counts — two sibling folders share a parent,
+    // and switching between them is navigation, not a rename.
+    const rootMove = pendingRootMoveRef.current;
+    pendingRootMoveRef.current = null;
+    const isRename = previousRoot !== null
+      && rootMove?.from === previousRoot
+      && rootMove.to === autoLoadKey
+      && Date.now() - rootMove.at <= ROOT_MOVE_PENDING_MS;
+    if (isRename) rebasePath(previousRoot, autoLoadKey);
+    void loadRoot({ silent: isRename });
+  }, [autoLoadKey, enabled, loadRoot, rebasePath]);
 
   /** Coalesce concurrent reads of the same directory (manual action + watcher). */
   const refreshDirectory = useCallback((dirPath: string, {
@@ -458,19 +366,12 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
     const pending = directoryRefreshesRef.current.get(key);
     // Watcher reconciliation keeps existing children visible without a spinner.
     // An explicit expand can still show feedback when joining that same read.
-    if (!silent) setLoadingDirectories((previous) => (
-      previous.has(key) ? previous : new Set(previous).add(key)
-    ));
+    if (!silent) setDirectoryState(key, { loading: true });
     if (pending && !force) return pending;
 
     const requestSequence = (directoryRefreshSequenceRef.current.get(key) ?? 0) + 1;
     directoryRefreshSequenceRef.current.set(key, requestSequence);
-    setDirectoryErrors((previous) => {
-      if (!previous.has(key)) return previous;
-      const next = new Set(previous);
-      next.delete(key);
-      return next;
-    });
+    setDirectoryState(key, { error: false });
 
     const generation = generationRef.current;
     const request = readWithLatestMetadata(dirPath, () => files.getDirChildren(dirPath))
@@ -481,51 +382,39 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
           || generation !== generationRef.current
           || directoryRefreshSequenceRef.current.get(key) !== requestSequence
         ) return;
-        const previousChildren = nodesRef.current.get(key)?.children ?? [];
+        const previousChildren = snapshotRef.current.nodes.get(key)?.children ?? [];
         const nextChildKeys = new Set(children.map((child) => canonicalPath(child.fullPath)));
         const removedFolders = previousChildren
           .filter((child) => child.type === 'folder' && !nextChildKeys.has(canonicalPath(child.fullPath)))
           .map((child) => child.fullPath);
-        if (removedFolders.length > 0) {
-          // Expansion state is path-based. Drop removed folder paths as well as
-          // cached nodes so a later same-name import starts collapsed.
-          setExpanded((previous) => pruneExpandedSubtrees(previous, removedFolders));
-        }
-        // Preserve loaded descendants that still exist, but remove deleted or
-        // moved-away children (and their cached subtrees) from the flat node
-        // table. Without pruning, long-running watcher refreshes retain stale
-        // nodes that flattenLoadedTree continues to visit.
-        setNodes((prev) => reconcileDirectoryChildren(prev, key, children));
-        setDirectoryErrors((previous) => {
-          if (!previous.has(key)) return previous;
-          const next = new Set(previous);
-          next.delete(key);
-          return next;
+        patchSnapshot((current) => {
+          // Expansion state is path-based, so drop removed folder paths (and
+          // their cached nodes) before the reconciled listing replaces them; a
+          // later same-name import must start collapsed.
+          const expanded = pruneExpandedSubtrees(current.expanded, removedFolders);
+          // Preserve loaded descendants that still exist, but remove deleted or
+          // moved-away children from the flat node table. Without pruning,
+          // long-running watcher refreshes retain stale nodes that
+          // flattenLoadedTree continues to visit.
+          const nodes = reconcileDirectoryChildren(current.nodes, key, children);
+          return patchDirectoryState(
+            { ...current, expanded, nodes },
+            key,
+            { error: false, dirty: false, refreshedAt: Date.now() },
+          );
         });
-        setDirtyDirectories((prev) => {
-          if (!prev.has(key)) return prev;
-          const next = new Set(prev);
-          next.delete(key);
-          return next;
-        });
-        lastRefreshAtRef.current.set(key, Date.now());
       })
       .catch((err) => {
         logger.warn('refresh directory failed', { dirPath, err });
         if (!mountedRef.current || generation !== generationRef.current
           || pendingRenamesRef.current > 0
           || directoryRefreshSequenceRef.current.get(key) !== requestSequence) return;
-        setDirectoryErrors((previous) => new Set(previous).add(key));
+        setDirectoryState(key, { error: true });
       })
       .finally(() => {
         if (!mountedRef.current || generation !== generationRef.current) return;
         if (directoryRefreshSequenceRef.current.get(key) !== requestSequence) return;
-        setLoadingDirectories((previous) => {
-          if (!previous.has(key)) return previous;
-          const next = new Set(previous);
-          next.delete(key);
-          return next;
-        });
+        setDirectoryState(key, { loading: false });
       });
     directoryRefreshesRef.current.set(key, request);
     void request.then(
@@ -541,7 +430,7 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
       },
     );
     return request;
-  }, [readWithLatestMetadata]);
+  }, [patchSnapshot, readWithLatestMetadata, setDirectoryState]);
 
   const retryDirectory = useCallback((dirPath: string) => {
     return refreshDirectory(dirPath, { force: true });
@@ -550,17 +439,18 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
   /** 展开时惰性拉子级; 已有子级的 folder 只切展开态。 */
   const loadChildren = useCallback(async (dirPath: string) => {
     const key = canonicalDirectoryPath(dirPath);
-    const existing = nodes.get(key);
+    const current = snapshotRef.current;
+    const existing = current.nodes.get(key);
     // children 非空 (或是首层已知的非空列表) 说明已加载过。root 的
     // children 为空数组且确实是空目录时, 每次展开都会重新请求一次,
     // 但空目录请求成本极低, 且能在外部新建文件后自动补上。
-    if (!dirtyDirectories.has(key) && existing?.children && existing.children.length > 0) return;
+    if (!readDirectoryState(current, key).dirty && existing?.children && existing.children.length > 0) return;
     await refreshDirectory(dirPath);
-  }, [dirtyDirectories, nodes, refreshDirectory]);
+  }, [refreshDirectory]);
 
   const toggle = useCallback((dirPath: string) => {
     const key = canonicalDirectoryPath(dirPath);
-    setExpanded((prev) => {
+    setExpandedPaths((prev) => {
       const next = new Set(prev);
       if (next.has(key)) {
         next.delete(key);
@@ -570,12 +460,12 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
       return next;
     });
     void loadChildren(dirPath);
-  }, [loadChildren]);
+  }, [loadChildren, setExpandedPaths]);
 
   /** 折叠所有已展开的 folder ── 清空 expanded 集合。 */
   const collapseAll = useCallback(() => {
-    setExpanded(new Set());
-  }, []);
+    setExpandedPaths(() => new Set());
+  }, [setExpandedPaths]);
 
   /** 展开到指定 path (打开文件后定位用, 逐级展开父链)。 */
   const expandTo = useCallback(async (targetPath: string) => {
@@ -592,7 +482,7 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
       const next = cursor.slice(0, cursor.lastIndexOf('/'));
       cursor = next;
     }
-    setExpanded((prev) => {
+    setExpandedPaths((prev) => {
       const next = new Set(prev);
       for (const p of ancestors) next.add(p);
       return next;
@@ -603,11 +493,14 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
     for (const ancestor of ancestors.reverse()) {
       await loadChildren(ancestor);
     }
-  }, [folderPath, loadChildren]);
+  }, [folderPath, loadChildren, setExpandedPaths]);
 
   /** Watcher-only root refresh; unlike the manual reload it preserves expansion. */
   const refreshRootPreservingExpansion = useCallback((force = false) => {
     if (pendingRenamesRef.current > 0) return Promise.resolve();
+    // This root is being renamed right now. Reading the old path can only fail,
+    // and the surface is about to re-root anyway.
+    if (isRootMidMove(rootKey)) return Promise.resolve();
     if (rootRefreshRef.current && !force) return rootRefreshRef.current;
     const requestSequence = rootRefreshSequenceRef.current + 1;
     rootRefreshSequenceRef.current = requestSequence;
@@ -621,30 +514,32 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
           || rootRefreshSequenceRef.current !== requestSequence
         ) return;
         if (items === null) {
-          setRootChildren([]);
-          setNodes(new Map());
-          setExpanded(new Set());
-          setDirtyDirectories(new Set());
+          // A read that started before the rename was announced can still land
+          // after it: the old path no longer resolves, but the rows are about to
+          // be rebased onto the new root. Wiping here would take the expansion
+          // state with it, so this one revalidation is not authoritative.
+          if (isRootMidMove(rootKey)) {
+            logger.warn('watcher refresh skipped: root is mid-move', { folderPath });
+            return;
+          }
+          commit(emptySnapshot());
           setError('unreadable');
           return;
         }
         const nextChildKeys = new Set(items.map((item) => canonicalPath(item.fullPath)));
-        const removedFolders = rootChildrenRef.current
-          .filter((item) => item.type === 'folder' && !nextChildKeys.has(canonicalPath(item.fullPath)))
-          .map((item) => item.fullPath);
-        if (removedFolders.length > 0) {
-          setExpanded((previous) => pruneExpandedSubtrees(previous, removedFolders));
-        }
-        setRootChildren(items);
-        setNodes((prev) => reconcileRootChildren(prev, rootChildrenRef.current, items));
-        setError(null);
-        setDirtyDirectories((prev) => {
-          if (!prev.has(rootKey)) return prev;
-          const next = new Set(prev);
-          next.delete(rootKey);
-          return next;
+        patchSnapshot((current) => {
+          const removedFolders = current.rootChildren
+            .filter((item) => item.type === 'folder' && !nextChildKeys.has(canonicalPath(item.fullPath)))
+            .map((item) => item.fullPath);
+          const expanded = pruneExpandedSubtrees(current.expanded, removedFolders);
+          const nodes = reconcileRootChildren(current.nodes, current.rootChildren, items);
+          return patchDirectoryState(
+            { ...current, rootChildren: items, nodes, expanded },
+            rootKey,
+            { dirty: false, refreshedAt: Date.now() },
+          );
         });
-        lastRefreshAtRef.current.set(rootKey, Date.now());
+        setError(null);
       })
       .catch((err) => {
         logger.warn('refresh root from watcher failed', { folderPath, err });
@@ -659,7 +554,7 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
       },
     );
     return request;
-  }, [folderPath, rootKey, readWithLatestMetadata]);
+  }, [commit, folderPath, isRootMidMove, patchSnapshot, rootKey, readWithLatestMetadata]);
 
   /** 局部刷新某个目录的子级 (新建/删除/重命名后调用)。 */
   const refresh = useCallback(async (dirPath?: string) => {
@@ -685,8 +580,14 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
    * Reconcile native watcher notifications without throwing away expansion
    * state. Expanded directories are refreshed; collapsed ones are marked dirty
    * and reread on their next expand.
+   *
+   * `force` skips the dedup window for callers that know the listing is stale
+   * rather than merely suspecting it — a renamed folder whose child read was
+   * discarded by the rebase would otherwise keep an empty row until collapsed
+   * and expanded again. It still reads silently, so no row spins.
    */
-  const refreshDirectoriesNow = useCallback(async (dirPaths: string[]) => {
+  const refreshDirectoriesNow = useCallback(async (dirPaths: string[], options?: { force?: boolean }) => {
+    const force = options?.force === true;
     const keys = [...new Set(dirPaths.map((path) => canonicalDirectoryPath(path)))];
     if (keys.length === 0) return;
     if (pendingRenamesRef.current > 0) {
@@ -694,31 +595,26 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
       return;
     }
 
-    const expandedSnapshot = expandedRef.current;
+    const current = snapshotRef.current;
     const now = Date.now();
     const refreshNow = keys.filter((key) => (
-      (key === rootKey || expandedSnapshot.has(key))
-      && now - (lastRefreshAtRef.current.get(key) ?? 0) >= REFRESH_DEDUP_WINDOW_MS
+      (key === rootKey || current.expanded.has(key))
+      && (force || now - readDirectoryState(current, key).refreshedAt >= REFRESH_DEDUP_WINDOW_MS)
     ));
-    const defer = keys.filter((key) => key !== rootKey && !expandedSnapshot.has(key));
-    const dirty = [...new Set([...refreshNow, ...defer])];
-    if (dirty.length > 0) {
-      setDirtyDirectories((prev) => {
-        const next = new Set(prev);
-        for (const key of dirty) next.add(key);
-        return next;
-      });
+    const defer = keys.filter((key) => key !== rootKey && !current.expanded.has(key));
+    for (const key of new Set([...refreshNow, ...defer])) {
+      patchSnapshot((snapshot) => patchDirectoryState(snapshot, key, { dirty: true }));
     }
 
     await Promise.all(refreshNow.map(async (key) => {
       if (key === rootKey) {
-        await refreshRootPreservingExpansion();
+        await refreshRootPreservingExpansion(force);
         return;
       }
 
-      await refreshDirectory(key, { silent: true });
+      await refreshDirectory(key, { silent: true, force });
     }));
-  }, [refreshRootPreservingExpansion, rootKey]);
+  }, [patchSnapshot, refreshDirectory, refreshRootPreservingExpansion, rootKey]);
 
   /** Merge a burst of native watcher events and refresh after it settles. */
   const refreshDirectories = useCallback((dirPaths: string[]) => {
@@ -740,8 +636,12 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
     const sourcePath = canonicalDirectoryPath(path);
     let renamedPath: string | null = null;
     try {
+      // The command receipt (`acceptPathMutationResult`) publishes `path-moved`
+      // before this promise resolves, so the subscription above has already
+      // rebased the tree by the time we get here. Rebasing again here would make
+      // this entry point the only correct one and leave every other caller
+      // (title bar, external tool, second window) to its own device.
       renamedPath = await files.renameFolder(path, name, scopePath);
-      rebasePath(path, renamedPath);
       return renamedPath;
     } finally {
       const sourceParent = sourcePath.slice(0, sourcePath.lastIndexOf('/')) || '/';
@@ -756,26 +656,36 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
           clearTimeout(watcherRefreshTimerRef.current);
           watcherRefreshTimerRef.current = null;
         }
-        const parents = [...pendingRenameRefreshDirectoriesRef.current];
+        // The rebase above already published the new path into `nodes` and
+        // `rootChildren`, so this read only reconciles siblings the watcher
+        // missed. Route it through the watcher path instead of `refresh`: that
+        // path is silent, shares the dedup window, and defers collapsed
+        // directories to their next expand, so the row never shows a spinner
+        // for a rename the user just confirmed.
+        const followUps = [
+          ...pendingRenameRefreshDirectoriesRef.current,
+          ...pendingWatcherDirectoriesRef.current,
+        ];
         pendingRenameRefreshDirectoriesRef.current.clear();
-        const watcherDirectories = [...pendingWatcherDirectoriesRef.current];
         pendingWatcherDirectoriesRef.current.clear();
-        void Promise.all(parents.map((parent) => refresh(parent)))
-          .then(() => {
-            const refreshedParents = new Set(parents);
-            return refreshDirectoriesNow(watcherDirectories.filter((directory) => !refreshedParents.has(directory)));
-          })
-          .catch((error) => {
-            logger.warn('refresh after folder rename failed', { path, error });
-          });
+        const startedAt = performance.now();
+        void refreshDirectoriesNow(followUps).finally(() => {
+          perfMark('tree.rename.flush', performance.now() - startedAt, { directories: followUps.length });
+        });
       }
     }
-  }, [rebasePath, refresh, refreshDirectoriesNow]);
+  }, [refreshDirectoriesNow]);
 
-  const state: FolderTreeState = useMemo(
-    () => ({ rootChildren, nodes, expanded, loading, error, loadingDirectories, directoryErrors }),
-    [rootChildren, nodes, expanded, loading, error, loadingDirectories, directoryErrors],
-  );
+  /** The public shape stays two path sets, derived from the flags they mirror. */
+  const state: FolderTreeState = useMemo(() => {
+    const loadingDirectories = new Set<string>();
+    const directoryErrors = new Set<string>();
+    for (const [path, value] of directories) {
+      if (value.loading) loadingDirectories.add(path);
+      if (value.error) directoryErrors.add(path);
+    }
+    return { rootChildren, nodes, expanded, loading, error, loadingDirectories, directoryErrors };
+  }, [rootChildren, nodes, expanded, loading, error, directories]);
 
   return useMemo(() => ({
     ...state,
@@ -786,12 +696,14 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
     collapseAll,
     refresh,
     refreshDirectories,
+    /** Same reconciliation without the watcher debounce (rename follow-ups). */
+    refreshDirectoriesNow,
     reload: loadRoot,
     retryDirectory,
     rebasePath,
     renameFolder,
     ignoreCollectionPathEvents,
-  }), [ignoreCollectionPathEvents, state, toggle, loadChildren, expandTo, collapseAll, refresh, refreshDirectories, loadRoot, retryDirectory, rebasePath, renameFolder]);
+  }), [ignoreCollectionPathEvents, state, toggle, loadChildren, expandTo, collapseAll, refresh, refreshDirectories, refreshDirectoriesNow, loadRoot, retryDirectory, rebasePath, renameFolder]);
 }
 
 export type FolderTreeController = ReturnType<typeof useFolderTree>;

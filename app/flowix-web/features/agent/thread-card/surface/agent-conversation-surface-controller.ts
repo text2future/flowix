@@ -29,6 +29,8 @@ type SurfaceComposerOptions = Omit<
 export class AgentConversationSurfaceController {
   readonly messages: AgentThreadCardMessagesController;
   readonly composer: ComposerController;
+  private readonly body: HTMLElement;
+  private readonly input: HTMLDivElement;
 
   constructor(options: {
     dom: HTMLElement;
@@ -41,6 +43,8 @@ export class AgentConversationSurfaceController {
     messageOptions: SurfaceMessageOptions;
     composerOptions: SurfaceComposerOptions;
   }) {
+    this.body = options.body;
+    this.input = options.input;
     this.messages = new AgentThreadCardMessagesController({
       dom: options.dom,
       body: options.body,
@@ -54,9 +58,17 @@ export class AgentConversationSurfaceController {
       sendButtonRoot: createRoot(options.sendButtonMount),
       ...options.composerOptions,
     });
+    this.body.addEventListener('pointerdown', this.blurComposerOnMessagePointerDown, true);
   }
 
+  private readonly blurComposerOnMessagePointerDown = (event: PointerEvent): void => {
+    if (event.button === 0 && document.activeElement === this.input) {
+      this.input.blur();
+    }
+  };
+
   dispose(): void {
+    this.body.removeEventListener('pointerdown', this.blurComposerOnMessagePointerDown, true);
     this.messages.dispose();
     this.composer.dispose();
   }

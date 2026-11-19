@@ -41,7 +41,17 @@ pub(crate) async fn start_plugin_chat(
     let runtime = runtime_from_message(&message)?;
     if let Some(cwd) = message.cwd_for_runtime(runtime.id()) {
         let workspace_paths = message.workspace_paths_for_runtime(runtime.id());
-        sync_native_agent_instructions(std::path::Path::new(cwd), runtime.id(), &workspace_paths)?;
+        let preference = state.user_config.get_preference();
+        if let Err(error) = sync_native_agent_instructions(
+            std::path::Path::new(cwd),
+            runtime.id(),
+            &workspace_paths,
+            &preference.ai_memory_locations,
+            &preference.ai_memory_folder,
+            &preference.ai_personality,
+        ) {
+            tracing::warn!("Failed to sync agent instructions: {error}");
+        }
     }
     state.external_runtimes
         .dispatch_chat(thread_id, runtime, message, app_handle)
@@ -67,6 +77,7 @@ mod tests {
     fn message_with_agent_type(agent_type: Option<&str>) -> AgentUserMessage {
         AgentUserMessage {
             content: "hello".to_string(),
+            display_content: None,
             llm_content: None,
             image_paths: vec![],
             run_id: None,

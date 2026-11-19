@@ -134,6 +134,41 @@ describe("groupAgentMessages", () => {
     expect(answered.kind === "tool-group" && answered.status).toBe("completed");
   });
 
+  it("closes a tool group that a user message cuts in front of", () => {
+    // A steering message is appended between tool rows while the run keeps
+    // producing. The rows before it belong to the previous turn segment and
+    // must stop spinning even though the thread is still loading.
+    const items = groupAgentMessages(
+      [
+        message("a1", "assistant", { content: "checking" }),
+        message("t1", "tool"),
+        message("t2", "tool"),
+        message("u2", "user", { content: "also check x" }),
+        message("t3", "tool", { isLoading: true, content: "" }),
+      ],
+      true,
+    );
+
+    expect(items.map((item) => item.kind)).toEqual([
+      "message",
+      "tool-group",
+      "message",
+      "tool-group",
+    ]);
+    const before = items[1];
+    expect(before.kind === "tool-group" && before.status).toBe("completed");
+    const after = items[3];
+    expect(after.kind === "tool-group" && after.status).toBe("running");
+  });
+
+  it("does not wait for assistant content past a user boundary", () => {
+    const [item] = groupAgentMessages(
+      [message("t1", "tool"), message("u1", "user", { content: "next" })],
+      true,
+    );
+    expect(item.kind === "tool-group" && item.status).toBe("completed");
+  });
+
   it("does not infer a running group for a completed non-streaming turn", () => {
     const [item] = groupAgentMessages(
       [message("t1", "tool", { isLoading: false })],

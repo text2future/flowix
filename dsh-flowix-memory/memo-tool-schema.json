@@ -3,52 +3,369 @@
   "properties": {
     "action": {
       "type": "string",
-      "enum": ["notebooks", "list", "tags", "show", "search", "create", "edit", "write", "delete", "collection.list", "collection.describe", "collection.query", "collection.read", "collection.add-note", "artifact.list", "artifact.describe", "artifact.create"],
-      "description": "Structured operation. For collections, call collection.list, then collection.describe and collection.query. Use collection.add-note only when asked to add a Markdown note to a table collection; it creates and links the note as a row. Prefer this over the legacy command field."
+      "enum": [
+        "notebooks",
+        "list",
+        "tags",
+        "show",
+        "search",
+        "create",
+        "edit",
+        "write",
+        "delete",
+        "collection.list",
+        "collection.create",
+        "collection.add-fields",
+        "collection.add",
+        "collection.describe",
+        "collection.query",
+        "collection.read",
+        "collection.add-note",
+        "artifact.list",
+        "artifact.describe",
+        "artifact.create"
+      ],
+      "description": "Structured operation. Collections support create, add-fields, add, list, describe and query. Use collection.add with a stable requestId for retry-safe structured records; add-note accepts complete Markdown."
     },
-    "notebook": { "type": "string", "description": "Notebook name or id; defaults to the current notebook where supported." },
-    "address": { "type": "string", "description": "Notebook-relative note address (<notebook-id>::<path>) or an absolute note path. Use this with show, edit, write, or delete." },
-    "query": { "type": "string" },
-    "tag": { "type": "string", "description": "Optional tag path filter. Matches the path itself and all sub-tags; a leading # is accepted (for example 项目/Flowix)." },
-    "content": { "type": "string", "description": "Complete Markdown, replacement body, or artifact source." },
-    "old": { "type": "string", "description": "Exact text that must occur once for edit." },
-    "limit": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 },
-    "offset": { "type": "integer", "minimum": 0, "default": 0 },
-    "dryRun": { "type": "boolean", "default": false },
-    "pluginId": { "type": "string" },
-    "sourceNote": { "type": "string" },
-    "producer": { "type": "string", "default": "agent-mcp" },
-    "collectionId": { "type": "string", "description": "Stable collection identity. Provide this or path for collection.read, collection.describe, collection.query, and collection.add-note." },
-    "path": { "type": "string", "description": "Notebook-relative collection file path. Provide this or collectionId for collection.read, collection.describe, collection.query, and collection.add-note." },
-    "title": { "type": "string", "description": "Required note title for collection.add-note." },
-    "collectionType": { "type": "string", "enum": ["table", "media_library", "work_documents", "hybrid"], "description": "Optional collection.list type filter." },
-    "domain": { "type": "string", "enum": ["notes", "media", "work_documents"], "description": "Collection data domain. Required when querying a hybrid collection." },
-    "viewId": { "type": "string", "description": "Optional saved view to apply while querying a collection." },
-    "fields": { "type": "array", "items": { "type": "string" }, "description": "Field IDs to return for collection.query. Omit to return all fields." },
-    "sort": { "type": "array", "items": { "oneOf": [{ "type": "string", "description": "<fieldId>:asc or <fieldId>:desc" }, { "type": "object", "properties": { "field": { "type": "string" }, "direction": { "type": "string", "enum": ["asc", "desc"] } }, "required": ["field"], "additionalProperties": false }] }, "description": "Optional sort order for collection.query." },
-    "snapshot": { "type": "string", "description": "Snapshot returned by the first page. Reuse it on later pages; a changed data set returns DATA_CHANGED." },
-    "command": { "type": "string", "deprecated": true, "description": "Legacy restricted CLI command without the flowix prefix." },
-    "stdin": { "type": "string", "deprecated": true, "description": "Legacy content paired with command." }
+    "notebook": {
+      "type": "string",
+      "description": "Notebook name or id; defaults to the current notebook where supported."
+    },
+    "address": {
+      "type": "string",
+      "description": "Notebook-relative note address (<notebook-id>::<path>) or an absolute note path. Use this with show, edit, write, or delete."
+    },
+    "query": {
+      "type": "string"
+    },
+    "tag": {
+      "type": "string",
+      "description": "Optional tag path filter. Matches the path itself and all sub-tags; a leading # is accepted (for example 项目/Flowix)."
+    },
+    "content": {
+      "type": "string",
+      "description": "Complete Markdown, replacement body, or artifact source."
+    },
+    "old": {
+      "type": "string",
+      "description": "Exact text that must occur once for edit."
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 200,
+      "default": 50
+    },
+    "offset": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0
+    },
+    "dryRun": {
+      "type": "boolean",
+      "default": false
+    },
+    "pluginId": {
+      "type": "string"
+    },
+    "sourceNote": {
+      "type": "string"
+    },
+    "producer": {
+      "type": "string",
+      "default": "agent-mcp"
+    },
+    "collectionId": {
+      "type": "string",
+      "description": "Stable collection identity. Provide this or path for collection.read, collection.describe, collection.query, and collection.add-note."
+    },
+    "path": {
+      "type": "string",
+      "description": "Notebook-relative collection file path. Provide this or collectionId for collection.read, collection.describe, collection.query, and collection.add-note."
+    },
+    "title": {
+      "type": "string",
+      "description": "Note title for create or collection.add-note; create defaults to Untitled."
+    },
+    "fieldDefinitions": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      },
+      "description": "Field definitions for collection.create or collection.add-fields."
+    },
+    "record": {
+      "type": "object",
+      "description": "Structured collection.add record: title, properties, and optional content."
+    },
+    "requestId": {
+      "type": "string",
+      "description": "Stable request ID for create, artifact.create, collection.add and collection.add-note. Reuse the same ID and arguments when retrying."
+    },
+    "where": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Exact field=value filters; all must match."
+    },
+    "collectionType": {
+      "type": "string",
+      "enum": [
+        "table",
+        "media_library",
+        "work_documents",
+        "hybrid"
+      ],
+      "description": "Optional collection.list type filter."
+    },
+    "domain": {
+      "type": "string",
+      "enum": [
+        "notes",
+        "media",
+        "work_documents"
+      ],
+      "description": "Collection data domain. Required when querying a hybrid collection."
+    },
+    "viewId": {
+      "type": "string",
+      "description": "Optional saved view to apply while querying a collection."
+    },
+    "fields": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Field IDs or property keys to return for collection.query. Omit to return all fields."
+    },
+    "sort": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "string",
+            "description": "<fieldId>:asc or <fieldId>:desc"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "field": {
+                "type": "string"
+              },
+              "direction": {
+                "type": "string",
+                "enum": [
+                  "asc",
+                  "desc"
+                ]
+              }
+            },
+            "required": [
+              "field"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "description": "Optional sort order for collection.query."
+    },
+    "snapshot": {
+      "type": "string",
+      "description": "Snapshot from the first list or collection page; reuse on later pages to detect changes."
+    },
+    "command": {
+      "type": "string",
+      "deprecated": true,
+      "description": "Legacy restricted CLI command without the flowix prefix."
+    },
+    "stdin": {
+      "type": "string",
+      "deprecated": true,
+      "description": "Legacy content paired with command."
+    },
+    "expectedVersion": {
+      "type": "string",
+      "description": "For write or delete, require the version returned by show; mismatch returns CONFLICT."
+    },
+    "folder": {
+      "type": "string",
+      "description": "Notebook-relative destination folder for create; . means notebook root."
+    }
   },
-  "anyOf": [{ "required": ["action"] }, { "required": ["command"] }],
-  "allOf": [{
-    "if": { "properties": { "action": { "const": "collection.read" } }, "required": ["action"] },
-    "then": {
-      "required": ["notebook"],
-      "oneOf": [{ "required": ["collectionId"] }, { "required": ["path"] }]
+  "anyOf": [
+    {
+      "required": [
+        "action"
+      ]
+    },
+    {
+      "required": [
+        "command"
+      ]
     }
-  }, {
-    "if": { "properties": { "action": { "enum": ["collection.describe", "collection.query"] } }, "required": ["action"] },
-    "then": {
-      "required": ["notebook"],
-      "oneOf": [{ "required": ["collectionId"] }, { "required": ["path"] }]
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "collection.read"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "then": {
+        "oneOf": [
+          {
+            "required": [
+              "collectionId"
+            ]
+          },
+          {
+            "required": [
+              "path"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "enum": [
+              "collection.describe",
+              "collection.query"
+            ]
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "then": {
+        "oneOf": [
+          {
+            "required": [
+              "collectionId"
+            ]
+          },
+          {
+            "required": [
+              "path"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "collection.add-note"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "then": {
+        "required": [
+          "title",
+          "content"
+        ],
+        "oneOf": [
+          {
+            "required": [
+              "collectionId"
+            ]
+          },
+          {
+            "required": [
+              "path"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "collection.create"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "then": {
+        "required": [
+          "path"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "collection.add-fields"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "then": {
+        "required": [
+          "fieldDefinitions"
+        ],
+        "oneOf": [
+          {
+            "required": [
+              "collectionId"
+            ]
+          },
+          {
+            "required": [
+              "path"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "collection.add"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "then": {
+        "required": [
+          "record"
+        ],
+        "oneOf": [
+          {
+            "required": [
+              "collectionId"
+            ]
+          },
+          {
+            "required": [
+              "path"
+            ]
+          }
+        ]
+      }
     }
-  }, {
-    "if": { "properties": { "action": { "const": "collection.add-note" } }, "required": ["action"] },
-    "then": {
-      "required": ["notebook", "title", "content"],
-      "oneOf": [{ "required": ["collectionId"] }, { "required": ["path"] }]
-    }
-  }],
+  ],
   "additionalProperties": false
 }

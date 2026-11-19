@@ -1,8 +1,7 @@
 //! Model Context Protocol stdio frontend for external Agents.
 //!
-//! The server intentionally exposes exactly one tool, `memo`. Its input is a
-//! restricted Flowix CLI command plus optional stdin content. Commands are parsed into
-//! argv and dispatched directly to the typed store layer; no system shell is spawned.
+//! The server exposes scoped structured tools plus a legacy `memo` tool in full mode.
+//! Legacy commands are parsed directly; no system shell is spawned.
 
 use crate::{cli, errors::CliError, fmt, operation, output, path_store, plugin, store};
 use serde_json::{json, Map, Value};
@@ -17,7 +16,7 @@ const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &[
     LATEST_PROTOCOL_VERSION,
 ];
 
-pub const TOOL_DESCRIPTION: &str = "Search and manage Flowix Markdown notes. Discover collections with collection.list, inspect their fields and views with collection.describe, query records with collection.query, and use collection.add-note to create and link a note in a table collection. collection.read returns the raw collection definition. Delete is destructive.";
+pub const TOOL_DESCRIPTION: &str = "Search and manage Flowix notes and collections. Use collection.create with path and fieldDefinitions, collection.add-fields to extend a table, and collection.add with record and requestId for retry-safe structured writes. Discover with collection.list and describe, and query with collection.query. Delete is destructive.";
 
 /// Run the MCP line-delimited JSON-RPC loop until stdin reaches EOF.
 pub fn run_mcp<R: BufRead, W: Write>(reader: R, mut writer: W) -> Result<(), CliError> {
@@ -51,7 +50,7 @@ pub fn run_mcp<R: BufRead, W: Write>(reader: R, mut writer: W) -> Result<(), Cli
         let response = match method {
             "initialize" => rpc_result(id, initialize_result(&params)),
             "ping" => rpc_result(id, json!({})),
-            "tools/list" => rpc_result(id, json!({"tools": [tool_definition()]})),
+            "tools/list" => rpc_result(id, json!({"tools": tool_definitions()})),
             "tools/call" => match call_tool(&params) {
                 Ok(result) => rpc_result(id, result),
                 Err(error) => rpc_error(id, -32602, error.to_string()),
@@ -76,7 +75,7 @@ fn initialize_result(params: &Value) -> Value {
             "title": "Flowix Memo",
             "version": env!("CARGO_PKG_VERSION")
         },
-        "instructions": "Use memo action collection.list to discover collections, collection.describe to inspect domains and fields, and collection.query to read actual records. Query results include an address for notes; pass it to action show to read the Markdown body. When the user explicitly asks to add a note to a table or notes collection, call collection.add-note with its collectionId (or path), title, and complete Markdown content; this creates the note in the collection's note directory and links it as a row. Do not use generic create for a requested collection add. Use collection.read only when you need the raw collection YAML payload. Hybrid collections must contain the notes domain to accept notes."
+        "instructions": "Prefer flowix_read, flowix_write and flowix_delete. For notes, show returns version; scoped write and delete require expectedVersion. Reuse the same requestId and arguments when retrying create, artifact.create, collection.add or collection.add-note; REQUEST_INDETERMINATE requires inspecting the result before further action; use request.show or request.list to inspect local receipts. Paginate list with next_offset and snapshot; search reports truncated. Create accepts title and folder. Use collection.list and collection.describe to inspect tables. Create a notes table with collection.create using path and optional fieldDefinitions; use collection.add-fields to extend an existing notes table. Add a structured record with collection.add using collectionId or path, record {title, properties, content?}, and a stable requestId for safe retries. A reused requestId with different content is an error. collection.query accepts where as an array of field=value strings and returns propertiesByKey as well as field-ID properties. collection.add-note remains available for complete Markdown. Use collection.read for the raw collection definition."
     })
 }
 
@@ -94,6 +93,92 @@ fn tool_definition() -> Value {
     })
 }
 
+const READ_ACTIONS: &[&str] = &["notebooks", "list", "tags", "show", "search", "collection.read", "collection.list", "collection.describe", "collection.query", "artifact.list", "artifact.describe", "request.list", "request.show"];
+const WRITE_ACTIONS: &[&str] = &["create", "edit", "write", "collection.create", "collection.add-fields", "collection.add", "collection.add-note", "artifact.create"];
+const DELETE_ACTIONS: &[&str] = &["delete"];
+
+// The same preconditions drive the scoped schema and the execution guard.
+fn required_precondition(action: &str) -> Option<&'static str> {
+    match action {
+        "write" | "delete" => Some("expectedVersion"),
+        "create" | "artifact.create" | "collection.add" | "collection.add-note" => Some("requestId"),
+        _ => None,
+    }
+}
+
+// MCP access is not a filesystem sandbox. Hosts must restrict other entry points separately.
+fn mcp_access() -> &'static str {
+    match std::env::var("FLOWIX_MCP_ACCESS").as_deref() {
+        Ok("read") => "read",
+        Ok("write") => "write",
+        Ok("full") | Err(std::env::VarError::NotPresent) => "full",
+        _ => "none",
+    }
+}
+
+fn permitted(name: &str) -> bool {
+    match mcp_access() {
+        "full" => true,
+        "write" => matches!(name, "flowix_read" | "flowix_write"),
+        "read" => name == "flowix_read",
+        _ => false,
+    }
+}
+
+fn tool_definitions() -> Vec<Value> {
+    let mut result = Vec::new();
+    for (name, actions, read_only) in [
+        ("flowix_read", READ_ACTIONS, true),
+        ("flowix_write", WRITE_ACTIONS, false),
+        ("flowix_delete", DELETE_ACTIONS, false),
+    ] {
+        if !permitted(name) { continue; }
+        let mut definition = tool_definition();
+        definition["name"] = json!(name);
+        definition["title"] = json!(name);
+        definition["description"] = json!(format!("Flowix operations: {}", actions.join(", ")));
+        definition["annotations"] = json!({"readOnlyHint": read_only, "destructiveHint": !read_only, "idempotentHint": read_only});
+        let schema = &mut definition["inputSchema"];
+        schema["properties"]["state"] = json!({"type":"string","enum":["uncertain","completed"]});
+        schema["properties"]["operation"] = json!({"type":"string","enum":["create","artifact.create"]});
+        schema["properties"]["action"]["enum"] = json!(actions);
+        schema["properties"]["requestId"]["pattern"] = json!("\\S");
+        schema["properties"]["requestId"]["maxLength"] = json!(256);
+        schema["properties"]["expectedVersion"]["pattern"] = json!("\\S");
+        schema.as_object_mut().unwrap().remove("anyOf");
+        schema["required"] = json!(["action"]);
+        schema["properties"].as_object_mut().unwrap().remove("command");
+        schema["properties"].as_object_mut().unwrap().remove("stdin");
+        let rules = schema["allOf"].as_array_mut().unwrap();
+        for action in actions {
+            let mut properties = Map::new();
+            properties.insert("action".into(), json!({}));
+            for key in action_fields(action).expect("all exposed actions are defined") {
+                properties.insert((*key).to_owned(), json!({}));
+            }
+            rules.push(json!({"if":{"properties":{"action":{"const":action}},"required":["action"]},"then":{"properties":properties,"additionalProperties":false}}));
+            if let Some(field) = required_precondition(action) {
+                rules.push(json!({"if":{"properties":{"action":{"const":action}},"required":["action"]},"then":{"required":[field]}}));
+            }
+        }
+        for (action, required) in [
+            ("show", vec!["address"]), ("search", vec!["query"]),
+            ("create", vec!["content"]), ("edit", vec!["address", "old", "content"]),
+            ("write", vec!["address", "content"]), ("delete", vec!["address"]),
+            ("collection.add", vec!["record"]), ("collection.add-note", vec!["title", "content"]),
+            ("artifact.describe", vec!["pluginId"]), ("artifact.create", vec!["pluginId", "content"]),
+            ("request.show", vec!["notebook", "operation", "requestId"]),
+        ] {
+            if actions.contains(&action) {
+                rules.push(json!({"if":{"properties":{"action":{"const":action}},"required":["action"]},"then":{"required":required}}));
+            }
+        }
+        result.push(definition);
+    }
+    if mcp_access() == "full" { result.push(tool_definition()); }
+    result
+}
+
 fn call_tool(params: &Value) -> Result<Value, CliError> {
     let object = params
         .as_object()
@@ -102,42 +187,55 @@ fn call_tool(params: &Value) -> Result<Value, CliError> {
         .get("name")
         .and_then(Value::as_str)
         .ok_or_else(|| CliError::Usage("tools/call params.name must be a string".into()))?;
-    if name != TOOL_NAME {
+    if !matches!(name, TOOL_NAME | "flowix_read" | "flowix_write" | "flowix_delete") {
         return Err(CliError::Usage(format!("unknown tool: `{name}`")));
     }
     let arguments = object
         .get("arguments")
         .and_then(Value::as_object)
         .ok_or_else(|| CliError::Usage("memo arguments must be an object".into()))?;
-    validate_argument_keys(arguments)?;
-    if arguments.contains_key("action") && arguments.contains_key("command") {
-        return Err(CliError::Usage(
-            "memo accepts either structured `action` or legacy `command`, not both".into(),
-        ));
-    }
-    let stdin = match arguments.get("stdin") {
-        Some(value) => Some(
-            value
-                .as_str()
-                .ok_or_else(|| CliError::Usage("memo.stdin must be a string".into()))?,
-        ),
-        None => None,
-    };
-
-    let execution = if arguments.contains_key("action") {
-        if stdin.is_some() {
+    let execution = (|| -> Result<Value, CliError> {
+        if !permitted(name) { return Err(CliError::PermissionDenied("MCP access policy denies this tool".into())); }
+        validate_argument_keys(arguments)?;
+        if name != TOOL_NAME {
+            let action = required_string(arguments, "action")?;
+            let allowed = match name { "flowix_read" => READ_ACTIONS, "flowix_write" => WRITE_ACTIONS, _ => DELETE_ACTIONS };
+            if !allowed.contains(&action.as_str()) { return Err(CliError::PermissionDenied("action is not allowed by this tool".into())); }
+            if let Some(field) = required_precondition(&action) {
+                if arguments.get(field).and_then(Value::as_str).filter(|v| !v.trim().is_empty()).is_none() {
+                    return Err(CliError::PreconditionRequired(format!("{field} is required")));
+                }
+            }
+        }
+        if arguments.contains_key("action") && arguments.contains_key("command") {
             return Err(CliError::Usage(
-                "structured actions use `content`; legacy `stdin` is not allowed".into(),
+                "memo accepts either structured `action` or legacy `command`, not both".into(),
             ));
         }
-        operation::execute(parse_structured_operation(arguments)?)
-    } else {
-        let command = arguments
-            .get("command")
-            .and_then(Value::as_str)
-            .ok_or_else(|| CliError::Usage("memo requires `action` or legacy `command`".into()))?;
-        execute_command(command, stdin)
-    };
+        let stdin = match arguments.get("stdin") {
+            Some(value) => Some(
+                value
+                    .as_str()
+                    .ok_or_else(|| CliError::Usage("memo.stdin must be a string".into()))?,
+            ),
+            None => None,
+        };
+
+        if arguments.contains_key("action") {
+            if stdin.is_some() {
+                return Err(CliError::Usage(
+                    "structured actions use `content`; legacy `stdin` is not allowed".into(),
+                ));
+            }
+            operation::execute(parse_structured_operation(arguments)?)
+        } else {
+            let command = arguments
+                .get("command")
+                .and_then(Value::as_str)
+                .ok_or_else(|| CliError::Usage("memo requires `action` or legacy `command`".into()))?;
+            execute_command(command, stdin)
+        }
+    })();
 
     match execution {
         Ok(data) => Ok(tool_result(data, false)),
@@ -146,7 +244,8 @@ fn call_tool(params: &Value) -> Result<Value, CliError> {
                 "ok": false,
                 "error": {
                     "code": error_code(&error),
-                    "message": error.to_string()
+                    "message": error.to_string(),
+                    "details": error.details()
                 }
             });
             Ok(tool_result(error_data, true))
@@ -176,10 +275,18 @@ fn validate_argument_keys(arguments: &Map<String, Value>) -> Result<(), CliError
         "fields",
         "sort",
         "snapshot",
+        "where",
+        "fieldDefinitions",
+        "record",
+        "requestId",
+        "expectedVersion",
+        "folder",
         "path",
         "tag",
         "command",
         "stdin",
+        "state",
+        "operation",
     ];
     if let Some(key) = arguments.keys().find(|key| !KEYS.contains(&key.as_str())) {
         return Err(CliError::Usage(format!(
@@ -189,11 +296,41 @@ fn validate_argument_keys(arguments: &Map<String, Value>) -> Result<(), CliError
     Ok(())
 }
 
+fn action_fields(action: &str) -> Option<&'static [&'static str]> {
+    Some(match action {
+        "notebooks" | "artifact.list" => &[],
+        "request.list" => &["state", "limit"],
+        "request.show" => &["notebook", "operation", "requestId"],
+        "list" => &["notebook", "limit", "offset", "snapshot"],
+        "tags" => &["notebook"],
+        "show" => &["address"],
+        "search" => &["query", "notebook", "tag", "limit", "offset", "snapshot"],
+        "create" => &["notebook", "folder", "title", "content", "requestId"],
+        "edit" => &["address", "old", "content", "dryRun"],
+        "write" => &["address", "content", "expectedVersion"],
+        "delete" => &["address", "expectedVersion"],
+        "collection.create" => &["notebook", "path", "fieldDefinitions"],
+        "collection.add-fields" => &["notebook", "collectionId", "path", "fieldDefinitions"],
+        "collection.add" => &["notebook", "collectionId", "path", "record", "requestId"],
+        "collection.add-note" => &["notebook", "collectionId", "path", "title", "content", "requestId"],
+        "collection.read" | "collection.describe" => &["notebook", "collectionId", "path"],
+        "collection.list" => &["notebook", "collectionType", "domain", "query", "limit", "offset", "snapshot"],
+        "collection.query" => &["notebook", "collectionId", "path", "domain", "viewId", "query", "where", "fields", "sort", "limit", "offset", "snapshot"],
+        "artifact.describe" => &["pluginId"],
+        "artifact.create" => &["pluginId", "notebook", "sourceNote", "producer", "content", "requestId"],
+        _ => return None,
+    })
+}
+
 fn parse_structured_operation(
     arguments: &Map<String, Value>,
 ) -> Result<operation::FlowixOperation, CliError> {
     use operation::FlowixOperation;
     let action = required_string(arguments, "action")?;
+    let allowed = action_fields(&action).ok_or_else(|| CliError::Usage(format!("unknown memo action: `{action}`")))?;
+    if let Some(key) = arguments.keys().find(|key| key.as_str() != "action" && !allowed.contains(&key.as_str())) {
+        return Err(CliError::Usage(format!("memo.{key} is not valid for {action}")));
+    }
     let notebook = optional_string(arguments, "notebook")?;
     let content = || required_string(arguments, "content");
     let address = || required_string(arguments, "address");
@@ -201,9 +338,23 @@ fn parse_structured_operation(
     let offset = integer(arguments, "offset", 0, 0, usize::MAX)?;
     let dry_run = boolean(arguments, "dryRun", false)?;
     match action.as_str() {
+        "request.list" => Ok(FlowixOperation::RequestList { state: optional_string(arguments, "state")?, limit }),
+        "request.show" => Ok(FlowixOperation::RequestShow { notebook: required_string(arguments, "notebook")?, operation: required_string(arguments, "operation")?, request_id: required_string(arguments, "requestId")? }),
         "notebooks" => Ok(FlowixOperation::Notebooks),
+        "collection.create" => Ok(FlowixOperation::CollectionCreate {
+            notebook: notebook.clone().unwrap_or_default(), path: required_string(arguments, "path")?,
+            fields: arguments.get("fieldDefinitions").map(Value::to_string),
+        }),
+        "collection.add-fields" => Ok(FlowixOperation::CollectionAddFields {
+            notebook: notebook.clone().unwrap_or_default(), collection_id: optional_string(arguments, "collectionId")?, path: optional_string(arguments, "path")?,
+            fields: arguments.get("fieldDefinitions").ok_or_else(|| CliError::Usage("fieldDefinitions is required".into()))?.to_string(),
+        }),
+        "collection.add" => Ok(FlowixOperation::CollectionAdd {
+            notebook: notebook.clone().unwrap_or_default(), collection_id: optional_string(arguments, "collectionId")?, path: optional_string(arguments, "path")?,
+            record: arguments.get("record").ok_or_else(|| CliError::Usage("record is required".into()))?.to_string(), request_id: optional_string(arguments, "requestId")?,
+        }),
         "collection.read" => {
-            let notebook = required_string(arguments, "notebook")?;
+            let notebook = notebook.clone().unwrap_or_default();
             Ok(FlowixOperation::CollectionRead {
                 notebook,
                 collection_id: optional_string(arguments, "collectionId")?,
@@ -211,11 +362,12 @@ fn parse_structured_operation(
             })
         }
         "collection.add-note" => Ok(FlowixOperation::CollectionAddNote {
-            notebook: required_string(arguments, "notebook")?,
+            notebook: notebook.clone().unwrap_or_default(),
             collection_id: optional_string(arguments, "collectionId")?,
             path: optional_string(arguments, "path")?,
             title: required_string(arguments, "title")?,
             content: content()?,
+            request_id: optional_string(arguments, "requestId")?,
         }),
         "collection.list" => Ok(FlowixOperation::CollectionList {
             notebook,
@@ -227,7 +379,7 @@ fn parse_structured_operation(
             snapshot: optional_string(arguments, "snapshot")?,
         }),
         "collection.describe" => Ok(FlowixOperation::CollectionDescribe {
-            notebook: required_string(arguments, "notebook")?,
+            notebook: notebook.clone().unwrap_or_default(),
             collection_id: optional_string(arguments, "collectionId")?,
             path: optional_string(arguments, "path")?,
         }),
@@ -235,12 +387,13 @@ fn parse_structured_operation(
             let fields = string_array(arguments, "fields")?;
             let sort = sort_arguments(arguments)?;
             Ok(FlowixOperation::CollectionQuery {
-                notebook: required_string(arguments, "notebook")?,
+                notebook: notebook.clone().unwrap_or_default(),
                 collection_id: optional_string(arguments, "collectionId")?,
                 path: optional_string(arguments, "path")?,
                 domain: optional_string(arguments, "domain")?,
                 view_id: optional_string(arguments, "viewId")?,
                 query: optional_string(arguments, "query")?,
+                filters: string_array(arguments, "where")?,
                 fields,
                 sort,
                 limit,
@@ -252,6 +405,7 @@ fn parse_structured_operation(
             notebook,
             limit,
             offset,
+            snapshot: optional_string(arguments, "snapshot")?,
         }),
         "tags" => Ok(FlowixOperation::Tags { notebook }),
         "show" => Ok(FlowixOperation::Show {
@@ -262,23 +416,30 @@ fn parse_structured_operation(
             notebook,
             tag: optional_string(arguments, "tag")?,
             limit,
+            offset,
+            snapshot: optional_string(arguments, "snapshot")?,
         }),
         "create" => Ok(FlowixOperation::Create {
             notebook,
+            folder: optional_string(arguments, "folder")?,
+            title: optional_string(arguments, "title")?,
             content: content()?,
+            request_id: optional_string(arguments, "requestId")?,
         }),
         "edit" => Ok(FlowixOperation::Edit {
             address: address()?,
             old: required_string(arguments, "old")?,
-            replacement: content()?,
+            replacement: optional_string(arguments, "content")?.ok_or_else(|| CliError::Usage("memo.content is required".into()))?,
             dry_run,
         }),
         "write" => Ok(FlowixOperation::Write {
             address: address()?,
+            expected_version: optional_string(arguments, "expectedVersion")?,
             content: content()?,
         }),
         "delete" => Ok(FlowixOperation::Delete {
             address: address()?,
+            expected_version: optional_string(arguments, "expectedVersion")?,
         }),
         "artifact.list" => Ok(FlowixOperation::ArtifactList),
         "artifact.describe" => Ok(FlowixOperation::ArtifactDescribe {
@@ -290,6 +451,7 @@ fn parse_structured_operation(
             source_note: optional_string(arguments, "sourceNote")?,
             producer: optional_string(arguments, "producer")?.unwrap_or_else(|| "agent-mcp".into()),
             content: content()?,
+            request_id: optional_string(arguments, "requestId")?,
         }),
         _ => Err(CliError::Usage(format!("unknown memo action: `{action}`"))),
     }
@@ -344,14 +506,17 @@ fn sort_arguments(arguments: &Map<String, Value>) -> Result<Vec<String>, CliErro
             let object = item.as_object().ok_or_else(|| {
                 CliError::Usage("memo.sort entries must be {field,direction}".into())
             })?;
+            if object.keys().any(|key| key != "field" && key != "direction") {
+                return Err(CliError::Usage("memo.sort entries only accept field and direction".into()));
+            }
             let field = object
                 .get("field")
                 .and_then(Value::as_str)
                 .ok_or_else(|| CliError::Usage("memo.sort.field must be a string".into()))?;
-            let direction = object
-                .get("direction")
-                .and_then(Value::as_str)
-                .unwrap_or("asc");
+            let direction = match object.get("direction") {
+                None => "asc",
+                Some(value) => value.as_str().ok_or_else(|| CliError::Usage("memo.sort.direction must be a string".into()))?,
+            };
             if !matches!(direction, "asc" | "desc") {
                 return Err(CliError::Usage(
                     "memo.sort.direction must be asc or desc".into(),
@@ -419,6 +584,7 @@ fn execute_command(command: &str, stdin: Option<&str>) -> Result<Value, CliError
 
     let parsed = cli::parse(&args)?.ok_or_else(|| CliError::Usage("missing command".into()))?;
     match parsed {
+        cli::Cli::RequestList { .. } | cli::Cli::RequestShow { .. } | cli::Cli::RequestReview { .. } => Err(CliError::Usage("use structured request actions; manual reviews are CLI-only".into())),
         cli::Cli::Notebooks { .. } => {
             reject_stdin(stdin)?;
             let (configs, selected_notebook_id) = store::notebooks_list_data()?;
@@ -431,10 +597,9 @@ fn execute_command(command: &str, stdin: Option<&str>) -> Result<Value, CliError
                 selected_notebook_id.as_deref(),
             ))
         }
-        cli::Cli::List { notebook, .. } => {
+        cli::Cli::List { notebook, limit, offset, snapshot, .. } => {
             reject_stdin(stdin)?;
-            let notebook = store::resolve_notebook_key(notebook.as_deref())?;
-            Ok(path_store::list(&notebook)?["notes"].clone())
+            operation::execute(operation::FlowixOperation::List { notebook, limit, offset, snapshot })
         }
         cli::Cli::Tags { notebook, .. } => {
             reject_stdin(stdin)?;
@@ -444,19 +609,18 @@ fn execute_command(command: &str, stdin: Option<&str>) -> Result<Value, CliError
             reject_stdin(stdin)?;
             path_store::show(&id)
         }
-        cli::Cli::Create { notebook, title, file, .. } => {
+        cli::Cli::Create { notebook, title, folder, file, request_id, .. } => {
             if file.is_some() {
                 return Err(CliError::Usage(
                     "MCP cannot read client-local --file paths; use structured `content`".into(),
                 ));
             }
             let body = require_stdin(stdin, "create")?;
-            let notebook = store::resolve_notebook_key(notebook.as_deref())?;
-            path_store::create_with_title(&notebook, title.as_deref(), body)
+            operation::execute(operation::FlowixOperation::Create { notebook, title, folder, content: body.to_owned(), request_id })
         }
-        cli::Cli::Delete { id, .. } => {
+        cli::Cli::Delete { id, expected_version, .. } => {
             reject_stdin(stdin)?;
-            path_store::delete(&id)
+            path_store::delete(&id, expected_version.as_deref())
         }
         cli::Cli::CollectionRead {
             notebook,
@@ -478,6 +642,7 @@ fn execute_command(command: &str, stdin: Option<&str>) -> Result<Value, CliError
             title,
             file,
             stdin: _,
+            request_id,
             ..
         } => {
             if file.is_some() {
@@ -492,6 +657,7 @@ fn execute_command(command: &str, stdin: Option<&str>) -> Result<Value, CliError
                 path,
                 title,
                 content: content.to_owned(),
+                request_id,
             })
         }
         cli::Cli::CollectionList {
@@ -535,6 +701,7 @@ fn execute_command(command: &str, stdin: Option<&str>) -> Result<Value, CliError
             domain,
             view_id,
             query,
+            filters,
             fields,
             sort,
             limit,
@@ -550,6 +717,7 @@ fn execute_command(command: &str, stdin: Option<&str>) -> Result<Value, CliError
                 domain,
                 view_id,
                 query,
+                filters,
                 fields,
                 sort,
                 limit,
@@ -562,10 +730,12 @@ fn execute_command(command: &str, stdin: Option<&str>) -> Result<Value, CliError
             notebook,
             tag,
             limit,
+            offset,
+            snapshot,
             ..
         } => {
             reject_stdin(stdin)?;
-            path_store::search(&query, notebook.as_deref(), tag.as_deref(), limit)
+            path_store::search(&query, notebook.as_deref(), tag.as_deref(), limit, offset, snapshot.as_deref())
         }
         cli::Cli::Edit {
             id,
@@ -593,14 +763,14 @@ fn execute_command(command: &str, stdin: Option<&str>) -> Result<Value, CliError
             };
             path_store::edit(&id, &old, &new, dry_run)
         }
-        cli::Cli::Write { id, file, .. } => {
+        cli::Cli::Write { id, file, expected_version, .. } => {
             if file.is_some() {
                 return Err(CliError::Usage(
                     "MCP cannot read client-local --file paths; use structured `content`".into(),
                 ));
             }
             let body = require_stdin(stdin, "write")?;
-            path_store::write(&id, body)
+            path_store::write(&id, body, expected_version.as_deref())
         }
         cli::Cli::PluginList { .. } => {
             reject_stdin(stdin)?;
@@ -627,14 +797,21 @@ fn execute_command(command: &str, stdin: Option<&str>) -> Result<Value, CliError
                 content,
             )?)
         }
-        // `embed` describes how to write page code, which the restricted memo
-        // grammar exists to keep out of reach; the agent prompt points at the
-        // CLI for it instead.
-        cli::Cli::Version | cli::Cli::Completion { .. } | cli::Cli::Html { .. } | cli::Cli::Mcp => {
-            Err(CliError::Usage(
-                "command is not available through memo".into(),
-            ))
-        }
+        // Artifact authoring (HTML pages and reusable components) stays in the
+        // direct CLI; the restricted memo grammar does not expose those commands.
+        cli::Cli::Version
+        | cli::Cli::CollectionCreate { .. }
+        | cli::Cli::CollectionAddFields { .. }
+        | cli::Cli::CollectionAdd { .. }
+        | cli::Cli::Completion { .. }
+        | cli::Cli::Html { .. }
+        | cli::Cli::ComponentCatalog { .. }
+        | cli::Cli::ComponentCreate { .. }
+        | cli::Cli::ComponentList { .. }
+        | cli::Cli::ComponentValidate { .. }
+        | cli::Cli::Mcp => Err(CliError::Usage(
+            "command is not available through memo".into(),
+        )),
     }
 }
 
@@ -697,13 +874,7 @@ fn tool_result(data: Value, is_error: bool) -> Value {
 }
 
 fn error_code(error: &CliError) -> &'static str {
-    match error {
-        CliError::Usage(_) => "INVALID_COMMAND",
-        CliError::NotFound(_) => "NOT_FOUND",
-        CliError::Io(_) => "IO_ERROR",
-        CliError::Conflict(_) => "CONFLICT",
-        CliError::Other(_) => "EXECUTION_ERROR",
-    }
+    error.code()
 }
 
 fn rpc_result(id: Value, result: Value) -> Value {
@@ -737,10 +908,11 @@ mod tests {
     }
 
     #[test]
-    fn lists_exactly_one_tool_with_command_rules() {
+    fn lists_scoped_tools_and_legacy_command_rules() {
         let responses = run(r#"{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}"#);
         let tools = responses[0]["result"]["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 1);
+        assert_eq!(tools.len(), 4);
+        let tools = vec![tools.last().unwrap().clone()];
         assert_eq!(tools[0]["name"], TOOL_NAME);
         assert!(tools[0]["inputSchema"]["properties"]["action"]["enum"]
             .as_array()
@@ -765,6 +937,23 @@ mod tests {
             let error = execute_command(command, None).unwrap_err();
             assert!(matches!(error, CliError::Usage(_)));
             assert!(error.to_string().contains("shell syntax"));
+        }
+    }
+
+    #[test]
+    fn scoped_schemas_use_executor_action_fields() {
+        for tool in tool_definitions().into_iter().filter(|tool| tool["name"] != TOOL_NAME) {
+            let schema = &tool["inputSchema"];
+            for action in schema["properties"]["action"]["enum"].as_array().unwrap() {
+                let name = action.as_str().unwrap();
+                let rule = schema["allOf"].as_array().unwrap().iter().find(|rule| {
+                    rule.pointer("/if/properties/action/const") == Some(action)
+                        && rule.pointer("/then/additionalProperties") == Some(&json!(false))
+                }).unwrap();
+                let properties = rule["then"]["properties"].as_object().unwrap();
+                assert_eq!(properties.len(), action_fields(name).unwrap().len() + 1);
+                for field in action_fields(name).unwrap() { assert!(properties.contains_key(*field)); }
+            }
         }
     }
 

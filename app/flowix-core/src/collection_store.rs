@@ -812,6 +812,20 @@ pub fn add_note(
     title: &str,
     content: &str,
 ) -> Result<CollectionNoteResult, String> {
+    add_note_with_request(memo, notebook_id, collection_id, relative_path, title, content, None)
+}
+
+pub fn add_note_with_request(
+    memo: &MemoFile, notebook_id: &str, collection_id: Option<&str>, relative_path: Option<&str>,
+    title: &str, content: &str, request_id: Option<&str>,
+) -> Result<CollectionNoteResult, String> {
+    add_note_with_request_schema(memo, notebook_id, collection_id, relative_path, title, content, request_id, None)
+}
+
+pub fn add_note_with_request_schema(
+    memo: &MemoFile, notebook_id: &str, collection_id: Option<&str>, relative_path: Option<&str>,
+    title: &str, content: &str, request_id: Option<&str>, expected_schema: Option<&Value>,
+) -> Result<CollectionNoteResult, String> {
     if collection_id.is_some() == relative_path.is_some() {
         return Err("COLLECTION_SELECTOR_REQUIRED: provide exactly one collection id or path".into());
     }
@@ -821,6 +835,9 @@ pub fn add_note(
     }
     if content.trim().is_empty() {
         return Err("NOTE_CONTENT_REQUIRED".into());
+    }
+    if request_id.is_some_and(|id| id.is_empty() || id.len() > 256 || id.chars().any(char::is_control)) {
+        return Err("INVALID_REQUEST_ID".into());
     }
 
     let (resolved_id, collection_path) = with_catalog(memo, notebook_id, |catalog| {
@@ -880,6 +897,10 @@ pub fn add_note(
                         .get_mut("dataset")
                         .ok_or("MISSING_COLLECTION_DATASET")?
                 };
+                if expected_schema.is_some_and(|schema| dataset.get("schema") != Some(schema)) {
+                    return Err("COLLECTION_SCHEMA_CHANGED".into());
+                }
+                validate_note_field_values(dataset, content)?;
                 let records = dataset
                     .get_mut("records")
                     .and_then(Value::as_object_mut)
@@ -899,12 +920,53 @@ pub fn add_note(
                 } else {
                     format!(".flowix/database/{}", document.collection.id)
                 };
-                let note_path = memo
-                    .create_note_by_path(notebook_id, Some(&parent), title, content)
-                    .map_err(|error| error.to_string())?;
-                created_note_path = Some(note_path.clone());
+                let note_path = if let Some(request_id) = request_id {
+                    let request_hash = Sha256::digest(request_id.as_bytes()).iter().map(|b| format!("{b:02x}")).collect::<String>();
+                    let payload_hash = Sha256::digest(format!("{}\0{}", title, content).as_bytes()).iter().map(|b| format!("{b:02x}")).collect::<String>();
+                    let record_id = format!("rec_{}", &request_hash[..32]);
+                    let filename = format!("flowix-request-{request_hash}");
+                    let relative = if parent.is_empty() { format!("{filename}.md") } else { format!("{parent}/{filename}.md") };
+                    let expected = format!("{content}\n\n<!-- flowix-request-payload:{payload_hash} -->\n");
+                    if let Some(existing) = records.iter().find(|record| record["id"] == record_id) {
+                        let existing_path = existing["note_path"].as_str().filter(|path| !path.is_empty()).ok_or("REQUEST_ID_CONFLICT")?;
+                        memo.derive_note_entry_from_disk(notebook_id, existing_path).map_err(|_| "REQUEST_ID_RECORD_MISSING")?;
+                        let actual = fs::read_to_string(catalog.root.join(existing_path)).map_err(|_| "REQUEST_ID_RECORD_MISSING")?;
+                        if actual != expected { return Err("REQUEST_ID_CONFLICT".into()); }
+                        return Ok(CollectionNoteResult { notebook_id: notebook_id.to_owned(), collection_id: resolved_id.clone(), collection_path, collection_revision: document.collection.revision, address: format!("{notebook_id}::{existing_path}"), note_path: existing_path.to_owned() });
+                    }
+                    let disk = catalog.root.join(&relative);
+                    if records.iter().any(|record| record["note_path"] == relative) && fs::symlink_metadata(&disk).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound) {
+                        return Err("REQUEST_ID_RECORD_MISSING".into());
+                    }
+                    if let Ok(meta) = fs::symlink_metadata(&disk) {
+                        if !meta.is_file() || meta.file_type().is_symlink()
+                            || fs::read_to_string(&disk).map_err(|e| e.to_string())? != expected {
+                            return Err("REQUEST_ID_CONFLICT".into());
+                        }
+                        if records.iter().any(|record| record["note_path"] == relative) {
+                            return Ok(CollectionNoteResult { notebook_id: notebook_id.to_owned(), collection_id: resolved_id.clone(), collection_path, collection_revision: document.collection.revision, address: format!("{notebook_id}::{relative}"), note_path: relative });
+                        }
+                        relative
+                    } else {
+                        let created = memo.create_note_by_path(notebook_id, Some(&parent), &filename, &expected).map_err(|e| e.to_string())?;
+                        created_note_path = Some(created.clone());
+                        if created != relative { return Err("REQUEST_ID_CONFLICT".into()); }
+                        created
+                    }
+                } else {
+                    let created = memo.create_note_by_path(notebook_id, Some(&parent), title, content).map_err(|e| e.to_string())?;
+                    created_note_path = Some(created.clone());
+                    created
+                };
+                let record_id = match request_id {
+                    Some(id) => {
+                        let hash = Sha256::digest(id.as_bytes()).iter().map(|b| format!("{b:02x}")).collect::<String>();
+                        format!("rec_{}", &hash[..32])
+                    },
+                    None => format!("rec_{}", uuid::Uuid::now_v7().simple()),
+                };
                 records.push(serde_json::json!({
-                    "id": format!("rec_{}", uuid::Uuid::now_v7().simple()),
+                    "id": record_id,
                     "updated_at": chrono::Utc::now()
                         .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
                     "note_path": note_path.clone(),
@@ -948,6 +1010,52 @@ pub fn add_note(
             Err(error.to_string())
         }
     }
+}
+
+/// Match the table editor's persisted value rules before creating a record.
+fn validate_note_field_values(dataset: &Value, content: &str) -> Result<(), String> {
+    let metadata = crate::memo_file::extract_document_metadata(content)
+        .map_err(|error| format!("INVALID_NOTE_FRONTMATTER: {error}"))?;
+    let properties = &metadata.properties;
+    let type_declarations = match properties.get("flowix_property_types") {
+        None | Some(Value::Null) => None,
+        Some(Value::Object(types)) => Some(types),
+        Some(_) => return Err("INVALID_FIELD_TYPE_DECLARATIONS: flowix_property_types must be a mapping".into()),
+    };
+    let fields = dataset.pointer("/schema/fields").and_then(Value::as_array).ok_or("INVALID_COLLECTION_SCHEMA")?;
+    for field in fields {
+        let kind = field["type"].as_str().unwrap_or("");
+        if kind == "primary" { continue; }
+        let key = field["property_key"].as_str().unwrap_or("");
+        if let Some(declared) = type_declarations.and_then(|types| types.get(key)) {
+            if declared.as_str() != Some(kind) { return Err(format!("FIELD_TYPE_MISMATCH: {key} expects {kind}")); }
+        }
+        let Some(value) = properties.get(key) else { continue; };
+        if value.is_null() || value.as_str() == Some("") { continue; }
+        let options = field["options"].as_array();
+        let valid_option = |v: &Value| v.as_str().is_some_and(|s| options.is_some_and(|options| options.iter().any(|o| o["id"] == s || o["label"] == s)));
+        let strings = |v: &Value| v.as_array().is_some_and(|values| values.iter().all(Value::is_string));
+        let valid = match kind {
+            "Text" | "Icon" => value.is_string(),
+            "URL" => value.as_str().is_some_and(|s| {
+                let lower = s.to_ascii_lowercase();
+                !s.chars().any(char::is_whitespace)
+                    && (lower.strip_prefix("http://").or_else(|| lower.strip_prefix("https://")))
+                        .is_some_and(|rest| !rest.is_empty())
+            }),
+            "Boolean" => value.is_boolean(),
+            "Number" => value.as_f64().is_some_and(f64::is_finite),
+            "Date" => value.as_str().is_some_and(|s| s.len() == 10 && chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").is_ok()),
+            "Select" => valid_option(value),
+            "MultiSelect" => value.as_array().is_some_and(|values| values.iter().all(valid_option)),
+            "Tag" | "Color" => strings(value),
+            "Image" => value.is_string() || strings(value),
+            // Legacy types have their own persistence rules.
+            _ => true,
+        };
+        if !valid { return Err(format!("INVALID_FIELD_VALUE: {key} expects {kind}")); }
+    }
+    Ok(())
 }
 
 pub fn refresh_catalog(memo: &MemoFile, id: &str) -> Result<(), String> {

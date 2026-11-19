@@ -133,3 +133,22 @@ export function composerAttachmentMarkdownToPrompt(markdown: string): string {
     },
   );
 }
+
+/** Keep image tokens in user-visible Markdown while leaving model prompts untouched. */
+export function composerAttachmentMarkdownToDisplay(markdown: string): string {
+  return markdown.replace(
+    TOKEN_GLOBAL_RE,
+    (_token, encodedPath: string, encodedName: string, encodedMimeType: string) => {
+      const path = decode(encodedPath);
+      const name = decode(encodedName) || path.split(/[\\/]/u).pop() || "Attachment";
+      const mimeType = decode(encodedMimeType).toLowerCase();
+      if (mimeType.startsWith("image/")) {
+        if (!path) return "";
+        const href = `flowix://agent-image-attachment?path=${encodeURIComponent(path)}`;
+        return `[${escapeMarkdownLinkLabel(name)}](${href})`;
+      }
+      if (!path) return "";
+      return `[${escapeMarkdownLinkLabel(name)}](${toLocalFileUrl(path)})`;
+    },
+  );
+}

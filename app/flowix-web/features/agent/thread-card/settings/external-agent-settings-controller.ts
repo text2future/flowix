@@ -99,6 +99,7 @@ const CODEX_COMPOSER_EFFORT_LABEL_KEYS = {
 
 const CODEX_SETTINGS_POPOVER_WIDTH_PX = 212;
 const CODEX_SETTINGS_POPOVER_MAX_HEIGHT_PX = 280;
+const PI_MODEL_PICKER_MAX_HEIGHT_PX = 360;
 const CODEX_SETTINGS_POPOVER_OFFSET_PX = 6;
 const CODEX_SETTINGS_POPOVER_VIEWPORT_PADDING_PX = 8;
 type SettingsPopoverPlacement = "anchor" | "submenu";
@@ -1158,11 +1159,6 @@ export class ExternalAgentSettingsController {
       "agent-thread-card__codex-settings-popover--pi-mode",
       open && kind === "mode" && this.getTypeKey() === "pi",
     );
-    // 打开时重放入场动画 ── 覆盖模型 / 推理 / 模式 / 权限等所有 kind 的
-    // 打开与 kind 间切换; 关闭无需处理, 下次打开会重新重放。
-    if (open) {
-      this.replayPopoverEnterAnimation();
-    }
     this.syncControlOpenState(open, kind);
 
     // Recheck the shared catalog when a model picker opens. Fresh cached data
@@ -1173,7 +1169,10 @@ export class ExternalAgentSettingsController {
 
     if (open && kind && anchor) {
       this.renderPopover();
-      this.schedulePosition();
+      // Position the mounted content before starting its entrance animation,
+      // so the first visible frame is already at the anchor.
+      this.positionPopover();
+      this.replayPopoverEnterAnimation();
       this.startPositionTracking();
       document.addEventListener("pointerdown", this.handleOutsidePointer, true);
     } else {
@@ -2362,12 +2361,31 @@ export class ExternalAgentSettingsController {
     const padding = CODEX_SETTINGS_POPOVER_VIEWPORT_PADDING_PX;
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
-    const popoverRect = this.popover.getBoundingClientRect();
-    const popoverWidth = popoverRect.width || CODEX_SETTINGS_POPOVER_WIDTH_PX;
-    const popoverHeight = Math.min(
-      popoverRect.height || CODEX_SETTINGS_POPOVER_MAX_HEIGHT_PX,
-      CODEX_SETTINGS_POPOVER_MAX_HEIGHT_PX,
+    const isPiModelPicker = this.popover.classList.contains(
+      "agent-thread-card__codex-settings-popover--pi-model-picker",
     );
+    if (isPiModelPicker && this.popoverPlacement !== "submenu") {
+      // Anchor the bottom edge directly. Content and entrance transforms must
+      // never feed back into the vertical position through a measured height.
+      const gap = CODEX_SETTINGS_POPOVER_OFFSET_PX;
+      const availableAbove = Math.max(0, anchorRect.top - padding - gap);
+      this.popover.style.maxHeight = `${Math.min(PI_MODEL_PICKER_MAX_HEIGHT_PX, availableAbove)}px`;
+      this.popover.style.removeProperty("height");
+      const width = this.popover.offsetWidth || CODEX_SETTINGS_POPOVER_WIDTH_PX;
+      const maxLeft = Math.max(padding, viewportWidth - padding - width);
+      this.popover.style.left = `${Math.min(Math.max(anchorRect.left, padding), maxLeft)}px`;
+      this.popover.style.top = "auto";
+      this.popover.style.bottom = `${viewportHeight - anchorRect.top + gap}px`;
+      this.popover.classList.add("agent-thread-card__codex-settings-popover--place-above");
+      return;
+    }
+    this.popover.style.removeProperty("bottom");
+    this.popover.style.removeProperty("max-height");
+    this.popover.style.removeProperty("height");
+    this.popover.classList.remove("agent-thread-card__codex-settings-popover--place-above");
+    // offset dimensions exclude the scale applied by the entrance animation.
+    const popoverWidth = this.popover.offsetWidth || CODEX_SETTINGS_POPOVER_WIDTH_PX;
+    const popoverHeight = this.popover.offsetHeight || CODEX_SETTINGS_POPOVER_MAX_HEIGHT_PX;
     if (this.popoverPlacement === "submenu") {
       const maxLeft = Math.max(padding, viewportWidth - padding - popoverWidth);
       // A cascading settings panel touches the hovered row directly and uses
@@ -2382,17 +2400,19 @@ export class ExternalAgentSettingsController {
       applyPopoverPosition(this.popover, { left, top, placeAbove: false });
       return;
     }
-    applyPopoverPosition(
-      this.popover,
-      calculateAnchoredPopoverPosition({
-        anchorRect,
-        popoverWidth,
-        popoverHeight,
-        viewportWidth,
-        viewportHeight,
-        padding,
-        offset: CODEX_SETTINGS_POPOVER_OFFSET_PX,
-      }),
+    const position = calculateAnchoredPopoverPosition({
+      anchorRect,
+      popoverWidth,
+      popoverHeight,
+      viewportWidth,
+      viewportHeight,
+      padding,
+      offset: CODEX_SETTINGS_POPOVER_OFFSET_PX,
+    });
+    this.popover.classList.toggle(
+      "agent-thread-card__codex-settings-popover--place-above",
+      position.placeAbove,
     );
+    applyPopoverPosition(this.popover, position);
   }
 }

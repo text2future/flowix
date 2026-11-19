@@ -162,3 +162,30 @@ fn registry_update_failure_does_not_move_files() {
         .unwrap()
         .is_none());
 }
+
+#[test]
+fn rename_records_a_probe_profile_on_the_calling_thread() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = fs::canonicalize(temp.path()).unwrap().join("nb");
+    fs::create_dir_all(&root).unwrap();
+    let store = MemoFile::new(temp.path().join("config"));
+    store.write_notebook_configs(&[notebook("nb", &root)]).unwrap();
+    fs::write(root.join("a.md"), "# a\n").unwrap();
+    store.refresh_note_path("nb", "a.md").unwrap();
+    let _ = crate::memo_file::rename_probe::take_last();
+
+    store
+        .rename_indexed_path(&root.join("a.md"), &root.join("b.md"))
+        .unwrap();
+
+    let profile = crate::memo_file::rename_probe::take_last()
+        .expect("a successful rename must leave a profile for the command layer");
+    assert!(profile.total > std::time::Duration::ZERO);
+    // The three stages partition the exclusive window: no double counting, and
+    // nothing silently unaccounted.
+    assert_eq!(
+        profile.structure_lock_wait + profile.fs_move + profile.index_rebase,
+        profile.total
+    );
+}
+

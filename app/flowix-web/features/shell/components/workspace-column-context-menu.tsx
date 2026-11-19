@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactElement } from 'react';
+import { useEffect, useState, type MouseEvent as ReactMouseEvent, type ReactElement } from 'react';
 import { ChevronDown, ChevronUp, ChevronsLeftRightEllipsis, Columns2, SquarePen, SwatchBook } from 'lucide-react';
 import type { AgentTypeKey } from '@/types/agent';
 import { useI18n } from '@/lib/i18n';
@@ -16,12 +16,14 @@ const itemClass = 'h-7 items-center justify-start gap-0 rounded-lg px-2 py-0 tex
 const labelClass = 'px-[0.375rem] pb-[0.35rem] pt-[0.35rem] text-xs font-normal leading-[1.2] text-[var(--muted-foreground)]';
 
 /** Shared context menu for the Work and Browser column title bars. */
-export function WorkspaceColumnContextMenu({ children, isWindows, onCreateNote, onCreateAgentConversation, columnId = 'column-1' }: {
+export function WorkspaceColumnContextMenu({ children, isWindows, onCreateNote, onCreateAgentConversation, shouldOpenContextMenu, columnId = 'column-1' }: {
   columnId?: WorkspaceColumnId;
   children: ReactElement;
   isWindows: boolean;
   onCreateNote?: (templateId?: string) => void;
   onCreateAgentConversation?: (typeKey: AgentTypeKey) => void;
+  /** Keep selected targets' native context menus available inside broad surfaces. */
+  shouldOpenContextMenu?: (event: ReactMouseEvent<HTMLElement>) => boolean;
 }) {
   const { t } = useI18n();
   const browserColumnVisible = useBrowserColumnVisible();
@@ -56,6 +58,7 @@ export function WorkspaceColumnContextMenu({ children, isWindows, onCreateNote, 
     <ContextMenu onOpenChange={setMenuOpen}>
       <ContextMenuTrigger
         asChild
+        shouldOpen={shouldOpenContextMenu}
         data-workspace-column-context-menu={isWindows ? 'windows' : undefined}
         data-workspace-column-context-menu-trigger=""
       >

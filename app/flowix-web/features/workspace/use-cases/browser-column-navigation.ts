@@ -74,13 +74,18 @@ export function targetContentIcon(target: BrowserViewTarget): string | null {
   }
 }
 
-export function openBrowserColumnTarget(target: BrowserViewTarget, options?: { history?: 'push' | 'skip'; navigationEntryId?: string }): Promise<BrowserColumnNavigationResult> {
+export function openBrowserColumnTarget(target: BrowserViewTarget, options?: { history?: 'push' | 'skip'; navigationEntryId?: string }, isCurrent?: () => boolean): Promise<BrowserColumnNavigationResult> {
   return enqueueBrowserColumnNavigation(async () => {
+    if (isCurrent && !isCurrent()) return null;
     target = await prepareCollectionBrowserTarget(target);
     const scope = createNotebookNavigationScope(() => getSessionId(0) === 'column-2', 'column-2');
     try {
       if (getSessionId(0) === 'column-2' && 'notebookId' in target && target.notebookId) {
         await scope.switchTo(target.notebookId, 0);
+      }
+      if (isCurrent && !isCurrent()) {
+        await scope.rollback(0);
+        return null;
       }
       const identity = sessionTargetIdentity(target);
       const alreadyOpen = !!identity && !!findWorkspaceContentLocations(identity).browserColumn;

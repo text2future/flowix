@@ -151,6 +151,7 @@ export function browserTargetFromOpenTarget(
 async function openCollectionReferenceInBrowser(
   target: CollectionReferenceSurfaceTarget,
   options?: import('../model/surface-opening').WorkspaceOpenNavigationOptions,
+  isCurrent?: () => boolean,
 ): Promise<BrowserWorkspaceOpenResult> {
   const notebook = (await notebooks.getAll()).find((candidate) => candidate.id === target.notebookId);
   if (!notebook) throw new Error('集合所属笔记本不存在');
@@ -176,7 +177,7 @@ async function openCollectionReferenceInBrowser(
     notebookId: target.notebookId,
     collectionDisplay: descriptor,
     collectionType,
-  }, options);
+  }, options, isCurrent);
 }
 
 function activeWorkLocation(): Extract<WorkspaceContentLocation, { host: 'column-1' }> {
@@ -192,6 +193,7 @@ function assertHostSupport(kind: WorkspaceSurfaceKind, host: WorkspaceColumnId):
 async function openBrowserTarget(
   target: BrowserViewTarget,
   options?: import('../model/surface-opening').WorkspaceOpenNavigationOptions,
+  isCurrent?: () => boolean,
 ): Promise<BrowserWorkspaceOpenResult> {
   assertHostSupport(browserTargetSurfaceKind(target), 'column-2');
   if (target.kind !== 'agent-conversation') {
@@ -202,7 +204,10 @@ async function openBrowserTarget(
       await prepareActiveMainColumnDocumentLeave();
     }
   }
-  const result = await openBrowserColumnTarget(target, options);
+  if (isCurrent && !isCurrent()) return { status: 'cancelled', host: 'column-2', reason: 'navigation-cancelled' };
+  const result = isCurrent
+    ? await openBrowserColumnTarget(target, options, isCurrent)
+    : await openBrowserColumnTarget(target, options);
   return result
     ? { status: result.alreadyOpen ? 'activated' : 'opened', host: 'column-2', location: { host: 'column-2', surfaceId: result.surfaceId } }
     : { status: 'cancelled', host: 'column-2', reason: 'navigation-cancelled' };
@@ -221,8 +226,7 @@ export async function openPreparedWorkspaceSurface(
   prepare?: (isCurrent: () => boolean) => Promise<Pick<WorkspaceSurfaceOpenRequest, 'target' | 'options'>>,
 ): Promise<WorkspaceSurfaceOpenResult> {
   const navigationId = ++navigationSequence;
-  const intent = request.host === 'column-1' || prepare
-    ? reserveSessionNavigationIntent(getColumnSessionId(request.host), request.options?.navigationEntryId) : undefined;
+  const intent = reserveSessionNavigationIntent(getColumnSessionId(request.host), request.options?.navigationEntryId);
   const context = { navigationId, source: request.source ?? 'unspecified', requestedHost: request.host, targetKind: request.target.kind };
   navigationLogger.debug('Navigation requested', context);
   try {
@@ -258,14 +262,15 @@ async function performWorkspaceSurfaceOpen(
   intent: SessionNavigationIntent | undefined,
 ): Promise<BrowserWorkspaceOpenResult | MainWorkspaceOpenResult> {
   if (request.host === 'column-2') {
+    const isCurrent = () => !intent || isSessionNavigationIntentCurrent(intent);
     const target = request.target;
     if (target.kind === 'collection-reference') {
       assertHostSupport(target.collectionKind === 'media_library' ? 'file-media-library'
         : target.collectionKind === 'work_documents' ? 'file-work-documents' : 'file-table', 'column-2');
-      return openCollectionReferenceInBrowser(target, request.options);
+      return openCollectionReferenceInBrowser(target, request.options, isCurrent);
     }
     const resolvedTarget = browserTargetFromOpenTarget(target, request.options?.notebookId);
-    return openBrowserTarget(resolvedTarget, request.options);
+    return openBrowserTarget(resolvedTarget, request.options, isCurrent);
   }
 
   const mainRequestId = intent?.requestId;

@@ -11,6 +11,10 @@ export interface CloudUser {
 }
 
 export interface CloudMembership {
+  aiActive?: boolean | null;
+  aiGrantExpiresAt?: number | null;
+  aiGrantDurationUnit?: string | null;
+  aiGrantDurationCount?: number | null;
   active: boolean;
   startsAt?: number | null;
   expiresAt?: number | null;
@@ -135,6 +139,7 @@ export interface CloudCheckout {
   orderId: string;
   status: string;
   checkoutUrl: string;
+  qrCodeSvg?: string | null;
   expiresAt?: number | null;
 }
 

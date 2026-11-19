@@ -606,8 +606,46 @@ describe("unified tool message rendering", () => {
     );
     expect(card?.querySelector(".agent-thread-card__message-folder-reference-label")?.textContent)
       .toBe("flowix-main");
+    expect(card?.classList.contains("agent-thread-card__message-reference-card")).toBe(true);
     expect(card?.title).toBe(path);
     expect(s.content.querySelector('a[href^="file:"]')).toBeNull();
+  });
+
+  it("renders @note Markdown links as cards sharing the inline image style", () => {
+    const path = "/notes/reference.md";
+    const markdown = `[@Reference](file://${path})`;
+    const s = setup("user", markdown, true);
+    render(s, "user", markdown, { isCompleted: true });
+
+    const card = s.content.querySelector<HTMLElement>(
+      ".agent-thread-card__message-folder-reference",
+    );
+    expect(card?.classList.contains("agent-thread-card__message-reference-card")).toBe(true);
+    expect(card?.querySelector(".agent-thread-card__message-folder-reference-label")?.textContent)
+      .toBe("Reference");
+    expect(card?.title).toBe(path);
+    expect(card?.querySelector("svg")).not.toBeNull();
+    expect(s.content.querySelector('a[href^="file:"]')).toBeNull();
+  });
+
+  it("uses an inline image link's Markdown label as the image card title", () => {
+    const path = "/tmp/photo.png";
+    const markdown = `[my photo](flowix://agent-image-attachment?path=${encodeURIComponent(path)})`;
+    const s = setup("user", markdown, true);
+    s.message.attachments = [{
+      type: "input_image",
+      path,
+      name: "photo.png",
+      mimeType: "image/png",
+    }];
+    render(s, "user", markdown, { isCompleted: true });
+
+    const card = s.content.querySelector<HTMLButtonElement>(
+      ".agent-thread-card__message-image-reference",
+    );
+    expect(card?.classList.contains("agent-thread-card__message-reference-card")).toBe(true);
+    expect(card?.textContent).toBe("my photo");
+    expect(card?.title).toBe("my photo");
   });
 
   it("renders one image-style attachment chip per user-message image inside the bubble", () => {

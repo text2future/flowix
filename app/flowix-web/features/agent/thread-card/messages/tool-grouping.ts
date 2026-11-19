@@ -98,17 +98,19 @@ export function groupAgentMessages(
   let lastToolIndex = -1;
 
   // A tool result can arrive before the next assistant delta. Keep the group
-  // in its progress state throughout that gap, but only for the active run.
-  // Walking backwards also makes an empty assistant placeholder count as no
-  // content while respecting the next user message as a turn boundary.
-  const hasAssistantContentAfter = new Array<boolean>(messages.length).fill(false);
-  let seenAssistantContent = false;
+  // in its progress state throughout that gap, but only while the run is still
+  // the thread tail: assistant content after the run proves it already
+  // answered, and a user row starts a new turn segment. Either one closes the
+  // group — a steering message appended between tool rows splits the group but
+  // must finish the half in front of it. An empty assistant placeholder is not
+  // content, so it keeps the group running.
+  const isTrailingRunAfter = new Array<boolean>(messages.length).fill(false);
+  let runClosed = false;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
-    hasAssistantContentAfter[index] = seenAssistantContent;
-    if (messages[index].role === "user") {
-      seenAssistantContent = false;
-    } else if (hasAssistantContent(messages[index])) {
-      seenAssistantContent = true;
+    isTrailingRunAfter[index] = !runClosed;
+    const message = messages[index];
+    if (message.role === "user" || hasAssistantContent(message)) {
+      runClosed = true;
     }
   }
 
@@ -116,7 +118,7 @@ export function groupAgentMessages(
     if (toolRun.length > 0) {
       const group = createToolGroup(
         toolRun,
-        isLoading && !hasAssistantContentAfter[lastToolIndex],
+        isLoading && isTrailingRunAfter[lastToolIndex],
       );
       items.push(group);
       const images = toolRun.flatMap((tool) =>

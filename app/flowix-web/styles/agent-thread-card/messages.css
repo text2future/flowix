@@ -45,39 +45,44 @@
   background: var(--muted);
 }
 
-/* @project links in user messages use the same compact folder-card treatment
- * as composer references while keeping their absolute path available on hover. */
-.agent-conversation-surface .agent-thread-card__message-folder-reference {
+/* Resource links and inline image references share one compact card style. */
+.agent-conversation-surface .agent-thread-card__message-reference-card {
   display: inline-flex;
   box-sizing: border-box;
-  height: 1lh;
+  min-height: 1.5em;
   max-width: min(16rem, 100%);
   min-width: 0;
   align-items: center;
-  gap: 0.25rem;
-  padding: 0 0.25rem;
-  border: 1px solid var(--border);
-  border-radius: 0.35rem;
+  gap: 4px;
+  margin: 0 2px;
+  padding: 1px 7px;
+  border: 1px solid color-mix(in oklch, var(--border) 90%, var(--muted-foreground) 10%);
+  border-radius: 6px;
+  background: color-mix(in oklch, var(--card) 86%, var(--muted) 14%);
   color: var(--foreground);
-  font-size: inherit;
-  line-height: inherit;
+  font: inherit;
+  font-size: 0.86em;
+  line-height: 1.5;
   vertical-align: baseline;
   white-space: nowrap;
   overflow: hidden;
 }
 
-.agent-conversation-surface .agent-thread-card__message-folder-reference-icon {
-  width: 14px;
-  height: 14px;
+.agent-conversation-surface .agent-thread-card__message-folder-reference {
+  cursor: default;
+}
+
+.agent-conversation-surface .agent-thread-card__message-reference-card-icon {
+  width: 13px;
+  height: 13px;
   flex: 0 0 auto;
   color: var(--muted-foreground);
 }
 
-.agent-conversation-surface .agent-thread-card__message-folder-reference-label {
+.agent-conversation-surface .agent-thread-card__message-reference-card-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  line-height: inherit;
   white-space: nowrap;
 }
 
@@ -181,10 +186,10 @@ html:not([data-theme="dark"]):not([data-theme="mist"])
   box-sizing: border-box;
   min-width: 0;
   max-width: min(16rem, 100%);
-  height: 1.6em;
+  min-height: 36px;
   align-items: center;
   gap: 0.3rem;
-  padding: 0 0.45rem;
+  padding: 3px;
   border: 1px solid color-mix(in oklch, var(--border) 95%, var(--muted) 5%);
   border-radius: 0.35rem;
   background: transparent;
@@ -196,8 +201,8 @@ html:not([data-theme="dark"]):not([data-theme="mist"])
 
 .agent-conversation-surface .agent-thread-card__message-attachment-icon {
   display: inline-flex;
-  width: 14px;
-  height: 14px;
+  width: 28px;
+  height: 28px;
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
@@ -211,16 +216,37 @@ html:not([data-theme="dark"]):not([data-theme="mist"])
 
 .agent-conversation-surface .agent-thread-card__message-attachment-preview {
   display: block;
-  width: 14px;
-  height: 14px;
-  border-radius: 0.16rem;
+  width: 28px;
+  height: 28px;
+  border-radius: 0.5rem;
+  cursor: zoom-in;
   object-fit: cover;
+}
+
+.agent-conversation-surface .agent-thread-card__message-attachment-preview:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 0;
+}
+
+.agent-conversation-surface .agent-thread-card__message-image-reference {
+  cursor: zoom-in;
+}
+
+.agent-conversation-surface .agent-thread-card__message-image-reference:disabled {
+  opacity: 0.62;
+  cursor: default;
+}
+
+.agent-conversation-surface .agent-thread-card__message-image-reference:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
 }
 
 .agent-conversation-surface .agent-thread-card__message-mode-tag {
   display: flex;
   width: fit-content;
   height: auto;
+  min-height: 0;
   margin: 0 0 5px auto;
   padding: 4px 8px;
   border-color: var(--border);

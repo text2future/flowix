@@ -166,7 +166,7 @@ fn user_message_chunk(thread_id: &str, message: &AgentUserMessage, run_id: &str)
         thread_id: thread_id.to_string(),
         id: format!("user-{run_id}"),
         text: message
-            .llm_content
+            .display_content
             .clone()
             .unwrap_or_else(|| message.content.clone()),
         timestamp: chrono::Utc::now().timestamp_millis(),
@@ -226,9 +226,13 @@ mod tests {
     }
 
     #[test]
-    fn user_message_chunk_uses_run_scoped_id_and_llm_content() {
+    fn user_message_chunk_uses_run_scoped_id_and_display_content() {
         let message = AgentUserMessage {
             content: "visible".to_string(),
+            display_content: Some(
+                "visible [图片](flowix://agent-image-attachment?path=%2Ftmp%2Fimage.png)"
+                    .to_string(),
+            ),
             llm_content: Some("visible with context".to_string()),
             image_paths: Vec::new(),
             run_id: None,
@@ -245,7 +249,7 @@ mod tests {
             user_message_chunk("thread-1", &message, "run-1"),
             AgentChunk::UserMessage { id, text, timestamp, .. }
                 if id == "user-run-1"
-                    && text == "visible with context"
+                    && text == "visible [图片](flowix://agent-image-attachment?path=%2Ftmp%2Fimage.png)"
                     && timestamp > 0
         ));
     }

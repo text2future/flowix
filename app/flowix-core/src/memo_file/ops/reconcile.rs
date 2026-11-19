@@ -111,6 +111,7 @@ impl MemoFile {
         source: &Path,
         target: &Path,
     ) -> std::io::Result<()> {
+        let started = std::time::Instant::now();
         let source_is_directory = source.is_dir();
         let source_absolute = std::fs::canonicalize(source)?;
         // Moving a directory also moves notebook roots nested below it. Their
@@ -128,12 +129,14 @@ impl MemoFile {
             Ok(ids)
         };
         let notebook_ids = affected_notebooks()?;
+        let lock_requested = std::time::Instant::now();
         let _change_guard = if notebook_ids.is_empty() {
             None
         } else {
             let ids: Vec<&str> = notebook_ids.iter().map(String::as_str).collect();
             Some(self.operation_locks().notebook_change(&ids, "rename_indexed_path")?)
         };
+        let structure_lock_wait = lock_requested.elapsed();
         let _legacy_guard = if notebook_ids.is_empty() {
             Some(self.acquire_cross_process_write_lock()?)
         } else {
@@ -179,7 +182,9 @@ impl MemoFile {
                 directory_rebases.push((notebook_id.clone(), previous, next));
             }
         }
+        let fs_started = std::time::Instant::now();
         rename_file_noclobber(source, target)?;
+        let fs_move = fs_started.elapsed();
         let mut rebased_directories: Vec<(String, String, String)> = Vec::new();
         for (notebook_id, previous, next) in &directory_rebases {
             if let Err(error) = self.rebase_directory_indexes(notebook_id, previous, next) {
@@ -297,6 +302,16 @@ impl MemoFile {
         drop(_guard);
         drop(_change_guard);
         drop(_legacy_guard);
+        // Measure-only: `index` is whatever is left of the exclusive window once
+        // the lock wait and the `rename(2)` call are subtracted, so the three
+        // numbers add up to the window a concurrent save waits on.
+        let total = started.elapsed();
+        super::super::rename_probe::record(super::super::rename_probe::RenameProfile {
+            structure_lock_wait,
+            fs_move,
+            index_rebase: total.saturating_sub(structure_lock_wait).saturating_sub(fs_move),
+            total,
+        });
         Ok(())
     }
 

@@ -1,11 +1,11 @@
-import { cloud, listenToCloudStateChanges, product, type CloudProduct } from '@platform/tauri/client';
+import { cloud, listenToCloudStateChanges, product, type CloudEnvironment, type CloudProduct } from '@platform/tauri/client';
 
 const CACHE_KEY_PREFIX = 'flowix.billing.products.v1';
 const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 interface ProductCatalogCache {
   version: 1;
-  environment: 'staging' | 'prod';
+  environment: CloudEnvironment;
   region: 'mainland' | 'non_mainland';
   checkedAt: number;
   products: CloudProduct[];

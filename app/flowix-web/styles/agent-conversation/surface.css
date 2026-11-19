@@ -8,7 +8,8 @@
    * class, so a composer never depends on having a Thread Card ancestor.
    * Card-only tokens (--atc-min-height / --atc-max-height / --atc-header-h)
    * stay in chrome.css. */
-  --atc-send-size: 28px;
+  --agent-composer-control-size: 32px;
+  --atc-send-size: var(--agent-composer-control-size);
   --atc-bottom-pad: 10px;
   --atc-composer-max-h: 200px;
   font-family: var(--font-sans);

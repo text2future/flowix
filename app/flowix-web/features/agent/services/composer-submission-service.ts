@@ -42,6 +42,7 @@ export async function acceptComposerSubmission(
         runtimeConfig: bound.runtimeConfig, isFirstMessage: bound.isFirstMessage,
         runId: bound.runId,
         currentNoteContent: documentContext, imagePaths,
+        displayContent: snapshot.displayContent,
         attachments: createAgentMessageAttachments(imageAttachments),
         rejectOnFailure: true,
       },

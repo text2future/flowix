@@ -21,7 +21,7 @@ export function useNotebookTreeRename({ notebookId, notebookPath, tree, tableDoc
   mediaLibraryByPath: ReadonlyMap<string, MediaLibraryListItem>;
 }) {
   const { t } = useI18n();
-  const { renameFolder, expanded, loadingDirectories, nodes, refresh } = tree;
+  const { renameFolder, expanded, loadingDirectories, nodes, refresh, refreshDirectoriesNow } = tree;
   return useCallback(async (item: DocTreeItem, nextName: string) => {
     const trimmed = nextName.trim();
     const isNote = item.type === 'document'
@@ -38,12 +38,17 @@ export function useNotebookTreeRename({ notebookId, notebookPath, tree, tableDoc
         const renamedPath = await renameFolder(item.fullPath, trimmed, notebookPath);
         const oldFolderPath = canonicalDirectoryPath(item.fullPath);
         const newFolderPath = canonicalDirectoryPath(renamedPath);
-        const expandedPathsToRefresh = [...expanded]
+        // Loaded descendants were already rebased in memory, so only the
+        // expanded-but-empty ones (a read was in flight when the path changed)
+        // need another pass. Ask for it without awaiting: the rename is done,
+        // and the tree fills these rows in silently instead of spinning one
+        // loading state per expanded row.
+        const emptyExpandedPaths = [...expanded]
           .filter((path) => (path === oldFolderPath || path.startsWith(`${oldFolderPath}/`))
             && (loadingDirectories.has(path) || !nodes.get(path)?.children?.length))
           .map((path) => `${newFolderPath}${path.slice(oldFolderPath.length)}`);
         updateNoteLinksAfterMove(item.fullPath, renamedPath, true);
-        await Promise.all(expandedPathsToRefresh.map((path) => refresh(path)));
+        if (emptyExpandedPaths.length > 0) void refreshDirectoriesNow(emptyExpandedPaths, { force: true });
       } else {
         if (isNote) {
           const fileIdentity = ensureFileDisplayIdentity(item.fullPath);
@@ -80,6 +85,6 @@ export function useNotebookTreeRename({ notebookId, notebookPath, tree, tableDoc
       toast.error(t(fileTreeRenameFailureKey(error)));
       return false;
     }
-  }, [notebookPath, notebookId, tableDocumentByPath, mediaLibraryByPath, t, renameFolder, expanded, loadingDirectories, nodes, refresh]);
+  }, [notebookPath, notebookId, tableDocumentByPath, mediaLibraryByPath, t, renameFolder, expanded, loadingDirectories, nodes, refresh, refreshDirectoriesNow]);
 
 }

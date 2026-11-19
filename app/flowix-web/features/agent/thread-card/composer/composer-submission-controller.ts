@@ -18,6 +18,7 @@ export type ComposerSubmissionPhase =
 export interface ComposerSubmissionSnapshot {
   markdown: string;
   prompt: string;
+  displayContent: string;
   attachments: AgentThreadCardInputAttachment[];
 }
 
@@ -31,7 +32,7 @@ type SubmissionComposer = Pick<
   | "setHistoryValue"
   | "resetHistoryNavigation"
   | "updateMultiLineState"
->;
+> & Partial<Pick<ComposerController, "getDisplayContent">>;
 
 function combineDraftsForRetry(submitted: string, current: string): string {
   if (!submitted) return current;
@@ -89,6 +90,7 @@ export class ComposerSubmissionController {
     const snapshot: ComposerSubmissionSnapshot = {
       markdown: composer.getDraftMarkdown(),
       prompt: composer.getPrompt().trim() || "Analyze the attached image(s).",
+      displayContent: (composer.getDisplayContent?.() ?? composer.getDraftMarkdown()).trim(),
       attachments: images.readyAttachments.map((attachment) => ({ ...attachment })),
     };
     this.snapshot = snapshot;

@@ -88,10 +88,13 @@ pub struct AgentMessageAttachment {
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentUserMessage {
+    /// Visible user-row content; the runtime should use `llm_content` for inference.
     pub content: String,
+    /// Optional rich display text for the transcript (for example inline image cards).
+    #[serde(default)]
+    pub display_content: Option<String>,
     /// 前端拼接的首条消息上下文(Role memo / flowix CLI 提示块)落在这,
-    /// 与展示用 `content` 分离。external runtime 持久化 UserMessage chunk
-    /// 时优先取它。
+    /// 与展示用 `content` 分离。
     pub llm_content: Option<String>,
     #[serde(default)]
     pub image_paths: Vec<String>,

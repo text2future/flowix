@@ -8,7 +8,10 @@ import { externalFileViewKind } from '@features/editor/code-file';
 import { openNoteByDeepLink } from '@features/memo/public/note-navigation-api';
 import { createFileBrowserTarget } from '@features/workspace/public/browser-column-api';
 import { openSurfaceAtPosition } from '@features/workspace/public/open-surface-api';
-import type { WorkspaceSurfaceOpenResult } from '@features/workspace/public/open-surface-api';
+import { columnAtIndex } from '@features/workspace/public/session-api';
+import { openPreparedSurfaceInColumn } from '@features/workspace/public/session-opening-api';
+import { prepareLocalLinkNavigation } from '@features/editor/public/link-navigation-api';
+import { NavigationCancelledError } from '@/lib/navigation-cancelled-error';
 import {
   cancelAgentLocationRequest,
   publishAgentLocationRequest,
@@ -38,6 +41,11 @@ type ComparablePath = {
 
 let nextLocalNavigationId = 0;
 const latestLocalNavigationByPath = new Map<string, number>();
+
+function localNavigationKey(path: string): string {
+  const canonical = canonicalPath(path);
+  return /^[a-z]:\//i.test(canonical) || canonical.startsWith('//') ? canonical.toLowerCase() : canonical;
+}
 
 /** Lexically normalize a user-visible path without requiring filesystem I/O. */
 function comparablePath(value: string): ComparablePath {
@@ -151,46 +159,61 @@ export async function openAgentLink(
       // Reserve the latest navigation synchronously. Opening a document can
       // take longer than a later click, so request order must not depend on
       // which navigation promise resolves first.
-      const canonicalTargetPath = canonicalPath(target.path);
-      const pathKey = /^[a-z]:\//i.test(canonicalTargetPath) || canonicalTargetPath.startsWith('//')
-        ? canonicalTargetPath.toLowerCase()
-        : canonicalTargetPath;
+      const pathKey = localNavigationKey(target.path);
       const navigationId = ++nextLocalNavigationId;
       latestLocalNavigationByPath.set(pathKey, navigationId);
       cancelAgentLocationRequest(target.path);
-      const scopePath = agentFileScopePathForRuntime(target.path, runtimeConfig);
-      let opened: WorkspaceSurfaceOpenResult;
+      let resolvedPath = target.path;
+      let resolvedKey = pathKey;
       try {
-        opened = scopePath
-          ? await openSurfaceAtPosition({
-            index: 1, source: 'agent-message',
-            target: createFileBrowserTarget(target.path, scopePath, scopePath),
-          })
-          : await openSurfaceAtPosition({
-            index: 1, source: 'agent-message',
-            target: { kind: 'external', path: target.path, scopePath: null, transitionId: null },
-          });
-      } catch (error) {
-        if (latestLocalNavigationByPath.get(pathKey) === navigationId) {
-          latestLocalNavigationByPath.delete(pathKey);
+        const opened = await openPreparedSurfaceInColumn({
+          columnId: columnAtIndex(1), source: 'agent-message',
+          target: { kind: 'external', path: target.path, scopePath: null },
+        }, async (isCurrent) => {
+          const prepared = await prepareLocalLinkNavigation({ path: target.path, anchor: target.anchor ?? null }, undefined, { isCurrent });
+          if (!prepared) throw new NavigationCancelledError('Local link navigation cancelled');
+          const { location } = prepared;
+          resolvedPath = location.path;
+          resolvedKey = localNavigationKey(location.path);
+          if ((latestLocalNavigationByPath.get(resolvedKey) ?? 0) > navigationId) {
+            throw new NavigationCancelledError('Local link navigation superseded');
+          }
+          latestLocalNavigationByPath.set(resolvedKey, navigationId);
+          cancelAgentLocationRequest(location.path);
+          const scopePath = agentFileScopePathForRuntime(location.path, runtimeConfig) ?? location.notebookPath ?? null;
+          if (location.isDirectory) {
+            if (location.notebookId && location.notebookPath) {
+              return { target: { kind: 'folder-collection' as const, folderPath: location.path,
+                notebookId: location.notebookId, notebookPath: location.notebookPath,
+                folderName: location.path.split(/[\\/]/).filter(Boolean).pop() ?? location.path } };
+            }
+            return { target: createFileBrowserTarget(null, scopePath, location.path) };
+          }
+          return { target: scopePath
+            ? { ...createFileBrowserTarget(location.path, scopePath, scopePath),
+              ...(location.notebookId ? { notebookId: location.notebookId, notebookContextPath: location.path } : {}) }
+            : { kind: 'external' as const, path: location.path, scopePath: null, transitionId: null },
+            options: { markdownLocation: location } };
+        });
+        if (latestLocalNavigationByPath.get(pathKey) !== navigationId) return;
+        if (opened.status === 'cancelled' || (!target.location && !target.anchor)) return;
+        const viewKind = externalFileViewKind(resolvedPath);
+        if (viewKind !== 'markdown' && viewKind !== 'code') {
+          toast.info(translate(getCurrentAppLanguage(), 'document.file.locationUnsupported'));
+          return;
         }
-        throw error;
+        publishAgentLocationRequest({
+          path: resolvedPath,
+          ...(target.location ? { location: target.location } : {}),
+          ...(target.anchor ? { anchor: target.anchor } : {}),
+          host: (opened.location.runtimeLocation ?? opened.location).host,
+          viewId: locationViewId(opened.location),
+        });
+      } finally {
+        for (const key of [pathKey, resolvedKey]) {
+          if (latestLocalNavigationByPath.get(key) === navigationId) latestLocalNavigationByPath.delete(key);
+        }
       }
-      if (latestLocalNavigationByPath.get(pathKey) !== navigationId) return;
-      latestLocalNavigationByPath.delete(pathKey);
-      if (opened.status === 'cancelled' || (!target.location && !target.anchor)) return;
-      const viewKind = externalFileViewKind(target.path);
-      if (viewKind !== 'markdown' && viewKind !== 'code') {
-        toast.info(translate(getCurrentAppLanguage(), 'document.file.locationUnsupported'));
-        return;
-      }
-      publishAgentLocationRequest({
-        path: target.path,
-        ...(target.location ? { location: target.location } : {}),
-        ...(target.anchor ? { anchor: target.anchor } : {}),
-        host: (opened.location.runtimeLocation ?? opened.location).host,
-        viewId: locationViewId(opened.location),
-      });
       return;
     }
   }

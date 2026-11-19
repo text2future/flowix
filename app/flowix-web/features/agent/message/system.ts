@@ -7,7 +7,8 @@ const SYSTEM_CONTEXT_PATTERN = /(?:<\s*##\s*CONTEXT\s+PROMPT\s+##\s*>|\[Flowix w
 
 export function stripSystemBlock(content: string): string {
   if (!content) return content;
-  const match = content.match(SYSTEM_CONTEXT_PATTERN);
-  if (!match || match.index === undefined) return content.trim();
-  return content.slice(0, match.index).trim();
+  const visible = content.replace(/\s*<!-- FLOWIX_ACTIVE_DOCUMENT_CONTEXT\n[\s\S]*?\nEND_FLOWIX_ACTIVE_DOCUMENT_CONTEXT -->/g, '');
+  const match = visible.match(SYSTEM_CONTEXT_PATTERN);
+  if (!match || match.index === undefined) return visible.trim();
+  return visible.slice(0, match.index).trim();
 }

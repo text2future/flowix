@@ -1223,7 +1223,7 @@ dependencies = [
 
 [[package]]
 name = "flowix-cli"
-version = "1.5.20"
+version = "1.6.0"
 dependencies = [
  "chrono",
  "clap",
@@ -1235,15 +1235,18 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "serde_yaml",
+ "sha2",
  "shell-words",
  "tempfile",
  "thiserror 1.0.69",
+ "uuid",
  "windows-sys 0.59.0",
 ]
 
 [[package]]
 name = "flowix-core"
-version = "1.5.20"
+version = "1.6.0"
 dependencies = [
  "chrono",
  "diffy",
@@ -1275,7 +1278,7 @@ dependencies = [
 
 [[package]]
 name = "flowix-desktop"
-version = "1.5.20"
+version = "1.6.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1338,7 +1341,7 @@ dependencies = [
 
 [[package]]
 name = "flowix-installer-helper"
-version = "1.5.20"
+version = "1.6.0"
 dependencies = [
  "clap",
  "dunce",
@@ -1352,7 +1355,7 @@ dependencies = [
 
 [[package]]
 name = "flowix-plugin-runtime"
-version = "1.5.20"
+version = "1.6.0"
 dependencies = [
  "chrono",
  "flowix-core",
@@ -1367,7 +1370,7 @@ dependencies = [
 
 [[package]]
 name = "flowix-sync"
-version = "1.5.20"
+version = "1.6.0"
 dependencies = [
  "chrono",
  "flowix-core",

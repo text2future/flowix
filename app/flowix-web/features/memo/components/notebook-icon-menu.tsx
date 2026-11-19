@@ -24,6 +24,7 @@ import { Check, ChevronDown, Loader2, Plus, X } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@shared/ui/dialog';
 import { cloud, type CloudFeedbackAttachment } from '@platform/tauri/client/cloud';
 import { product } from '@platform/tauri/client/desktop';
+import packageInfo from '../../../../../package.json';
 
 interface NotebookIconMenuProps {
   /** 打开偏好设置窗口; 可传入偏好 tab id (如 'theme' / 'dsh' / 'mcp' / 'aiAgent')。 */
@@ -49,6 +50,7 @@ export function NotebookIconMenu({
 }: NotebookIconMenuProps) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
+  const currentVersion = packageInfo.version;
   const manualUpdateCheck = useManualAppUpdateCheck({ afterCheck: recordProductUpdateCheck });
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [feedbackType, setFeedbackType] = useState<'product_suggestion' | 'usage_issue'>('product_suggestion');
@@ -59,6 +61,7 @@ export function NotebookIconMenu({
   const feedbackBusyRef = useRef(false);
   const [feedbackPreviews, setFeedbackPreviews] = useState<Array<{ file: File; url: string }>>([]);
   const feedbackFileInputRef = useRef<HTMLInputElement | null>(null);
+
   // 显式标注为通用 tab 类型: 字面量联合里 pi/dsh 没有 sidebarIcon 字段,
   // 直接 map 会丢失可选性, 访问 tab.sidebarIcon 会报 TS2339。
   const visiblePreferenceGroups: PreferencesTabGroup[] = PREFERENCE_TAB_GROUPS.map((group) => ({
@@ -241,8 +244,11 @@ export function NotebookIconMenu({
               ? 'preferences.general.productUpdates.checking'
               : 'preferences.general.productUpdates.check')}
           </span>
+          {currentVersion && (
+            <span className="ml-auto font-mono text-xs text-[var(--muted-foreground)]">{currentVersion}</span>
+          )}
           {manualUpdateCheck.updater.status === 'checking' && (
-            <Loader2 aria-hidden="true" className="ml-auto h-3.5 w-3.5 shrink-0 flowix-spin text-[var(--muted-foreground)]" />
+            <Loader2 aria-hidden="true" className="h-3.5 w-3.5 shrink-0 flowix-spin text-[var(--muted-foreground)]" />
           )}
         </DropdownMenuItem>
         <DropdownMenuItem onClick={openFeedback} className={NOTEBOOK_ICON_MENU_ITEM_CLASS}>

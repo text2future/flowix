@@ -40,6 +40,7 @@ mod operation_locks;
 mod ops;
 mod pinned_entry;
 mod registration;
+pub mod rename_probe;
 pub mod save_probe;
 mod storage_repair;
 pub(crate) mod time;

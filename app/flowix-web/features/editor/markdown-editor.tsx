@@ -15,14 +15,23 @@ import { HeadingOutlineNavigation } from '@features/editor/components/heading-ou
 import { DragContextMenu } from '@features/editor/components/drag-context-menu';
 import { attachLinkHoverTooltip } from '@features/editor/components/link-hover-tooltip';
 import { navigateToHeadingAnchor } from '@features/editor/components/heading-anchor-navigation';
+import { CustomComponentPickerDialog } from '@features/editor/components/custom-component-picker-dialog';
+import {
+  registerCustomComponentEditorTarget,
+  type NotebookCustomComponent,
+} from '@features/editor/public/custom-component-api';
 import type { EditorLinkContext } from '@features/editor/editor-link-resolution';
 import { pasteClipboardSnapshot } from '@features/editor/extensions/paste-rules';
 import type { ClipboardSnapshot } from '@features/editor/extensions/paste-rules/clipboard';
 import { SearchReplacePanel } from '@features/editor/components/search-replace-panel';
 import { selectEditableDocumentContent } from '@features/editor/extensions/frontmatter';
+import { REPLACE_PROTECTED_COMMENTS_META } from '@features/editor/extensions/protected-comment';
 import { applyListType } from '@features/editor/extensions/list-transforms';
 import { SKIP_AGENT_THREAD_CARD_CLEANUP_META } from '@features/agent/thread-card/agent-thread-card-extension';
-import { useI18n } from '@/lib/i18n';
+import { translate, useI18n } from '@/lib/i18n';
+import { samePath } from '@/lib/path';
+import { toast } from '@/lib/toast';
+import { getCurrentAppLanguage } from '@features/preferences/public/runtime-api';
 import { markDocumentOpenTrace } from '@/lib/document-open-perf';
 import { perfMark } from '@/lib/perf-probe';
 import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
@@ -141,6 +150,11 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
   const editorMountRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<Editor | null>(null);
   const [editorInstance, setEditorInstance] = useState<Editor | null>(null);
+  const [componentPickerRequest, setComponentPickerRequest] = useState<{
+    editor: Editor;
+    notebookId: string;
+    notebookPath: string;
+  } | null>(null);
   const [isSearchPanelOpen, handleSearchPanelOpenChange] = useSearchPanelState(
     searchPanelOpen,
     onSearchPanelOpenChange,
@@ -179,6 +193,28 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     getOwnerPath: getCurrentAttachmentOwnerPath,
     getDocumentPath: getCurrentDocumentPath,
   } = useDocumentAttachmentContext(ownerPath, getAttachmentContext);
+
+  const openComponentPicker = useCallback((editor: Editor) => {
+    const context = getCurrentAttachmentContext();
+    if (!context.notebookId || !context.rootPath) {
+      toast.error(translate(getCurrentAppLanguage(), 'editor.slash.componentRequiresNotebook'));
+      return;
+    }
+    setComponentPickerRequest({
+      editor,
+      notebookId: context.notebookId,
+      notebookPath: context.rootPath,
+    });
+  }, [getCurrentAttachmentContext]);
+
+  const insertPickedComponent = useCallback((component: NotebookCustomComponent): boolean => {
+    const request = componentPickerRequest;
+    if (!request || request.editor !== editorRef.current || request.editor.isDestroyed || !request.editor.isEditable) {
+      return false;
+    }
+    if (getCurrentAttachmentContext().notebookId !== request.notebookId) return false;
+    return request.editor.chain().focus().insertCustomComponent(component).run();
+  }, [componentPickerRequest, getCurrentAttachmentContext]);
 
   const {
     pendingDirtyRef: pendingSerializeDirtyRef,
@@ -255,6 +291,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       editor
         .chain()
         .setMeta(SKIP_AGENT_THREAD_CARD_CLEANUP_META, true)
+        .setMeta(REPLACE_PROTECTED_COMMENTS_META, true)
         .setMeta('addToHistory', false)
         .setContent(nextContent, { contentType: 'markdown', emitUpdate: false })
         .run();
@@ -460,6 +497,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       propertyTargetId,
       onPropertyAreaHoverChange,
       onViewSourceMode,
+      onOpenComponentPicker: openComponentPicker,
       transitionId,
       workspaceHost,
       getPlaceholder: () => resolvedPlaceholderRef.current,
@@ -641,6 +679,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     findScrollable,
     getCurrentAttachmentOwnerPath,
     getCurrentAttachmentContext,
+    openComponentPicker,
     handleBackspaceAtBodyStart,
     pendingSerializeDirtyRef,
     schedulePendingSerialization,
@@ -695,6 +734,28 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       }
     };
   }, [editorInstance, transitionId]);
+
+  useEffect(() => {
+    const editor = editorInstance;
+    if (!editor || editor.isDestroyed || !editable) return;
+    const context = getCurrentAttachmentContext();
+    const notebookPath = context.rootPath;
+    const documentPath = getCurrentDocumentPath();
+    if (!notebookPath || !documentPath) return;
+
+    return registerCustomComponentEditorTarget({
+      notebookPath,
+      documentPath,
+      insert(component: NotebookCustomComponent) {
+        if (editor.isDestroyed || !editor.isEditable) return false;
+        const currentContext = getCurrentAttachmentContext();
+        const currentDocumentPath = getCurrentDocumentPath();
+        if (!currentContext.rootPath || !samePath(currentContext.rootPath, notebookPath)) return false;
+        if (!currentDocumentPath || !samePath(currentDocumentPath, documentPath)) return false;
+        return editor.chain().focus().insertCustomComponent(component).run();
+      },
+    });
+  }, [editorInstance, editable, getCurrentAttachmentContext, getCurrentDocumentPath, ownerPath]);
 
   // 语言切换时，placeholder 回调会读取最新的 ref；dispatch 一条带
   // 'placeholder-update' meta 的空事务触发重新装饰。不能把回调改回字符串，
@@ -840,6 +901,17 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
 
   return (
     <div className={`markdown-editor ${className || ''}`}>
+      {componentPickerRequest && (
+        <CustomComponentPickerDialog
+          open
+          insertMode
+          onOpenChange={(open) => {
+            if (!open) setComponentPickerRequest(null);
+          }}
+          notebookPath={componentPickerRequest.notebookPath}
+          onInsert={insertPickedComponent}
+        />
+      )}
       <SearchReplacePanel
         editor={editorRef.current}
         visible={isSearchPanelOpen}

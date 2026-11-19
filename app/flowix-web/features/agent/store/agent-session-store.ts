@@ -4,6 +4,7 @@ import {
   persist,
   subscribeWithSelector,
 } from "zustand/middleware";
+import { getAdjacentContent } from "@features/workspace/public/adjacent-content-api";
 import type {
   AgentMessageAttachment,
   AgentChunk,
@@ -44,6 +45,7 @@ import {
   createSendErrorMessage,
   prepareUserMessage,
 } from "@features/agent/store/user-message";
+import { saveInlineImagePresentation } from "@features/agent/store/inline-image-presentation";
 import { dispatchChatStream } from "@features/agent/store/chat-stream";
 import {
   cloudAccessReplyForError,
@@ -115,6 +117,7 @@ export interface AgentSessionStore
       runtimeConfig?: RuntimeConfig | null;
       imagePaths?: string[];
       attachments?: AgentMessageAttachment[];
+      displayContent?: string;
       runId?: string;
       /** Composer transactions must distinguish rejection from acceptance. */
       rejectOnFailure?: boolean;
@@ -233,14 +236,24 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
           }
           const { userPayload, llmContent, userMessage } = prepareUserMessage({
             content: trimmed,
+            displayContent: options?.displayContent,
             isFirstMessage,
             agentType: type.id,
             currentNoteContent: options?.currentNoteContent,
+            adjacentContent: getAdjacentContent(options?.instanceId),
             systemReminderDirectory:
               options?.runtimeConfig?.workspaceSnapshot?.notebookPath,
             attachments:
               options?.attachments ?? createAgentMessageAttachments(options?.imagePaths),
           });
+          saveInlineImagePresentation(
+            threadId,
+            type.id,
+            trimmed,
+            userMessage.content,
+            userMessage.attachments,
+            Date.parse(userMessage.timestamp),
+          );
           if (
             (type.id === "codex" || type.id === "dsh" || type.id === "pi") &&
             isProjectionWorking(get().threadProjections[threadId])
@@ -262,6 +275,9 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
             try {
               const activeTurnMessage = {
                 content: trimmed,
+                ...(userMessage.content !== trimmed
+                  ? { displayContent: userMessage.content }
+                  : {}),
                 llmContent,
                 imagePaths: options?.imagePaths,
                 agentType: type.id,
@@ -336,6 +352,9 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
               threadId,
               instanceId: options?.instanceId,
               content: trimmed,
+              ...(userMessage.content !== trimmed
+                ? { displayContent: userMessage.content }
+                : {}),
               llmContent,
               runId,
               userPayload,

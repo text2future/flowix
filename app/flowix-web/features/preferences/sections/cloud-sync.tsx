@@ -15,13 +15,16 @@ import { subscribe } from '@platform/tauri/event-bus';
 import {
   cloud,
   dialogs,
+  type CloudCheckout,
   type CloudOrder,
   type CloudSubscription,
   type CloudState,
   windows,
 } from '@platform/tauri/client';
 import { Button } from '@shared/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@shared/ui/dialog';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@shared/ui/dialog';
+import { useWechatPaymentStatus } from '@features/cloud-billing/public/use-wechat-payment-status';
+import { WechatPaymentIcon, WechatPaymentQr } from '@features/cloud-billing/public/wechat-payment-qr';
 import { Tooltip } from '@shared/ui/tooltip';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@shared/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
@@ -58,7 +61,7 @@ export function CloudSyncSection() {
   const { t } = useI18n();
   const { state, loadError: stateLoadError, loading: loadingLoginState, applyState, membershipLoading, membershipError, refreshMembership } = useCloudAccountState();
   const [busy, setBusy] = useState(false);
-  const [activeAccountSection, setActiveAccountSection] = useState<'ai' | 'storage'>('ai');
+  const [membershipNow, setMembershipNow] = useState(Date.now);
   const [orders, setOrders] = useState<CloudOrder[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [ordersLoadError, setOrdersLoadError] = useState<string | null>(null);
@@ -72,9 +75,28 @@ export function CloudSyncSection() {
   const [checkingOrderId, setCheckingOrderId] = useState<string | null>(null);
   const [orderCheckFailedId, setOrderCheckFailedId] = useState<string | null>(null);
   const [resumingOrderId, setResumingOrderId] = useState<string | null>(null);
+  const [wechatCheckout, setWechatCheckout] = useState<CloudCheckout | null>(null);
+  const { status: wechatStatus, refresh: refreshWechatStatus } = useWechatPaymentStatus(wechatCheckout?.orderId, () => { void loadOrders(); });
+  const [credentialLoginOpen, setCredentialLoginOpen] = useState(false);
+  const [loginIdentifier, setLoginIdentifier] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
 
   const storageExpiresAt = state?.membership?.storageExpiresAt ?? state?.membership?.expiresAt;
   const { active: hasMembership, lifetime: hasLifetimeMembership, loading: memberAccessLoading } = useMembershipAccess();
+  const aiExpiresAt = state?.membership?.aiGrantExpiresAt;
+  useEffect(() => {
+    if (aiExpiresAt == null || aiExpiresAt <= Date.now()) return;
+    const timer = window.setTimeout(() => setMembershipNow(Date.now()),
+      Math.min(aiExpiresAt - Date.now() + 1, 2_147_483_647));
+    return () => window.clearTimeout(timer);
+  }, [aiExpiresAt, state?.revision, membershipNow]);
+  const aiKnown = state?.membershipStatus === 'verified' && typeof state.membership?.aiActive === 'boolean';
+  const hasAiMembership = aiKnown && state?.membership?.aiActive === true
+    && (aiExpiresAt == null || aiExpiresAt > Math.max(membershipNow, Date.now()));
+  const aiMembershipStatus = !aiKnown ? 'unknown'
+    : !hasAiMembership ? 'inactive'
+    : state?.membership?.aiGrantDurationUnit === 'month' && state.membership.aiGrantDurationCount === 1
+      ? 'active' : 'unknown';
   const annualMembershipSubscription = subscriptions.find((subscription) =>
     subscription.isAnnualMembership
       && ['active', 'trialing', 'past_due'].includes(subscription.status)
@@ -181,6 +203,8 @@ export function CloudSyncSection() {
         toast.error(t('preferences.cloud.order.unavailable'));
       } else if (result.checkStatus === 'refunded') {
         toast.info(t('preferences.cloud.order.refunded'));
+      } else if (result.checkStatus === 'closed') {
+        toast.info(t('preferences.cloud.order.closed'));
       } else {
         toast.error(t('preferences.cloud.order.unknownResult'));
       }
@@ -196,7 +220,11 @@ export function CloudSyncSection() {
     setResumingOrderId(order.id);
     try {
       const checkout = await cloud.createCheckout(order.productId);
-      await openUrl(checkout.checkoutUrl);
+      if (checkout.checkoutUrl.startsWith('weixin://')) {
+        setWechatCheckout(checkout);
+      } else if (checkout.checkoutUrl) {
+        await openUrl(checkout.checkoutUrl);
+      }
     } catch (error) {
       toast.error(cloudSyncErrorMessage(error, t, 'errors.friendly.checkout'));
     } finally {
@@ -274,6 +302,22 @@ export function CloudSyncSection() {
     }
   };
 
+  const loginWithCredentials = async () => {
+    if (busy || !loginIdentifier.trim() || !loginPassword) return;
+    setBusy(true);
+    try {
+      const next = await cloud.login(loginIdentifier.trim(), loginPassword);
+      applyState(next);
+      setLoginPassword('');
+      setCredentialLoginOpen(false);
+      toast.success(t('preferences.cloud.login'));
+    } catch (error) {
+      toast.error(cloudSyncErrorMessage(error, t));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   useEffect(() => subscribe<string>('cloud-google-auth-error', (message) => {
     toast.error(cloudSyncErrorMessage(message, t));
   }), [t]);
@@ -294,15 +338,69 @@ export function CloudSyncSection() {
       )}
 
       {!state?.authenticated ? (
-        <Button
-          variant="outline"
-          className="mx-auto flex h-10 w-[64%] gap-2 rounded-lg bg-[var(--card)]"
-          disabled={loadingLoginState || busy}
-          onClick={() => void startGoogleSignIn()}
-        >
-          <img src={googleLogo} alt="" aria-hidden="true" className="h-4 w-4 object-contain" />
-          {t('preferences.cloud.googleSignIn')}
-        </Button>
+        <div className="mx-auto w-full max-w-md space-y-3">
+          <Button
+            variant="outline"
+            className="flex h-10 w-full gap-2 rounded-lg bg-[var(--card)]"
+            disabled={loadingLoginState || busy}
+            onClick={() => void startGoogleSignIn()}
+          >
+            <img src={googleLogo} alt="" aria-hidden="true" className="h-4 w-4 object-contain" />
+            {t('preferences.cloud.googleSignIn')}
+          </Button>
+          <div className="flex items-center gap-3 text-xs text-[var(--muted-foreground)]">
+            <span className="h-px flex-1 bg-[var(--border)]" />
+            <span>{t('preferences.cloud.orContinueWith')}</span>
+            <span className="h-px flex-1 bg-[var(--border)]" />
+          </div>
+          {!credentialLoginOpen ? (
+            <Button
+              variant="outline"
+              className="h-10 w-full rounded-lg bg-[var(--card)]"
+              disabled={loadingLoginState || busy}
+              onClick={() => setCredentialLoginOpen(true)}
+            >
+              {t('preferences.cloud.existingAccount')}
+            </Button>
+          ) : (
+            <form
+              className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4"
+              onSubmit={(event) => { event.preventDefault(); void loginWithCredentials(); }}
+            >
+              <label className="block space-y-1 text-sm">
+                <span className="text-[var(--muted-foreground)]">{t('preferences.cloud.email')}</span>
+                <input
+                  className="h-9 w-full rounded-lg border border-[var(--border)] bg-transparent px-3 text-sm outline-none focus:border-[var(--brand)]"
+                  value={loginIdentifier}
+                  onChange={(event) => setLoginIdentifier(event.target.value)}
+                  placeholder="Email or mainland mobile number"
+                  autoComplete="username"
+                  autoFocus
+                  required
+                />
+              </label>
+              <label className="block space-y-1 text-sm">
+                <span className="text-[var(--muted-foreground)]">{t('preferences.cloud.password')}</span>
+                <input
+                  type="password"
+                  className="h-9 w-full rounded-lg border border-[var(--border)] bg-transparent px-3 text-sm outline-none focus:border-[var(--brand)]"
+                  value={loginPassword}
+                  onChange={(event) => setLoginPassword(event.target.value)}
+                  autoComplete="current-password"
+                  required
+                />
+              </label>
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="ghost" size="sm" onClick={() => setCredentialLoginOpen(false)}>
+                  {t('dialog.cancel')}
+                </Button>
+                <Button type="submit" size="sm" disabled={loadingLoginState || busy}>
+                  {busy ? t('preferences.cloud.loggingIn') : t('preferences.cloud.login')}
+                </Button>
+              </div>
+            </form>
+          )}
+        </div>
       ) : (
         <>
           <div className="flex items-center gap-3">
@@ -310,8 +408,18 @@ export function CloudSyncSection() {
               {state.account?.user.email?.trim().charAt(0).toUpperCase() || '?'}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-medium">
-                {state.account?.user.displayName}
+              <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-sm font-medium">
+                <span className="min-w-0 truncate">{state.account?.user.displayName}</span>
+                {hasAiMembership && (
+                  <span className="shrink-0 rounded-md bg-[color-mix(in_oklch,var(--success)_15%,transparent)] px-1.5 py-0.5 text-xs font-normal text-[var(--success)]">
+                    {t('preferences.cloud.section.ai')}
+                  </span>
+                )}
+                {hasMembership && (
+                  <span className="shrink-0 rounded-md bg-[color-mix(in_oklch,var(--success)_15%,transparent)] px-1.5 py-0.5 text-xs font-normal text-[var(--success)]">
+                    {t('preferences.cloud.section.storage')}
+                  </span>
+                )}
               </div>
               <div className="truncate text-sm text-[var(--muted-foreground)]">
                 {state.account?.user.email}
@@ -319,28 +427,11 @@ export function CloudSyncSection() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-0.5 rounded-xl border border-[var(--border)] bg-[var(--card)] p-1">
-            {([
-              ['ai', t('preferences.cloud.section.ai')],
-              ['storage', t('preferences.cloud.section.storage')],
-            ] as const).map(([section, label]) => (
-              <Button
-                key={section}
-                type="button"
-                size="sm"
-                variant={activeAccountSection === section ? 'secondary' : 'ghost'}
-                className="rounded-lg"
-                aria-pressed={activeAccountSection === section}
-                onClick={() => setActiveAccountSection(section)}
-              >
-                {label}
-              </Button>
-            ))}
-          </div>
-
-          {activeAccountSection === 'ai' ? (
-            <PiCloudModelsSection authenticated />
-          ) : (
+          <div className="space-y-5">
+            <PiCloudModelsSection
+              authenticated
+              membershipStatus={aiMembershipStatus}
+            />
             <div className="space-y-1.5">
             <div className="text-sm font-medium text-[var(--foreground)]">{t('preferences.cloud.storage.title')}</div>
             <section className="space-y-4 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
@@ -446,8 +537,8 @@ export function CloudSyncSection() {
                 )}
               </div>
             </section>
+            </div>
           </div>
-          )}
 
           <Dialog open={ordersDialogOpen} onOpenChange={setOrdersDialogOpen}>
             <DialogContent className="max-h-[80vh] max-w-2xl overflow-y-auto">
@@ -560,6 +651,33 @@ export function CloudSyncSection() {
                 )}
               </div>
             ))}
+            </DialogContent>
+          </Dialog>
+
+          <Dialog
+            open={wechatCheckout !== null}
+            onOpenChange={(open) => { if (!open) setWechatCheckout(null); }}
+          >
+            <DialogContent className="max-w-sm">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2"><WechatPaymentIcon />{t('billing.dialog.wechatTitle')}</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3">
+                <p className="text-sm text-[var(--muted-foreground)]">
+                  {t(wechatStatus === 'paid' ? 'billing.dialog.wechatPaid' : wechatStatus === 'paidRefreshFailed' ? 'billing.dialog.wechatPaidRefreshFailed' : wechatStatus === 'checkFailed' ? 'billing.dialog.wechatCheckFailed' : wechatStatus === 'pending' ? 'billing.dialog.wechatPendingStatus' : 'billing.dialog.wechatInstructions')}
+                </p>
+                {wechatStatus !== 'paid' && wechatStatus !== 'paidRefreshFailed' && wechatCheckout && (
+                  <WechatPaymentQr url={wechatCheckout.checkoutUrl} svg={wechatCheckout.qrCodeSvg} />
+                )}
+                <DialogFooter>
+                  {wechatStatus !== 'paid' && wechatStatus !== 'paidRefreshFailed' && <Button type="button" variant="outline" disabled={wechatStatus === 'checking'} onClick={() => void refreshWechatStatus()}>
+                    {t(wechatStatus === 'checking' ? 'billing.dialog.wechatChecking' : 'billing.dialog.wechatRefresh')}
+                  </Button>}
+                  <Button type="button" onClick={() => setWechatCheckout(null)}>
+                    {t('billing.dialog.wechatClose')}
+                  </Button>
+                </DialogFooter>
+              </div>
             </DialogContent>
           </Dialog>
 

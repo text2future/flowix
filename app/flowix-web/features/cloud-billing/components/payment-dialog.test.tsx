@@ -8,12 +8,18 @@ const mocks = vi.hoisted(() => ({
   listProducts: vi.fn(),
   createCheckout: vi.fn(),
   openUrl: vi.fn(),
+  listBillingOrders: vi.fn(),
+  refreshMembership: vi.fn(),
+  listSubscriptions: vi.fn(),
 }));
 
 vi.mock('@platform/tauri/client', () => ({
   cloud: {
     listProducts: mocks.listProducts,
     createCheckout: mocks.createCheckout,
+    listBillingOrders: mocks.listBillingOrders,
+    refreshMembership: mocks.refreshMembership,
+    listSubscriptions: mocks.listSubscriptions,
   },
   // `product-catalog.ts` probes both of these at module load time. A vitest
   // module mock throws on any export that is not declared, even with `?.`.
@@ -100,6 +106,9 @@ beforeEach(() => {
   mocks.listProducts.mockResolvedValue([STORAGE, AI]);
   mocks.createCheckout.mockResolvedValue({ checkoutUrl: 'https://pay.example/1', orderId: 'o1', status: 'pending' });
   mocks.openUrl.mockResolvedValue(undefined);
+  mocks.listBillingOrders.mockResolvedValue([]);
+  mocks.refreshMembership.mockResolvedValue({ active: false });
+  mocks.listSubscriptions.mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -156,6 +165,52 @@ describe('PaymentDialog', () => {
     expect(mocks.createCheckout).toHaveBeenCalledWith('ai-monthly');
     expect(mocks.openUrl).toHaveBeenCalledWith('https://pay.example/1');
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('opens WeChat QR in a separate dialog and returns to the plans on escape', async () => {
+    mocks.createCheckout.mockResolvedValue({
+      checkoutUrl: 'weixin://wxpay/example', qrCodeSvg: '<svg xmlns="http://www.w3.org/2000/svg"/>',
+      orderId: 'o1', status: 'pending',
+    });
+    const onClose = await render('credits');
+    await act(async () => {
+      document.body.querySelector<HTMLButtonElement>('.payment-dialog__product button')!.click();
+    });
+    const qr = document.querySelector<HTMLImageElement>('img[alt="billing.dialog.wechatQrAlt"]');
+    expect(qr?.closest('[role="dialog"]')?.getAttribute('aria-labelledby')).toBe('wechat-payment-dialog-title');
+    expect(qr?.closest('.payment-dialog')).toBeNull();
+    expect(document.body.textContent).not.toContain('weixin://wxpay/example');
+    expect(mocks.listBillingOrders).not.toHaveBeenCalled();
+    expect(mocks.openUrl).not.toHaveBeenCalled();
+    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
+    expect(onClose).not.toHaveBeenCalled();
+    expect(productElements()).toHaveLength(2);
+  });
+
+  it('refreshes the callback-updated order and shows payment success', async () => {
+    mocks.createCheckout.mockResolvedValue({ checkoutUrl: 'weixin://wxpay/example', qrCodeSvg: '<svg/>', orderId: 'o1', status: 'pending' });
+    mocks.listBillingOrders.mockResolvedValue([{ id: 'o1', status: 'paid' }]);
+    await render('credits');
+    await act(async () => { document.body.querySelector<HTMLButtonElement>('.payment-dialog__product button')!.click(); });
+    const refresh = Array.from(document.querySelectorAll('button')).find((button) => button.textContent === 'billing.dialog.wechatRefresh');
+    await act(async () => { refresh!.click(); });
+    expect(mocks.listBillingOrders).toHaveBeenCalledOnce();
+    expect(document.body.textContent).toContain('billing.dialog.wechatPaid');
+    expect(document.querySelector('img[alt="billing.dialog.wechatQrAlt"]')).toBeNull();
+  });
+
+  it.each(['missing', 'image error'])('recreates a failed QR locally without opening a new order (%s)', async (failure) => {
+    mocks.createCheckout.mockResolvedValue({ checkoutUrl: 'weixin://wxpay/example', qrCodeSvg: failure === 'missing' ? undefined : '<svg/>', orderId: 'o1', status: 'pending' });
+    await render('credits');
+    await act(async () => { document.body.querySelector<HTMLButtonElement>('.payment-dialog__product button')!.click(); });
+    if (failure === 'image error') {
+      act(() => { document.querySelector<HTMLImageElement>('img[alt="billing.dialog.wechatQrAlt"]')!.dispatchEvent(new Event('error')); });
+    }
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain('billing.dialog.wechatQrFailed');
+    const retry = Array.from(document.querySelectorAll('button')).find((button) => button.textContent === 'billing.dialog.wechatQrRetry');
+    await act(async () => { retry!.click(); });
+    expect(document.querySelector('img[alt="billing.dialog.wechatQrAlt"]')).not.toBeNull();
+    expect(mocks.createCheckout).toHaveBeenCalledTimes(1);
   });
 
   it('reports an empty catalog instead of an empty list', async () => {

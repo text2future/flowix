@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { preferences as tauriPreferences } from '@platform/tauri/client';
 import {
   DEFAULT_USER_SETTINGS,
+  DEFAULT_AI_MEMORY_LOCATIONS,
+  type AiMemoryLocation,
   type AgentsConfig,
   FONT_FAMILY_OPTIONS,
   type PersonalizeConfig,
@@ -84,6 +86,97 @@ function normalizeRecentAgentConversationsLimit(value: unknown): number {
   return Math.min(50, Math.max(1, Math.floor(value)));
 }
 
+function hasControlCharacter(value: string): boolean {
+  return [...value].some((character) => character.charCodeAt(0) <= 0x1f);
+}
+
+function normalizeAiMemoryFolder(value: unknown): string {
+  if (typeof value !== 'string') return DEFAULT_USER_SETTINGS.aiMemoryFolder;
+  const folder = value;
+  const trimmed = folder.trim();
+  if (
+    trimmed === '.'
+    || trimmed === '..'
+    || hasControlCharacter(folder)
+    || /[\\/<>:"|?*]/.test(folder)
+    || folder.endsWith('.')
+  ) return DEFAULT_USER_SETTINGS.aiMemoryFolder;
+  return folder;
+}
+
+function normalizeAiPersonality(value: unknown): string {
+  return typeof value === 'string' ? value : DEFAULT_USER_SETTINGS.aiPersonality;
+}
+
+function isValidAiMemoryPath(value: string): boolean {
+  const path = value.trim();
+  if (!path) return true;
+  if (
+    path.startsWith('/')
+    || path.includes('\\')
+    || hasControlCharacter(path)
+    || /[<>:"|?*`]/.test(path)
+    || path.includes('//')
+    || path.split('/').some((segment) => segment === '.' || segment === '..' || segment.endsWith('.') || segment.endsWith(' '))
+  ) return false;
+  return true;
+}
+
+function normalizeAiMemoryLocations(value: unknown): AiMemoryLocation[] {
+  const input = Array.isArray(value) ? value : [];
+  const byId = new Map<string, AiMemoryLocation>();
+  for (const item of input) {
+    if (!item || typeof item !== 'object') continue;
+    const candidate = item as Partial<AiMemoryLocation>;
+    if (typeof candidate.id !== 'string' || !candidate.id.trim()) continue;
+    const id = candidate.id.trim();
+    const builtin = DEFAULT_AI_MEMORY_LOCATIONS.find((location) => location.id === id);
+    const candidateName = typeof candidate.name === 'string' ? candidate.name.trim().slice(0, 64) : '';
+    const name = builtin?.id === 'general'
+      ? builtin.name
+      : typeof candidate.name === 'string'
+        ? candidateName
+        : builtin?.name ?? '';
+    const rawPath = typeof candidate.path === 'string' ? candidate.path : '';
+    const path = isValidAiMemoryPath(rawPath) ? rawPath.slice(0, 512) : '';
+    if (builtin?.id !== 'general' && (hasControlCharacter(name) || /[/\\]/.test(name))) continue;
+    byId.set(id, { id, name, path });
+  }
+
+  const builtins = DEFAULT_AI_MEMORY_LOCATIONS
+    .filter((location) => location.id === 'general' || byId.has(location.id))
+    .map((location) => byId.get(location.id) ?? { ...location });
+  const custom = [...byId.values()].filter((location) => !DEFAULT_AI_MEMORY_LOCATIONS.some(({ id }) => id === location.id));
+  return [...builtins, ...custom].slice(0, 32);
+}
+
+function initialAiMemoryLocations(value: unknown, legacyFolder: unknown): AiMemoryLocation[] {
+  const locations = normalizeAiMemoryLocations(value);
+  const legacy = normalizeAiMemoryFolder(legacyFolder).trim();
+  const root = legacy || 'Memory';
+  const oldDefaultSuffix: Record<string, string> = {
+    general: '通用',
+    solution: '方案',
+    workflow: '工作流',
+  };
+
+  if (Array.isArray(value) && value.some((item) => item && typeof item === 'object')) {
+    return locations.map((location) => {
+      const suffix = oldDefaultSuffix[location.id];
+      const previousDefault = suffix ? `${root}/${suffix}` : '';
+      if (previousDefault && location.path === previousDefault) {
+        return { ...location, path: '' };
+      }
+      return location;
+    });
+  }
+
+  return DEFAULT_AI_MEMORY_LOCATIONS.map((location) => ({
+    ...location,
+    path: legacy && legacy !== 'Memory' ? legacy : '',
+  }));
+}
+
 /**
  * 偏好设置全局单例 store。
  *
@@ -113,11 +206,13 @@ function mergeSettings(base: UserSettings, updates: UserSettingsUpdate): UserSet
     format: { ...base.format, ...(updates.format ?? {}) },
     theme,
     language: sanitizeAppLanguage(updates.language ?? base.language),
-    // region 不接受 patch, 只在 loadInitial 时由系统检测写入, 后续走 base。
-    region: base.region,
+    region: sanitizeRegion(updates.region ?? base.region),
     memoListView: normalizeMemoListView(updates.memoListView ?? base.memoListView),
     autoOpenCreatedNotesInBrowser:
       updates.autoOpenCreatedNotesInBrowser ?? base.autoOpenCreatedNotesInBrowser,
+    aiMemoryFolder: normalizeAiMemoryFolder(updates.aiMemoryFolder ?? base.aiMemoryFolder),
+    aiMemoryLocations: normalizeAiMemoryLocations(updates.aiMemoryLocations ?? base.aiMemoryLocations),
+    aiPersonality: normalizeAiPersonality(updates.aiPersonality ?? base.aiPersonality),
     recentAgentConversationsLimit: normalizeRecentAgentConversationsLimit(
       updates.recentAgentConversationsLimit ?? base.recentAgentConversationsLimit,
     ),
@@ -194,6 +289,9 @@ function sanitizeSettings(settings: UserSettings): UserSettings {
     region: sanitizeRegion(settings.region),
     memoListView: normalizeMemoListView(settings.memoListView),
     autoOpenCreatedNotesInBrowser: settings.autoOpenCreatedNotesInBrowser !== false,
+    aiMemoryFolder: normalizeAiMemoryFolder(settings.aiMemoryFolder),
+    aiMemoryLocations: normalizeAiMemoryLocations(settings.aiMemoryLocations),
+    aiPersonality: normalizeAiPersonality(settings.aiPersonality),
     recentAgentConversationsLimit: normalizeRecentAgentConversationsLimit(settings.recentAgentConversationsLimit),
     // 老 preference.json 没有这两个键：缺省视为开启，避免升级后文件树突然少一半。
     spaceShowHiddenFolders: settings.spaceShowHiddenFolders !== false,
@@ -259,8 +357,15 @@ export interface UserSettingsUpdate {
   format?: Partial<FormatConfig>;
   theme?: ThemeId;
   language?: AppLanguage;
+  region?: UserSettings['region'];
   memoListView?: MemoListView;
   autoOpenCreatedNotesInBrowser?: boolean;
+  /** Legacy AI memory root retained for migration from earlier settings. */
+  aiMemoryFolder?: string;
+  /** Named notebook-relative destinations for AI memory notes. */
+  aiMemoryLocations?: AiMemoryLocation[];
+  /** User-provided personality guidance included in native Agent instructions. */
+  aiPersonality?: string;
   recentAgentConversationsLimit?: number;
   /** 访问空间是否展示隐藏（点开头）文件夹。 */
   spaceShowHiddenFolders?: boolean;
@@ -361,6 +466,7 @@ export const useUserSettingsStore = create<UserSettingsState>((set, get) => ({
     try {
       const loaded = await tauriPreferences.get() as Partial<UserSettings> | null;
       const theme = sanitizeTheme(loaded?.theme, DEFAULT_USER_SETTINGS.theme);
+      const hasSavedAiPersonality = Boolean(loaded?.aiPersonality?.trim());
 
       // 首次安装: preference.json 里 language 是空串, 跟随系统语言。
       // 规则: zh-* → zh-CN, 其他 → en-US。 落盘后后续启动以用户偏好为准。
@@ -377,6 +483,10 @@ export const useUserSettingsStore = create<UserSettingsState>((set, get) => ({
         ...loaded,
         theme,
         language,
+        aiPersonality: hasSavedAiPersonality
+          ? loaded?.aiPersonality ?? DEFAULT_USER_SETTINGS.aiPersonality
+          : DEFAULT_USER_SETTINGS.aiPersonality,
+        aiMemoryLocations: initialAiMemoryLocations(loaded?.aiMemoryLocations, loaded?.aiMemoryFolder),
       });
       const sanitized = shareUnchangedSettings(
         get().settings,
@@ -389,7 +499,7 @@ export const useUserSettingsStore = create<UserSettingsState>((set, get) => ({
 
       // 首次安装时立即落盘 (不走 debounce), 避免用户首次启动后立刻改语言
       // 又被下次启动的"首次安装"判定覆盖。
-      if (isFirstInstall) {
+      if (isFirstInstall || !hasSavedAiPersonality) {
         await tauriPreferences.patch(sanitized as unknown as PreferencePatch);
       }
     } catch (error) {
@@ -403,6 +513,7 @@ export const useUserSettingsStore = create<UserSettingsState>((set, get) => ({
     const next = shareUnchangedSettings(prev, sanitizeSettings(mergeSettings(prev, updates)));
     if (next === prev) return Promise.resolve();
     set({ settings: next });
+    if (next.region !== prev.region) useRegionStore.getState().initialize(next.region);
     scheduleFlush(updates as PreferencePatch);
     // 返回 Promise<void> 以保持与旧 useUserSettings 的 Promise 签名兼容
     // (section 内部有些代码 await 这个返回值)。

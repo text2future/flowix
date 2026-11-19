@@ -1,6 +1,10 @@
 import type { ChatMessage } from "@/types";
 import type { HistoryCoverage } from "./agent-history-adapters";
-import { hydrateHistoricalMessages, reuseRenderEquivalentMessageReferences } from "./thread-history";
+import {
+  hydrateHistoricalMessages,
+  preserveLiveUserMessagePresentation,
+  reuseRenderEquivalentMessageReferences,
+} from "./thread-history";
 
 interface TurnRows { id: string; messages: ChatMessage[] }
 
@@ -122,13 +126,30 @@ export function reconcileCodexHistory(
     const unchanged = !requested || live.length === before.length && live.every((row, index) => row === before[index]);
     if (complete.has(turn.id) && unchanged && codexHistoryCoversTurn(turn.messages, live)) {
       const ids = new Set(turn.messages.map((row) => row.id));
-      return { id: turn.id, messages: retainMissing(turn.messages, live, (row) => row.id)
+      const liveByIdentity = new Map(live.map((row) => [row.id, row]));
+      for (const row of live) {
+        if (row.messageId) liveByIdentity.set(`${row.role}\u0000${row.messageId}`, row);
+      }
+      const materialized = turn.messages.map((row) => {
+        const counterpart = liveByIdentity.get(row.id) ??
+          (row.messageId ? liveByIdentity.get(`${row.role}\u0000${row.messageId}`) : undefined);
+        return preserveLiveUserMessagePresentation(row, counterpart);
+      });
+      return { id: turn.id, messages: retainMissing(materialized, live, (row) => row.id)
         .filter((row) => ids.has(row.id) || applicationRow(row)) };
     }
     // A same-turn update during the read must win, even if the turn count
     // revision is unchanged. Other turns can still converge independently.
     const byId = new Map(live.map((row) => [row.id, row]));
-    const rows = turn.messages.map((row) => byId.get(row.id) ?? row);
+    const byMessageId = new Map(live.filter((row) => row.messageId)
+      .map((row) => [`${row.role}\u0000${row.messageId}`, row]));
+    const rows = turn.messages.map((row) => {
+      const counterpart = byId.get(row.id) ??
+        (row.messageId ? byMessageId.get(`${row.role}\u0000${row.messageId}`) : undefined);
+      return row.role === "user"
+        ? preserveLiveUserMessagePresentation(row, counterpart)
+        : counterpart ?? row;
+    });
     return { id: turn.id, messages: retainMissing(rows, live, (row) => row.id) };
   });
   // The incoming read is a latest-page snapshot. Previously loaded turns

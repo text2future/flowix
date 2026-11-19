@@ -9,8 +9,24 @@ const htmlTokenizer = new Tokenizer();
 new Lexer({ tokenizer: htmlTokenizer, gfm: true });
 const MEDIA = /<(?:img|picture)\b/i;
 const COMMENT = /^<!--[\s\S]*?-->/;
-const ORDINARY_COMMENT = /<!--(?![ \t]*flowix:)[\s\S]*?-->/i;
-const FLOWIX_COMMENT = /^<!--[ \t]*flowix:/i;
+const FLOWIX_COMMENT_MARKER = /^<!--[ \t]*flowix:([a-z0-9-]+)(?=[ \t\r\n=]|-->|$)/i;
+const FLOWIX_SEMANTIC_MARKERS = new Set([
+  'agent-thread-card',
+  'component-block',
+  'media',
+  'media-library-reference',
+  'table',
+  'table-reference',
+  'table-widths',
+  'text',
+  'video-embed',
+]);
+const HTML_COMMENT = /<!--[\s\S]*?-->/;
+
+function isSemanticFlowixComment(source: string): boolean {
+  const marker = FLOWIX_COMMENT_MARKER.exec(source)?.[1]?.toLowerCase();
+  return marker !== undefined && FLOWIX_SEMANTIC_MARKERS.has(marker);
+}
 
 interface PreservedHtmlStorage {
   refreshers: Set<() => void>;
@@ -29,7 +45,9 @@ interface PreservedHtmlOptions {
 }
 
 function inlineHtml(src: string): string | undefined {
-  if (src.startsWith('<!--') && !FLOWIX_COMMENT.test(src)) return COMMENT.exec(src)?.[0];
+  if (src.startsWith('<!--') && !isSemanticFlowixComment(src)) {
+    return COMMENT.exec(src)?.[0];
+  }
   if (/^<picture\b/i.test(src)) {
     let depth = 0;
     for (let offset = 0; offset < src.length;) {
@@ -71,7 +89,9 @@ function createPreservedHtml(inline: boolean) {
       start(src) {
         // A block start hint inside a paragraph would split ordinary inline
         // images out of their paragraph. Let marked reach block HTML naturally.
-        return inline ? scanHead(src).search(/<(?:img\b|picture\b|!--(?![ \t]*flowix:))/i) : -1;
+        return inline
+          ? scanHead(src).search(/<(?:img\b|picture\b|!--)/i)
+          : -1;
       },
       tokenize(src) {
         if (!(inline ? src.startsWith('<') : /^ {0,3}</.test(src))) return undefined;
@@ -80,9 +100,10 @@ function createPreservedHtml(inline: boolean) {
           return raw ? { type: name, raw } : undefined;
         }
         // Flowix metadata has dedicated parsers and must keep its semantics.
-        if (FLOWIX_COMMENT.test(src.trimStart())) return undefined;
+        const source = src.trimStart();
+        if (isSemanticFlowixComment(source)) return undefined;
         const token = htmlTokenizer.html(src);
-        if (!token || (!MEDIA.test(token.raw) && !ORDINARY_COMMENT.test(token.raw))) return undefined;
+        if (!token || (!MEDIA.test(token.raw) && !HTML_COMMENT.test(token.raw))) return undefined;
         return { type: name, raw: token.raw };
       },
     },
@@ -93,12 +114,21 @@ function createPreservedHtml(inline: boolean) {
         const dom = document.createElement(inline ? 'span' : 'div');
         dom.contentEditable = 'false';
         dom.className = 'editor-preserved-html';
-        dom.title = String(node.attrs.html);
+        const html = String(node.attrs.html);
+        const isCommentOnly = /^<!--[\s\S]*-->$/.test(html.trim());
+        if (isCommentOnly) {
+          dom.hidden = true;
+          dom.style.display = 'none';
+          dom.setAttribute('aria-hidden', 'true');
+        } else {
+          dom.title = html;
+        }
         let generation = 0;
         let destroyed = false;
         const refresh = () => {
           const version = ++generation;
           dom.replaceChildren();
+          if (isCommentOnly) return;
           // Parse inertly and create only image elements ourselves. Never insert
           // authored HTML, event handlers, source/srcset, or scripts into the view.
           const parsed = new DOMParser().parseFromString(String(node.attrs.html), 'text/html');

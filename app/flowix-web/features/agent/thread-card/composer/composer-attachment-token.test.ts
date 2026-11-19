@@ -8,7 +8,11 @@ import { closeHistory } from '@tiptap/pm/history';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ComposerAttachmentToken } from './composer-attachment-token';
+import {
+  ComposerAttachmentToken,
+  composerAttachmentMarkdownToDisplay,
+  composerAttachmentMarkdownToPrompt,
+} from './composer-attachment-token';
 import { insertComposerAttachmentToken } from './composer-attachment-document';
 import { COMPOSER_ATTACHMENT_NODE_NAME } from './composer-attachment-compat';
 import { ComposerAttachmentController, type AgentThreadCardInputAttachment } from './composer-attachment-controller';
@@ -60,6 +64,16 @@ function setup(content = '') {
 const pdf = (name: string) => new File(['pdf'], name, { type: 'application/pdf' });
 
 describe('Inline composer attachments', () => {
+  it('keeps image markers in display Markdown without adding them to the model prompt', () => {
+    const path = '/tmp/test image.png';
+    const token = `⟦attachment:${encodeURIComponent(path)}:${encodeURIComponent('test image.png')}:${encodeURIComponent('image/png')}⟧`;
+
+    expect(composerAttachmentMarkdownToDisplay(`before ${token} after`)).toBe(
+      `before [test image.png](flowix://agent-image-attachment?path=${encodeURIComponent(path)}) after`,
+    );
+    expect(composerAttachmentMarkdownToPrompt(`before ${token} after`)).toBe('before  after');
+  });
+
   it('replaces the selected text once when uploading multiple files', async () => {
     const { editor, attachments } = setup('before replace after');
     editor.commands.setTextSelection({ from: 8, to: 15 });

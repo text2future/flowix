@@ -103,18 +103,20 @@ function ContextMenu({ children, onOpenChange }: ContextMenuProps) {
 
 interface ContextMenuTriggerProps extends React.HTMLAttributes<HTMLDivElement> {
 	asChild?: boolean;
+	/** Return false to leave this target's native context menu untouched. */
+	shouldOpen?: (event: React.MouseEvent<HTMLElement>) => boolean;
 }
 
 // `ContextMenuTrigger` opens the web menu on right-click at the cursor's
 // location. A child handler may handle the event first (for example by
 // opening a macOS native menu); only an event that remains unhandled reaches
 // the web-menu fallback below.
-function ContextMenuTrigger({ children, className, onContextMenu, asChild, ...props }: ContextMenuTriggerProps) {
+function ContextMenuTrigger({ children, className, onContextMenu, shouldOpen, asChild, ...props }: ContextMenuTriggerProps) {
 	const { openAt } = useContextMenuContext();
 
 	const handleContextMenu = (e: React.MouseEvent<HTMLDivElement>) => {
 		onContextMenu?.(e);
-		if (e.defaultPrevented) return;
+		if (e.defaultPrevented || shouldOpen?.(e as React.MouseEvent<HTMLElement>) === false) return;
 		e.preventDefault();
 		e.stopPropagation();
 		const focusOrigin = e.button === 2 || e.ctrlKey ? 'pointer' : 'keyboard';

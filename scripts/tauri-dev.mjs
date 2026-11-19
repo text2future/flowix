@@ -29,14 +29,14 @@ const devMode = config.includes('.dev.')
 if (devMode) childEnv.FLOWIX_DEV_MODE = '1'
 else delete childEnv.FLOWIX_DEV_MODE
 
-if (hasCloudEnvFlag && !['staging', 'prod'].includes(cloudEnvValue)) {
-  throw new Error(`Unsupported or missing --cloud-env value: ${cloudEnvValue ?? '<missing>'}. Use staging or prod.`)
+if (hasCloudEnvFlag && !['staging', 'cn-staging', 'prod'].includes(cloudEnvValue)) {
+  throw new Error(`Unsupported or missing --cloud-env value: ${cloudEnvValue ?? '<missing>'}. Use staging, cn-staging, or prod.`)
 }
 if (hasCloudEnvFlag && !devMode) {
   throw new Error('--cloud-env can only be used with a development Tauri config.')
 }
 if (process.env.FLOWIX_CLOUD_API_BASE) {
-  throw new Error('FLOWIX_CLOUD_API_BASE has been removed. Use --cloud-env=staging or --cloud-env=prod.')
+  throw new Error('FLOWIX_CLOUD_API_BASE has been removed. Use --cloud-env=staging, --cloud-env=cn-staging, or --cloud-env=prod.')
 }
 if (devMode) {
   childEnv.FLOWIX_CLOUD_ENVIRONMENT = cloudEnvValue ?? 'prod'

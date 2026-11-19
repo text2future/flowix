@@ -25,9 +25,9 @@
   min-width: 0;
   max-width: calc(100% - 1.6rem);
   margin: 0 0.8rem 0.6rem;
-  padding: 0 0.4rem 0 0.8rem;
-  border: 1px solid var(--border);
-  border-radius: 1rem;
+  padding: 0 0.4rem;
+  border: 1px solid color-mix(in oklch, var(--border) 95%, var(--foreground) 5%);
+  border-radius: 1.2rem;
   background: var(--input-bg, var(--document-bg));
   /* Keep the composer lighter than the Slash menu while
    * keeping a shorter offset for the composer sitting against the canvas edge. */
@@ -108,14 +108,6 @@
   cursor: pointer;
 }
 
-.agent-conversation-surface .agent-composer--expanded {
-  width: calc(100% - 2 * var(--agent-content-inline-inset));
-  max-width: var(--agent-content-max-width);
-  margin: 0 auto 0.6rem;
-  /* 全屏态: 宽度 / margin 与基线不同; 背景由基线 var(--document-bg) 提供,
-   * 不再覆盖, 全屏 / 非全屏视觉一致。 */
-}
-
 .agent-conversation-surface .agent-composer--multi-line {
   align-items: flex-end;
 }
@@ -145,19 +137,8 @@
   gap: 0.1rem;
 }
 
-.agent-conversation-surface .agent-composer__model {
-  display: none;
-}
-
-.agent-conversation-surface .agent-composer__mode {
-  display: none;
-}
-
-.agent-conversation-surface .agent-composer__workspace {
-  display: none;
-}
-
-.agent-conversation-surface .agent-composer__permission {
+.agent-conversation-surface
+  :is(.agent-composer__model, .agent-composer__mode, .agent-composer__workspace, .agent-composer__permission) {
   display: none;
 }
 
@@ -195,13 +176,13 @@
   align-items: center;
   max-width: 190px;
   min-width: 0;
-  height: 28px;
+  height: var(--agent-composer-control-size);
   gap: 5px;
   padding: 0 8px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 10px;
   background: transparent;
-  color: var(--muted-foreground);
+  color: var(--foreground);
   font-size: calc(var(--font-size, 16px) * 0.9);
   line-height: 1;
   cursor: pointer;
@@ -220,13 +201,13 @@
   align-items: center;
   max-width: 190px;
   min-width: 0;
-  height: 28px;
+  height: var(--agent-composer-control-size);
   gap: 5px;
   padding: 0 8px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 10px;
   background: transparent;
-  color: var(--muted-foreground);
+  color: var(--foreground);
   font-size: calc(var(--font-size, 16px) * 0.9);
   line-height: 1;
   font-family: inherit;
@@ -263,21 +244,21 @@
   outline: none;
 }
 
-  /* Expanded conversation composer: the input occupies the upper row and the
- * role/add + send controls share a dedicated bottom row. Both fullscreen
- * surfaces opt in through .agent-composer--expanded. */
+/* Expanded composer: input on the upper row, actions and send on the lower row. */
 .agent-conversation-surface .agent-composer--expanded {
   --agent-composer-input-min-height: 2.6rem;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
-  row-gap: 0.35rem;
-  /* Keep the top breathing room inside the scrollable input area. */
-  padding: 0.55rem 0.6rem 0.55rem 0.8rem;
   grid-template-areas:
     "input input"
     "actions send";
   grid-template-rows: minmax(var(--agent-composer-input-min-height), auto) auto;
+  align-items: end;
+  row-gap: 0.35rem;
+  width: calc(100% - 2 * var(--agent-content-inline-inset));
+  max-width: var(--agent-content-max-width);
+  margin: 0 auto 0.6rem;
+  padding: 0.55rem 0.6rem;
   max-height: none;
 }
 
@@ -297,13 +278,13 @@
   gap: 0.2rem;
   min-width: 0;
   max-width: 12rem;
-  height: 24px;
+  height: var(--agent-composer-control-size);
   flex: 0 1 auto;
   padding: 0 0.45rem;
   border: 0;
-  border-radius: 6px;
+  border-radius: 10px;
   background: transparent;
-  color: var(--muted-foreground);
+  color: var(--foreground);
   cursor: pointer;
   font: inherit;
   font-size: calc(var(--font-size, 16px) * 0.9);
@@ -364,7 +345,7 @@
 
 .agent-conversation-surface .agent-composer__model-effort {
   flex: 0 0 auto;
-  color: var(--muted-foreground);
+  color: var(--foreground);
   font-weight: 400;
 }
 
@@ -375,14 +356,14 @@
   width: 12px;
   height: 12px;
   flex: 0 0 auto;
-  opacity: 0.72;
+  opacity: 1;
 }
 
 .agent-conversation-surface .agent-composer__workspace-icon {
   width: 15px;
   height: 15px;
   flex: 0 0 auto;
-  color: var(--muted-foreground);
+  color: var(--foreground);
 }
 
 .agent-conversation-surface .agent-composer--expanded .agent-composer__send-tooltip {
@@ -395,17 +376,17 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: var(--agent-composer-control-size);
+  height: var(--agent-composer-control-size);
   flex: 0 0 auto;
   align-self: center;
-  /* Add 略小于发送按钮, 但仍通过 align-self: center 保持上下居中。
+  /* Add 与发送按钮同为 32px, 并通过 align-self: center 保持上下居中。
    * 额外呼吸位叠加在 __composer-actions 行 gap 之上。 */
   margin-right: 0.2rem;
   overflow: hidden;
   border: 0;
   padding: 0;
-  border-radius: 6px;
+  border-radius: 10px;
   background: var(--muted);
   color: var(--secondary-foreground);
   font-size: calc(var(--font-size, 16px) * 0.9);
@@ -659,7 +640,7 @@
   white-space: nowrap;
 }
 
-/* 发送按钮 ── 28×28 圆形, 内嵌 16×16 Phosphor 图标。
+/* 发送按钮 ── 32×32 圆形, 内嵌 15×15 Phosphor 图标。
  * 尺寸取自 --atc-send-size, 与输入区 min-height 公式联动。 */
 
 /* Shared input, inline token and caret rules for Agent conversation composer. */

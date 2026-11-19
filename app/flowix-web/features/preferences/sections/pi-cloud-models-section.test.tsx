@@ -54,7 +54,7 @@ afterEach(async () => {
 it('refreshes the Cloud model catalog before reloading the local Pi catalog', async () => {
   await act(async () => root.render(<PiCloudModelsSection authenticated />));
   const refreshButton = Array.from(container.querySelectorAll('button')).find(
-    (button) => button.textContent?.includes('preferences.pi.cloudCreditsRefresh'),
+    (button) => button.getAttribute('aria-label') === 'preferences.pi.cloudCreditsRefresh',
   );
   expect(refreshButton).toBeDefined();
 

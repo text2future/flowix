@@ -18,6 +18,7 @@
 //! 之后要改默认笔记目录）。反向没有——`tree` 不认识任何写命令，`view` 不认识
 //! `DocTreeItem`。
 
+pub mod editor_components;
 pub mod folder_import;
 pub mod media;
 pub mod mutate;
@@ -33,6 +34,7 @@ mod tests;
 // 命令与类型整体再导出。用通配而不是逐项列举是必需的：`#[tauri::command]` 会在
 // 定义处一并生成 `__cmd__<name>` 宏，`generate_handler!` 查的是这条宏而不是函数，
 // 逐个列名字会稳定漏掉它。
+pub use editor_components::*;
 pub use media::*;
 pub use mutate::*;
 pub use read::*;

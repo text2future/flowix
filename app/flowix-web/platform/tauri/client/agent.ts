@@ -178,6 +178,7 @@ interface ChatResponse {
 
 interface AgentUserMessage {
   content: string;
+  displayContent?: string;
   llmContent?: string;
   imagePaths?: string[];
   runId?: string;

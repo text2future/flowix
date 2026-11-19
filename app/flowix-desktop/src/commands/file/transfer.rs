@@ -1,8 +1,10 @@
 //! 改名、移动与外部导入。
 //!
 //! 三种变更共享一条尾部流程 [`rename_path_and_notify`]：先让 `external_watch`
-//! 认领这次移动（否则 watcher 会当成「外部删除 + 外部新建」各报一次），再对账
-//! 笔记索引、资源目录与集合目录，最后把笔记本相对路径变化广播给前端。
+//! 认领这次移动（否则 watcher 会当成「外部删除 + 外部新建」各报一次），再用一次
+//! 事务把索引里的旧路径搬到新路径，最后把笔记本相对路径变化广播给前端。
+//! 目录移动之后不再同步重扫笔记索引与资源目录：那两步只补「从未入过索引」的文件，
+//! 交给 `notebook_background` 的被动维护队列，改名因此不必等一次全库遍历。
 //! 导入是拷贝，只有终点一个新路径。
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -26,6 +28,10 @@ fn rename_path_and_notify(
     state: &AppState,
     app: &tauri::AppHandle,
 ) -> Result<Option<crate::events::path_change::NotebookPathMove>, String> {
+    let started = std::time::Instant::now();
+    // Drop whatever a previous rename on this worker thread left behind, so a
+    // failed call cannot log the timings of the one before it.
+    let _ = flowix_core::memo_file::rename_probe::take_last();
     let source_was_directory = source.is_dir();
     let mf = read_lock(&state.memo_file, "memo_file");
     let roots_before = if source_was_directory { mf.read_notebook_configs().map_err(file_mutation_error)? } else { Vec::new() };
@@ -45,16 +51,19 @@ fn rename_path_and_notify(
                     .is_some_and(|path| path.starts_with(root))
             })
         }) {
-            if let Err(error) = mf.reconcile_note_index(&config.id) {
-                tracing::warn!(notebook_id = %config.id, "V2 index refresh after folder move failed: {error}");
-            }
-            // The caller switches its folder scope when this command returns.
-            // Keep the resource catalog on the new scope consistent with the filesystem.
-            if let Err(error) = mf.reconcile_resources(&config.id) {
-                tracing::warn!(notebook_id = %config.id, "resource catalog refresh after folder move failed: {error}");
-            }
+            // The move above already rebased every indexed row (notes, resources,
+            // collections) inside one transaction. The two full passes that used
+            // to run here only picked up files that were never indexed, at the
+            // cost of a whole-notebook walk plus one transaction per note while
+            // the user waited for the rename to return. Hand them to the passive
+            // maintenance queue: it dedups per notebook, reruns when a pass is
+            // already in flight, and reports back through the maintenance events.
+            state.notebook_background.request(&config.id, true, true);
+            state.notebook_background.request_media(&config.id);
             // The collection catalog resolve canonicalises the root itself, so a
-            // failed canonicalise still reports through its own warning.
+            // failed canonicalise still reports through its own warning. It stays
+            // synchronous because the caller reads collection rows on the new
+            // scope as soon as this command returns.
             flowix_core::collection_store::refresh_catalog_best_effort(&mf, &config.id);
         }
     } else {
@@ -134,7 +143,27 @@ fn rename_path_and_notify(
             );
         }
     }
+    record_rename_profile(started, source_was_directory);
     Ok(notebook_change)
+}
+
+/// A rename slower than this is worth a line in `app.log`. The whole path is a
+/// filesystem `rename` plus a handful of SQL updates on a healthy machine, so
+/// anything above this means the exclusive window (the one a concurrent save
+/// waits on) is doing real work — which is exactly the signal needed to decide
+/// whether the index rebase still needs to be made more precise.
+const SLOW_RENAME_LOG_MS: f64 = 50.0;
+
+fn record_rename_profile(started: std::time::Instant, directory: bool) {
+    let Some(profile) = flowix_core::memo_file::rename_probe::take_last() else { return };
+    let tail = started.elapsed().saturating_sub(profile.total);
+    let payload = profile.to_json(tail, directory);
+    let total_ms = profile.total_ms() + tail.as_secs_f64() * 1_000.0;
+    if total_ms >= SLOW_RENAME_LOG_MS {
+        crate::runtime_log::record_event("warn", "slow-rename", payload);
+    } else {
+        crate::runtime_log::record_event("info", "rename-profile", payload);
+    }
 }
 
 #[tauri::command]
@@ -467,8 +496,10 @@ pub async fn rename_folder(
             if let Some((_notebook_id, result)) = collection_move {
                 let path = Path::new(&result.notebook_path).join(&result.actual_relative_path);
                 {
-                    // Folder-placed collections rename through their own
-                    // mutation, which bypasses `rename_path_and_notify`.
+                    // A folder that still owns a legacy `.index.yaml` renames
+                    // through the collection mutation, which bypasses
+                    // `rename_path_and_notify` (see
+                    // `collection::rename_folder_collection_at_path`).
                     let memo = read_lock(&state.memo_file, "memo_file");
                     rebase_default_create_folder_for_move(&memo, source, &path, &app);
                 }

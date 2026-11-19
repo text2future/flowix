@@ -975,6 +975,7 @@ export function NotebookFileTree({
                   }}
                   more={{
                     onHeightChange: setMoreSectionHeight,
+                    notebookPath,
                   }}
                 />
               </div>

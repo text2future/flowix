@@ -118,8 +118,16 @@ impl<'a> NoteService<'a> {
             Ok(None) | Err(_) => self
                 .memo_file
                 .derive_note_entry_from_disk(notebook_id, relative_path)
-                .map_err(FlowixError::Io),
+                .map_err(|error| note_read_error(relative_path, error)),
         }
+    }
+}
+
+fn note_read_error(relative_path: &str, error: std::io::Error) -> FlowixError {
+    if error.kind() == std::io::ErrorKind::NotFound {
+        FlowixError::NotFound(format!("note not found: {relative_path}"))
+    } else {
+        FlowixError::Io(error)
     }
 }
 
@@ -343,7 +351,8 @@ impl NoteService<'_> {
         let entry = self.path_note_entry(&notebook.id, &relative_path)?;
         let path = notebook_path_from_relative(&PathBuf::from(&notebook.path), &relative_path)
             .map_err(FlowixError::InvalidInput)?;
-        let body = std::fs::read_to_string(&path)?;
+        let body = std::fs::read_to_string(&path)
+            .map_err(|error| note_read_error(&relative_path, error))?;
         Ok(NoteDocument {
             entry,
             notebook,
@@ -363,7 +372,8 @@ impl NoteService<'_> {
         let path =
             notebook_path_from_relative(&PathBuf::from(&notebook.path), &entry.relative_path)
                 .map_err(FlowixError::InvalidInput)?;
-        let body = std::fs::read_to_string(&path)?;
+        let body = std::fs::read_to_string(&path)
+            .map_err(|error| note_read_error(relative_path, error))?;
         Ok(NoteDocument {
             entry,
             notebook,
@@ -624,6 +634,27 @@ mod tests {
             }])
             .unwrap();
         (temp, memo_file)
+    }
+
+    #[test]
+    fn missing_note_io_maps_to_not_found_but_other_errors_stay_io() {
+        let missing = note_read_error(
+            "missing.md",
+            std::io::Error::from(std::io::ErrorKind::NotFound),
+        );
+        assert!(matches!(
+            missing,
+            FlowixError::NotFound(message) if message.contains("missing.md")
+        ));
+
+        let denied = note_read_error(
+            "private.md",
+            std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied"),
+        );
+        assert!(matches!(
+            denied,
+            FlowixError::Io(error) if error.kind() == std::io::ErrorKind::PermissionDenied
+        ));
     }
 
     #[test]

@@ -70,6 +70,30 @@ it('keeps Flowix metadata routed to the existing media parser', () => {
   expect(editor.state.doc.firstChild!.attrs.widthPercent).toBe(60);
 });
 
+it.each([
+  '<!-- flowix:enviroment\nAgent context\n-->',
+  '<!-- flowix:table-custom -->',
+  '<!-- flowix:media-custom -->',
+])('preserves and hides non-semantic Flowix comments: %s', source => {
+  const editor = createEditor(source);
+  expect(htmlSources(editor.getJSON())).toEqual([source]);
+  const comment = editor.view.dom.querySelector<HTMLElement>('.editor-preserved-html');
+  expect(comment?.hidden).toBe(true);
+  expect(comment?.style.display).toBe('none');
+  expect(serializeEditorMarkdown(editor)).toContain(source);
+});
+
+it('hides and preserves the complete managed instruction comment when editing adjacent text', () => {
+  const block = '<!--\nFLOWIX_MANAGED_INSTRUCTIONS_BEGIN\n\n## Flowix CLI\n\nInstructions for the agent.\n\nFLOWIX_MANAGED_INSTRUCTIONS_END\n-->';
+  const editor = createEditor(`Before\n\n${block}\n\nAfter`);
+  expect(htmlSources(editor.getJSON())).toEqual([block]);
+  expect(editor.view.dom.querySelector<HTMLElement>('.editor-preserved-html')?.hidden).toBe(true);
+  editor.commands.insertContentAt(editor.state.doc.content.size, '<p>New text</p>');
+  const reopened = createEditor(serializeEditorMarkdown(editor));
+  expect(htmlSources(reopened.getJSON())).toEqual([block]);
+  expect(reopened.state.doc.textContent).toContain('New text');
+});
+
 it('resolves relative previews without persisting resolved URLs or executing authored HTML', async () => {
   const readImage = vi.fn().mockResolvedValue('data:image/png;base64,AA==');
   const context = { documentPath: '/book/README.md', scopePath: '/book', readImage };

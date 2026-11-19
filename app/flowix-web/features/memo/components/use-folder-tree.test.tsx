@@ -3,12 +3,12 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { files, type DocTreeItem } from '@platform/tauri/client';
+import { publishNotebookPathMove } from '@platform/tauri/notebook-change-events';
 import { noteMetadata } from '../services/note-metadata-service';
+import { useNoteStore, type Notebook } from '../store/note-store';
 import {
-  buildLoadedTreeIndex,
   flattenVisibleTree,
   useFolderTree,
-  type FolderTreeState,
 } from '@features/memo/components/use-folder-tree';
 
 // files IPC mock ── getTree / getDirChildren 均按测试用例注入。
@@ -39,6 +39,17 @@ function file(path: string, name: string): DocTreeItem {
 // hook 状态经 onChange 回调写到外层变量。
 let lastState: ReturnType<typeof useFolderTree> | null = null;
 
+/** Trees resolve their notebook root from the store; most cases mount under this one. */
+const ROOT_NOTEBOOK_ID = 'nb-root';
+const rootNotebook: Notebook = {
+  id: ROOT_NOTEBOOK_ID,
+  name: 'root',
+  path: '/root',
+  createdAt: 0,
+  updatedAt: 0,
+  isDefault: false,
+};
+
   function TreeProbe({ folderPath }: { folderPath: string }) {
   lastState = useFolderTree(folderPath);
   return null;
@@ -52,6 +63,7 @@ describe('useFolderTree', () => {
     noteMetadata.clear();
     getTreeMock.mockReset();
     getDirChildrenMock.mockReset();
+    useNoteStore.setState({ notebooks: [rootNotebook] });
     lastState = null;
     container = document.createElement('div');
     root = createRoot(container);
@@ -62,12 +74,44 @@ describe('useFolderTree', () => {
     container?.remove();
     root = null;
     container = null;
+    useNoteStore.setState({ notebooks: [] });
     vi.useRealTimers();
   });
 
   function mount(folderPath: string) {
     act(() => {
       root?.render(createElement(TreeProbe, { folderPath }));
+    });
+  }
+
+/**
+ * Mirrors what the real client does (`acceptPathMutationResult`): the command
+ * receipt publishes `path-moved` before the promise resolves. Mocking
+ * `files.renameFolder` without this would test a contract the app never has —
+ * the tree deliberately does not rebase from the caller side any more.
+ */
+let moveSequence = 0;
+
+/**
+ * Advance the clock past the tree's 350ms refresh dedup window without sleeping.
+ * Only `Date.now` is shifted, so timers, `waitFor` and promise scheduling keep
+ * working normally; call `mockRestore()` when the test is done.
+ */
+function expireRefreshWindow(offsetMs = 5_000) {
+  const realNow = Date.now.bind(Date);
+  let offset = 0;
+  const spy = vi.spyOn(Date, 'now').mockImplementation(() => realNow() + offset);
+  offset = offsetMs;
+  return spy;
+}
+  function broadcastMove(previousPath: string, nextPath: string) {
+    const relative = (path: string) => path.replace(/^\/root\/?/, '');
+    publishNotebookPathMove({
+      changeId: `move-${moveSequence++}`,
+      notebookId: ROOT_NOTEBOOK_ID,
+      previousRelativePath: relative(previousPath),
+      relativePath: relative(nextPath),
+      directory: true,
     });
   }
 
@@ -365,7 +409,7 @@ describe('useFolderTree', () => {
       await act(async () => { await lastState?.refresh(parent); });
       expect(lastState?.expanded.has(oldPath)).toBe(true);
       expect(flattenVisibleTree(lastState!).map(({ item }) => item.fullPath)).toContain(`${oldPath}/note.md`);
-      await act(async () => { complete(nextPath); await saving; });
+      await act(async () => { broadcastMove(oldPath, nextPath); complete(nextPath); await saving; });
       expect(lastState?.expanded.has(nextPath)).toBe(true);
       expect(flattenVisibleTree(lastState!).map(({ item }) => item.fullPath)).toContain(`${nextPath}/note.md`);
     } finally {
@@ -382,7 +426,10 @@ describe('useFolderTree', () => {
 
     let finishRefresh!: (items: DocTreeItem[]) => void;
     getTreeMock.mockImplementationOnce(() => new Promise((resolve) => { finishRefresh = resolve; }));
-    const rename = vi.spyOn(files, 'renameFolder').mockResolvedValueOnce(newPath);
+    const rename = vi.spyOn(files, 'renameFolder').mockImplementationOnce(async () => {
+      broadcastMove(oldPath, newPath);
+      return newPath;
+    });
     try {
       let saving!: Promise<string>;
       act(() => { saving = lastState!.renameFolder(oldPath, 'new', '/root'); });
@@ -405,6 +452,43 @@ describe('useFolderTree', () => {
     }
   });
 
+  it('重命名后父目录只做静默补读, 父行不出现加载态', async () => {
+    const parent = '/root/parent';
+    const oldPath = `${parent}/old`;
+    const newPath = `${parent}/new`;
+    let renamed = false;
+    getTreeMock.mockResolvedValue([dir(parent, 'parent')]);
+    getDirChildrenMock.mockImplementation(async (path) => path === parent
+      ? [dir(renamed ? newPath : oldPath, renamed ? 'new' : 'old')]
+      : [file(`${path}/note.md`, 'note.md')]);
+    mount('/root');
+    await vi.waitFor(() => expect(lastState?.loading).toBe(false));
+    await act(async () => lastState?.toggle(parent));
+    await act(async () => lastState?.toggle(oldPath));
+    // Expire the refresh dedup window so the follow-up read is really issued,
+    // without making the suite wait for it.
+    const clock = expireRefreshWindow();
+
+    const rename = vi.spyOn(files, 'renameFolder').mockImplementationOnce(async () => {
+      renamed = true;
+      broadcastMove(oldPath, newPath);
+      return newPath;
+    });
+    try {
+      await act(async () => { await lastState!.renameFolder(oldPath, 'new', '/root'); });
+      // The rebase already published the new path; the follow-up read must not
+      // put the parent row into a loading state.
+      expect(lastState?.loadingDirectories.size).toBe(0);
+      await vi.waitFor(() => expect(getDirChildrenMock).toHaveBeenCalledWith(parent));
+      expect(lastState?.loadingDirectories.size).toBe(0);
+      expect(flattenVisibleTree(lastState!).map(({ item }) => item.fullPath))
+        .toEqual([parent, newPath, `${newPath}/note.md`]);
+    } finally {
+      clock.mockRestore();
+      rename.mockRestore();
+    }
+  });
+
   it('重命名锁定期间到达的 watcher 刷新会在新路径补执行', async () => {
     const oldPath = '/root/old';
     const newPath = '/root/new';
@@ -416,8 +500,8 @@ describe('useFolderTree', () => {
     mount('/root');
     await vi.waitFor(() => expect(lastState?.loading).toBe(false));
     await act(async () => lastState?.toggle(oldPath));
-    // Let the tree's refresh deduplication window expire before delivering the watcher event.
-    await new Promise((resolve) => setTimeout(resolve, 400));
+    // Expire the dedup window so the later watcher refresh is not swallowed by it.
+    const clock = expireRefreshWindow();
 
     let completeRename!: (path: string) => void;
     const rename = vi.spyOn(files, 'renameFolder').mockImplementationOnce(() => new Promise((resolve) => {
@@ -434,6 +518,7 @@ describe('useFolderTree', () => {
       expect(getDirChildrenMock).toHaveBeenCalledTimes(1);
 
       await act(async () => {
+        broadcastMove(oldPath, newPath);
         completeRename(newPath);
         await saving;
       });
@@ -443,8 +528,136 @@ describe('useFolderTree', () => {
       expect(lastState?.expanded.has(newPath)).toBe(true);
       expect(lastState?.nodes.get(newPath)?.children?.map((item) => item.name)).toEqual(['updated.md']);
     } finally {
+      clock.mockRestore();
       rename.mockRestore();
     }
+  });
+
+  /**
+   * 标题栏改名会把 surface 的根换到新路径。改名不应该让树退回骨架，也不应该
+   * 把用户展开的子树折叠掉。判据是**收到过这次改名广播**，不是「父目录相同」：
+   * 后者会把切换到兄弟目录也当成改名。
+   */
+  describe('根目录改名换根', () => {
+    it('不进入加载态, 已展开的子树跟着搬到新根', async () => {
+      getTreeMock.mockImplementation(async (path) => (path.startsWith('/root/old')
+        ? [dir('/root/old/sub', 'sub')]
+        : [dir('/root/new/sub', 'sub')]));
+      getDirChildrenMock.mockResolvedValue([file('/root/old/sub/a.md', 'a.md')]);
+      mount('/root/old');
+      await vi.waitFor(() => expect(lastState?.loading).toBe(false));
+      await act(async () => lastState?.toggle('/root/old/sub'));
+      expect(lastState?.nodes.has('/root/old/sub/a.md')).toBe(true);
+
+      let finish!: (items: DocTreeItem[]) => void;
+      getTreeMock.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+      act(() => broadcastMove('/root/old', '/root/new'));
+      mount('/root/new');
+
+      expect(lastState?.loading).toBe(false);
+      expect(lastState?.nodes.has('/root/new/sub/a.md')).toBe(true);
+      expect(lastState?.expanded.has('/root/new/sub')).toBe(true);
+
+      await act(async () => { finish([dir('/root/new/sub', 'sub')]); });
+      expect(lastState?.loading).toBe(false);
+      expect(lastState?.expanded.has('/root/new/sub')).toBe(true);
+      expect(lastState?.nodes.has('/root/new/sub/a.md')).toBe(true);
+      expect(lastState?.rootChildren.map((item) => item.fullPath)).toEqual(['/root/new/sub']);
+    });
+
+    it('根已知在改名时, watcher 刷新不再去读旧根', async () => {
+      getTreeMock.mockResolvedValue([dir('/root/old/sub', 'sub')]);
+      getDirChildrenMock.mockResolvedValue([file('/root/old/sub/a.md', 'a.md')]);
+      mount('/root/old');
+      await vi.waitFor(() => expect(lastState?.loading).toBe(false));
+      await act(async () => lastState?.toggle('/root/old/sub'));
+
+      act(() => broadcastMove('/root/old', '/root/new'));
+      const readsBefore = getTreeMock.mock.calls.length;
+      await act(async () => { await lastState?.refreshDirectoriesNow(['/root/old']); });
+
+      expect(getTreeMock.mock.calls.length).toBe(readsBefore);
+      expect(lastState?.error).toBeNull();
+      expect(lastState?.nodes.has('/root/old/sub/a.md')).toBe(true);
+    });
+
+    it('早于广播发出的旧根回读迟到返回 null 时不清空树', async () => {
+      getTreeMock.mockResolvedValue([dir('/root/old/sub', 'sub')]);
+      getDirChildrenMock.mockResolvedValue([file('/root/old/sub/a.md', 'a.md')]);
+      mount('/root/old');
+      await vi.waitFor(() => expect(lastState?.loading).toBe(false));
+      await act(async () => lastState?.toggle('/root/old/sub'));
+
+      // watcher 已经发起了旧根的回读, 广播随后才到 —— 这个顺序在真实改名里很常见。
+      let finishRoot!: (items: DocTreeItem[] | null) => void;
+      getTreeMock.mockImplementationOnce(() => new Promise((resolve) => { finishRoot = resolve; }));
+      const refreshing = lastState!.refreshDirectoriesNow(['/root/old']);
+      act(() => broadcastMove('/root/old', '/root/new'));
+      await act(async () => { finishRoot(null); await refreshing; });
+
+      expect(lastState?.error).toBeNull();
+      expect(lastState?.rootChildren.map((item) => item.fullPath)).toEqual(['/root/old/sub']);
+      expect(lastState?.nodes.has('/root/old/sub/a.md')).toBe(true);
+      expect(lastState?.expanded.has('/root/old/sub')).toBe(true);
+    });
+
+    it('没有 surface 换根时, 旧根被搁置到过期后 watcher 恢复刷新', async () => {
+      getTreeMock.mockResolvedValue([dir('/root/old/sub', 'sub')]);
+      mount('/root/old');
+      await vi.waitFor(() => expect(lastState?.loading).toBe(false));
+
+      act(() => broadcastMove('/root/old', '/root/new'));
+      const readsBefore = getTreeMock.mock.calls.length;
+      await act(async () => { await lastState?.refreshDirectoriesNow(['/root/old']); });
+      // 广播之后这一棵仍未换根: 旧路径不该再被读。
+      expect(getTreeMock.mock.calls.length).toBe(readsBefore);
+
+      // 没有任何 surface 认领这次移动。搁置必须自己过期, 否则这棵树会永远
+      // 停止响应 watcher —— 比「停在旧路径」更糟: 新建的文件再也不会出现。
+      const clock = expireRefreshWindow(6_000);
+      try {
+        await act(async () => { await lastState?.refreshDirectoriesNow(['/root/old']); });
+        expect(getTreeMock.mock.calls.length).toBe(readsBefore + 1);
+        expect(lastState?.rootChildren.map((item) => item.fullPath)).toEqual(['/root/old/sub']);
+      } finally {
+        clock.mockRestore();
+      }
+    });
+
+    it('切到兄弟目录不是改名: 回到加载态, 不复用对方的内容', async () => {
+      getTreeMock.mockImplementation(async (path) => (path.startsWith('/root/a')
+        ? [file('/root/a/only-in-a.md', 'only-in-a.md')]
+        : [file('/root/b/only-in-b.md', 'only-in-b.md')]));
+      mount('/root/a');
+      await vi.waitFor(() => expect(lastState?.loading).toBe(false));
+
+      let finish!: (items: DocTreeItem[]) => void;
+      getTreeMock.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+      // 两个根同父 (/root) 但毫无关系: 没有改名广播就不能当成改名。
+      mount('/root/b');
+
+      expect(lastState?.loading).toBe(true);
+      expect(lastState?.nodes.has('/root/b/only-in-a.md')).toBe(false);
+      await act(async () => { finish([file('/root/b/only-in-b.md', 'only-in-b.md')]); });
+      expect(lastState?.rootChildren.map((item) => item.fullPath)).toEqual(['/root/b/only-in-b.md']);
+      expect(lastState?.nodes.has('/root/a/only-in-a.md')).toBe(false);
+    });
+
+    it('切到无关目录仍然回到加载态并清空展开', async () => {
+      getTreeMock.mockResolvedValue([file('/root/a.md', 'a.md')]);
+      mount('/root');
+      await vi.waitFor(() => expect(lastState?.loading).toBe(false));
+
+      let finish!: (items: DocTreeItem[]) => void;
+      getTreeMock.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+      mount('/other');
+
+      expect(lastState?.loading).toBe(true);
+      await act(async () => { finish([file('/other/b.md', 'b.md')]); });
+      expect(lastState?.loading).toBe(false);
+      expect(lastState?.rootChildren.map((item) => item.fullPath)).toEqual(['/other/b.md']);
+      expect(lastState?.expanded.size).toBe(0);
+    });
   });
 
   it('根目录不可读时置 error 且列表为空', async () => {
@@ -452,6 +665,26 @@ describe('useFolderTree', () => {
     mount('/root');
     await vi.waitFor(() => expect(lastState?.error).toBe('unreadable'));
     expect(lastState?.rootChildren).toHaveLength(0);
+  });
+
+  it('force 补读绕过去重窗口, 且不进入加载态', async () => {
+    getTreeMock.mockResolvedValue([dir('/root/sub', 'sub')]);
+    getDirChildrenMock.mockResolvedValue([file('/root/sub/a.md', 'a.md')]);
+    mount('/root');
+    await vi.waitFor(() => expect(lastState?.loading).toBe(false));
+    await act(async () => lastState?.toggle('/root/sub'));
+    await vi.waitFor(() => expect(lastState?.nodes.has('/root/sub/a.md')).toBe(true));
+    const reads = getDirChildrenMock.mock.calls.length;
+
+    // 刚读过: 去重窗口内不再是「疑似过期」, 不该重复读。
+    await act(async () => { await lastState?.refreshDirectoriesNow(['/root/sub']); });
+    expect(getDirChildrenMock.mock.calls.length).toBe(reads);
+
+    // 改名后子读被 rebase 丢弃的那一行是「确定过期」: 必须真的重读,
+    // 但仍走静默, 不能给这一行加加载态。
+    await act(async () => { await lastState?.refreshDirectoriesNow(['/root/sub'], { force: true }); });
+    expect(getDirChildrenMock.mock.calls.length).toBe(reads + 1);
+    expect(lastState?.loadingDirectories.size).toBe(0);
   });
 
   it('根目录局部刷新保留已展开目录', async () => {
@@ -551,135 +784,112 @@ describe('useFolderTree', () => {
   });
 });
 
-describe('flattenVisibleTree', () => {
-  it('只拍平已展开分支, 深度随层级递增', () => {
-    const state: FolderTreeState = {
-      rootChildren: [
-        dir('/root/a', 'a', [dir('/root/a/b', 'b')]),
-        file('/root/x.md', 'x.md'),
-      ],
-      nodes: new Map([
-        ['/root/a', dir('/root/a', 'a', [dir('/root/a/b', 'b')])],
-        ['/root/a/b', dir('/root/a/b', 'b')],
-      ]),
-      expanded: new Set(['/root/a']),
-      loading: false,
-      loadingDirectories: new Set(),
-      directoryErrors: new Set(),
-      error: null,
+/**
+ * 树必须靠广播自我 rebase，而不是靠发起改名的那个入口顺手改一遍。
+ * 这组用例不发任何命令、只发 `path-moved`，与「外部工具 / 另一个窗口 /
+ * 标题栏」改名的路径完全一致。
+ */
+describe('useFolderTree path-moved 驱动', () => {
+  let container: HTMLDivElement | null = null;
+  let root: Root | null = null;
+
+  function notebook(path: string): Notebook {
+    return {
+      id: `nb:${path}`,
+      name: path.split('/').pop() ?? path,
+      path,
+      createdAt: 0,
+      updatedAt: 0,
+      isDefault: false,
     };
-    const flattened = flattenVisibleTree(state);
-    // a 展开 → a/b 可见; a/b 未展开 → b 的子级不出现。
-    expect(flattened.map((n) => n.item.fullPath)).toEqual([
-      '/root/a',
-      '/root/a/b',
-      '/root/x.md',
-    ]);
-    expect(flattened[1].depth).toBe(1);
-  });
+  }
 
-  it('按笔记索引时间与文件创建时间混排同级文档', () => {
-    const folder = { ...dir('/root/folder', 'folder'), createdMs: 999 };
-    const replacedOlderNote = {
-      ...file('/root/older-note.md', 'older-note.md'),
-      createdMs: 100,
-      memoCreatedMs: 10,
-    };
-    const newerFile = {
-      ...file('/root/image.png', 'image.png'),
-      createdMs: 20,
-    };
-    const newerNote = {
-      ...file('/root/newer-note.md', 'newer-note.md'),
-      createdMs: 30,
-      memoCreatedMs: 30,
-    };
-    const state: FolderTreeState = {
-      rootChildren: [replacedOlderNote, folder, newerFile, newerNote],
-      nodes: new Map(),
-      expanded: new Set(),
-      loading: false,
-      loadingDirectories: new Set(),
-      directoryErrors: new Set(),
-      error: null,
-    };
-
-    expect(flattenVisibleTree(state, 'createdAt').map(({ item }) => item.name)).toEqual([
-      'folder',
-      'newer-note.md',
-      'image.png',
-      'older-note.md',
-    ]);
-  });
-
-  it('隐藏文件夹恒定聚在普通文件夹之前, 降序也不甩到末尾', () => {
-    const state: FolderTreeState = {
-      rootChildren: [
-        { ...dir('/root/notes', 'notes'), createdMs: 80 },
-        { ...dir('/root/.trash', '.trash'), createdMs: 1 },
-        { ...dir('/root/archive', 'archive'), createdMs: 2 },
-        { ...dir('/root/.plugin-output', '.plugin-output'), createdMs: 90 },
-      ],
-      nodes: new Map(),
-      expanded: new Set(),
-      loading: false,
-      loadingDirectories: new Set(),
-      directoryErrors: new Set(),
-      error: null,
-    };
-
-    // 默认 A-Z: 隐藏组整体置顶, 每组内按文件名升序。
-    expect(flattenVisibleTree(state).map(({ item }) => item.name)).toEqual([
-      '.plugin-output',
-      '.trash',
-      'archive',
-      'notes',
-    ]);
-    // filenameDesc: 组内与普通组都反序, 隐藏组的位置不变。
-    expect(flattenVisibleTree(state, 'filenameDesc').map(({ item }) => item.name)).toEqual([
-      '.trash',
-      '.plugin-output',
-      'notes',
-      'archive',
-    ]);
-  });
-
-  it('置顶文件夹不再改变访问空间排序, 仍按排序规则就地排列', () => {
-    const state: FolderTreeState = {
-      rootChildren: [
-        { ...dir('/root/notes', 'notes'), createdMs: 80 },
-        { ...dir('/root/.trash', '.trash'), createdMs: 1 },
-        { ...dir('/root/archive', 'archive'), createdMs: 2 },
-      ],
-      nodes: new Map(),
-      expanded: new Set(),
-      loading: false,
-      loadingDirectories: new Set(),
-      directoryErrors: new Set(),
-      error: null,
-    };
-
-    // archive 被置顶后, 访问空间仍把它排在隐藏组之后、按 A-Z 就地排序;
-    // 置顶只负责把它复制到「置顶」分组, 不参与这里的排序。
-    expect(flattenVisibleTree(state).map(({ item }) => item.name)).toEqual([
-      '.trash',
-      'archive',
-      'notes',
-    ]);
-  });
-});
-
-describe('buildLoadedTreeIndex', () => {
-  it('resolves a root placeholder to the loaded folder node', () => {
-    const rootFolder = dir('/root/sub', 'sub');
-    const loadedFolder = dir('/root/sub', 'sub', [file('/root/sub/note.md', 'note.md')]);
-
-    const { itemByPath, folderPaths } = buildLoadedTreeIndex({
-      rootChildren: [rootFolder],
-      nodes: new Map([[rootFolder.fullPath, loadedFolder]]),
+  function move(changeId: string, previous: string, next: string) {
+    publishNotebookPathMove({
+      changeId,
+      notebookId: 'nb:/nb',
+      previousRelativePath: previous,
+      relativePath: next,
+      directory: true,
     });
+  }
 
-    expect(itemByPath.get('/root/sub')).toBe(loadedFolder);
-    expect(folderPaths.has('/root/sub')).toBe(true);
+  beforeEach(() => {
+    noteMetadata.clear();
+    getTreeMock.mockReset();
+    getDirChildrenMock.mockReset();
+    useNoteStore.setState({ notebooks: [notebook('/nb')] });
+    lastState = null;
+    container = document.createElement('div');
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root?.unmount());
+    container?.remove();
+    root = null;
+    container = null;
+    useNoteStore.setState({ notebooks: [] });
+  });
+
+  function mount(folderPath: string) {
+    act(() => {
+      root?.render(createElement(TreeProbe, { folderPath }));
+    });
+  }
+
+  async function mountExpandedRoot() {
+    getTreeMock.mockResolvedValue([dir('/nb/sub', 'sub')]);
+    getDirChildrenMock.mockResolvedValue([file('/nb/sub/old.md', 'old.md')]);
+    mount('/nb');
+    await vi.waitFor(() => expect(lastState?.loading).toBe(false));
+    await act(async () => lastState?.toggle('/nb/sub'));
+    expect(lastState?.nodes.has('/nb/sub/old.md')).toBe(true);
+  }
+
+  it('不经过改名入口，只靠事件就能把已加载子树搬到新路径', async () => {
+    await mountExpandedRoot();
+
+    act(() => move('move-1', 'sub', 'renamed'));
+
+    expect(lastState?.nodes.has('/nb/renamed/old.md')).toBe(true);
+    expect(lastState?.nodes.has('/nb/sub/old.md')).toBe(false);
+    expect(lastState?.expanded.has('/nb/renamed')).toBe(true);
+  });
+
+  it('同一次移动重复送达时不动节点表', async () => {
+    await mountExpandedRoot();
+
+    act(() => move('move-1', 'sub', 'renamed'));
+    const afterFirstMove = lastState?.nodes;
+    // 新 changeId 绕过 changeId 去重，直接考察 rebase 自身的幂等性。
+    act(() => move('move-2', 'sub', 'renamed'));
+
+    expect(lastState?.nodes).toBe(afterFirstMove);
+  });
+
+  it('落在树范围之外的移动不改变这棵树', async () => {
+    await mountExpandedRoot();
+
+    act(() => move('move-1', 'sibling', 'renamed-sibling'));
+
+    expect(lastState?.nodes.has('/nb/sub/old.md')).toBe(true);
+    expect(lastState?.nodes.has('/nb/renamed-sibling/old.md')).toBe(false);
+  });
+
+  it('别的笔记本里同名的相对路径不影响这棵树', async () => {
+    await mountExpandedRoot();
+
+    // 另一个笔记本里也有一条 `sub` → `renamed`：相对路径相同，绝对路径不同。
+    act(() => publishNotebookPathMove({
+      changeId: 'move-other-notebook',
+      notebookId: 'nb:/other',
+      previousRelativePath: 'sub',
+      relativePath: 'renamed',
+      directory: true,
+    }));
+
+    expect(lastState?.nodes.has('/nb/sub/old.md')).toBe(true);
+    expect(lastState?.nodes.has('/nb/renamed/old.md')).toBe(false);
   });
 });

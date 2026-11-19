@@ -1,5 +1,7 @@
 import type { EditorLinkContext } from './editor-link-resolution';
 import { PreservedHtmlBlock, PreservedHtmlInline } from './extensions/preserved-html';
+import { ProtectedComment } from './extensions/protected-comment';
+import { CustomComponentBlock } from './extensions/custom-component-block';
 import { getDocumentResourceContext, getDocumentResourceSnapshot } from '@features/document/public/resource-context';
 import type { DocumentResourceContext } from '@/lib/document-resource-context';
 import { notebookForPath } from '@/lib/path';
@@ -365,6 +367,7 @@ export interface MarkdownEditorExtensionContext {
   propertyTargetId?: string;
   onPropertyAreaHoverChange?: (hovered: boolean) => void;
   onViewSourceMode?: () => void;
+  onOpenComponentPicker?: (editor: Editor) => void;
   transitionId?: number | null;
   workspaceHost: WorkspaceColumnId;
   getPlaceholder: () => string;
@@ -392,6 +395,7 @@ export function createMarkdownEditorExtensions({
   propertyTargetId,
   onPropertyAreaHoverChange,
   onViewSourceMode,
+  onOpenComponentPicker,
   transitionId,
   workspaceHost,
   getPlaceholder,
@@ -434,8 +438,10 @@ export function createMarkdownEditorExtensions({
   ];
 
   const blockAndMediaExtensions = [
+    ProtectedComment,
     PreservedHtmlBlock.configure({ getImageContext }),
     PreservedHtmlInline.configure({ getImageContext }),
+    CustomComponentBlock,
     AttachmentLink.configure({ getContext, getImageContext }),
     MarkdownLink,
     LinkSelectionHighlight,
@@ -506,7 +512,7 @@ export function createMarkdownEditorExtensions({
 
   const interactionExtensions = [
     AgentThreadCard.configure({ workspaceHost }),
-    SlashMenu,
+    SlashMenu.configure({ onOpenComponentPicker }),
     TabCharacter,
     TabAgentRun,
     SearchAndReplace,

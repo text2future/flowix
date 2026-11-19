@@ -430,6 +430,7 @@ function AgentConversationDetailContent({
           const runId = createRunId(currentInstance.instanceId);
           const { userMessage } = prepareUserMessage({
             content: snapshot.prompt,
+            displayContent: snapshot.displayContent,
             agentType: currentInstance.agentType,
             isFirstMessage: true,
             attachments: createAgentMessageAttachments(
@@ -844,7 +845,17 @@ function AgentConversationDetailContent({
       style={getAgentMessageTypographyCssVars(messageFontMode, messageSizeMode) as CSSProperties}
     >
       <div ref={domRef} className="agent-thread-card agent-conversation-detail__card flex min-h-0 flex-1 flex-col">
-        <WorkspaceColumnContextMenu columnId={host} isWindows={isWindowsPlatform()}>
+        <WorkspaceColumnContextMenu
+          columnId={host}
+          isWindows={isWindowsPlatform()}
+          shouldOpenContextMenu={(event) => {
+            const target = event.target;
+            // Message links need the browser/WebView's native actions (open,
+            // copy link, etc.); the broader conversation menu remains active
+            // everywhere else in the message surface.
+            return !(target instanceof Element && target.closest('.agent-thread-card__message-content a[href]'));
+          }}
+        >
           <div className="agent-conversation-detail__body-shell" data-no-context-menu-scroll>
             {document.documentElement.dataset.platform === 'mac' ? (
               <OverlayScrollbar

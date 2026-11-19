@@ -9,11 +9,26 @@ import {
 import { parseAgentLink } from './agent-link-parser';
 
 const navigation = vi.hoisted(() => ({
-  openSurface: vi.fn(async () => ({ status: 'opened' as const, host: 'column-2' as const, location: { host: 'column-2' as const, surfaceId: 'text' } })),
+  openSurface: vi.fn(async (_request?: unknown) => ({ status: 'opened' as const, host: 'column-2' as const, location: { host: 'column-2' as const, surfaceId: 'text' } })),
+  resolve: vi.fn(async (path: string) => ({ path, notebookId: null as string | null, notebookPath: null as string | null, isDirectory: false as boolean | null })),
+}));
+vi.mock('@features/editor/public/link-navigation-api', () => ({
+  prepareLocalLinkNavigation: async ({ path }: { path: string }) => {
+    const location = await navigation.resolve(path);
+    if (location.isDirectory == null) throw new Error('Unable to open link');
+    return { location };
+  },
+}));
+vi.mock('@features/workspace/public/session-api', () => ({ columnAtIndex: () => 'column-2' }));
+vi.mock('@features/workspace/public/session-opening-api', () => ({
+  openPreparedSurfaceInColumn: async (_request: unknown, prepare: (isCurrent: () => boolean) => Promise<{ target: unknown }>) => {
+    const result = await prepare(() => true);
+    return navigation.openSurface({ index: 1, source: 'agent-message', target: result.target });
+  },
 }));
 vi.mock('@features/workspace/public/browser-column-api', () => ({
-  createFileBrowserTarget: (path: string, scopePath: string) => ({
-    kind: 'file-browser', activeFilePath: path, folderPath: scopePath, scopePath,
+  createFileBrowserTarget: (path: string | null, scopePath: string | null, folderPath: string | null = null) => ({
+    kind: 'file-browser', activeFilePath: path, folderPath, scopePath,
     notebookId: null, restoreNotebookContext: true, fileTreeVisible: true, fileTreeWidth: 220,
   }),
 }));
@@ -157,6 +172,29 @@ describe("localFilePathFromAgentHref", () => {
 });
 
 describe('shared Agent link click dispatcher', () => {
+  it('uses resolved notebook ownership and clears a pending location for an alias', async () => {
+    const { publishAgentLocationRequest, peekAgentLocationRequest } = await import('@features/document/use-cases/agent-location-navigation');
+    publishAgentLocationRequest({ path: '/real/book/a.md', location: { line: 12 }, host: 'column-2', viewId: 'text' });
+    navigation.resolve.mockResolvedValueOnce({ path: '/real/book/a.md', notebookId: 'book', notebookPath: '/alias/book', isDirectory: false });
+    navigation.openSurface.mockClear();
+    await openAgentLink('/alias/book/a.md', null);
+    expect(peekAgentLocationRequest('/real/book/a.md')).toBeNull();
+    expect(navigation.openSurface).toHaveBeenCalledWith(expect.objectContaining({ target: expect.objectContaining({
+      activeFilePath: '/real/book/a.md', notebookId: 'book', notebookContextPath: '/real/book/a.md', scopePath: '/alias/book',
+    }) }));
+  });
+  it('opens a resolved directory as a folder and rejects a missing target', async () => {
+    navigation.openSurface.mockClear();
+    navigation.resolve.mockResolvedValueOnce({ path: '/repo/folder', notebookId: null, notebookPath: null, isDirectory: true });
+    await openAgentLink('/repo/folder', null);
+    expect(navigation.openSurface).toHaveBeenCalledWith(expect.objectContaining({
+      target: expect.objectContaining({ kind: 'file-browser', activeFilePath: null, folderPath: '/repo/folder' }),
+    }));
+    navigation.openSurface.mockClear();
+    navigation.resolve.mockResolvedValueOnce({ path: '/repo/missing', notebookId: null, notebookPath: null, isDirectory: null });
+    await expect(openAgentLink('/repo/missing', null)).rejects.toThrow('Unable to open link');
+    expect(navigation.openSurface).not.toHaveBeenCalled();
+  });
   it.each(['/data/flowix', '/projects/flowix', '/usr/local/flowix'])(
     'opens a dev file link under the custom captured workspace %s', async (scopePath) => {
       const path = `${scopePath}/build/Flowix.dmg`;
@@ -200,7 +238,7 @@ describe('shared Agent link click dispatcher', () => {
     });
     const event = new MouseEvent('click', { bubbles: true, cancelable: true });
     root.querySelector('a')!.dispatchEvent(event);
-    await Promise.resolve();
+    await vi.waitFor(() => expect(navigation.openSurface).toHaveBeenCalled());
     expect(handled).toBe(true);
     expect(event.defaultPrevented).toBe(true);
     expect(navigation.openSurface).toHaveBeenCalledWith({
@@ -222,7 +260,9 @@ describe('shared Agent link click dispatcher', () => {
       .mockImplementationOnce(() => new Promise((resolve) => { resolveSecond = resolve; }));
 
     const first = openAgentLink('/Users/u/a.md:10', null);
+    await vi.waitFor(() => expect(resolveFirst).toBeTypeOf('function'));
     const second = openAgentLink('/Users/u/a.md:144', null);
+    await vi.waitFor(() => expect(resolveSecond).toBeTypeOf('function'));
     resolveSecond({ status: 'opened', host: 'column-2', location: { host: 'column-2', surfaceId: 'a' } });
     await second;
     resolveFirst({ status: 'opened', host: 'column-2', location: { host: 'column-2', surfaceId: 'a' } });

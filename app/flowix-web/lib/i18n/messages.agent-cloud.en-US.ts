@@ -43,6 +43,7 @@ const enUS: Record<keyof typeof zhCN, string> = {
   "billing.dialog.faq.renewal.question": "Will my subscription renew automatically?",
   "billing.dialog.faq.renewal.answer": "Yes. Your subscription renews automatically at the end of each billing period so you can continue using its features. You can cancel it anytime in Preferences / Account / Order History. Your current plan remains active until the end of the billing period.",
   "billing.dialog.purchase": "Upgrade now",
+  "billing.dialog.aiAlreadyActive": "AI membership active",
   "billing.dialog.currentlyActive": "Currently active",
   "billing.dialog.downgradeUnsupported": "Downgrades aren't supported",
   "billing.dialog.pendingOrder": "An order is awaiting payment. Complete or cancel it first.",
@@ -53,6 +54,8 @@ const enUS: Record<keyof typeof zhCN, string> = {
   "billing.dialog.perYear": "/year",
   "billing.dialog.perMonth": "/month",
   "billing.dialog.perOnce": "/forever",
+  "billing.dialog.onceMonth": " · one-time, valid for 1 month",
+  "billing.dialog.onceYear": " · one-time, valid for 1 year",
 };
 
 export default enUS;

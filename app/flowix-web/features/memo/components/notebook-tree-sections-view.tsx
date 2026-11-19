@@ -87,6 +87,7 @@ interface NotebookTreeSectionsViewProps {
   };
   more: {
     onHeightChange: (height: number) => void;
+    notebookPath: string;
   };
 }
 
@@ -206,6 +207,7 @@ export function NotebookTreeSectionsView({
         <NotebookMoreSection
           order={layout.order.indexOf('more') + 1}
           onHeightChange={more.onHeightChange}
+          notebookPath={more.notebookPath}
           sectionActions={sectionMenu('more')}
         />
       )}

@@ -70,6 +70,19 @@ export interface ProductUpdatesConfig {
   lastCheckedAt: number;
 }
 
+export interface AiMemoryLocation {
+  id: string;
+  name: string;
+  /** Notebook-relative folder path; nested paths use `/` separators. */
+  path: string;
+}
+
+export const DEFAULT_AI_MEMORY_LOCATIONS: AiMemoryLocation[] = [
+  { id: 'general', name: '通用', path: '' },
+  { id: 'solution', name: '方案', path: '' },
+  { id: 'workflow', name: '工作流', path: '' },
+];
+
 export interface UserSettings {
   personalize: PersonalizeConfig;
   format: FormatConfig;
@@ -88,6 +101,12 @@ export interface UserSettings {
   memoListView: MemoListView;
   /** Whether newly created notes are automatically opened in the Browser Column. */
   autoOpenCreatedNotesInBrowser: boolean;
+  /** Legacy notebook-root folder retained as a migration base for AI memory locations. */
+  aiMemoryFolder: string;
+  /** Named notebook-relative destinations for dated AI memory notes. */
+  aiMemoryLocations: AiMemoryLocation[];
+  /** User-provided personality guidance included in native Agent instructions. */
+  aiPersonality: string;
   /** Maximum number of conversations shown in the notebook file tree. */
   recentAgentConversationsLimit: number;
   /**
@@ -231,6 +250,9 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   region: 'mainland',
   memoListView: 'folders',
   autoOpenCreatedNotesInBrowser: true,
+  aiMemoryFolder: '',
+  aiMemoryLocations: DEFAULT_AI_MEMORY_LOCATIONS,
+  aiPersonality: '你是领域内的专家，面向有工程背景但非本领域专家的读者',
   recentAgentConversationsLimit: 6,
   // 与文件树历史行为一致：所有磁盘上存在的文件夹都显示。
   spaceShowHiddenFolders: true,

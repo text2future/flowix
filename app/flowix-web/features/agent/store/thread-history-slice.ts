@@ -13,6 +13,7 @@ import { readHistoryWithTimeout } from "@features/agent/services/history-read-ti
 import { isMissingAgentSessionError } from "@features/agent/services/history-error";
 import { paginationAfterSnapshot, samePagination } from "./history-pagination";
 import { createHistoryRequestCoordinator } from "@features/agent/store/history-request-coordinator";
+import { restoreInlineImagePresentations } from "@features/agent/store/inline-image-presentation";
 import {
   filterRenderableHistoryMessages,
   getHistoryPage,
@@ -47,6 +48,18 @@ const CODEX_RECONCILE_DELAYS = [0, 1500];
 
 function wait(ms: number): Promise<void> {
   return ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve();
+}
+
+function renderableHistoryMessages(
+  threadId: string,
+  agentType: AgentTypeKey,
+  messages: ChatMessage[],
+): ChatMessage[] {
+  return restoreInlineImagePresentations(
+    threadId,
+    agentType,
+    filterRenderableHistoryMessages(messages),
+  );
 }
 
 export type HistoryLoadResult = "ready" | "error" | "stale";
@@ -114,7 +127,7 @@ export function createThreadHistorySlice(
       const productThreadId = productThreadIdFor(threadId, agentType);
       if (!productThreadId) return;
       if (productThreadId !== threadId) return get().applyHistoryPage(productThreadId, agentType, page);
-      const renderable = filterRenderableHistoryMessages(page.messages);
+      const renderable = renderableHistoryMessages(threadId, agentType, page.messages);
       if (renderable.length === 0) return;
       get().updateThreadHistory(threadId, (current) => {
         const boundRuntime = get().sessionMeta.threadTypes[threadId];
@@ -162,7 +175,7 @@ export function createThreadHistorySlice(
         if (!requests.isCurrent(historyReadVersion)) {
           return "stale";
         }
-        const messages = filterRenderableHistoryMessages(page.messages);
+        const messages = renderableHistoryMessages(threadId, agentType, page.messages);
         const cached = agentType === "codex" ? get().codexLiveTurns[threadId] : undefined;
         const lastRun = get().threadProjections[threadId]?.runs.lastRun;
         const completedRunId =
@@ -266,7 +279,7 @@ export function createThreadHistorySlice(
       if (!requests.isCurrent(historyReadVersion)) return [];
 
       const current = get().threadProjections[threadId] ?? emptyProjection();
-      const messages = filterRenderableHistoryMessages(history);
+      const messages = renderableHistoryMessages(threadId, agentType, history);
       const existingMessages = current.messages.filter(
             (message) =>
               !(
@@ -331,7 +344,7 @@ export function createThreadHistorySlice(
             await wait(delay);
             requestProjection = get().threadProjections[threadId]?.messages ?? [];
             page = await readHistoryWithTimeout(() => getHistoryPage(agentType, threadId, HISTORY_PAGE_SIZE));
-            historicalMessages = filterRenderableHistoryMessages(page.messages);
+            historicalMessages = renderableHistoryMessages(threadId, agentType, page.messages);
             const cached = get().codexLiveTurns[threadId];
             cachedTurnId = cached?.runId === runId ? cached?.turnId : undefined;
             if (
@@ -436,7 +449,7 @@ export function createThreadHistorySlice(
         if (!requests.isCurrent(historyReadVersion)) {
           return;
         }
-        const messages = filterRenderableHistoryMessages(page.messages);
+        const messages = renderableHistoryMessages(threadId, agentType, page.messages);
         const latest = get().threadProjections[threadId];
         if (latest?.pagination.nextCursor !== current.pagination.nextCursor) return;
         if (latest.pagination.snapshotSequence != null && page.snapshotSequence != null &&

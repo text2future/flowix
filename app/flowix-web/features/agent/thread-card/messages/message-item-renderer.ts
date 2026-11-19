@@ -5,11 +5,13 @@ import {
   Check,
   Copy,
   Database,
+  FileText,
   GitBranch,
   Image as ImageIcon,
   LoaderCircle,
 } from "lucide-react";
 import folderOutlineSvg from "@/assets/folder-outline.svg?raw";
+import { resolveDocumentRelativeHref } from "@/lib/document-relative-path";
 import { translate, type AppLanguage } from "@/lib/i18n";
 import { createLogger } from "@/lib/logger";
 import { COLLECTION_AGENT_REFERENCE_LINK_TITLE } from "@features/collection/public/agent-reference-api";
@@ -34,11 +36,32 @@ import {
 } from "@features/agent/message/display-limits";
 import { createChevronIcon } from "@features/agent/thread-card/agent-thread-card-icons";
 import { registerMessageDisposer } from "@features/agent/thread-card/messages/message-lifecycle";
-import { attachAgentMessageImagePreview } from "@features/agent/thread-card/messages/image-preview";
+import {
+  attachAgentMessageImagePreview,
+  setAgentMessageImagePreviewSource,
+} from "@features/agent/thread-card/messages/image-preview";
 import { createAgentThreadCardToolMessageParts } from "@features/agent/thread-card/messages/message-tool-renderer";
 
 type AgentMessage = ThreadState["messages"][number];
 export { disposeAgentThreadCardMessageTree } from "@features/agent/thread-card/messages/message-lifecycle";
+
+const pendingCachedAttachmentReads = new Map<string, Promise<string | null>>();
+
+function readCachedAttachmentPreview(path: string): Promise<string | null> {
+  const pending = pendingCachedAttachmentReads.get(path);
+  if (pending) return pending;
+  const request = agent.readCachedAttachment(path);
+  pendingCachedAttachmentReads.set(path, request);
+  void request.then(
+    () => {
+      if (pendingCachedAttachmentReads.get(path) === request) pendingCachedAttachmentReads.delete(path);
+    },
+    () => {
+      if (pendingCachedAttachmentReads.get(path) === request) pendingCachedAttachmentReads.delete(path);
+    },
+  );
+  return request;
+}
 
 export interface AgentThreadCardMessageElementResult {
   element: HTMLElement;
@@ -52,7 +75,9 @@ export interface AgentThreadCardMessageDisplayContext {
   onForkMessage?: (message: AgentMessage) => void | Promise<void>;
 }
 
-function createLucideIcon(icon: typeof Copy | typeof Database): SVGSVGElement {
+function createLucideIcon(
+  icon: typeof Copy | typeof Database | typeof FileText | typeof ImageIcon,
+): SVGSVGElement {
   const template = document.createElement("template");
   template.innerHTML = renderToStaticMarkup(
     createElement(icon, { size: 14, strokeWidth: 2, "aria-hidden": true }),
@@ -151,12 +176,22 @@ function createUserMessageAttachments(
       attachment.type === "input_image" ||
       attachment.mimeType.toLowerCase().startsWith("image/")
     ) {
-      void agent.readCachedAttachment(attachment.path).then((previewUrl) => {
+      void readCachedAttachmentPreview(attachment.path).then((previewUrl) => {
         if (!previewUrl) return;
         const preview = document.createElement("img");
         preview.className = "agent-thread-card__message-attachment-preview";
+        preview.dataset.agentImagePreview = "";
         preview.src = previewUrl;
         preview.alt = attachment.name;
+        preview.tabIndex = 0;
+        preview.setAttribute("role", "button");
+        preview.setAttribute("aria-haspopup", "dialog");
+        preview.setAttribute(
+          "aria-label",
+          language === "zh-CN"
+            ? `预览图片附件 ${index + 1}`
+            : `Preview image attachment ${index + 1}`,
+        );
         preview.draggable = false;
         icon.replaceChildren(preview);
       }).catch(() => {
@@ -165,28 +200,94 @@ function createUserMessageAttachments(
     }
   });
 
+  const disposeImagePreview = attachAgentMessageImagePreview(container, language);
+  if (disposeImagePreview) registerMessageDisposer(container, disposeImagePreview);
+
   return container;
 }
 
-/** Show absolute-path project links as the same compact folder cards as the composer. */
-function renderUserMessageFolderCards(content: HTMLElement): void {
+/** Turn composer-only image markers into compact, clickable inline cards. */
+function renderUserMessageImageCards(
+  content: HTMLElement,
+  message: AgentMessage,
+  language: AppLanguage,
+): void {
+  content
+    .querySelectorAll<HTMLAnchorElement>('a[href^="flowix://agent-image-attachment"]')
+    .forEach((link) => {
+      const href = link.getAttribute("href") ?? "";
+      const labelText = link.textContent?.trim() || (language === "zh-CN" ? "图片" : "Image");
+      let path: string | null = null;
+      try {
+        const url = new URL(href);
+        if (url.protocol === "flowix:" && url.hostname === "agent-image-attachment") {
+          path = url.searchParams.get("path");
+        }
+      } catch {
+        // A malformed internal marker remains a non-interactive label below.
+      }
+      const attachment = path
+        ? message.attachments?.find((candidate) =>
+            candidate.path === path && candidate.mimeType.toLowerCase().startsWith("image/"))
+        : undefined;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = [
+        "agent-thread-card__message-reference-card",
+        "agent-thread-card__message-image-reference",
+      ].join(" ");
+      button.dataset.agentImagePreview = "";
+      button.dataset.agentImageAlt = attachment?.name ?? labelText;
+      button.title = labelText;
+      button.disabled = !attachment;
+      button.setAttribute("aria-haspopup", "dialog");
+      button.setAttribute(
+        "aria-label",
+        language === "zh-CN"
+          ? `打开图片全屏预览：${labelText}`
+          : `Open image fullscreen preview: ${labelText}`,
+      );
+      const icon = createLucideIcon(ImageIcon);
+      icon.classList.add(
+        "agent-thread-card__message-reference-card-icon",
+        "agent-thread-card__message-image-reference-icon",
+      );
+      const label = document.createElement("span");
+      label.className = "agent-thread-card__message-reference-card-label";
+      label.textContent = labelText;
+      button.append(icon, label);
+      link.replaceWith(button);
+
+      if (attachment) {
+        void readCachedAttachmentPreview(attachment.path).then((previewUrl) => {
+          if (!previewUrl || !button.isConnected) return;
+          setAgentMessageImagePreviewSource(button, previewUrl);
+          button.disabled = false;
+        }).catch(() => {
+          // Keep the inline card visible when a cached image is no longer available.
+        });
+      }
+    });
+}
+
+/** Render linked local resources as compact cards inside user messages. */
+function renderUserMessageResourceCards(content: HTMLElement): void {
   content.querySelectorAll<HTMLAnchorElement>("a[href]").forEach((link) => {
     const labelText = link.textContent?.trim() ?? "";
     const href = link.getAttribute("href") ?? "";
-    if (!labelText.startsWith("@") || !/^file:/i.test(href)) return;
+    if (!labelText.startsWith("@")) return;
+    const target = resolveDocumentRelativeHref(href, "");
+    if (!target) return;
     const isCollection = link.title.startsWith(COLLECTION_AGENT_REFERENCE_LINK_TITLE);
-
-    let path = href;
-    try {
-      const url = new URL(href);
-      const decodedPath = decodeURIComponent(url.pathname);
-      path = url.hostname ? `//${url.hostname}${decodedPath}` : decodedPath;
-    } catch {
-      // Keep the encoded URL as a useful title if a malformed link slips in.
-    }
+    const path = target.path;
+    const isNote = /\.(?:md|markdown)$/i.test(path);
 
     const card = document.createElement("span");
-    card.className = `agent-thread-card__message-folder-reference${isCollection ? ' agent-thread-card__message-folder-reference--collection' : ''}`;
+    card.className = [
+      "agent-thread-card__message-reference-card",
+      "agent-thread-card__message-folder-reference",
+      isCollection ? "agent-thread-card__message-folder-reference--collection" : "",
+    ].filter(Boolean).join(" ");
     card.title = path;
     const displayLabel = labelText.replace(/^@/, "");
     card.setAttribute("aria-label", `${displayLabel}\n${path}`);
@@ -194,14 +295,22 @@ function renderUserMessageFolderCards(content: HTMLElement): void {
     let icon: SVGSVGElement | null;
     if (isCollection) {
       icon = createLucideIcon(Database);
+    } else if (isNote) {
+      icon = createLucideIcon(FileText);
     } else {
       const iconTemplate = document.createElement("template");
       iconTemplate.innerHTML = folderOutlineSvg;
       icon = iconTemplate.content.firstElementChild as SVGSVGElement | null;
     }
-    icon?.classList.add("agent-thread-card__message-folder-reference-icon");
+    icon?.classList.add(
+      "agent-thread-card__message-reference-card-icon",
+      "agent-thread-card__message-folder-reference-icon",
+    );
     const label = document.createElement("span");
-    label.className = "agent-thread-card__message-folder-reference-label";
+    label.className = [
+      "agent-thread-card__message-reference-card-label",
+      "agent-thread-card__message-folder-reference-label",
+    ].join(" ");
     label.textContent = displayLabel;
     if (icon) card.append(icon);
     card.append(label);
@@ -593,7 +702,10 @@ export function renderAgentThreadCardBudgetedMarkdown(options: {
     forceFinalize,
     translate(context.language, "editor.threadCard.copyLatex"),
   );
-  if (role === "user") renderUserMessageFolderCards(content);
+  if (role === "user") {
+    renderUserMessageResourceCards(content);
+    renderUserMessageImageCards(content, message, context.language);
+  }
   if (forceFinalize) {
     void highlightAgentThreadCardCodeBlocks(content);
   }

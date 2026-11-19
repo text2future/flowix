@@ -3,6 +3,7 @@ import {
   CloudIcon,
   DotsThreeCircleIcon,
   GearSixIcon,
+  BrainIcon,
   KeyboardIcon,
   ListDashesIcon,
   PlugIcon,
@@ -133,6 +134,12 @@ export const PREFERENCE_TAB_GROUPS = [
         sidebarIcon: <StarFourIcon className={SIDEBAR_ICON_CLASS} weight="fill" />, contentWidth: 'normal',
         visibleInProductMenu: false,
         ...lazyPreferenceTab(() => import('@features/preferences/sections/agents').then((module) => ({ default: module.AgentsSection }))),
+      },
+      {
+        id: 'memory', labelKey: 'preferences.tabs.memory',
+        icon: <BrainIcon className="w-4 h-4" />,
+        sidebarIcon: <BrainIcon className={SIDEBAR_ICON_CLASS} weight="fill" />, contentWidth: 'normal',
+        ...lazyPreferenceTab(() => import('@features/preferences/tab-pages/memory').then((module) => ({ default: module.MemoryPreferencesTab }))),
       },
       {
         id: 'mcp', labelKey: 'preferences.tabs.mcp',

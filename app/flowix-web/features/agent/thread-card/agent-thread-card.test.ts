@@ -69,13 +69,20 @@ vi.mock("@features/memo/public/note-navigation-api", () => ({
   openNoteByDeepLink: vi.fn(async () => undefined),
 }));
 
-vi.mock("@features/workspace/public/open-surface-api", () => ({
-  openSurfaceAtPosition: vi.fn(async () => ({
+const openSurfaceMock = vi.hoisted(() => vi.fn(async (_request?: unknown) => ({
     status: "opened",
     surfaceId: "browser:test",
     // 行号/锚点定位会读 opened.location 的 host 与 surfaceId。
     location: { host: "column-2", surfaceId: "browser:test" },
-  })),
+  })));
+vi.mock("@features/workspace/public/open-surface-api", () => ({ openSurfaceAtPosition: openSurfaceMock }));
+
+vi.mock("@features/workspace/public/session-opening-api", async (importOriginal) => ({
+  ...await importOriginal<typeof import('@features/workspace/public/session-opening-api')>(),
+  openPreparedSurfaceInColumn: async (_request: unknown, prepare: (isCurrent: () => boolean) => Promise<{ target: unknown }>) => {
+    const prepared = await prepare(() => true);
+    return openSurfaceMock({ index: 1, source: 'agent-message', target: prepared.target });
+  },
 }));
 
 vi.mock("@tauri-apps/plugin-opener", () => ({
@@ -96,6 +103,9 @@ vi.mock("@tauri-apps/api/event", () => ({
 }));
 
 vi.mock("@platform/tauri/client", () => ({
+  files: {
+    resolveLocation: vi.fn(async (path: string) => ({ path, notebookId: null, notebookPath: null, isDirectory: false })),
+  },
   agent: {
     ...createAgentClientMock(),
     listSupportedModels: vi.fn(async () => []),
@@ -250,8 +260,7 @@ async function flushAnimationFrame(): Promise<void> {
 }
 
 async function flushPromises(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
+  for (let i = 0; i < 12; i++) await Promise.resolve();
 }
 
 type ComposerInput = HTMLDivElement & { editor?: Editor };

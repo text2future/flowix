@@ -217,6 +217,21 @@ export function hydrateHistoricalMessages(
   return messages.map((message) => hydrateToolDisplay(message, agentType));
 }
 
+/** Keep product-owned user presentation when Codex history materializes the
+ * same provider row. The provider transcript does not persist Flowix's inline
+ * attachment marker, and may not expose the local attachment paths. */
+export function preserveLiveUserMessagePresentation(
+  historical: ChatMessage,
+  live: ChatMessage | undefined,
+): ChatMessage {
+  if (!live || historical.role !== "user" || live.role !== "user") return historical;
+  return {
+    ...historical,
+    content: live.content,
+    attachments: live.attachments?.length ? live.attachments : historical.attachments,
+  };
+}
+
 function mergeHistoricalToolMessage(
   existing: ChatMessage,
   historical: ChatMessage,
@@ -376,6 +391,16 @@ function mergeCodexHistoricalMessages(
   existing: ChatMessage[],
   historical: ChatMessage[],
 ): ChatMessage[] {
+  const existingByIdentity = new Map(
+    existing.map((message) => [messageIdentityKey(message), message]),
+  );
+  const existingById = new Map(existing.map((message) => [message.id, message]));
+  const presentedHistory = historical.map((message) =>
+    preserveLiveUserMessagePresentation(
+      message,
+      existingByIdentity.get(messageIdentityKey(message)) ?? existingById.get(message.id),
+    ),
+  );
   const scopedUserKey = (message: ChatMessage) => {
     if (!message.codexTurnId) return null;
     const key = userMessageVisibleKey(message);
@@ -386,9 +411,9 @@ function mergeCodexHistoricalMessages(
     const key = messageContentStableKey(message);
     return key ? `${message.codexTurnId}:${key}` : null;
   };
-  const historyIds = new Set(historical.map(messageIdentityKey));
+  const historyIds = new Set(presentedHistory.map(messageIdentityKey));
   const historyToolIds = new Set(
-    historical
+    presentedHistory
       .filter((message) => message.role === "tool" && message.toolCallId)
       .flatMap((message) => [
         message.toolCallId!,
@@ -397,7 +422,7 @@ function mergeCodexHistoricalMessages(
   );
   const historyUserCounts = new Map<string, number>();
   const historyContentCounts = new Map<string, number>();
-  for (const message of historical) {
+  for (const message of presentedHistory) {
     const userKey = scopedUserKey(message);
     if (userKey) {
       historyUserCounts.set(userKey, (historyUserCounts.get(userKey) ?? 0) + 1);
@@ -443,7 +468,7 @@ function mergeCodexHistoricalMessages(
   });
 
   return reuseRenderEquivalentMessageReferences(existing, [
-    ...historical,
+    ...presentedHistory,
     ...liveOnly,
   ]);
 }
@@ -474,6 +499,7 @@ function areMessagesRenderEquivalent(
 
   return JSON.stringify({
     content: left.content,
+    attachments: left.attachments,
     messageType: left.messageType,
     notice: left.notice,
     errorDetails: left.errorDetails,
@@ -494,6 +520,7 @@ function areMessagesRenderEquivalent(
       left.role === "end" && !left.content ? left.timestamp : undefined,
   }) === JSON.stringify({
     content: right.content,
+    attachments: right.attachments,
     messageType: right.messageType,
     notice: right.notice,
     errorDetails: right.errorDetails,
@@ -588,6 +615,7 @@ export function areMessagesEquivalent(
       renderKey: message.renderKey,
       role: message.role,
       content: message.content,
+      attachments: message.attachments,
       messageType: message.messageType,
       notice: message.notice,
       errorDetails: message.errorDetails,
@@ -612,6 +640,7 @@ export function areMessagesEquivalent(
       renderKey: other.renderKey,
       role: other.role,
       content: other.content,
+      attachments: other.attachments,
       messageType: other.messageType,
       notice: other.notice,
       errorDetails: other.errorDetails,

@@ -146,6 +146,14 @@ impl From<CloudSession> for RuntimeSession {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CloudMembership {
+    #[serde(default)]
+    pub ai_active: Option<bool>,
+    #[serde(default)]
+    pub ai_grant_expires_at: Option<i64>,
+    #[serde(default)]
+    pub ai_grant_duration_unit: Option<String>,
+    #[serde(default)]
+    pub ai_grant_duration_count: Option<i64>,
     pub active: bool,
     pub starts_at: Option<i64>,
     pub expires_at: Option<i64>,
@@ -175,6 +183,8 @@ impl CloudMembership {
 #[serde(rename_all = "camelCase")]
 pub struct CloudAiCredential {
     pub api_key: String,
+    #[serde(default)]
+    pub model_base_url: Option<String>,
     pub model: CloudAiModel,
     #[serde(default)]
     pub models: Vec<CloudAiModel>,
@@ -283,6 +293,8 @@ pub struct CloudCheckout {
     pub order_id: String,
     pub status: String,
     pub checkout_url: String,
+    #[serde(default)]
+    pub qr_code_svg: Option<String>,
     pub expires_at: Option<i64>,
 }
 
@@ -379,8 +391,23 @@ pub enum LocalChangeKind {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct EntitlementData {
+    #[serde(default)]
+    pub ai: Option<EntitlementAi>,
     pub membership: EntitlementMembership,
     pub usage: EntitlementUsage,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct EntitlementAi {
+    #[serde(default)]
+    pub active: bool,
+    #[serde(default)]
+    pub grant_expires_at: Option<i64>,
+    #[serde(default)]
+    pub grant_duration_unit: Option<String>,
+    #[serde(default)]
+    pub grant_duration_count: Option<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -408,6 +435,10 @@ pub(crate) struct EntitlementUsage {
 impl From<EntitlementData> for CloudMembership {
     fn from(value: EntitlementData) -> Self {
         Self {
+            ai_active: value.ai.as_ref().map(|ai| ai.active),
+            ai_grant_expires_at: value.ai.as_ref().and_then(|ai| ai.grant_expires_at),
+            ai_grant_duration_unit: value.ai.as_ref().and_then(|ai| ai.grant_duration_unit.clone()),
+            ai_grant_duration_count: value.ai.as_ref().and_then(|ai| ai.grant_duration_count),
             active: value.membership.active,
             starts_at: value.membership.starts_at,
             expires_at: value.membership.expires_at,

@@ -7,6 +7,7 @@ import { Loader2, RotateCw } from 'lucide-react';
 import { cloud, windows } from '@platform/tauri/client';
 import { useI18n } from '@/lib/i18n';
 import { toast } from '@/lib/toast';
+import { cn } from '@/lib/utils';
 import { refreshAgentModelCatalog } from '@features/agent/services/agent-catalog-service';
 import { Button } from '@shared/ui/button';
 
@@ -25,7 +26,15 @@ function formatResetDate(value: number, language: string): { date: string; time:
   return { date, time };
 }
 
-export function PiCloudModelsSection({ authenticated }: { authenticated: boolean }) {
+type AiMembershipStatus = 'active' | 'inactive' | 'unknown';
+
+export function PiCloudModelsSection({
+  authenticated,
+  membershipStatus = 'unknown',
+}: {
+  authenticated: boolean;
+  membershipStatus?: AiMembershipStatus;
+}) {
   const { t, language } = useI18n();
   const [monthlyBalance, setMonthlyBalance] = useState<number | null>(null);
   const [permanentBalance, setPermanentBalance] = useState<number | null>(null);
@@ -92,6 +101,23 @@ export function PiCloudModelsSection({ authenticated }: { authenticated: boolean
       <div className="text-sm font-medium text-[var(--foreground)]">{t('preferences.pi.cloudTitle')}</div>
       <section className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
         {authenticated && <div className="grid grid-cols-[5em_minmax(0,1fr)] items-center gap-x-3 gap-y-2 text-sm">
+          <div className="text-[var(--muted-foreground)]">{t('preferences.pi.cloudMembershipType')}</div>
+          <div>
+            <span className={cn(
+              'inline-flex rounded-md px-1.5 py-0.5 text-xs',
+              membershipStatus === 'active'
+                ? 'bg-[color-mix(in_oklch,var(--success)_15%,transparent)] text-[var(--success)]'
+                : membershipStatus === 'inactive'
+                  ? 'bg-[color-mix(in_oklch,var(--warning)_15%,transparent)] text-[var(--warning)]'
+                  : 'bg-[var(--muted)] text-[var(--muted-foreground)]',
+            )}>
+              {t(membershipStatus === 'active'
+                ? 'preferences.pi.cloudMembershipMonthly'
+                : membershipStatus === 'inactive'
+                  ? 'preferences.pi.cloudMembershipNotActive'
+                  : 'preferences.pi.cloudMembershipUnknown')}
+            </span>
+          </div>
           <div className="text-[var(--muted-foreground)]">{t('preferences.pi.cloudCreditsBalance')}</div>
           <div className="flex min-w-0 items-center justify-between gap-2 text-[var(--foreground)]" title={balanceError ?? undefined}>
             <div className="inline-flex min-w-0 items-center gap-0.5">

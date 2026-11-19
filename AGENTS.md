@@ -32,4 +32,19 @@ Flowix 是用于操作笔记和插件产物的非交互式 CLI，使用 `--json`
 - 资料文件夹：
   - /Users/rop/Desktop/vibe/flowix-home
   - /Users/rop/Desktop/Notes/开发记录
+
+当前笔记本用于维护 Flowix 项目，也可收纳用户资料、工作与生活记录、写作等内容。一级目录用途如下：
+
+- `app/`：Rust workspace，包含核心逻辑、桌面端、CLI、插件运行时、同步和 Web 前端。
+- `docs/`：项目设计、技术说明、验收记录和发布文档。
+- `dsh/`：DSH 上游版本与依赖锁定信息。
+- `dsh-appserver/`：Flowix 使用的 DSH App Server 实现。
+- `dsh-flowix-memory/`：将 Flowix CLI 笔记能力接入 DSH 的插件包。
+- `examples/`：嵌入式页面等示例。
+- `scripts/`：构建、发布、检查和开发辅助脚本。
+- `test-fixtures/`：测试使用的固定样例数据。
+- `tools/`：项目开发与维护工具。
+- `Memory/`：工作记忆目录，按日期保存为 `YYYY-MM-DD.md`，记录可复用经验、工作流、踩坑与解决办法等。
+
+记忆文件应按当天日期归档到 `Memory/YYYY-MM-DD.md`；笔记本中的其他内容可用于保存用户资料、各类记录和写作稿件。
 <!-- flowix:instructions:end -->

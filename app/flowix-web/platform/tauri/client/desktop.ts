@@ -261,6 +261,10 @@ export interface DocxMarkdownImage {
     invoke<DocTreeItem[] | null>('get_file_tree', { spacePath }),
   getDirChildren: (dirPath: string) =>
     invoke<DocTreeItem[]>('get_dir_children', { dirPath }),
+  listEditorComponents: (notebookPath: string) =>
+    invoke<string[]>('list_editor_components', { notebookPath }),
+  readEditorComponent: (filePath: string, notebookPath: string) =>
+    invoke<string>('read_editor_component', { filePath, notebookPath }),
   getNotebookViewPreferences: (notebookPath: string) =>
     invoke<NotebookViewPreferences>('get_notebook_view_preferences', { notebookPath }),
   getNotebookFolderOptions: (notebookPath: string) =>
@@ -441,7 +445,7 @@ export const windows = {
     invoke<void>('unwatch_external_document', { leaseId }),
 };
 
-export type CloudEnvironment = 'staging' | 'prod';
+export type CloudEnvironment = 'staging' | 'cn-staging' | 'prod';
 
 export interface ProductInfo {
   productName: string;

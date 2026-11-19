@@ -1,4 +1,5 @@
-import { Fragment, useLayoutEffect, useRef, type MouseEvent } from 'react';
+import { createElement, Fragment, useLayoutEffect, useRef, type MouseEvent } from 'react';
+import type { LucideIcon } from 'lucide-react';
 import {
   CheckSquareIcon,
   CodeIcon,
@@ -30,6 +31,7 @@ import type { AgentTypeKey } from '@/types/agent';
 import { AgentIcon } from '@features/agent/public/icon-api';
 import { Kbd } from '@shared/ui/shortcut-kbd';
 import { POPUP_SEPARATOR_CLASS } from '@shared/ui/popup-separator';
+import { CustomComponentIcon } from './custom-component-icon';
 
 export type SlashMenuItemId =
   | 'heading-1'
@@ -40,6 +42,7 @@ export type SlashMenuItemId =
   | 'blockquote'
   | 'code-block'
   | 'table'
+  | 'component'
   | 'table-reference'
   | 'table-kanban-view'
   | 'table-calendar-view'
@@ -66,9 +69,8 @@ export type SlashMenuItemId =
 
 export type AgentThreadSlashMenuItemId = Extract<SlashMenuItemId, `agent-thread-${string}`>;
 
-// Agent 类型项用图片资源展示角色图标（与 agent-types.ts 集中管理的图标同源）；
-// 其它项用 Phosphor 图标组件。两种渲染分支在 SlashMenuDropdown 内分发。
-type SlashMenuIcon = PhosphorIcon | string;
+// Agent 类型项用图片资源展示角色图标；普通项使用图标组件，组件入口复用组件库的 Blocks 图标。
+type SlashMenuIcon = PhosphorIcon | LucideIcon | string;
 
 export interface SlashMenuItem {
   id: SlashMenuItemId;
@@ -274,6 +276,13 @@ export const SLASH_MENU_ITEMS: SlashMenuItem[] = [
     sectionKey: 'editor.slash.section.addBlock',
   },
   {
+    id: 'component',
+    labelKey: 'editor.slash.label.component',
+    keywords: ['component', 'custom', 'html', 'block', '组件', '自定义'],
+    icon: CustomComponentIcon,
+    sectionKey: 'editor.slash.section.addBlock',
+  },
+  {
     id: 'table-reference',
     labelKey: 'editor.slash.label.multidimensionalTable',
     descriptionKey: 'editor.slash.description.notes',
@@ -461,8 +470,10 @@ export const SlashMenuDropdown = ({
                       aria-hidden="true"
                     />
                   )
-                : (
-                    <Icon className="h-4 w-4" weight="bold" aria-hidden="true" />
+                : item.id === 'component' ? (
+                    createElement(Icon as LucideIcon, { className: 'h-4 w-4', 'aria-hidden': true })
+                  ) : (
+                    createElement(Icon as PhosphorIcon, { className: 'h-4 w-4', weight: 'bold', 'aria-hidden': true })
                   );
               return (
                 <Fragment key={item.id}>

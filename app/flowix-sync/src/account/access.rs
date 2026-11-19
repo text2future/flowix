@@ -82,6 +82,10 @@ mod tests {
     use super::*;
     fn member() -> CloudMembership {
         CloudMembership {
+            ai_active: Some(false),
+            ai_grant_expires_at: None,
+            ai_grant_duration_unit: None,
+            ai_grant_duration_count: None,
             active: true,
             starts_at: Some(1),
             expires_at: Some(100),

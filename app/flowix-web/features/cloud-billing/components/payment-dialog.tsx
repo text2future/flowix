@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, Loader2 } from 'lucide-react';
 
-import { cloud, type CloudProduct } from '@platform/tauri/client';
+import { cloud, type CloudCheckout, type CloudProduct } from '@platform/tauri/client';
 import { openUrl } from '@platform/tauri/opener';
 import { cloudSyncErrorMessage } from '@platform/tauri/errors';
 import { useI18n } from '@/lib/i18n';
@@ -11,8 +11,10 @@ import { cn } from '@/lib/utils';
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogTitle,
 } from '@shared/ui/dialog';
+import { Button } from '@shared/ui/button';
 import {
   DIALOG_SURFACE_CLASS,
   dialogActionClasses,
@@ -25,6 +27,8 @@ import {
   type BillingTab,
 } from '../model/billing-products';
 import { getImmediateBillingProducts, loadBillingProducts } from '../public/product-catalog';
+import { useWechatPaymentStatus } from '../public/use-wechat-payment-status';
+import { WechatPaymentIcon, WechatPaymentQr } from '../public/wechat-payment-qr';
 
 export interface PaymentDialogProps {
   initialTab: BillingTab;
@@ -46,8 +50,13 @@ const PAYMENT_DIALOG_CONTENT_CLASS = cn(
 const PURCHASE_ACTION_CLASS = dialogActionClasses('brand');
 const SECONDARY_ACTION_CLASS = dialogActionClasses('secondary');
 
-function cycleLabelKey(product: CloudProduct): 'billing.dialog.perYear' | 'billing.dialog.perMonth' | 'billing.dialog.perOnce' | null {
-  if (product.billingType === 'one_time') return 'billing.dialog.perOnce';
+function cycleLabelKey(product: CloudProduct): 'billing.dialog.perYear' | 'billing.dialog.perMonth' | 'billing.dialog.perOnce' | 'billing.dialog.onceMonth' | 'billing.dialog.onceYear' | null {
+  if (product.billingType === 'one_time') {
+    if (product.entitlement?.features?.lifetime === true) return 'billing.dialog.perOnce';
+    if (product.entitlement?.duration?.unit === 'month' && product.entitlement.duration.count === 1) return 'billing.dialog.onceMonth';
+    if (product.entitlement?.duration?.unit === 'year' && product.entitlement.duration.count === 1) return 'billing.dialog.onceYear';
+    return null;
+  }
   const duration = product.entitlement?.duration;
   if (duration?.unit === 'year') return 'billing.dialog.perYear';
   if (duration?.unit === 'month') return 'billing.dialog.perMonth';
@@ -76,8 +85,12 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
   const [products, setProducts] = useState<CloudProduct[] | null>(() => getImmediateBillingProducts());
   const [error, setError] = useState<string | null>(null);
   const [buyingId, setBuyingId] = useState<string | null>(null);
+  const [wechatCheckout, setWechatCheckout] = useState<CloudCheckout | null>(null);
   const [activeSubscriptionIds, setActiveSubscriptionIds] = useState<Set<string>>(() => new Set());
   const [activeMembership, setActiveMembership] = useState<Awaited<ReturnType<typeof cloud.refreshMembership>> | null>(null);
+  const { status: wechatStatus, refresh: refreshWechatStatus } = useWechatPaymentStatus(wechatCheckout?.orderId, (membership) => {
+    if (membership) setActiveMembership(membership);
+  });
   const buyingRef = useRef(false);
   const bodyRef = useRef<HTMLElement | null>(null);
 
@@ -90,15 +103,17 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
     }
   }, [t]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(true); }, [load]);
 
   useEffect(() => {
     if (typeof cloud.refreshMembership !== 'function' || typeof cloud.listSubscriptions !== 'function') return;
     let mounted = true;
-    void Promise.all([cloud.refreshMembership(), cloud.listSubscriptions()])
-      .then(([membership, subscriptions]) => {
+    void cloud.refreshMembership().then((membership) => {
+      if (mounted) setActiveMembership(membership);
+    }).catch(() => {});
+    void cloud.listSubscriptions()
+      .then((subscriptions) => {
         if (!mounted) return;
-        setActiveMembership(membership);
         setActiveSubscriptionIds(new Set(subscriptions
           .filter((subscription) => subscription.currentPeriodEnd != null
             ? subscription.currentPeriodEnd > Date.now()
@@ -116,12 +131,13 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && !buyingRef.current) {
         event.stopPropagation();
-        onClose();
+        if (wechatCheckout) setWechatCheckout(null);
+        else onClose();
       }
     };
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [onClose]);
+  }, [onClose, wechatCheckout]);
 
   useEffect(() => {
     bodyRef.current?.querySelector<HTMLElement>('[data-payment-initial-focus]')?.focus();
@@ -145,8 +161,12 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
     setBuyingId(product.id);
     try {
       const checkout = await cloud.createCheckout(product.id);
-      if (checkout.checkoutUrl) await openUrl(checkout.checkoutUrl);
-      onClose();
+      if (checkout.checkoutUrl.startsWith('weixin://')) {
+        setWechatCheckout(checkout);
+      } else if (checkout.checkoutUrl) {
+        await openUrl(checkout.checkoutUrl);
+        onClose();
+      }
     } catch (value) {
       setError(cloudSyncErrorMessage(value, t, 'errors.friendly.checkout'));
     } finally {
@@ -211,6 +231,7 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
                   // denomination alone. `credits` is only a display amount.
                   const isStoragePlan = isMembershipProduct(product);
                   const isAiPlan = !isStoragePlan;
+                  const isAiCovered = isAiPlan && activeMembership?.aiActive === true;
                   const isCurrent = activeSubscriptionIds.has(product.id)
                     || (isStoragePlan
                       && features.lifetime === true
@@ -284,19 +305,19 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
                             'payment-dialog__purchase relative mt-4 flex w-full items-center justify-center',
                             isStoragePlan && features.lifetime !== true && 'payment-dialog__purchase--white',
                             isStoragePlan && features.lifetime === true && 'payment-dialog__purchase--storage-long-term',
-                            (isCurrent || isCoveredByLifetime) && 'payment-dialog__purchase--current',
+                            (isCurrent || isCoveredByLifetime || isAiCovered) && 'payment-dialog__purchase--current',
                           )}
                           data-payment-initial-focus={product.id === initialFocusProductId ? '' : undefined}
-                          disabled={isCurrent || isCoveredByLifetime || buyingId !== null || product.marketRegion === 'mainland'}
+                          disabled={isCurrent || isCoveredByLifetime || isAiCovered || buyingId !== null}
                           onClick={() => void buy(product)}
                         >
                           {buyingId === product.id && <Loader2 className="absolute right-3 h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
-                          {t(isCurrent
+                          {t(isAiCovered ? 'billing.dialog.aiAlreadyActive' : isCurrent
                             ? 'billing.dialog.currentlyActive'
                             : isCoveredByLifetime
                               ? 'billing.dialog.downgradeUnsupported'
                               : product.marketRegion === 'mainland'
-                                ? 'billing.dialog.wechatPending'
+                                ? 'billing.dialog.wechatPurchase'
                                 : 'billing.dialog.purchase')}
                         </button>
                         <div className="payment-dialog__benefits-title">
@@ -359,6 +380,33 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
 
         </main>
       </DialogContent>
+      <Dialog open={wechatCheckout !== null} onOpenChange={(open) => { if (!open) setWechatCheckout(null); }}>
+        <DialogContent aria-labelledby="wechat-payment-dialog-title" className="max-w-sm">
+          <DialogTitle id="wechat-payment-dialog-title" className="mb-3 flex items-center gap-2">
+            <WechatPaymentIcon />{t('billing.dialog.wechatTitle')}
+          </DialogTitle>
+          <div className="space-y-3">
+            <p className="text-sm text-[var(--muted-foreground)]">{t(wechatStatus === 'paid' ? 'billing.dialog.wechatPaid' : wechatStatus === 'paidRefreshFailed' ? 'billing.dialog.wechatPaidRefreshFailed' : wechatStatus === 'checkFailed' ? 'billing.dialog.wechatCheckFailed' : wechatStatus === 'pending' ? 'billing.dialog.wechatPendingStatus' : 'billing.dialog.wechatInstructions')}</p>
+            {wechatStatus !== 'paid' && wechatStatus !== 'paidRefreshFailed' && wechatCheckout && (
+              <WechatPaymentQr url={wechatCheckout.checkoutUrl} svg={wechatCheckout.qrCodeSvg} />
+            )}
+            <DialogFooter>
+              {wechatStatus !== 'paid' && wechatStatus !== 'paidRefreshFailed' && <Button
+                type="button"
+                variant="outline"
+                disabled={wechatStatus === 'checking'}
+                onClick={() => void refreshWechatStatus()}
+              >{t(wechatStatus === 'checking' ? 'billing.dialog.wechatChecking' : 'billing.dialog.wechatRefresh')}</Button>}
+              <Button
+                type="button"
+                onClick={() => setWechatCheckout(null)}
+              >
+                {t('billing.dialog.wechatClose')}
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }

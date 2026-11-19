@@ -2,7 +2,13 @@ import { resolveWikiDocumentHref } from '@/lib/wiki-reference';
 import { sanitizeLinkHref } from '@/lib/safe-link';
 import type { JSONContent } from '@tiptap/core';
 import { documentResourceRoots, formatDocumentPathReference } from '@/lib/document-resource-context';
-import { decodeDocumentHref, resolveDocumentRelativeHref, resolvePhysicalDocumentPath, wikiDocumentHref } from '@/lib/document-relative-path';
+import {
+  decodeDocumentHref,
+  documentFileHref,
+  resolveDocumentRelativeHref,
+  resolvePhysicalDocumentPath,
+  wikiDocumentHref,
+} from '@/lib/document-relative-path';
 import { joinNotebookMemoPath, notebookForPath, samePath } from '@/lib/path';
 import { escapeHtml, stripMdSuffix } from './markdown';
 import type { NoteReferenceAttrs } from './note-reference-markdown';
@@ -117,10 +123,13 @@ export function noteReferenceMarkdownNode(attrs: NoteReferenceAttrs, context: No
     && !/^(?:[\\/]|[a-z]:[\\/]|[a-z][a-z0-9+.-]*:)/i.test(decodeDocumentHref(attrs.linkTarget ?? ''))
     && /\.(md|markdown)$/i.test(attrs.linkTarget ?? '')) return null;
   if (target.kind === 'path' && canUseWiki(target.path, context)
-    && !(attrs.linkStyle === 'wiki' && /^(?:[\\/]|[a-z]:[\\/]|file:)/i.test(decodeDocumentHref(attrs.linkTarget ?? '')))) return null;
+    && !(attrs.linkStyle === 'wiki' && /^(?:[\\/]|[a-z]:[\\/]|file:)/i.test(decodeDocumentHref(attrs.linkTarget ?? '')))
+    && !(attrs.linkStyle === 'markdown' && attrs.title.startsWith('@'))) return null;
   const href = target.kind === 'path'
-    ? formatDocumentPathReference({ path: target.path, anchor: target.heading }, context.documentPath,
-      context.roots ?? documentResourceRoots(context.notebooks, context.repositories))
+    ? attrs.linkStyle === 'markdown' && /^file:/i.test(attrs.linkTarget ?? '')
+      ? documentFileHref({ path: target.path, anchor: target.heading })
+      : formatDocumentPathReference({ path: target.path, anchor: target.heading }, context.documentPath,
+        context.roots ?? documentResourceRoots(context.notebooks, context.repositories))
     : attrs.linkTarget ? `${attrs.linkTarget}${attrs.heading ? `#${encodeURIComponent(attrs.heading)}` : ''}` : null;
   if (!href) return null;
   if (!sanitizeLinkHref(href)) return { type: 'text', text: `[[${href}]]` };
@@ -129,10 +138,32 @@ export function noteReferenceMarkdownNode(attrs: NoteReferenceAttrs, context: No
 }
 
 /** Normalize a serialization snapshot without mutating the live editor. */
-export function normalizeNoteReferenceDocument(node: JSONContent, context: NoteReferenceContext): JSONContent {
+export function normalizeNoteReferenceDocument(
+  node: JSONContent,
+  context: NoteReferenceContext,
+  options: { forceMarkdownLinks?: boolean; mentionLabels?: boolean } = {},
+): JSONContent {
   if (!context.roots) context = { ...context, roots: documentResourceRoots(context.notebooks, context.repositories) };
   if (node.type === 'noteReference') {
     const attrs = node.attrs as NoteReferenceAttrs;
+    const labelSource = attrs.title || attrs.relativePath || attrs.linkTarget || 'Note';
+    const labelName = stripMdSuffix(labelSource.replace(/\\/g, '/').split('/').pop() || labelSource)
+      .replace(/^@+/, '');
+    if (options.forceMarkdownLinks) {
+      const target = resolveNoteReference(attrs, context);
+      if (target.kind === 'path') {
+        return { ...node, attrs: {
+          ...attrs,
+          notebookId: null,
+          notebookName: '',
+          relativePath: null,
+          originalPath: null,
+          linkStyle: 'markdown',
+          linkTarget: documentFileHref({ path: target.path, anchor: null }),
+          title: options.mentionLabels ? `@${labelName || 'Note'}` : attrs.title,
+        } };
+      }
+    }
     const link = noteReferenceMarkdownNode(attrs, context);
     if (link) return link;
     const destination = noteReferenceDestination(attrs, context);
@@ -143,7 +174,10 @@ export function normalizeNoteReferenceDocument(node: JSONContent, context: NoteR
       linkStyle: 'wiki', linkTarget: hash < 0 ? destination : destination.slice(0, hash),
     } };
   }
-  return node.content ? { ...node, content: node.content.map(child => normalizeNoteReferenceDocument(child, context)) } : node;
+  return node.content ? {
+    ...node,
+    content: node.content.map(child => normalizeNoteReferenceDocument(child, context, options)),
+  } : node;
 }
 
 function escapeLinkText(text: string): string {

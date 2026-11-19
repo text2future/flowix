@@ -43,7 +43,11 @@ import type { AgentTypeKey } from "@/types/agent";
 import { getDocumentResourceSnapshot } from "@features/document/public/resource-context";
 import { ComposerNoteReference, normalizeNoteReferenceDocument } from "@features/editor/extensions/note-link";
 import { ComposerStableCaret } from "@features/editor/extensions/stable-caret";
-import { ComposerAttachmentToken, composerAttachmentMarkdownToPrompt } from "./composer-attachment-token";
+import {
+  ComposerAttachmentToken,
+  composerAttachmentMarkdownToDisplay,
+  composerAttachmentMarkdownToPrompt,
+} from "./composer-attachment-token";
 import { ComposerInlineAtomCaret } from "./composer-inline-atom-caret";
 import type { MemoRef } from "@features/agent/thread-card/note/note-picker-controller";
 import type { Root } from "react-dom/client";
@@ -276,10 +280,28 @@ export class ComposerController {
     // hardBreak. Markdown serializes that node as `  \n`; the agent protocol
     // should receive the same newline the user entered, without Markdown's
     // visual line-break marker becoming part of the prompt.
-    return composerAttachmentMarkdownToPrompt(composerFolderMarkdownToPrompt(
-      composerSkillMarkdownToPrompt(composerSlashMarkdownToPrompt(this.getDraftMarkdown())),
-    ))
+    return composerAttachmentMarkdownToPrompt(this.getSerializedAgentContent())
       .replace(/ {2}\n/g, "\n");
+  }
+
+  getDisplayContent(): string {
+    if (this.editor.isDestroyed) return "";
+    return composerAttachmentMarkdownToDisplay(this.getSerializedAgentContent())
+      .replace(/ {2}\n/g, "\n");
+  }
+
+  private getSerializedAgentContent(): string {
+    return composerFolderMarkdownToPrompt(
+      composerSkillMarkdownToPrompt(composerSlashMarkdownToPrompt(this.getAgentMarkdown())),
+    );
+  }
+
+  /** Keep the editor's saved draft format while sending note references as Markdown links. */
+  private getAgentMarkdown(): string {
+    const document = normalizeNoteReferenceDocument(this.editor.getJSON(), {
+      ...getDocumentResourceSnapshot(), documentPath: '',
+    }, { forceMarkdownLinks: true, mentionLabels: true });
+    return this.editor.markdown?.serialize(document) ?? this.getDraftMarkdown();
   }
 
   getInputElement(): HTMLDivElement {
@@ -636,6 +658,12 @@ export class ComposerController {
   };
 
   private readonly handleBlur = (): void => {
+    // WebKit can leave a native caret visible after blur. Clear only this
+    // composer's collapsed DOM selection so message text selection is preserved.
+    const selection = this.input.ownerDocument.getSelection();
+    if (selection?.isCollapsed && selection.anchorNode && this.input.contains(selection.anchorNode)) {
+      selection.removeAllRanges();
+    }
     this.flushPendingDraft();
   };
 

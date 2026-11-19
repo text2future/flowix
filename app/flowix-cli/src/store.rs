@@ -13,19 +13,43 @@ pub fn open() -> Result<MemoFile, CliError> {
 
 pub(crate) fn notebooks_list_data() -> Result<(Vec<NotebookConfig>, Option<String>), CliError> {
     let mf = open()?;
-    let notebooks = mf.read_notebook_configs()?;
-    let selected = mf.read_selected_notebook_id()?;
+    let mut notebooks = Vec::new();
+    for notebook in mf.read_notebook_configs()? {
+        if notebook_directory_available(&notebook)? {
+            notebooks.push(notebook);
+        }
+    }
+    let selected = mf
+        .read_selected_notebook_id()?
+        .filter(|id| notebooks.iter().any(|notebook| &notebook.id == id));
     Ok((notebooks, selected))
+}
+
+pub(crate) fn notebook_directory_available(
+    notebook: &NotebookConfig,
+) -> Result<bool, CliError> {
+    match std::fs::metadata(&notebook.path) {
+        Ok(metadata) => Ok(metadata.is_dir()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(CliError::Io(error)),
+    }
 }
 
 pub(crate) fn resolve_notebook_config(
     mf: &MemoFile,
     key: &str,
 ) -> Result<NotebookConfig, CliError> {
+    let resolved = if key.trim().is_empty() { Some(resolve_notebook_key(None)?) } else { None };
+    let key = resolved.as_deref().unwrap_or(key);
     let configs = mf.read_notebook_configs()?;
-    find_notebook(&configs, key)
-        .cloned()
-        .ok_or_else(|| CliError::NotFound(format!("notebook not found: {key}")))
+    let notebook = find_notebook(&configs, key)?.clone();
+    if !notebook_directory_available(&notebook)? {
+        return Err(CliError::NotFound(format!(
+            "notebook directory is not available: {}",
+            notebook.path
+        )));
+    }
+    Ok(notebook)
 }
 
 pub(crate) fn notebook_note_counts(
@@ -64,11 +88,16 @@ pub(crate) fn notebook_tag_counts(
         .collect())
 }
 
-pub fn find_notebook<'a>(configs: &'a [NotebookConfig], key: &str) -> Option<&'a NotebookConfig> {
-    configs
-        .iter()
-        .find(|config| config.id == key)
-        .or_else(|| configs.iter().find(|config| config.name == key))
+pub fn find_notebook<'a>(configs: &'a [NotebookConfig], key: &str) -> Result<&'a NotebookConfig, CliError> {
+    if let Some(config) = configs.iter().find(|config| config.id == key) {
+        return Ok(config);
+    }
+    let mut matches = configs.iter().filter(|config| config.name == key);
+    let first = matches.next().ok_or_else(|| CliError::NotFound(format!("notebook not found: {key}")))?;
+    if matches.next().is_some() {
+        return Err(CliError::Conflict(format!("ambiguous notebook name `{key}`; use notebook ID")));
+    }
+    Ok(first)
 }
 
 pub(crate) fn resolve_notebook_key(notebook: Option<&str>) -> Result<String, CliError> {
@@ -76,16 +105,30 @@ pub(crate) fn resolve_notebook_key(notebook: Option<&str>) -> Result<String, Cli
         return Ok(value.to_owned());
     }
     let mf = open()?;
-    if let Some(selected) = mf.read_selected_notebook_id()? {
-        return Ok(selected);
-    }
     let configs = mf.read_notebook_configs()?;
-    configs
-        .iter()
-        .find(|config| config.is_default)
-        .or_else(|| configs.first())
-        .map(|config| config.id.clone())
-        .ok_or_else(|| CliError::NotFound("no notebook is configured".into()))
+    if let Ok(cwd) = std::env::current_dir().and_then(std::fs::canonicalize) {
+        if let Some(config) = configs.iter().filter_map(|config| std::fs::canonicalize(&config.path).ok().filter(|root| cwd.starts_with(root)).map(|root| (root, config))).max_by_key(|(root, _)| root.components().count()).map(|(_, config)| config) {
+            return Ok(config.id.clone());
+        }
+    }
+    if let Some(selected) = mf.read_selected_notebook_id()? {
+        if let Some(config) = configs.iter().find(|config| config.id == selected) {
+            if notebook_directory_available(config)? {
+                return Ok(config.id.clone());
+            }
+        }
+    }
+    let mut first_available = None;
+    for config in &configs {
+        if !notebook_directory_available(config)? {
+            continue;
+        }
+        if config.is_default {
+            return Ok(config.id.clone());
+        }
+        first_available.get_or_insert_with(|| config.id.clone());
+    }
+    first_available.ok_or_else(|| CliError::NotFound("no available notebook is configured".into()))
 }
 
 pub(crate) fn notebook_tags(notebook: Option<&str>) -> Result<serde_json::Value, CliError> {

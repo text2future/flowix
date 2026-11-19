@@ -12,6 +12,173 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
+fn add_field_definitions_json(fields: &mut Vec<Value>, source: &str) -> Result<Vec<Value>, CliError> {
+    let input: Value = serde_json::from_str(source)
+        .map_err(|e| CliError::Usage(format!("invalid fields JSON: {e}")))?;
+    let definitions = input.as_array().ok_or_else(|| CliError::Usage("fields file must contain an array".into()))?;
+    if definitions.is_empty() { return Err(CliError::Usage("fields array must not be empty".into())); }
+    let make_id = |prefix: &str| format!("{prefix}{}", uuid::Uuid::now_v7().simple());
+    let mut keys = fields.iter().filter_map(|field| field["property_key"].as_str().map(|v| v.trim().to_lowercase())).collect::<std::collections::HashSet<_>>();
+    let start = fields.len();
+    for definition in definitions {
+        let obj = definition.as_object().ok_or_else(|| CliError::Usage("each field must be an object".into()))?;
+        if obj.keys().any(|key| !["name", "property_key", "type", "options"].contains(&key.as_str())) {
+            return Err(CliError::Usage("unknown field definition key".into()));
+        }
+        let name = obj.get("name").and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty())
+            .ok_or_else(|| CliError::Usage("field name is required".into()))?;
+        let key = obj.get("property_key").map(|v| v.as_str().unwrap_or("").trim()).unwrap_or(name);
+        if key.is_empty() || !keys.insert(key.to_lowercase()) || ["flowix_property_types", "flowix_plugin"].iter().any(|reserved| key.eq_ignore_ascii_case(reserved)) {
+            return Err(CliError::Usage(format!("invalid or duplicate property_key: {key}")));
+        }
+        let kind = obj.get("type").and_then(Value::as_str).unwrap_or("");
+        if !["Text", "URL", "Icon", "Boolean", "Number", "Date", "Select", "MultiSelect", "Tag", "Color", "Image"].contains(&kind) {
+            return Err(CliError::Usage(format!("unsupported field type: {kind}")));
+        }
+        if matches!(kind, "Select" | "MultiSelect") && obj.get("options").and_then(Value::as_array).is_none_or(Vec::is_empty) {
+            return Err(CliError::Usage(format!("{kind} field requires at least one option: {name}")));
+        }
+        let mut field = json!({"id":make_id("fld_"),"name":name,"property_key":key,"type":kind});
+        if let Some(options) = obj.get("options") {
+            if !matches!(kind, "Select" | "MultiSelect") {
+                return Err(CliError::Usage(format!("options are only supported for Select and MultiSelect: {name}")));
+            }
+            let options = options.as_array().ok_or_else(|| CliError::Usage(format!("options must be an array: {name}")))?;
+            let mut labels = std::collections::HashSet::new();
+            let mut result = Vec::new();
+            for option in options {
+                let label = option.as_str().map(str::trim).filter(|v| !v.is_empty()).ok_or_else(|| CliError::Usage(format!("option must be a nonempty string: {name}")))?;
+                if !labels.insert(label.to_lowercase()) { return Err(CliError::Usage(format!("duplicate option: {label}"))); }
+                result.push(json!({"id":make_id("opt_"),"label":label}));
+            }
+            field["options"] = json!(result);
+        }
+        fields.push(field);
+    }
+    Ok(fields[start..].to_vec())
+}
+
+/// Create through the same notebook file lock and collection validator used by the app.
+pub(crate) fn create(notebook_key: &str, relative: &str, fields_file: Option<&str>) -> Result<Value, CliError> {
+    let input = fields_file.map(fs::read_to_string).transpose()?;
+    create_with_fields(notebook_key, relative, input.as_deref())
+}
+
+pub(crate) fn create_with_fields(notebook_key: &str, relative: &str, fields_input: Option<&str>) -> Result<Value, CliError> {
+    let memo = store::open()?;
+    let notebook = store::resolve_notebook_config(&memo, notebook_key)?;
+    let catalog = flowix_core::collection_store::CollectionCatalog::open(&memo, &notebook.id)
+        .map_err(CliError::Other)?;
+    let path = catalog.checked_path(relative).map_err(CliError::Usage)?;
+    let filename = path.file_name().and_then(|v| v.to_str()).unwrap_or("");
+    if !filename.ends_with(".index.yaml") || filename == ".index.yaml" {
+        return Err(CliError::Usage("standalone collection path must end in .index.yaml".into()));
+    }
+    let make_id = |prefix: &str| format!("{prefix}{}", uuid::Uuid::now_v7().simple());
+    let collection_id = make_id("col_");
+    let primary = make_id("fld_");
+    let view = make_id("view_");
+    let mut fields = vec![json!({"id":primary,"type":"primary","property_key":"note"})];
+    if let Some(input) = fields_input { add_field_definitions_json(&mut fields, input)?; }
+    let ids: Vec<Value> = fields.iter().map(|field| field["id"].clone()).collect();
+    let mut order = ids.clone();
+    order.extend(["__note_tags__", "__note_icon__", "__note_created_at__", "__note_updated_at__", "__note_relative_path__", "__note_size__"].iter().map(|v| json!(v)));
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let source = json!({"format":"flowix.collection", "schema_version":2,
+        "collection":{"id":collection_id,"type":"notes","placement":"standalone","revision":0,"created_at":now,"updated_at":now,"properties":{}},
+        "payload":{"schema_version":2,"dataset":{"source":{"scope":"notebook"},"schema":{"primary_field_id":primary,"fields":fields,"preset_fields":["__note_tags__","__note_icon__"],"field_order":order},"records":{"include":[],"exclude":[]},"filter":null},
+        "views":{"default_id":view,"items":[{"id":view,"name":"表格","layout":"table","filter":{"all":[],"any":[]},"sort":[{"field":"modified_at","direction":"desc"}],"config":{"visible_fields":ids}}]}}});
+    let document = CollectionDocument::parse(&source.to_string()).map_err(CliError::Other)?;
+    document.validate().map_err(CliError::Usage)?;
+    let content = document.serialize().map_err(CliError::Other)?;
+    memo.create_file_for_notebook(&notebook.id, &path, content.as_bytes())?;
+    flowix_core::collection_store::refresh_path(&memo, &path);
+    Ok(json!({"ok":true,"action":"collection.create","notebookId":notebook.id,"collectionId":collection_id,"relativePath":relative,"revision":0,"fields":fields}))
+}
+
+pub(crate) fn add_fields(notebook_key: &str, id: Option<&str>, relative: Option<&str>, fields_file: &str) -> Result<Value, CliError> {
+    add_fields_with_json(notebook_key, id, relative, &fs::read_to_string(fields_file)?)
+}
+
+pub(crate) fn add_fields_with_json(notebook_key: &str, id: Option<&str>, relative: Option<&str>, fields_input: &str) -> Result<Value, CliError> {
+    let (notebook, root, path, mut document) = load_collection(notebook_key, id, relative)?;
+    if document.collection.kind != CollectionType::Table {
+        return Err(CliError::Usage("add-fields currently supports notes tables".into()));
+    }
+    let original_id = document.collection.id.clone();
+    let original = fs::read_to_string(&path)?;
+    // Re-read and validate the exact content used for the compare-and-swap.
+    document = CollectionDocument::parse(&original).map_err(CliError::Other)?.normalized_v2().map_err(CliError::Other)?;
+    document.validate().map_err(CliError::Other)?;
+    if document.collection.kind != CollectionType::Table { return Err(CliError::Conflict("COLLECTION_TYPE_CHANGED".into())); }
+    if original_id != document.collection.id { return Err(CliError::Conflict("COLLECTION_IDENTITY_CHANGED".into())); }
+    let fields = document.payload.pointer_mut("/dataset/schema/fields").and_then(Value::as_array_mut).ok_or_else(|| CliError::Other("INVALID_COLLECTION_SCHEMA".into()))?;
+    let added = add_field_definitions_json(fields, fields_input)?;
+    let ids = added.iter().map(|field| field["id"].clone()).collect::<Vec<_>>();
+    document.payload.pointer_mut("/dataset/schema/field_order").and_then(Value::as_array_mut).ok_or_else(|| CliError::Other("INVALID_COLLECTION_SCHEMA".into()))?.extend(ids.clone());
+    if let Some(views) = document.payload.pointer_mut("/views/items").and_then(Value::as_array_mut) {
+        for view in views {
+            if matches!(view["layout"].as_str(), Some("table" | "gallery")) {
+                if let Some(visible) = view.pointer_mut("/config/visible_fields").and_then(Value::as_array_mut) { visible.extend(ids.clone()); }
+            }
+        }
+    }
+    document.revise().map_err(CliError::Other)?;
+    document.validate().map_err(CliError::Usage)?;
+    let content = document.serialize().map_err(CliError::Other)?;
+    let memo = store::open()?;
+    match memo.write_file_if_matches_for_notebook(&notebook.id, &path, &content, Some(&original))? {
+        flowix_core::memo_file::FileWriteOutcome::Saved => {},
+        flowix_core::memo_file::FileWriteOutcome::Conflict { .. } => return Err(CliError::Conflict("COLLECTION_CONTENT_CONFLICT".into())),
+    }
+    flowix_core::collection_store::refresh_path(&memo, &path);
+    Ok(json!({"ok":true,"action":"collection.add-fields","notebookId":notebook.id,"collectionId":document.collection.id,"relativePath":relative_string(&root, &path)?,"revision":document.collection.revision,"fields":added}))
+}
+
+/// Create a structured record and derive its frontmatter types from the collection schema.
+pub(crate) fn add_record(notebook_key: &str, id: Option<&str>, relative: Option<&str>, input: &str, request_id: Option<&str>) -> Result<Value, CliError> {
+    let record: Value = serde_json::from_str(input).map_err(|e| CliError::Usage(format!("invalid record JSON: {e}")))?;
+    let obj = record.as_object().ok_or_else(|| CliError::Usage("record must be an object".into()))?;
+    if obj.keys().any(|key| !["title", "properties", "content"].contains(&key.as_str())) { return Err(CliError::Usage("unknown record key; expected title, properties, content".into())); }
+    let title = obj.get("title").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty() && !s.contains(['\n','\r'])).ok_or_else(|| CliError::Usage("record title must be a nonempty single line".into()))?;
+    let body = match obj.get("content") { None => "", Some(Value::String(body)) => body, _ => return Err(CliError::Usage("content must be a string".into())) };
+    let mut properties = match obj.get("properties") { None => serde_json::Map::new(), Some(Value::Object(p)) => p.clone(), _ => return Err(CliError::Usage("properties must be an object".into())) };
+    let (notebook, _, _, document) = load_collection(notebook_key, id, relative)?;
+    let dataset = dataset_for(&document, "notes").ok_or_else(|| CliError::Usage("COLLECTION_NOTES_DOMAIN_MISSING".into()))?;
+    let fields = dataset.pointer("/schema/fields").and_then(Value::as_array).ok_or_else(|| CliError::Other("INVALID_COLLECTION_SCHEMA".into()))?;
+    let mut types = serde_json::Map::new();
+    for (key, value) in &mut properties {
+        let field = fields.iter().find(|field| field["property_key"].as_str() == Some(key) && field["type"] != "primary")
+            .ok_or_else(|| CliError::Usage(format!("unknown property `{key}`")))?;
+        types.insert(key.clone(), field["type"].clone());
+        let label = |input: &mut Value| {
+            if let Some(options) = field["options"].as_array() {
+                if let Some(option) = options.iter().find(|option| option["id"] == *input) { *input = option["label"].clone(); }
+            }
+        };
+        match field["type"].as_str() {
+            Some("Select") => label(value),
+            Some("MultiSelect") => if let Some(values) = value.as_array_mut() { for value in values { label(value); } },
+            _ => {},
+        }
+    }
+    if !types.is_empty() { properties.insert("flowix_property_types".into(), Value::Object(types)); }
+    let yaml = serde_json::to_string(&properties).map_err(|e| CliError::Other(e.to_string()))?;
+    let content = format!("---\n{yaml}\n---\n\n# {title}\n\n{body}\n");
+    let memo = store::open()?;
+    let note = flowix_core::collection_store::add_note_with_request_schema(&memo, &notebook.id, Some(&document.collection.id), None, title, &content, request_id, dataset.get("schema"))
+        .map_err(|message| {
+            let mut error = CliError::collection_error(message);
+            if let CliError::InvalidField { field, allowed, .. } = &mut error {
+                *allowed = fields.iter().find(|item| item["property_key"].as_str() == Some(field))
+                    .and_then(|item| item["options"].as_array())
+                    .map(|options| options.iter().filter_map(|option| option["label"].as_str().map(str::to_owned)).collect());
+            }
+            error
+        })?;
+    Ok(json!({"ok":true,"action":"collection.add","notebookId":note.notebook_id,"collectionId":note.collection_id,"collectionPath":note.collection_path,"collectionRevision":note.collection_revision,"note":{"address":note.address,"relativePath":note.note_path}}))
+}
+
 pub(crate) fn read(
     notebook_key: &str,
     collection_id: Option<&str>,
@@ -213,6 +380,7 @@ pub(crate) fn query(
     domain: Option<&str>,
     view_id: Option<&str>,
     text_query: Option<&str>,
+    raw_filters: &[String],
     requested_fields: &[String],
     raw_sorts: &[String],
     limit: usize,
@@ -266,7 +434,13 @@ pub(crate) fn query(
             .filter_map(|field| field.get("id").and_then(Value::as_str).map(str::to_owned))
             .collect::<Vec<_>>()
     } else {
-        requested_fields.to_vec()
+        requested_fields.iter().map(|requested| {
+            fields.iter().find(|field| field["id"].as_str() == Some(requested))
+                .or_else(|| fields.iter().find(|field| field["property_key"].as_str() == Some(requested)))
+                .and_then(|field| field["id"].as_str())
+                .map(str::to_owned)
+                .ok_or_else(|| CliError::Usage(format!("unknown field id or property key `{requested}`")))
+        }).collect::<Result<Vec<_>, _>>()?
     };
     for field in &selected_fields {
         if !fields
@@ -277,11 +451,26 @@ pub(crate) fn query(
         }
     }
     let sorts = parse_sorts(raw_sorts, &fields, view.as_ref(), domain == "notes")?;
+    let mut filters = Vec::new();
+    if !raw_filters.is_empty() && domain != "notes" { return Err(CliError::Usage("field filters currently support the notes domain".into())); }
+    for raw in raw_filters {
+        let (key, value) = raw.split_once('=').ok_or_else(|| CliError::Usage("filter must use field=value".into()))?;
+        let field = fields.iter().find(|field| field["id"].as_str() == Some(key) || field["property_key"].as_str() == Some(key)).ok_or_else(|| CliError::Usage(format!("unknown filter field `{key}`")))?;
+        let expected = match field["type"].as_str() {
+            Some("Number") => serde_json::from_str::<Value>(value).ok().filter(Value::is_number).ok_or_else(|| CliError::Usage(format!("invalid number filter value for `{key}`")))?,
+            Some("Boolean") => serde_json::from_str::<Value>(value).ok().filter(Value::is_boolean).ok_or_else(|| CliError::Usage(format!("invalid boolean filter value for `{key}`")))?,
+            _ => Value::String(value.to_owned()),
+        };
+        filters.push((field, expected));
+    }
     let mut records = if domain == "notes" {
         note_records(&notebook, &root, &path, &document, dataset, &fields)?
     } else {
         resource_records(&notebook, &root, &path, &document, dataset, &domain)?
     };
+    // Keep diagnostics even when a filter cannot evaluate a missing record.
+    let diagnostics = records.iter().filter(|record| record.state == "missing")
+        .map(|record| json!({"code":"NOTE_MISSING","relativePath":record.relative_path,"recordId":record.record_id})).collect::<Vec<_>>();
     if let Some(view) = &view {
         records.retain(|record| {
             record_matches_filter(record, view.get("filter").unwrap_or(&Value::Null), &fields)
@@ -294,6 +483,21 @@ pub(crate) fn query(
                 || record.relative_path.to_lowercase().contains(&needle)
         });
     }
+    if !filters.is_empty() {
+        records.retain(|record| record.entry.as_ref().is_some_and(|entry| filters.iter().all(|(field, expected)| {
+            let actual = note_actual(entry, field["id"].as_str().unwrap_or_default(), &fields);
+            let normalize = |value: &Value| -> Value {
+                if matches!(field["type"].as_str(), Some("Select" | "MultiSelect")) {
+                    if let Some(option) = field["options"].as_array().and_then(|options| options.iter().find(|option| option["id"] == *value)) {
+                        return option["label"].clone();
+                    }
+                }
+                value.clone()
+            };
+            let expected = normalize(expected);
+            normalize(&actual) == expected || actual.as_array().is_some_and(|values| values.iter().any(|value| normalize(value) == expected))
+        })));
+    }
     if !sorts.is_empty() {
         records.sort_by(|a, b| compare_records(a, b, &sorts, &fields));
     }
@@ -301,9 +505,10 @@ pub(crate) fn query(
         .iter()
         .map(|record| record.to_json(&notebook.id, &selected_fields, &fields))
         .collect::<Vec<_>>();
+    let complete = diagnostics.is_empty();
     let total = all_items.len();
     let token = snapshot_token(
-        &json!({"notebookId":notebook.id,"collectionId":document.collection.id,"revision":document.collection.revision,"relativePath":relative_string(&root,&path)?,"domain":domain,"viewId":view_id,"query":text_query,"fields":selected_fields,"sort":sorts,"items":all_items}),
+        &json!({"notebookId":notebook.id,"collectionId":document.collection.id,"revision":document.collection.revision,"relativePath":relative_string(&root,&path)?,"domain":domain,"viewId":view_id,"query":text_query,"filters":raw_filters,"fields":selected_fields,"sort":sorts,"complete":complete,"diagnostics":diagnostics,"items":all_items}),
     );
     check_snapshot(snapshot, &token)?;
     let page_items = all_items
@@ -313,7 +518,7 @@ pub(crate) fn query(
         .collect::<Vec<_>>();
     let next_offset = offset.saturating_add(page_items.len());
     Ok(
-        json!({"ok":true,"action":"collection.query","notebookId":notebook.id,"collectionId":document.collection.id,"collectionRevision":document.collection.revision,"domain":domain,"viewId":view_id,"items":page_items,"page":{"limit":limit,"offset":offset,"returned":next_offset.saturating_sub(offset),"total":total,"hasMore":next_offset<total,"nextOffset":(next_offset<total).then_some(next_offset)},"snapshot":token,"complete":true,"diagnostics":[]}),
+        json!({"ok":true,"action":"collection.query","notebookId":notebook.id,"collectionId":document.collection.id,"collectionRevision":document.collection.revision,"domain":domain,"viewId":view_id,"items":page_items,"page":{"limit":limit,"offset":offset,"returned":next_offset.saturating_sub(offset),"total":total,"hasMore":next_offset<total,"nextOffset":(next_offset<total).then_some(next_offset)},"snapshot":token,"complete":complete,"diagnostics":diagnostics}),
     )
 }
 
@@ -341,6 +546,7 @@ impl CollectionRecord {
         schema_fields: &[Value],
     ) -> Value {
         let mut properties = serde_json::Map::new();
+        let mut properties_by_key = serde_json::Map::new();
         for field_id in selected_fields {
             let Some(field) = schema_fields
                 .iter()
@@ -364,6 +570,7 @@ impl CollectionRecord {
                     .cloned()
                     .unwrap_or(Value::Null)
             };
+            properties_by_key.insert(key.to_owned(), value.clone());
             properties.insert(field_id.clone(), value);
         }
         let address = if self.kind == "note" && !self.relative_path.is_empty() {
@@ -371,7 +578,7 @@ impl CollectionRecord {
         } else {
             None
         };
-        json!({"recordId":self.record_id,"origin":self.origin,"kind":self.kind,"state":self.state,"title":self.title,"relativePath":self.relative_path,"address":address,"properties":properties,"resourceId":self.resource_id,"mimeType":self.mime_type,"sizeBytes":self.size_bytes,"modifiedMs":self.modified_ms,"createdMs":self.created_ms,"read":{"action":if self.kind == "note" {"show"} else {"file.read"},"address":address,"available":self.kind == "note" && address.is_some(),"reason":if self.kind == "note" {Value::Null} else {json!("unsupportedContentType")}}})
+        json!({"recordId":self.record_id,"origin":self.origin,"kind":self.kind,"state":self.state,"title":self.title,"relativePath":self.relative_path,"address":address,"properties":properties,"propertiesByKey":properties_by_key,"resourceId":self.resource_id,"mimeType":self.mime_type,"sizeBytes":self.size_bytes,"modifiedMs":self.modified_ms,"createdMs":self.created_ms,"read":{"action":if self.kind == "note" {"show"} else {"file.read"},"address":address,"available":self.kind == "note" && self.state == "available" && address.is_some(),"reason":if self.kind != "note" {json!("unsupportedContentType")} else if self.state == "missing" {json!("missing")} else {Value::Null}}})
     }
 }
 
@@ -535,8 +742,8 @@ fn snapshot_token(value: &Value) -> String {
 
 fn check_snapshot(supplied: Option<&str>, current: &str) -> Result<(), CliError> {
     if supplied.is_some_and(|token| token != current) {
-        Err(CliError::Conflict(
-            "DATA_CHANGED: collection data changed during pagination; restart at offset 0".into(),
+        Err(CliError::DataChanged(
+            "collection data changed during pagination; restart at offset 0".into(),
         ))
     } else {
         Ok(())
@@ -563,7 +770,7 @@ fn note_records(
         .unwrap_or_default();
     let mut note_indices = std::collections::HashMap::<String, usize>::new();
     let mut notes = Vec::new();
-    if filter.is_null() {
+    {
         for note_path in includes
             .iter()
             .filter_map(|item| item.get("note_path").and_then(Value::as_str))
@@ -571,19 +778,21 @@ fn note_records(
             .filter(|path| !path.is_empty() && source_contains(source, &collection_relative, path))
         {
             if !note_indices.contains_key(&note_path) {
-                let entry = memo
-                    .derive_note_entry_from_disk(&notebook.id, &note_path)
-                    .map_err(CliError::Io)?;
-                note_indices.insert(note_path, notes.len());
-                notes.push(entry);
+                match memo.derive_note_entry_from_disk(&notebook.id, &note_path) {
+                    Ok(entry) => { note_indices.insert(note_path, notes.len()); notes.push(entry); }
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {},
+                    Err(error) => return Err(CliError::Io(error)),
+                }
             }
         }
-    } else {
+    }
+    if !filter.is_null() {
         let mut paths = Vec::new();
         collect_markdown_files(root, root, &policy, &mut paths)?;
         paths.sort();
         for path in paths {
             let relative = relative_string(root, &path)?;
+            if note_indices.contains_key(&relative) { continue; }
             let entry = memo
                 .derive_note_entry_from_disk(&notebook.id, &relative)
                 .map_err(CliError::Io)?;
@@ -637,12 +846,12 @@ fn note_records(
                 .map(|note| note.title.clone())
                 .unwrap_or_else(|| note_path.rsplit('/').next().unwrap_or("Draft").to_owned()),
             relative_path: note_path,
-            entry,
+            entry: entry.clone(),
             resource_id: None,
             mime_type: None,
-            size_bytes: None,
-            modified_ms: None,
-            created_ms: None,
+            size_bytes: entry.as_ref().map(|note| note.size_bytes),
+            modified_ms: entry.as_ref().and_then(|note| u64::try_from(note.updated_at).ok()),
+            created_ms: entry.as_ref().and_then(|note| u64::try_from(note.created_at).ok()),
         });
     }
     if !filter.is_null() {
@@ -1367,15 +1576,20 @@ fn compare_records(
     fields: &[Value],
 ) -> std::cmp::Ordering {
     for sort in sorts {
+        let sort_value = |entry: &NoteEntry| match sort.field.as_str() {
+            "created_at" | "__note_created_at__" => json!(entry.created_at),
+            "modified_at" | "__note_updated_at__" => json!(entry.updated_at),
+            _ => note_actual(entry, &sort.field, fields),
+        };
         let left = a
             .entry
             .as_ref()
-            .map(|entry| note_actual(entry, &sort.field, fields))
+            .map(sort_value)
             .unwrap_or_else(|| resource_actual(a, &sort.field));
         let right = b
             .entry
             .as_ref()
-            .map(|entry| note_actual(entry, &sort.field, fields))
+            .map(sort_value)
             .unwrap_or_else(|| resource_actual(b, &sort.field));
         let order = compare_values(&left, &right);
         if order != std::cmp::Ordering::Equal {

@@ -38,6 +38,7 @@ const DEFAULT_SECRET_DB_NAME: &str = "default.db";
 const SECRET_ACCOUNT_NAME: &str = "default";
 const CLOUD_SECRET_PROVIDER: &str = "flowix_cloud_refresh";
 const CLOUD_DEV_STAGING_SECRET_PROVIDER: &str = "flowix_cloud_dev_staging_refresh";
+const CLOUD_DEV_MAINLAND_STAGING_SECRET_PROVIDER: &str = "flowix_cloud_dev_mainland_staging_refresh";
 const CLOUD_DEV_PRODUCTION_SECRET_PROVIDER: &str = "flowix_cloud_dev_production_refresh";
 
 /// ~/.flowix/boot/preference.json —用户偏好设置
@@ -219,6 +220,15 @@ pub struct PreferenceFile {
     /// Whether newly created notes are automatically opened in the Browser Column.
     #[serde(default = "default_true")]
     pub auto_open_created_notes_in_browser: bool,
+    /// Legacy AI memory root retained as a migration base; blank defaults to `Memory`.
+    #[serde(default)]
+    pub ai_memory_folder: String,
+    /// Named notebook-relative destinations for dated AI memory notes.
+    #[serde(default)]
+    pub ai_memory_locations: Vec<AiMemoryLocation>,
+    /// User-provided personality guidance included in native Agent instructions.
+    #[serde(default = "default_ai_personality")]
+    pub ai_personality: String,
     /// Maximum number of recent agent conversations shown in the notebook file tree.
     #[serde(default = "default_recent_agent_conversations_limit")]
     pub recent_agent_conversations_limit: u8,
@@ -248,8 +258,23 @@ pub struct PreferenceFile {
     pub watcher: crate::watcher::WhitelistConfig,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiMemoryLocation {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub path: String,
+}
+
 fn default_true() -> bool {
     true
+}
+
+fn default_ai_personality() -> String {
+    "你是领域内的专家，面向有工程背景但非本领域专家的读者".to_string()
 }
 
 fn default_recent_agent_conversations_limit() -> u8 {
@@ -269,6 +294,9 @@ impl Default for PreferenceFile {
             memo_card_variant: String::default(),
             memo_list_view: "folders".to_string(),
             auto_open_created_notes_in_browser: true,
+            ai_memory_folder: String::new(),
+            ai_memory_locations: Vec::new(),
+            ai_personality: default_ai_personality(),
             recent_agent_conversations_limit: 6,
             space_show_hidden_folders: true,
             space_show_system_folders: false,
@@ -1167,6 +1195,7 @@ impl UserConfigStore {
     fn cloud_dev_secret_provider(environment: flowix_sync::CloudEnvironment) -> &'static str {
         match environment {
             flowix_sync::CloudEnvironment::Staging => CLOUD_DEV_STAGING_SECRET_PROVIDER,
+            flowix_sync::CloudEnvironment::MainlandStaging => CLOUD_DEV_MAINLAND_STAGING_SECRET_PROVIDER,
             flowix_sync::CloudEnvironment::Prod => CLOUD_DEV_PRODUCTION_SECRET_PROVIDER,
         }
     }

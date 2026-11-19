@@ -230,8 +230,8 @@ describe("ComposerController note references", () => {
     expect(controller.editorInstance.view.hasFocus()).toBe(true);
   });
 
-  it("inserts a note card at the current cursor and persists its absolute wiki path", () => {
-    const { controller, draft, getPersistedDraft } = setup();
+  it("sends note references as Markdown links while keeping the composer reference node", () => {
+    const { controller } = setup();
     const editor = controller.editorInstance;
 
     editor.commands.setContent("before after", { contentType: "markdown" });
@@ -242,18 +242,16 @@ describe("ComposerController note references", () => {
       notebookId: "notebook-a",
       relativePath: "reference.md",
     });
-    draft.flush();
-
     expect(controller.getPrompt()).toBe(
-      "before [[/notes/reference.md]] after",
+      "before [@Reference](file:///notes/reference.md) after",
+    );
+    expect(controller.getDisplayContent()).toBe(
+      "before [@Reference](file:///notes/reference.md) after",
     );
     expect(editor.getJSON().content?.[0]?.content).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ type: "noteReference" }),
       ]),
-    );
-    expect(getPersistedDraft()).toBe(
-      "before [[/notes/reference.md]] after",
     );
   });
 

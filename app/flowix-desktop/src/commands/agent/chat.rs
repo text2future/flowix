@@ -72,7 +72,17 @@ pub async fn chat_with_agent_stream(
         validate_runtime_workspace(&message, runtime.id(), &state)?;
 
     if let Some(path) = runtime_cwd.as_deref() {
-        sync_native_agent_instructions(Path::new(path), runtime.id(), &runtime_workspace_paths)?;
+        let preference = state.user_config.get_preference();
+        if let Err(error) = sync_native_agent_instructions(
+            Path::new(path),
+            runtime.id(),
+            &runtime_workspace_paths,
+            &preference.ai_memory_locations,
+            &preference.ai_memory_folder,
+            &preference.ai_personality,
+        ) {
+            tracing::warn!("Failed to sync agent instructions: {error}");
+        }
     }
 
     // runtime 的 `chat_stream` 内部已经 `tokio::spawn` ── IPC 立即返回,
