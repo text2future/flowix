@@ -204,6 +204,62 @@ fn plan_of(actions: Vec<SyncAction>) -> ReconcilePlan {
     }
 }
 
+/// Serves one canned response per request and hands back what the client sent.
+///
+/// The difference from [`object_server`] is what happens when the client sends
+/// *fewer* requests than were queued: this one gives up and returns. A pass that
+/// refuses to act is a legitimate outcome, and encoding it as "the test hangs"
+/// is how a real regression gets ignored for a week.
+fn object_server_recorded(
+    responses: Vec<&'static str>,
+) -> (String, std::thread::JoinHandle<Vec<String>>) {
+    use std::io::{Read, Write};
+    use std::time::{Duration, Instant};
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    listener.set_nonblocking(true).unwrap();
+    let thread = std::thread::spawn(move || {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut seen = Vec::new();
+        for response in responses {
+            let mut accepted = None;
+            while Instant::now() < deadline {
+                match listener.accept() {
+                    Ok(connection) => {
+                        accepted = Some(connection);
+                        break;
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(error) => panic!("accept: {error}"),
+                }
+            }
+            let Some((mut stream, _)) = accepted else {
+                break;
+            };
+            stream.set_nonblocking(false).unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let mut request = Vec::new();
+            let mut buf = [0u8; 2048];
+            while !request.windows(4).any(|part| part == b"\r\n\r\n") {
+                let count = stream.read(&mut buf).unwrap();
+                if count == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buf[..count]);
+            }
+            seen.push(String::from_utf8_lossy(&request).to_string());
+            stream.write_all(response.as_bytes()).unwrap();
+        }
+        seen
+    });
+    (endpoint, thread)
+}
+
 fn object_server(responses: Vec<&'static str>) -> (String, std::thread::JoinHandle<()>) {
     use std::io::{Read, Write};
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -264,15 +320,99 @@ async fn download_that_became_a_tombstone_preserves_local_bytes_and_baseline() {
     assert!(local.archived.lock().unwrap().is_empty());
 }
 
+/// The tombstone is conditional on the ETag the listing observed. If the object
+/// was replaced between that listing and our `PUT`, the follow-up `HEAD` sees a
+/// live object where we expected a tombstone: the baseline must survive so the
+/// next pass can reconcile the winner instead of forgetting the path.
 #[tokio::test]
-#[ignore = "fake server waits for two requests and the conditional-tombstone path sends fewer; needs a request-count-agnostic fake"]
 async fn tombstone_replaced_before_head_does_not_remove_baseline() {
-    let (endpoint, server) = object_server(vec![
+    let (endpoint, server) = object_server_recorded(vec![
         "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
         "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nx-amz-meta-deleted: 0\r\nConnection: close\r\n\r\n",
     ]);
     let mut credentials = credentials();
     credentials.endpoint = endpoint;
+    let local = MemoryStore::new(&[]);
+    let context = ApplyContext {
+        credential_resolver: &credentials,
+        notebook_id: "nb_1",
+        device_id: "device",
+    };
+    let plan = plan_of(vec![SyncAction::WriteTombstone(Tombstone {
+        path: "note.md".into(),
+        expected_etag: Some("\"v1\"".into()),
+    })]);
+    let outcome = apply(
+        &reqwest::Client::new(),
+        &context,
+        &local,
+        &plan,
+        &snapshot_with(&["note.md"]),
+        Utc::now(),
+    )
+    .await;
+    let requests = server.join().unwrap();
+
+    assert_eq!(requests.len(), 2, "one PUT, one HEAD");
+    assert!(
+        requests[0].to_lowercase().contains("if-match: \"v1\""),
+        "the tombstone must carry the observed ETag: {}",
+        requests[0]
+    );
+    assert!(outcome.removed.is_empty());
+    assert_eq!(outcome.failures.len(), 1);
+    assert!(outcome.failures[0]
+        .message
+        .contains("deletion remains pending"));
+}
+
+/// A `412` is the server telling us the object moved under the tombstone. There
+/// is nothing to verify afterwards — the conditional write never applied — so
+/// the pass must stop there and leave the path pending rather than issue a
+/// `HEAD` that would read the winner as evidence of a completed deletion.
+#[tokio::test]
+async fn a_rejected_conditional_tombstone_keeps_the_path_pending() {
+    let (endpoint, server) = object_server_recorded(vec![
+        "HTTP/1.1 412 Precondition Failed\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+    ]);
+    let mut credentials = credentials();
+    credentials.endpoint = endpoint;
+    let local = MemoryStore::new(&[]);
+    let context = ApplyContext {
+        credential_resolver: &credentials,
+        notebook_id: "nb_1",
+        device_id: "device",
+    };
+    let plan = plan_of(vec![SyncAction::WriteTombstone(Tombstone {
+        path: "note.md".into(),
+        expected_etag: Some("\"v1\"".into()),
+    })]);
+    let outcome = apply(
+        &reqwest::Client::new(),
+        &context,
+        &local,
+        &plan,
+        &snapshot_with(&["note.md"]),
+        Utc::now(),
+    )
+    .await;
+    let requests = server.join().unwrap();
+
+    assert_eq!(requests.len(), 1, "a rejected PUT is never followed by a HEAD");
+    assert!(outcome.removed.is_empty());
+    assert_eq!(outcome.failures.len(), 1);
+    assert_eq!(outcome.failures[0].kind, FailureKind::Transient);
+}
+
+/// Without an observed ETag there is no safe conditional write, and an
+/// unconditional one could delete a version this device never saw. The refusal
+/// happens before any request leaves the process.
+#[tokio::test]
+async fn a_tombstone_without_an_observed_etag_is_refused_locally() {
+    let mut credentials = credentials();
+    // Port 9 is the discard port: nothing listens, so an accidental request
+    // shows up as a connection error instead of a silent success.
+    credentials.endpoint = "http://127.0.0.1:9".into();
     let local = MemoryStore::new(&[]);
     let context = ApplyContext {
         credential_resolver: &credentials,
@@ -292,9 +432,16 @@ async fn tombstone_replaced_before_head_does_not_remove_baseline() {
         Utc::now(),
     )
     .await;
-    server.join().unwrap();
+
     assert!(outcome.removed.is_empty());
     assert_eq!(outcome.failures.len(), 1);
+    assert!(
+        outcome.failures[0]
+            .message
+            .contains("without an observed remote ETag"),
+        "unexpected failure: {}",
+        outcome.failures[0].message
+    );
 }
 
 #[tokio::test]

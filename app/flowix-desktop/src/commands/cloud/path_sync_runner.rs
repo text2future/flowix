@@ -321,6 +321,10 @@ pub(crate) async fn run_passes(
                 on_transfer: Some(&|direction| on_transfer(notebook_id, direction)),
                 on_progress: Some(&|done, total| on_progress(notebook_id, done, total)),
                 force,
+                // A bulk delete stays deferred (`defer:mass-deletion`) until a
+                // human confirms it. Wiring that confirmation is a UI task; the
+                // engine deliberately has no way to decide it on its own.
+                allow_mass_deletion: false,
             })
             .await;
         tracing::info!(%notebook_id, elapsed_ms = pass_started.elapsed().as_millis() as u64, success = result.is_ok(), "cloud object sync pass completed");
@@ -436,11 +440,18 @@ pub(crate) async fn run_passes(
                 PassSummary {
                     writable: report.writable,
                     allows_deletes: report.allows_deletes,
+                    // Either reason means "a deletion was deliberately not
+                    // carried out": during the grace window, or because the
+                    // batch was too large to apply without asking a human.
                     deletion_deferred: report.plan.actions.iter().any(|action| {
                         matches!(
                             action,
                             flowix_sync::reconcile::SyncAction::Defer(defer)
-                                if defer.reason == flowix_sync::reconcile::DeferReason::GracePeriod
+                                if matches!(
+                                    defer.reason,
+                                    flowix_sync::reconcile::DeferReason::GracePeriod
+                                        | flowix_sync::reconcile::DeferReason::MassDeletion
+                                )
                         )
                     }),
                     at_millis: Utc::now().timestamp_millis(),

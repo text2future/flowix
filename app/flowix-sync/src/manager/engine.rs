@@ -55,6 +55,8 @@ pub struct PassInput<'a> {
     pub on_progress: Option<&'a ProgressObserver<'a>>,
     /// The hourly sweep: list `f/` recursively instead of trusting the stamps.
     pub force: bool,
+    /// The user confirmed a bulk delete, so this pass may apply it.
+    pub allow_mass_deletion: bool,
 }
 
 /// A credential plus the quota it was issued under, remembered across passes.
@@ -831,6 +833,7 @@ impl SyncManager {
             scanned: input.scanned,
             force: input.force,
             quota: quota.as_ref(),
+            allow_mass_deletion: input.allow_mass_deletion,
         };
         let mut env = PassEnv {
             source: &mut source,

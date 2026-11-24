@@ -333,6 +333,13 @@ pub struct PassRequest<'a> {
     /// that filled its storage would otherwise keep attempting uploads for the
     /// rest of the token's lifetime and collect a 403 per object.
     pub quota: Option<&'a StorageQuota>,
+    /// The caller already asked the user about a bulk delete.
+    ///
+    /// A pass cannot tell a deliberate "delete this folder" from a scan or a
+    /// listing that silently lost half the notebook, so the first such batch is
+    /// deferred (`defer:mass-deletion`) and stays pending until this flag says
+    /// the question was asked. The engine never sets it on its own.
+    pub allow_mass_deletion: bool,
 }
 
 /// The decision half of a pass: everything except transfers and persistence.

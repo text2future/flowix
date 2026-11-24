@@ -382,6 +382,7 @@ fn pass_request<'a>(scanned: &'a [ScannedLocalFile], force: bool) -> PassRequest
         scanned,
         force,
         quota: None,
+        allow_mass_deletion: false,
     }
 }
 
@@ -401,8 +402,14 @@ fn tags(plan: &ReconcilePlan) -> Vec<&'static str> {
     plan.actions.iter().map(SyncAction::kind_tag).collect()
 }
 
+/// Twenty tombstones arrive at once: either someone deleted a folder on another
+/// device, or this device's listing is lying. The pass may not decide, so it
+/// defers the deletions, applies nothing, and keeps the paths pending — the
+/// notebook keeps syncing meanwhile, and the row count proves no baseline was
+/// dropped. The same batch on a second pass is still deferred: a stale marker
+/// is not consent.
 #[tokio::test]
-async fn mass_remote_deletion_aborts_before_changing_existing_baselines() {
+async fn mass_remote_deletion_is_deferred_and_keeps_every_baseline() {
     let credentials = credentials();
     let (_temp, store) = store_bound_to(&credentials);
     let mut bucket = FakeBucket::new();
@@ -415,20 +422,178 @@ async fn mass_remote_deletion_aborts_before_changing_existing_baselines() {
         bucket = bucket.tombstone(&path, NOW);
     }
     store.save_path_states(NB, &states).unwrap();
+
     for _ in 0..2 {
-        let error = plan_pass(
+        let prepared = plan_pass(
             &mut bucket,
             &credentials,
             &store,
             &pass_request(&scanned, true),
         )
         .await
-        .err()
-        .expect("mass deletion must be blocked");
-        assert!(error.to_string().contains("CLOUD_MASS_DELETE_BLOCKED"));
+        .unwrap();
+        assert_eq!(prepared.plan.stats.mass_deletion_deferred, 20);
+        assert_eq!(prepared.plan.stats.deletes, 0);
+        assert_eq!(prepared.plan.stats.tombstones, 0);
+        assert!(prepared
+            .plan
+            .actions
+            .iter()
+            .all(|action| action.kind_tag() == "defer:mass-deletion"));
+        assert_eq!(
+            prepared.plan.pending_deletions.len(),
+            20,
+            "every refused path must keep a marker, or nothing revisits it"
+        );
         assert_eq!(store.snapshot(NB).unwrap().states.len(), 20);
         assert!(bucket.puts.is_empty());
     }
+}
+
+/// The direction users actually hit: a folder deleted in Finder. Those become
+/// tombstones — cloud writes that destroy the only other copy — so a batch of
+/// them is deferred too. Before this, deleting a 20-file folder made every
+/// later pass fail with the same error and the deletion never reached anyone.
+#[tokio::test]
+async fn deleting_a_folder_locally_defers_instead_of_writing_twenty_tombstones() {
+    let credentials = credentials();
+    let (_temp, store) = store_bound_to(&credentials);
+    let mut bucket = FakeBucket::new();
+    let mut states = Vec::new();
+    for n in 0..20 {
+        let path = format!("folder/{n}.md");
+        states.push(synced_path_state(&path, 8, NOW - MINUTE));
+        bucket = bucket.file(&path, 8, NOW - MINUTE).stamp("folder", NOW);
+    }
+    store.save_path_states(NB, &states).unwrap();
+    let local = MemoryLocal::new(&[]);
+    let http = reqwest::Client::new();
+    let mut env = PassEnv {
+        source: &mut bucket,
+        http: &http,
+        credentials: &credentials,
+        credential_resolver: &credentials,
+        store: &store,
+        local: &local,
+    };
+
+    let report = run_pass(
+        &mut env,
+        &pass_request(&[], true),
+        Utc.timestamp_millis_opt(NOW).unwrap(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(report.plan.stats.mass_deletion_deferred, 20);
+    assert!(
+        bucket.puts.is_empty(),
+        "nothing may overwrite a cloud copy while the batch is unconfirmed"
+    );
+    let snapshot = store.snapshot(NB).unwrap();
+    assert_eq!(snapshot.states.len(), 20);
+    assert!(snapshot
+        .states
+        .values()
+        .all(|state| state.pending_since.is_some()));
+}
+
+/// The point of deferring is that nothing is destroyed while the question is
+/// open: the local files are still on disk and the rows still carry a marker.
+#[tokio::test]
+async fn a_deferred_mass_deletion_leaves_the_local_files_alone() {
+    let credentials = credentials();
+    let (_temp, store) = store_bound_to(&credentials);
+    let mut bucket = FakeBucket::new();
+    let mut states = Vec::new();
+    let mut paths = Vec::new();
+    for n in 0..20 {
+        let path = format!("{n}.md");
+        states.push(path_state(&path, 8, 1_000, NOW - MINUTE));
+        paths.push(path.clone());
+        bucket = bucket.tombstone(&path, NOW);
+    }
+    store.save_path_states(NB, &states).unwrap();
+    let scanned = scan(
+        &paths
+            .iter()
+            .map(|path| (path.as_str(), 8, 1_000))
+            .collect::<Vec<_>>(),
+    );
+    let local = MemoryLocal::new(&paths.iter().map(String::as_str).collect::<Vec<_>>());
+    let http = reqwest::Client::new();
+    let mut env = PassEnv {
+        source: &mut bucket,
+        http: &http,
+        credentials: &credentials,
+        credential_resolver: &credentials,
+        store: &store,
+        local: &local,
+    };
+
+    let report = run_pass(
+        &mut env,
+        &pass_request(&scanned, true),
+        Utc.timestamp_millis_opt(NOW).unwrap(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(report.plan.stats.mass_deletion_deferred, 20);
+    assert!(report.applied.failures.is_empty());
+    assert_eq!(
+        local.files.lock().unwrap().len(),
+        20,
+        "a deferred deletion must not touch the disk"
+    );
+    let snapshot = store.snapshot(NB).unwrap();
+    assert_eq!(snapshot.states.len(), 20);
+    assert!(
+        snapshot
+            .states
+            .values()
+            .all(|state| state.pending_since.is_some()),
+        "each refused path stays pending so the next pass asks again"
+    );
+}
+
+/// The confirmation flag is the only way past the guard, and it must apply the
+/// batch exactly as the unguarded planner would have.
+#[tokio::test]
+async fn a_confirmed_mass_deletion_is_applied() {
+    let credentials = credentials();
+    let (_temp, store) = store_bound_to(&credentials);
+    let mut bucket = FakeBucket::new();
+    let mut states = Vec::new();
+    let mut scanned = Vec::new();
+    for n in 0..20 {
+        let path = format!("{n}.md");
+        states.push(path_state(&path, 8, 1_000, NOW - MINUTE));
+        scanned.push(ScannedLocalFile::new(&path, 8, 1_000).unwrap());
+        bucket = bucket.tombstone(&path, NOW);
+    }
+    store.save_path_states(NB, &states).unwrap();
+    let local = MemoryLocal::new(&scanned.iter().map(|f| f.key.as_str()).collect::<Vec<_>>());
+    let http = reqwest::Client::new();
+    let mut env = PassEnv {
+        source: &mut bucket,
+        http: &http,
+        credentials: &credentials,
+        credential_resolver: &credentials,
+        store: &store,
+        local: &local,
+    };
+    let mut request = pass_request(&scanned, true);
+    request.allow_mass_deletion = true;
+
+    let report = run_pass(&mut env, &request, Utc.timestamp_millis_opt(NOW).unwrap())
+        .await
+        .unwrap();
+
+    assert_eq!(report.plan.stats.mass_deletion_deferred, 0);
+    assert_eq!(report.plan.stats.deletes, 20);
+    assert!(report.applied.removed.len() >= 20);
+    assert!(store.snapshot(NB).unwrap().states.is_empty());
 }
 
 #[tokio::test]
@@ -1380,25 +1545,39 @@ async fn pagination_collects_every_page_of_a_stamp_listing() {
     assert_eq!(prepared.stamps["e"], NOW - MINUTE);
 }
 
+/// The ETag the fake listing reports for `path`.
+///
+/// A state row that records exactly this value means "this object has not
+/// moved since our baseline". A row without one is read as "the object may
+/// have been replaced", which turns a deletion into a download: the design
+/// would rather re-fetch than delete something it cannot recognise.
+fn listed_etag(path: &str) -> String {
+    format!("\"{}\"", object_key(NB, path).len())
+}
+
+/// A path this device synced, with the remote half still where we left it.
+fn synced_path_state(path: &str, size: u64, baseline: i64) -> PathState {
+    PathState {
+        remote_etag: Some(listed_etag(path)),
+        ..path_state(path, size, 1_000, baseline)
+    }
+}
+
 /// Over quota, the server stops signing write scope (§7). The pass must then
 /// pull what it can and defer every publish — retrying an upload that the
 /// credential cannot authorise would 403 forever and tell the user nothing.
+///
+/// The one write that survives is a deletion: the official backend exposes a
+/// proxy, so a tombstone this credential cannot sign directly is still
+/// plannable. Deferring it instead would leave the cloud copy alive forever
+/// while every later pass re-plans the same deletion.
 #[tokio::test]
-#[ignore = "encodes the pre-refactor confirmation window; deletion is now a conditional tombstone"]
-async fn read_only_official_proxy_keeps_confirmed_deletes_but_defers_uploads() {
+async fn read_only_proxy_plans_a_tombstone_and_defers_the_upload() {
     let mut credentials = credentials();
     credentials.mode = "read".into();
     let (_temp, store) = store_bound_to(&credentials);
     store
-        .save_path_states(NB, &[path_state("notes/a.md", 8, 1_000, NOW - MINUTE)])
-        .unwrap();
-    store
-        .set_pending_deletions(
-            NB,
-            &[("notes/a.md".to_string(), NOW - 10 * MINUTE)]
-                .into_iter()
-                .collect(),
-        )
+        .save_path_states(NB, &[synced_path_state("notes/a.md", 8, NOW - MINUTE)])
         .unwrap();
     let scanned = scan(&[("notes/new.md", 4, 1_000)]);
     let mut bucket = FakeBucket::new().file("notes/a.md", 8, NOW - MINUTE);
@@ -1411,16 +1590,21 @@ async fn read_only_official_proxy_keeps_confirmed_deletes_but_defers_uploads() {
     )
     .await
     .unwrap();
+
     assert!(tags(&prepared.plan).contains(&"write-tombstone"));
     assert!(tags(&prepared.plan).contains(&"defer:read-only"));
+    assert_eq!(prepared.plan.stats.uploads, 0);
 }
 
+/// The proxy is not a plan-time fiction: a read-only pass must actually call
+/// it, then drop the state row and the queued stamp so the next pass has
+/// nothing left to retry.
 #[tokio::test]
-#[ignore = "encodes the pre-refactor confirmation window; deletion is now a conditional tombstone"]
-async fn read_only_proxy_executes_and_checkpoints_confirmed_deletion() {
+async fn read_only_proxy_executes_the_tombstone_and_drops_the_state_row() {
     struct Proxy {
         credential: ObjectStoreCredentials,
         paths: Mutex<Vec<String>>,
+        etags: Mutex<Vec<String>>,
     }
     #[async_trait::async_trait]
     impl crate::object_store::CredentialResolver for Proxy {
@@ -1430,8 +1614,9 @@ async fn read_only_proxy_executes_and_checkpoints_confirmed_deletion() {
         fn supports_deletion_proxy(&self) -> bool {
             true
         }
-        async fn proxy_tombstone(&self, _: &str, path: &str, _: &str) -> Result<(), SyncError> {
+        async fn proxy_tombstone(&self, _: &str, path: &str, etag: &str) -> Result<(), SyncError> {
             self.paths.lock().unwrap().push(path.to_string());
+            self.etags.lock().unwrap().push(etag.to_string());
             Ok(())
         }
     }
@@ -1439,19 +1624,12 @@ async fn read_only_proxy_executes_and_checkpoints_confirmed_deletion() {
     credentials.mode = "read".into();
     let (_temp, store) = store_bound_to(&credentials);
     store
-        .save_path_states(NB, &[path_state("notes/a.md", 8, 1_000, NOW - MINUTE)])
-        .unwrap();
-    store
-        .set_pending_deletions(
-            NB,
-            &[("notes/a.md".to_string(), NOW - 10 * MINUTE)]
-                .into_iter()
-                .collect(),
-        )
+        .save_path_states(NB, &[synced_path_state("notes/a.md", 8, NOW - MINUTE)])
         .unwrap();
     let proxy = Proxy {
         credential: credentials.clone(),
         paths: Mutex::new(Vec::new()),
+        etags: Mutex::new(Vec::new()),
     };
     let mut bucket = FakeBucket::new().file("notes/a.md", 8, NOW - MINUTE);
     let local = MemoryLocal::new(&[]);
@@ -1471,9 +1649,18 @@ async fn read_only_proxy_executes_and_checkpoints_confirmed_deletion() {
     )
     .await
     .unwrap();
+
     assert_eq!(*proxy.paths.lock().unwrap(), ["notes/a.md"]);
+    // The ETag has to be the one the listing observed: a tombstone written
+    // against a guessed ETag either overwrites a concurrent update or never
+    // applies at all.
+    assert_eq!(*proxy.etags.lock().unwrap(), [listed_etag("notes/a.md")]);
     assert!(report.applied.failures.is_empty());
-    assert!(store.pending_stamps(NB).unwrap().is_empty());
+    assert!(report.applied.removed.contains(&"notes/a.md".to_string()));
+    assert!(
+        store.pending_stamps(NB).unwrap().is_empty(),
+        "the queued proxy stamp must be acknowledged, not retried forever"
+    );
     assert!(!store
         .snapshot(NB)
         .unwrap()
@@ -1481,12 +1668,15 @@ async fn read_only_proxy_executes_and_checkpoints_confirmed_deletion() {
         .contains_key("notes/a.md"));
 }
 
+/// A failed proxy call is not a decision change: the path keeps its
+/// `pending_since`, which re-opens its directory on the next pass, and the
+/// retry goes through the queued stamp rather than a full sweep.
 #[tokio::test]
-#[ignore = "pending_since no longer gates deletion; the retry path needs new assertions"]
-async fn failed_proxy_deletion_keeps_confirmation_and_retries_without_full_sweep() {
+async fn a_failed_proxy_deletion_stays_pending_and_retries() {
     struct RetryProxy {
         credential: ObjectStoreCredentials,
         calls: Mutex<usize>,
+        stamps: Mutex<Vec<String>>,
     }
     #[async_trait::async_trait]
     impl crate::object_store::CredentialResolver for RetryProxy {
@@ -1505,7 +1695,10 @@ async fn failed_proxy_deletion_keeps_confirmation_and_retries_without_full_sweep
                 Ok(())
             }
         }
-        async fn proxy_deletion_stamp(&self, _: &str, _: &str) -> Result<(), SyncError> {
+        async fn proxy_deletion_stamp(&self, _: &str, path: &str) -> Result<(), SyncError> {
+            self.stamps.lock().unwrap().push(path.to_string());
+            // 409 means there is no tombstone left to announce; the pass
+            // acknowledges it and lets reconciliation decide again.
             Err(SyncError::Api {
                 status: 409,
                 code: "STORAGE_DELETE_CONFLICT".into(),
@@ -1517,21 +1710,14 @@ async fn failed_proxy_deletion_keeps_confirmation_and_retries_without_full_sweep
     let mut credentials = credentials();
     credentials.mode = "read".into();
     let (_temp, store) = store_bound_to(&credentials);
-    store
-        .save_path_states(NB, &[path_state("notes/a.md", 8, 1_000, NOW - MINUTE)])
-        .unwrap();
     let first_seen = NOW - 10 * MINUTE;
-    store
-        .set_pending_deletions(
-            NB,
-            &[("notes/a.md".to_string(), first_seen)]
-                .into_iter()
-                .collect(),
-        )
-        .unwrap();
+    let mut state = synced_path_state("notes/a.md", 8, NOW - MINUTE);
+    state.pending_since = Some(first_seen);
+    store.save_path_states(NB, &[state]).unwrap();
     let proxy = RetryProxy {
         credential: credentials.clone(),
         calls: Mutex::new(0),
+        stamps: Mutex::new(Vec::new()),
     };
     let mut bucket = FakeBucket::new().file("notes/a.md", 8, NOW - MINUTE);
     let local = MemoryLocal::new(&[]);
@@ -1554,8 +1740,18 @@ async fn failed_proxy_deletion_keeps_confirmation_and_retries_without_full_sweep
     assert_eq!(first.applied.failures.len(), 1);
     assert_eq!(
         store.snapshot(NB).unwrap().states["notes/a.md"].pending_since,
-        Some(first_seen)
+        Some(first_seen),
+        "a failed tombstone keeps the first-seen time instead of restarting it"
     );
+    assert!(
+        store
+            .pending_stamps(NB)
+            .unwrap()
+            .iter()
+            .any(|entry| entry.contains("notes/a.md")),
+        "the retry has to be queued, or nothing would revisit this path"
+    );
+
     let second = run_pass(
         &mut env,
         &pass_request(&[], false),
@@ -1564,7 +1760,8 @@ async fn failed_proxy_deletion_keeps_confirmation_and_retries_without_full_sweep
     .await
     .unwrap();
     assert!(second.applied.failures.is_empty());
-    assert_eq!(*proxy.calls.lock().unwrap(), 2);
+    assert_eq!(*proxy.calls.lock().unwrap(), 2, "one retry, not a sweep");
+    assert_eq!(*proxy.stamps.lock().unwrap(), ["notes/a.md"]);
     assert!(!store
         .snapshot(NB)
         .unwrap()

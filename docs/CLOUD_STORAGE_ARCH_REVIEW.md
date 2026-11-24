@@ -58,8 +58,8 @@
 |---|---|---|
 | 大附件流式 / 分片上传 | 需要改 `put_object` 契约与签名重试路径，属于行为改动。全量复制已消除（见 §8），内存峰值从 2× 降到 1× 文件大小 | 要把峰值降到 O(chunk)，需要让签名覆盖 `UNSIGNED-PAYLOAD` 或先算分片摘要，再走 multipart |
 | 全局单 pass 锁 → per-notebook | 需要先确认 `set_pending_deletions` 的整表替换语义 | 同 notebook 互斥、不同 notebook 并发，全局上限 2~3 |
-| `guard_mass_deletion` 变成独立 UI 状态 | 会改变前端契约 | 目前整轮失败 + 无自愈路径，仍应改为「同步已暂停，请确认删除」 |
-| pass 级故障注入测试 | 分页中途失败、配额耗尽、只读凭证、412 分支都在，但缺用例 | 复用 `reconcile_simulation.rs` 的思路扩到 pass 层 |
+| 前端「确认批量删除」入口 | 后端已提供 `PassRequest.allow_mass_deletion` 与 `deletion_deferred` 标志，缺的是把按钮接到它上面 | 在同步状态条上显示「N 项删除待确认」，确认后用 `allow_mass_deletion: true` 重跑一轮 |
+| pass 级故障注入测试 | 已补 412 / 无 ETag / 墓碑被替换三条（§10），分页中途失败与配额耗尽仍只有决策层用例 | 复用 `reconcile_simulation.rs` 的思路扩到 pass 层 |
 
 ## 五、验证状态
 
@@ -188,5 +188,48 @@ let PassCredentials { credentials, quota: _, resolver } =
 | `src/object_store_ops.rs` | `put_object` / `put` / `upload` / `upload_with_progress` 接收 `bytes::Bytes` |
 | `src/pass.rs`、`src/pass/execution.rs` | 调用点与函数签名适配 |
 
-**仍然待你决策**：用编辑器本地历史（VS Code Timeline / JetBrains Local History）恢复 `apply_tests.rs`、`pass_tests.rs`、`store/state_tests.rs`、`reconcile_tests.rs` 里那 4 个被 `#[ignore]` 的用例——它们需要按「本地删除即写 tombstone + `If-Match`」的新设计重写。
+**当时留下的 4 个 `#[ignore]`** 已在 §10 全部重写转正，现在没有任何被跳过的用例。
 
+
+## 十、Step 4：删除路径的测试与闸门（已完成）
+
+### 1. 四个 `#[ignore]` 全部转正
+
+它们不是「跑不过」，是断言写在旧设计上。逐个查清后按新语义重写：
+
+| 用例 | 原断言为什么不成立 | 现在验的是 |
+|---|---|---|
+| `read_only_official_proxy_…` | 状态行没有 `remote_etag`，`reconcile` 把它判成「对象可能被换过」，于是走 `download:delete-conflict` 而不是写墓碑 | `defer:read-only` + `write-tombstone` 同时出现在计划里 |
+| `read_only_proxy_executes_…` | 同上，计划里根本没有墓碑，代理自然没被调用 | 真正调了代理、`If-Match` 用的是清单观测到的 ETag、状态行与待发戳都被收尾 |
+| `failed_proxy_deletion_…` | `pending_since` 不再充当确认窗口，只有「重开目录」一个作用 | 失败后保留首见时间、重试走队列而不是全量重扫 |
+| `tombstone_replaced_before_head_…` | 无条件墓碑改成 `If-Match` 后，`expected_etag: None` 直接本地拒绝，一个请求都不发，而假服务器在等两个请求 —— 于是**挂住** | 同样的场景补上 ETag：两次请求、`if-match` 头正确、基线不被删除 |
+
+顺带修掉一个测试基建地雷：`object_server` 按「响应条数」等连接，客户端少发一个就永久阻塞。新增 `object_server_recorded`，按超时收敛并把收到的请求回传，断言可以直接检查 `if-match` 这类头。
+
+### 2. 三条故障注入
+
+- `a_rejected_conditional_tombstone_keeps_the_path_pending`：PUT 返回 412 → 只发一个请求，不发 HEAD（否则会把赢家读成「删除已完成」），失败归类 `Transient`。
+- `a_tombstone_without_an_observed_etag_is_refused_locally`：没有观测过 ETag 就不许写，且请求一个都不发。
+- `tombstone_replaced_before_head_does_not_remove_baseline`：PUT 成功但 HEAD 看到的是活对象 → 保留基线，`deletion_remains pending`。
+
+### 3. 批量删除从「整轮失败」改成「暂缓这批删除」
+
+旧实现：删除数 ≥ 20 且 ≥ 已知文件一半 → 整轮 `Err`，不写 checkpoint。用户删一个有 100 个文件的文件夹就永久同步失败，而前端从来不处理 `CLOUD_MASS_DELETE_BLOCKED`（全仓搜过，只有 planning 自己和它的测试提到过）。
+
+现在：
+
+- 只把删除动作转成 `defer:mass-deletion`，上传/下载照常执行并 checkpoint；
+- 每个被拒路径写 `pending_since`，下一轮重新打开所在目录（否则目录戳没动，这些路径再也不会被看到）；
+- 只保留仍有写入的目录的戳，避免其他设备每轮空重列；
+- `stats.mass_deletion_deferred` 计数，桌面侧 `deletion_deferred` 同时涵盖 `GracePeriod` 与 `MassDeletion`；
+- 放行入口是 `PassRequest.allow_mass_deletion`（由 `PassInput` 透传），引擎自己永不置真。
+
+覆盖面：4 条新用例，包含两个方向（远端墓碑 → 删本地；本地删文件夹 → 写墓碑）与「确认后照常执行」。
+
+## 十一、验证状态（Step 1 – Step 4）
+
+- `cargo test -p flowix-sync` → **195 passed / 0 failed / 0 ignored**，integration 3 passed。`#[ignore]` 清零。
+- `cargo test -p flowix-desktop --lib` → **851 passed / 7 ignored**，1 个既有环境敏感用例（`cancelled_start_rejects_a_late_child` 起 `true` 子进程，并行时报 NotFound，单独跑通过）。
+- `cargo check -p flowix-sync --all-targets`、`cargo check -p flowix-desktop --all-targets` 通过。
+- `cargo clippy -p flowix-sync --all-targets` → 8 条，全是既有的 `too_many_arguments` / `type_complexity` / `enum_variant_size` / `derivable_impls`。
+- 新写的代码 `rustfmt --check` 干净；文件里剩下的格式差异都是之前恢复时留下的（import 顺序、行末空行）。

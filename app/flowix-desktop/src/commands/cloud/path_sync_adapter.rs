@@ -482,6 +482,7 @@ mod tests {
             scanned: &scanned,
             force: true,
             quota: None,
+            allow_mass_deletion: false,
         };
         assert!(run_pass(&mut env, &request, now).await.is_err());
         assert_eq!(
@@ -579,6 +580,7 @@ mod tests {
                 on_transfer: None,
                 on_progress: None,
                 force: true,
+                allow_mass_deletion: false,
             })
             .await
             .unwrap();
@@ -627,6 +629,7 @@ mod tests {
                 on_transfer: None,
                 on_progress: None,
                 force: true,
+                allow_mass_deletion: false,
             })
             .await
             .unwrap();
@@ -688,6 +691,7 @@ mod tests {
             scanned: &scanned,
             force: true,
             quota: None,
+            allow_mass_deletion: false,
         };
         let start = std::time::Instant::now();
         let report = run_pass(&mut env, &request, now).await.unwrap();
@@ -845,6 +849,7 @@ mod tests {
                 scanned: &scanned,
                 force: true,
                 quota: None,
+                allow_mass_deletion: false,
             };
             let report = run_pass(&mut env, &request, now).await.unwrap();
             println!(
@@ -925,6 +930,7 @@ mod tests {
                 scanned: &scanned,
                 force: true,
                 quota: None,
+                allow_mass_deletion: false,
             };
             let report = run_pass(&mut env, &request, now).await.unwrap();
             assert!(

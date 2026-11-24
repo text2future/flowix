@@ -345,6 +345,14 @@ pub enum DeferReason {
     /// publishing cannot, so planning an upload would only produce a 403 on
     /// every pass.
     ReadOnly,
+    /// The batch would delete a large share of the notebook in one pass.
+    ///
+    /// From inside a single pass a deliberate bulk delete and a broken scan or
+    /// listing look identical, so the deletions wait for a caller that has
+    /// asked the user. Everything else in the plan still runs; without this
+    /// the whole pass failed and the notebook stopped syncing until the user
+    /// put the files back.
+    MassDeletion,
 }
 
 impl SyncAction {
@@ -369,6 +377,7 @@ impl SyncAction {
                 DeferReason::RemoteUnknown => "defer:remote-unknown",
                 DeferReason::GracePeriod => "defer:grace",
                 DeferReason::ReadOnly => "defer:read-only",
+                DeferReason::MassDeletion => "defer:mass-deletion",
             },
         }
     }
@@ -395,6 +404,10 @@ pub struct ReconcileStats {
     pub tombstones: usize,
     pub probes: usize,
     pub deferred: usize,
+    /// The subset of `deferred` that is waiting for a human to confirm a bulk
+    /// delete. Counted separately because "nothing to do" and "we refused to
+    /// delete a third of the notebook" deserve different UI.
+    pub mass_deletion_deferred: usize,
     pub unchanged: usize,
 }
 

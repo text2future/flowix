@@ -317,7 +317,12 @@ pub(super) async fn plan_pass_with_proxy(
         plan.touch_dirs = BTreeSet::new();
     }
 
-    guard_mass_deletion(&plan, snapshot.states.len())?;
+    defer_mass_deletion(
+        &mut plan,
+        snapshot.states.len(),
+        request.allow_mass_deletion,
+        server_now_millis,
+    );
 
     Ok(PassPlan {
         server_now_millis,
@@ -334,10 +339,31 @@ pub(super) async fn plan_pass_with_proxy(
     })
 }
 
-// Abort the whole pass before any file operations or checkpoints. A user can
-// restore accidentally missing files and retry; repeated polling cannot
-// gradually consume a blocked batch.
-fn guard_mass_deletion(plan: &ReconcilePlan, known_paths: usize) -> Result<(), SyncError> {
+/// Below this many deletions a pass never asks for confirmation, whatever the
+/// share of the notebook: twenty files leaving is a normal afternoon.
+const MASS_DELETION_MIN: usize = 20;
+
+/// A batch that deletes a large share of the notebook is either a deliberate
+/// bulk delete or evidence that the scan or the listing is broken. Inside one
+/// pass those two look identical, and neither answer is "delete and hope":
+///
+/// - failing the whole pass froze the notebook until the user restored files,
+///   which for a real bulk delete means the sync never worked again;
+/// - applying it turns one bad scan into a wiped notebook.
+///
+/// So the deletions alone are deferred, everything else in the plan still
+/// runs and checkpoints, and each path keeps a pending marker so a later pass
+/// (after the caller has asked the user) finishes the job. `allowed` is that
+/// answer; it comes from the caller, never from the engine guessing.
+fn defer_mass_deletion(
+    plan: &mut ReconcilePlan,
+    known_paths: usize,
+    allowed: bool,
+    server_now_millis: i64,
+) {
+    if allowed {
+        return;
+    }
     let deletions = plan
         .actions
         .iter()
@@ -348,12 +374,60 @@ fn guard_mass_deletion(plan: &ReconcilePlan, known_paths: usize) -> Result<(), S
             )
         })
         .count();
-    if deletions >= 20 && deletions.saturating_mul(2) >= known_paths {
-        return Err(SyncError::InvalidState(format!(
-            "CLOUD_MASS_DELETE_BLOCKED: {deletions} of {known_paths} known files would be deleted; restore the missing files and retry"
-        )));
+    if deletions < MASS_DELETION_MIN || deletions.saturating_mul(2) < known_paths {
+        return;
     }
-    Ok(())
+
+    let mut deferred = 0;
+    plan.actions = std::mem::take(&mut plan.actions)
+        .into_iter()
+        .map(|action| match action {
+            SyncAction::DeleteLocal(item) => {
+                deferred += 1;
+                defer_mass(&mut plan.pending_deletions, &item.path, server_now_millis);
+                SyncAction::Defer(Defer {
+                    path: item.path,
+                    reason: DeferReason::MassDeletion,
+                })
+            }
+            SyncAction::WriteTombstone(item) => {
+                deferred += 1;
+                defer_mass(&mut plan.pending_deletions, &item.path, server_now_millis);
+                SyncAction::Defer(Defer {
+                    path: item.path,
+                    reason: DeferReason::MassDeletion,
+                })
+            }
+            other => other,
+        })
+        .collect();
+
+    plan.stats.deletes = 0;
+    plan.stats.tombstones = 0;
+    plan.stats.deferred += deferred;
+    plan.stats.mass_deletion_deferred = deferred;
+
+    // A deferred deletion published nothing, so its directory must not be
+    // stamped: every other device would re-list that directory on every pass
+    // for as long as the batch waits. Keep only the directories that still
+    // have a write of their own.
+    let written: BTreeSet<String> = plan
+        .actions
+        .iter()
+        .filter_map(|action| match action {
+            SyncAction::Upload(upload) => Some(dir_of(&upload.path).to_string()),
+            SyncAction::WriteTombstone(tombstone) => Some(dir_of(&tombstone.path).to_string()),
+            _ => None,
+        })
+        .collect();
+    plan.touch_dirs.retain(|dir| written.contains(dir));
+}
+
+/// The marker is what re-opens the directory next pass. Without it the plan
+/// would never see these paths again — a stamp that did not move means "nothing
+/// changed here", which is exactly wrong for a deletion that was refused.
+fn defer_mass(pending: &mut std::collections::BTreeMap<String, i64>, path: &str, now: i64) {
+    pending.entry(path.to_string()).or_insert(now);
 }
 
 #[cfg(test)]
@@ -361,10 +435,9 @@ mod mass_deletion_tests {
     use super::*;
     use crate::reconcile::{DeleteLocal, Tombstone, Upload, UploadReason};
 
-    #[test]
-    fn blocks_large_deletion_batches_but_allows_small_or_sparse_ones() {
+    fn plan_with_deletions(count: usize) -> ReconcilePlan {
         let mut plan = ReconcilePlan::default();
-        for n in 0..20 {
+        for n in 0..count {
             let path = format!("{n}.md");
             plan.actions.push(if n % 2 == 0 {
                 SyncAction::DeleteLocal(DeleteLocal { path })
@@ -379,13 +452,64 @@ mod mass_deletion_tests {
             path: "new.md".into(),
             reason: UploadReason::New,
         }));
-        assert!(guard_mass_deletion(&plan, 40)
-            .unwrap_err()
-            .to_string()
-            .contains("CLOUD_MASS_DELETE_BLOCKED"));
-        assert!(guard_mass_deletion(&plan, 41).is_ok());
-        plan.actions.remove(0);
-        assert!(guard_mass_deletion(&plan, 20).is_ok());
+        plan.touch_dirs.insert("0".to_string());
+        plan.touch_dirs.insert(String::new());
+        plan
+    }
+
+    #[test]
+    fn a_large_batch_defers_only_the_deletions() {
+        let mut plan = plan_with_deletions(20);
+        defer_mass_deletion(&mut plan, 40, false, 7_000);
+
+        assert_eq!(plan.stats.mass_deletion_deferred, 20);
+        assert_eq!(plan.stats.deletes, 0);
+        assert_eq!(plan.stats.tombstones, 0);
+        assert_eq!(plan.stats.deferred, 20);
+        assert_eq!(
+            plan.actions
+                .iter()
+                .filter(|action| action.kind_tag() == "defer:mass-deletion")
+                .count(),
+            20
+        );
+        assert_eq!(
+            plan.actions
+                .iter()
+                .filter(|action| action.kind_tag() == "upload:new")
+                .count(),
+            1,
+            "the upload still travels"
+        );
+        assert_eq!(plan.pending_deletions.len(), 20);
+        assert_eq!(plan.pending_deletions["0.md"], 7_000);
+        // Only the directory that still gets a write keeps its stamp bump.
+        assert!(!plan.touch_dirs.contains("0"));
+    }
+
+    #[test]
+    fn small_or_sparse_batches_are_left_alone() {
+        // 20 deletions out of 41 known paths is under half: allowed.
+        let mut plan = plan_with_deletions(20);
+        defer_mass_deletion(&mut plan, 41, false, 7_000);
+        assert_eq!(plan.stats.mass_deletion_deferred, 0);
+        assert_eq!(plan.stats.deletes + plan.stats.tombstones, 0);
+
+        // 19 of 20 is over half but under the floor: also allowed.
+        let mut plan = plan_with_deletions(19);
+        defer_mass_deletion(&mut plan, 20, false, 7_000);
+        assert_eq!(plan.stats.mass_deletion_deferred, 0);
+    }
+
+    #[test]
+    fn a_confirmed_batch_is_applied() {
+        let mut plan = plan_with_deletions(20);
+        defer_mass_deletion(&mut plan, 40, true, 7_000);
+        assert_eq!(plan.stats.mass_deletion_deferred, 0);
+        assert!(plan
+            .actions
+            .iter()
+            .any(|action| action.kind_tag() == "write-tombstone"));
     }
 }
 
