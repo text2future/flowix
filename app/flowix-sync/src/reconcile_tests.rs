@@ -165,34 +165,24 @@ fn decision_table() {
             expected: "upload:new",
         },
         Row {
-            name: "first absence only starts the window",
+            name: "an absence in a listed directory is a deletion",
             file: clean(),
             baseline: Some(NOW - MINUTE),
             remote: None,
             listed: true,
             pending: None,
             allow_deletes: true,
-            expected: "defer:delete-unconfirmed",
-        },
-        Row {
-            name: "second absence past the window deletes",
-            file: clean(),
-            baseline: Some(NOW - MINUTE),
-            remote: None,
-            listed: true,
-            pending: Some(NOW - DELETE_CONFIRM_WINDOW_MS),
-            allow_deletes: true,
             expected: "delete-local",
         },
         Row {
-            name: "absence inside the window keeps waiting",
+            name: "a pending deletion in a listed directory still deletes",
             file: clean(),
             baseline: Some(NOW - MINUTE),
             remote: None,
             listed: true,
             pending: Some(NOW - MINUTE),
             allow_deletes: true,
-            expected: "defer:delete-unconfirmed",
+            expected: "delete-local",
         },
         Row {
             name: "grace period suppresses the delete",
@@ -200,7 +190,7 @@ fn decision_table() {
             baseline: Some(NOW - MINUTE),
             remote: None,
             listed: true,
-            pending: Some(NOW - DELETE_CONFIRM_WINDOW_MS * 2),
+            pending: Some(NOW - MINUTE * 2),
             allow_deletes: false,
             expected: "defer:grace",
         },
@@ -210,7 +200,7 @@ fn decision_table() {
             baseline: Some(NOW - MINUTE),
             remote: None,
             listed: true,
-            pending: Some(NOW - DELETE_CONFIRM_WINDOW_MS * 2),
+            pending: Some(NOW - MINUTE * 2),
             allow_deletes: true,
             expected: "upload:resurrect",
         },
@@ -285,22 +275,22 @@ fn decision_table() {
             expected: "",
         },
         Row {
-            name: "a file gone from disk is a deletion, not a download",
+            name: "a file gone from disk publishes a tombstone, not a download",
             file: None,
             baseline: Some(NOW - MINUTE),
             remote: remote_file(NOW - MINUTE, 100),
             listed: true,
             pending: None,
             allow_deletes: true,
-            expected: "defer:delete-unconfirmed",
+            expected: "write-tombstone",
         },
         Row {
-            name: "a local deletion is propagated once the window elapsed",
+            name: "a local deletion with a pending marker publishes the tombstone",
             file: None,
             baseline: Some(NOW - MINUTE),
             remote: remote_file(NOW - MINUTE, 100),
             listed: true,
-            pending: Some(NOW - DELETE_CONFIRM_WINDOW_MS),
+            pending: Some(NOW - MINUTE),
             allow_deletes: true,
             expected: "write-tombstone",
         },
@@ -310,7 +300,7 @@ fn decision_table() {
             baseline: Some(NOW - MINUTE),
             remote: remote_file(NOW - MINUTE, 100),
             listed: true,
-            pending: Some(NOW - DELETE_CONFIRM_WINDOW_MS * 2),
+            pending: Some(NOW - MINUTE * 2),
             allow_deletes: false,
             expected: "defer:grace",
         },
@@ -406,10 +396,10 @@ fn uploads_touch_each_directory_once() {
 }
 
 /// A `HEAD` 404 is evidence about exactly one key. It must be enough to
-/// start the delete window (otherwise a dirty-then-deleted file probes
-/// forever) and not enough to authorise anything else in that directory.
+/// confirm the exact key (otherwise a dirty-then-deleted file probes forever)
+/// and is not enough to authorise anything else in that directory.
 #[test]
-fn a_probed_404_starts_the_delete_window_without_revealing_the_directory() {
+fn a_probed_404_deletes_without_revealing_the_directory() {
     let view = synced(
         local(vec![LocalFile::new("notes/a.md", 100)]),
         "notes/a.md",
@@ -421,14 +411,14 @@ fn a_probed_404_starts_the_delete_window_without_revealing_the_directory() {
     assert_eq!(remote.state_for("notes/b.md"), RemoteState::Unknown);
 
     let first = plan(&view, &remote, &[], NOW);
-    assert_eq!(tags(&first), vec!["defer:delete-unconfirmed"]);
-    assert_eq!(first.pending_deletions.get("notes/a.md"), Some(&NOW));
+    assert_eq!(tags(&first), vec!["delete-local"]);
+    assert!(first.pending_deletions.is_empty());
 
-    // Still absent five minutes later: now it is a delete.
+    // A previously pending deletion is also applied immediately.
     let later = plan(
         &view,
         &remote,
-        &[("notes/a.md".to_string(), NOW - DELETE_CONFIRM_WINDOW_MS)],
+        &[("notes/a.md".to_string(), NOW - MINUTE)],
         NOW,
     );
     assert_eq!(tags(&later), vec!["delete-local"]);
@@ -454,14 +444,14 @@ fn a_resolved_path_leaves_the_pending_set() {
 }
 
 #[test]
-fn confirmed_delete_drops_the_pending_entry() {
+fn resolved_delete_drops_the_pending_entry() {
     let view = synced(
         local(vec![LocalFile::new("notes/a.md", 100)]),
         "notes/a.md",
         NOW - MINUTE,
     );
     let remote = RemoteListing::with_dirs([], ["notes"]);
-    let pending = vec![("notes/a.md".to_string(), NOW - DELETE_CONFIRM_WINDOW_MS)];
+    let pending = vec![("notes/a.md".to_string(), NOW - MINUTE)];
     let plan = plan(&view, &remote, &pending, NOW);
     assert_eq!(tags(&plan), vec!["delete-local"]);
     assert!(plan.pending_deletions.is_empty());
@@ -500,7 +490,7 @@ fn a_local_deletion_writes_a_tombstone_and_moves_the_directory_stamp() {
         [RemoteObject::file("notes/a.md", NOW - MINUTE, 100)],
         ["notes"],
     );
-    let pending = vec![("notes/a.md".to_string(), NOW - DELETE_CONFIRM_WINDOW_MS)];
+    let pending = vec![("notes/a.md".to_string(), NOW - MINUTE)];
 
     let plan = plan(&view, &remote, &pending, NOW);
     assert_eq!(tags(&plan), vec!["write-tombstone"]);
@@ -517,11 +507,10 @@ fn a_local_deletion_writes_a_tombstone_and_moves_the_directory_stamp() {
     assert!(plan.pending_deletions.is_empty());
 }
 
-/// The window has to survive a pass where the directory could not be read,
-/// because a local deletion never moves the stamp and nothing else would bring
-/// the directory back for a second look.
+/// A pending deletion has to survive a pass where the directory could not be
+/// read, so the directory gate retries it when remote access recovers.
 #[test]
-fn a_blind_pass_does_not_restart_a_local_deletion_window() {
+fn a_local_deletion_waits_for_unknown_remote_then_publishes_immediately() {
     let view = synced(local(vec![]), "notes/a.md", NOW - MINUTE);
     let remote = RemoteListing::default();
     assert_eq!(remote.state_for("notes/a.md"), RemoteState::Unknown);
@@ -538,8 +527,7 @@ fn a_blind_pass_does_not_restart_a_local_deletion_window() {
         Some(&(NOW - MINUTE))
     );
 
-    // Once it can be read, the elapsed window counts from the *first* sighting
-    // rather than restarting at this pass.
+    // Once the remote object can be read, publish the tombstone immediately.
     let visible = RemoteListing::with_dirs(
         [RemoteObject::file("notes/a.md", NOW - MINUTE, 100)],
         ["notes"],
@@ -550,11 +538,8 @@ fn a_blind_pass_does_not_restart_a_local_deletion_window() {
         &[("notes/a.md".to_string(), NOW - MINUTE)],
         NOW,
     );
-    assert_eq!(tags(&seen), vec!["defer:delete-unconfirmed"]);
-    assert_eq!(
-        seen.pending_deletions.get("notes/a.md"),
-        Some(&(NOW - MINUTE))
-    );
+    assert_eq!(tags(&seen), vec!["write-tombstone"]);
+    assert!(seen.pending_deletions.is_empty());
 }
 
 /// Both sides gone: nothing to write, nothing to keep.
@@ -681,20 +666,20 @@ fn l1_gate_lists_only_directories_that_may_have_changed() {
     .into_iter()
     .collect();
 
-    let due = directories_to_scan(&view, &stamps, &scanned, NOW, false);
+    let due = directories_to_scan(&view, &stamps, &scanned, false);
     assert_eq!(
         due,
         vec!["archive", "brand-new", "drafts", "fresh", "rewound"]
     );
 
-    let forced = directories_to_scan(&view, &stamps, &scanned, NOW, true);
+    let forced = directories_to_scan(&view, &stamps, &scanned, true);
     assert_eq!(forced.len(), stamps.len() + 1, "a sweep lists everything");
 
     // Quiet steady state: nothing changes, nothing is listed.
     let quiet: BTreeMap<String, i64> = [("notes".to_string(), NOW - 5 * MINUTE)]
         .into_iter()
         .collect();
-    assert!(directories_to_scan(&local(vec![]), &quiet, &scanned, NOW, false).is_empty());
+    assert!(directories_to_scan(&local(vec![]), &quiet, &scanned, false).is_empty());
 
     // A stamp equal to the scan moment earns exactly one recheck, then
     // goes quiet once the rescanned record has a later timestamp.
@@ -708,7 +693,7 @@ fn l1_gate_lists_only_directories_that_may_have_changed() {
     .into_iter()
     .collect();
     assert_eq!(
-        directories_to_scan(&local(vec![]), &quiet, &same_second, NOW, false).len(),
+        directories_to_scan(&local(vec![]), &quiet, &same_second, false).len(),
         1
     );
 
@@ -723,14 +708,13 @@ fn l1_gate_lists_only_directories_that_may_have_changed() {
     )]
     .into_iter()
     .collect();
-    assert!(directories_to_scan(&view, &BTreeMap::new(), &listed_empty, NOW, false).is_empty());
+    assert!(directories_to_scan(&view, &BTreeMap::new(), &listed_empty, false).is_empty());
 }
 
-/// A hard delete bumps nothing, so a quiet directory must be brought back by
-/// the pending window — otherwise the second observation never happens and
-/// the file stays on the device forever.
+/// A pending deletion has to bring its directory back even when its stamp did
+/// not change, so failed remote checks can be retried.
 #[test]
-fn l1_gate_reopens_a_directory_whose_delete_window_elapsed() {
+fn l1_gate_reopens_a_directory_with_a_pending_deletion() {
     let stamps: BTreeMap<String, i64> = [("notes".to_string(), NOW - 5 * MINUTE)]
         .into_iter()
         .collect();
@@ -747,9 +731,9 @@ fn l1_gate_reopens_a_directory_whose_delete_window_elapsed() {
     let mut waiting = local(vec![LocalFile::new("notes/a.md", 10)]);
     waiting
         .pending_deletions
-        .insert("notes/a.md".into(), NOW - DELETE_CONFIRM_WINDOW_MS);
+        .insert("notes/a.md".into(), NOW - MINUTE);
     assert_eq!(
-        directories_to_scan(&waiting, &stamps, &scanned, NOW, false),
+        directories_to_scan(&waiting, &stamps, &scanned, false),
         vec!["notes"]
     );
 
@@ -757,7 +741,10 @@ fn l1_gate_reopens_a_directory_whose_delete_window_elapsed() {
     early
         .pending_deletions
         .insert("notes/a.md".into(), NOW - MINUTE);
-    assert!(directories_to_scan(&early, &stamps, &scanned, NOW, false).is_empty());
+    assert_eq!(
+        directories_to_scan(&early, &stamps, &scanned, false),
+        vec!["notes"]
+    );
 }
 
 #[test]
@@ -765,6 +752,43 @@ fn dir_of_handles_root_and_nesting() {
     assert_eq!(dir_of("a.md"), "");
     assert_eq!(dir_of("notes/a.md"), "notes");
     assert_eq!(dir_of("notes/2026/q4/a.md"), "notes/2026/q4");
+}
+
+#[test]
+fn local_delete_preserves_remote_update_and_conditions_unchanged_deletion() {
+    let mut view = synced(local(vec![]), "notes/a.md", NOW);
+    view.remote_etags
+        .insert("notes/a.md".into(), "etag-1".into());
+    let mut remote = RemoteObject::file("notes/a.md", NOW, 4);
+    remote.etag = Some("etag-1".into());
+    let changed = plan(
+        &view,
+        &RemoteListing::with_dirs([remote.clone()], []),
+        &[],
+        NOW,
+    );
+    assert_eq!(tags(&changed), vec!["write-tombstone"]);
+    remote.etag = Some("etag-1".into());
+    let unchanged = plan(
+        &view,
+        &RemoteListing::with_dirs([remote], []),
+        &[],
+        NOW,
+    );
+    let SyncAction::WriteTombstone(item) = &unchanged.actions[0] else {
+        panic!("a local deletion must publish a tombstone")
+    };
+    assert_eq!(item.expected_etag.as_deref(), Some("etag-1"));
+}
+
+#[test]
+fn absent_local_baseline_survives_an_empty_bucket_during_grace() {
+    let mut view = synced(local(vec![]), "notes/a.md", NOW);
+    view.allow_deletes = false;
+    let remote = RemoteListing::with_dirs([], []);
+    let result = plan(&view, &remote, &[], NOW);
+    assert!(result.forget.is_empty());
+    assert_eq!(tags(&result), Vec::<&str>::new());
 }
 
 /// `LastModified` has one-second resolution, so two devices that write the same

@@ -12,6 +12,7 @@ impl SyncStore {
             path: path.as_ref().to_path_buf(),
             schema_ready: Default::default(),
             schema_lock: Default::default(),
+            connection: Default::default(),
         }
     }
 
@@ -30,18 +31,31 @@ impl SyncStore {
             tracing::warn!(%error, "sync migration skipped; recreating runtime database");
             self.schema_ready
                 .store(false, std::sync::atomic::Ordering::Release);
-            flowix_core::memo_file::discard_database_for_runtime(&self.path);
+            // Hold the pool slot while the file is replaced so a concurrent
+            // reader cannot keep writing into the discarded inode. The guard is
+            // released before the rebuild, which takes it again.
+            {
+                let mut slot = self
+                    .connection
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                *slot = None;
+                flowix_core::memo_file::discard_database_for_runtime(&self.path);
+            }
             self.initialize_schema_locked()?;
         }
         Ok(())
     }
 
     fn initialize_schema_locked(&self) -> Result<(), SyncError> {
+        // A migration may rebuild the database file; the pooled handle would
+        // then belong to the previous inode.
+        self.drop_connection();
         flowix_core::memo_file::with_corrupt_database_rebuild(&self.path, || {
             let connection = self.open_raw().map_err(std::io::Error::other)?;
             Self::initialize_account_schema(&connection).map_err(std::io::Error::other)?;
             Self::initialize_path_notebook_schema(&connection).map_err(std::io::Error::other)?;
-            Self::initialize_v4_schema(&connection).map_err(std::io::Error::other)?;
+            Self::initialize_state_schema(&connection).map_err(std::io::Error::other)?;
             Self::initialize_remote_schema(&connection).map_err(std::io::Error::other)?;
             connection
                 .query_row(
@@ -59,16 +73,33 @@ impl SyncStore {
         Ok(())
     }
 
-    pub(super) fn open(&self) -> Result<Connection, SyncError> {
-        // Early Cloud UI/API requests initialize on demand; the local shell
-        // never waits for this database or the operating-system credential store.
-        if !self.schema_ready.load(std::sync::atomic::Ordering::Acquire) {
-            let _guard = self.schema_lock.lock().unwrap_or_else(|p| p.into_inner());
-            if !self.schema_ready.load(std::sync::atomic::Ordering::Acquire) {
-                self.initialize_schema_locked()?;
-            }
+    /// Returns the shared connection, initializing the schema on first use.
+    ///
+    /// Lock order is always `schema_lock` then `connection`; nothing takes them
+    /// in the other direction, so the two locks cannot deadlock.
+    pub(super) fn open(&self) -> Result<StoreConnection<'_>, SyncError> {
+        self.ensure_schema()?;
+        let mut slot = self
+            .connection
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if slot.is_none() {
+            *slot = Some(self.open_raw()?);
         }
-        self.open_raw()
+        Ok(StoreConnection(slot))
+    }
+
+    /// Early Cloud UI/API requests initialize on demand; the local shell
+    /// never waits for this database or the operating-system credential store.
+    fn ensure_schema(&self) -> Result<(), SyncError> {
+        if self.schema_ready.load(std::sync::atomic::Ordering::Acquire) {
+            return Ok(());
+        }
+        let _guard = self.schema_lock.lock().unwrap_or_else(|p| p.into_inner());
+        if self.schema_ready.load(std::sync::atomic::Ordering::Acquire) {
+            return Ok(());
+        }
+        self.initialize_schema_locked()
     }
 
     fn open_raw(&self) -> Result<Connection, SyncError> {
@@ -152,4 +183,46 @@ mod storage_rebuild_tests {
         assert!(!store.session_restore_blocked().unwrap());
         assert!(temp.path().join("rebuild-backups").exists());
     }
+
+    /// The pooled handle must not pin a read transaction: a pass writes through
+    /// the store while other handles (manifest sync, recovery) write the same
+    /// file, and a stale snapshot would silently lose their rows.
+    #[test]
+    fn pooled_connection_observes_commits_from_other_handles() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("sync.db");
+        let store = SyncStore::new(&path).unwrap();
+        assert!(!store.session_restore_blocked().unwrap());
+
+        let other = Connection::open(&path).unwrap();
+        other
+            .execute("UPDATE session_restore_policy SET blocked = 1", [])
+            .unwrap();
+
+        assert!(store.session_restore_blocked().unwrap());
+    }
+
+    /// Recovery replaces the database *file*. A handle kept across that swap
+    /// points at the unlinked inode, so later writes vanish with no error.
+    #[test]
+    fn pooled_connection_does_not_survive_a_database_rebuild() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("sync.db");
+        let store = SyncStore::new(&path).unwrap();
+        assert!(!store.session_restore_blocked().unwrap());
+
+        std::fs::remove_file(&path).unwrap();
+        for suffix in ["-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
+        }
+        std::fs::write(&path, b"broken sync database").unwrap();
+        store.initialize_runtime_schema().unwrap();
+
+        let other = Connection::open(&path).unwrap();
+        other
+            .execute("UPDATE session_restore_policy SET blocked = 1", [])
+            .unwrap();
+        assert!(store.session_restore_blocked().unwrap());
+    }
 }
+

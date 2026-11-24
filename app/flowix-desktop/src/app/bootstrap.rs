@@ -325,13 +325,13 @@ pub fn run() {
                 // separate database per target lets users switch remotes
                 // without carrying deletion windows or baselines across them.
                 let fingerprint = profile.remote.open("flowix-profile-id", "flowix-profile-secret")
-                    .map(|credentials| flowix_sync::v4::credential_fingerprint(
+                    .map(|credentials| flowix_sync::state::credential_fingerprint(
                         &credentials.backend_id,
                         &credentials.bucket,
                         &credentials.prefix,
                     ))
                     .unwrap_or_else(|_| {
-                        flowix_sync::v4::credential_fingerprint(
+                        flowix_sync::state::credential_fingerprint(
                             "custom-s3-invalid-profile",
                             &profile.id,
                             "",

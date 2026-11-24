@@ -164,7 +164,7 @@ impl S3Remote {
             ));
         }
         let endpoint = endpoint.as_str().trim_end_matches('/').to_owned();
-        // The existing v4 baseline fingerprint includes backend_id, bucket and
+        // The existing state baseline fingerprint includes backend_id, bucket and
         // prefix. Include the endpoint here so identical bucket names on two
         // different services cannot share a baseline.
         let digest = Sha256::digest(endpoint.as_bytes());
@@ -205,7 +205,7 @@ impl S3Remote {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::v4::credential_fingerprint;
+    use crate::state::credential_fingerprint;
 
     fn remote(endpoint: &str) -> S3Remote {
         S3Remote {

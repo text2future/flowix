@@ -4,13 +4,11 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
 
 use flowix_core::memo_file::is_syncable_notebook_directory_path;
-use flowix_sync::v4::{CloudDirectoryMarker, V4DirectoryState};
+use flowix_sync::state::{CloudDirectoryMarker, DirectoryState};
 
-use super::super::v4_adapter::MemoLocalStore;
+use super::super::path_sync_adapter::MemoLocalStore;
 use super::MAX_VISIBLE_FAILURES;
 use crate::app::state::AppState;
-
-const DIRECTORY_DELETE_CONFIRM_WINDOW_MS: i64 = flowix_sync::reconcile::DELETE_CONFIRM_WINDOW_MS;
 
 pub(super) async fn sync_directories(
     state: &AppState,
@@ -20,14 +18,14 @@ pub(super) async fn sync_directories(
 ) -> Result<(bool, Vec<String>), String> {
     let (remote, server_now) = state
         .cloud_sync
-        .v4_remote_directories(notebook_id)
+        .remote_directories(notebook_id)
         .await
         .map_err(|error| format!("CLOUD_DIRECTORY_LIST_FAILED: {notebook_id}: {error}"))?;
     let saved = state
         .cloud_sync
-        .v4_directory_states(notebook_id)
+        .directory_states(notebook_id)
         .map_err(|error| format!("CLOUD_DIRECTORY_STATE_READ_FAILED: {notebook_id}: {error}"))?;
-    let old_states: HashMap<String, V4DirectoryState> = saved
+    let old_states: HashMap<String, DirectoryState> = saved
         .into_iter()
         .filter(|state| is_syncable_notebook_directory_path(Path::new(&state.path)))
         .map(|state| (state.path.clone(), state))
@@ -80,11 +78,11 @@ pub(super) async fn sync_directories(
                 };
                 if let Some(modified) = state
                     .cloud_sync
-                    .v4_put_directory_marker(notebook_id, &marker)
+                    .put_directory_marker(notebook_id, &marker)
                     .await
                     .map_err(|error| format!("CLOUD_DIRECTORY_WRITE_FAILED: {path}: {error}"))?
                 {
-                    next_states.push(V4DirectoryState {
+                    next_states.push(DirectoryState {
                         path,
                         last_synced_at: modified,
                         deleted: false,
@@ -104,7 +102,7 @@ pub(super) async fn sync_directories(
                         })?
                     {
                         changed_local_tree = true;
-                        next_states.push(V4DirectoryState {
+                        next_states.push(DirectoryState {
                             path,
                             last_synced_at: *modified,
                             deleted: true,
@@ -119,13 +117,13 @@ pub(super) async fn sync_directories(
                         };
                         if let Some(written) = state
                             .cloud_sync
-                            .v4_put_directory_marker(notebook_id, &present)
+                            .put_directory_marker(notebook_id, &present)
                             .await
                             .map_err(|error| {
                                 format!("CLOUD_DIRECTORY_WRITE_FAILED: {path}: {error}")
                             })?
                         {
-                            next_states.push(V4DirectoryState {
+                            next_states.push(DirectoryState {
                                 path,
                                 last_synced_at: written,
                                 deleted: false,
@@ -142,11 +140,11 @@ pub(super) async fn sync_directories(
                     };
                     if let Some(written) = state
                         .cloud_sync
-                        .v4_put_directory_marker(notebook_id, &present)
+                        .put_directory_marker(notebook_id, &present)
                         .await
                         .map_err(|error| format!("CLOUD_DIRECTORY_WRITE_FAILED: {path}: {error}"))?
                     {
-                        next_states.push(V4DirectoryState {
+                        next_states.push(DirectoryState {
                             path,
                             last_synced_at: written,
                             deleted: false,
@@ -157,7 +155,7 @@ pub(super) async fn sync_directories(
                 }
             }
             (Some(_), Some((_, modified))) => {
-                next_states.push(V4DirectoryState {
+                next_states.push(DirectoryState {
                     path,
                     last_synced_at: *modified,
                     deleted: false,
@@ -166,7 +164,7 @@ pub(super) async fn sync_directories(
                 });
             }
             (None, Some((marker, modified))) if marker.deleted => {
-                next_states.push(V4DirectoryState {
+                next_states.push(DirectoryState {
                     path,
                     last_synced_at: *modified,
                     deleted: true,
@@ -179,10 +177,7 @@ pub(super) async fn sync_directories(
                 if local_deleted {
                     let already_deleted = previous.is_some_and(|old| old.deleted);
                     let pending_since = previous.and_then(|old| old.pending_since).or(server_now);
-                    let confirmed = already_deleted
-                        || server_now.zip(pending_since).is_some_and(|(now, since)| {
-                            now.saturating_sub(since) >= DIRECTORY_DELETE_CONFIRM_WINDOW_MS
-                        });
+                    let confirmed = already_deleted || server_now.is_some();
                     if confirmed {
                         let tombstone = CloudDirectoryMarker {
                             schema: 1,
@@ -191,13 +186,13 @@ pub(super) async fn sync_directories(
                         };
                         if let Some(written) = state
                             .cloud_sync
-                            .v4_put_directory_marker(notebook_id, &tombstone)
+                            .put_directory_marker(notebook_id, &tombstone)
                             .await
                             .map_err(|error| {
                                 format!("CLOUD_DIRECTORY_WRITE_FAILED: {path}: {error}")
                             })?
                         {
-                            next_states.push(V4DirectoryState {
+                            next_states.push(DirectoryState {
                                 path,
                                 last_synced_at: written,
                                 deleted: true,
@@ -206,7 +201,7 @@ pub(super) async fn sync_directories(
                             });
                         }
                     } else {
-                        next_states.push(V4DirectoryState {
+                        next_states.push(DirectoryState {
                             path,
                             last_synced_at: previous
                                 .map(|old| old.last_synced_at)
@@ -221,7 +216,7 @@ pub(super) async fn sync_directories(
                         format!("CLOUD_DIRECTORY_CREATE_FAILED: {path}: {error}")
                     })?;
                     changed_local_tree = true;
-                    next_states.push(V4DirectoryState {
+                    next_states.push(DirectoryState {
                         path,
                         last_synced_at: *modified,
                         deleted: false,
@@ -233,9 +228,7 @@ pub(super) async fn sync_directories(
             (None, None) => {
                 if previous.is_some_and(|old| !old.deleted) {
                     let pending_since = previous.and_then(|old| old.pending_since).or(server_now);
-                    let confirmed = server_now.zip(pending_since).is_some_and(|(now, since)| {
-                        now.saturating_sub(since) >= DIRECTORY_DELETE_CONFIRM_WINDOW_MS
-                    });
+                    let confirmed = server_now.is_some();
                     if confirmed {
                         let tombstone = CloudDirectoryMarker {
                             schema: 1,
@@ -244,13 +237,13 @@ pub(super) async fn sync_directories(
                         };
                         if let Some(written) = state
                             .cloud_sync
-                            .v4_put_directory_marker(notebook_id, &tombstone)
+                            .put_directory_marker(notebook_id, &tombstone)
                             .await
                             .map_err(|error| {
                                 format!("CLOUD_DIRECTORY_WRITE_FAILED: {path}: {error}")
                             })?
                         {
-                            next_states.push(V4DirectoryState {
+                            next_states.push(DirectoryState {
                                 path,
                                 last_synced_at: written,
                                 deleted: true,
@@ -259,7 +252,7 @@ pub(super) async fn sync_directories(
                             });
                         }
                     } else {
-                        next_states.push(V4DirectoryState {
+                        next_states.push(DirectoryState {
                             path,
                             last_synced_at: previous.unwrap().last_synced_at,
                             deleted: false,
@@ -273,7 +266,7 @@ pub(super) async fn sync_directories(
     }
     state
         .cloud_sync
-        .v4_save_directory_states(notebook_id, &next_states)
+        .save_directory_states(notebook_id, &next_states)
         .map_err(|error| format!("CLOUD_DIRECTORY_STATE_WRITE_FAILED: {notebook_id}: {error}"))?;
     excluded_remote_paths.sort();
     excluded_remote_paths.dedup();

@@ -3,7 +3,7 @@ mod coordinator;
 mod google_login;
 mod local_adapter;
 mod path_sync_runner;
-mod v4_adapter;
+mod path_sync_adapter;
 pub(crate) use coordinator::{
     invalidate_notebook_selection, notebook_selection_changed, schedule_notebook_sync,
     schedule_notebook_sync_observation, schedule_pending_notebook_deletions,
@@ -682,7 +682,7 @@ pub fn cloud_list_notebook_states(state: State<AppState>) -> Result<Vec<PathNote
 pub async fn cloud_list_notebooks(
     state: State<'_, AppState>,
 ) -> Result<Vec<CloudNotebook>, String> {
-    let notebooks_result = state.cloud_sync.v4_remote_notebooks().await;
+    let notebooks_result = state.cloud_sync.remote_notebooks().await;
     notebooks_result.map_err(sync_error)
 }
 
@@ -1026,7 +1026,7 @@ pub async fn cloud_create_note_share_link(
         return Err("CLOUD_SHARE_NOTE_TOO_LARGE".into());
     }
     let bytes = std::fs::read(note_path).map_err(sync_error)?;
-    let content_hash = flowix_sync::v4_apply::content_hash(&bytes);
+    let content_hash = flowix_sync::apply::content_hash(&bytes);
     state
         .cloud_sync
         .account()

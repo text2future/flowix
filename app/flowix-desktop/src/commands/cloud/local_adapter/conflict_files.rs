@@ -12,7 +12,7 @@ pub(super) fn conflict_stage_path(path: &Path, operation_id: &str) -> PathBuf {
         .filter(|character| character.is_ascii_alphanumeric() || *character == '-')
         .take(48)
         .collect();
-    let path_hash = flowix_sync::v4_apply::content_hash(path.to_string_lossy().as_bytes());
+    let path_hash = flowix_sync::apply::content_hash(path.to_string_lossy().as_bytes());
     path.with_file_name(format!(
         ".flowix-sync-{operation_key}-{}.stage",
         &path_hash[..8]
@@ -54,7 +54,7 @@ pub(super) fn save_conflict_bytes(primary: &Path, bytes: &[u8]) -> Result<PathBu
             Err(error) => return Err(sync_error(error)),
         }
     }
-    let hash = flowix_sync::v4_apply::content_hash(bytes);
+    let hash = flowix_sync::apply::content_hash(bytes);
     let stem = primary
         .file_stem()
         .and_then(|value| value.to_str())

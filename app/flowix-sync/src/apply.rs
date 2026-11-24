@@ -21,11 +21,13 @@ use crate::error::SyncError;
 use crate::object_store::CredentialResolver;
 use crate::object_store_ops::{self, DownloadedObject};
 use crate::reconcile::{DownloadReason, ReconcilePlan, RemoteObject, SyncAction, UploadReason};
-use crate::v4::{state_after_transfer, V4LocalSnapshot, V4PathState};
+use crate::state::{state_after_transfer, LocalSnapshot, PathState};
+
+pub use crate::error::FailureKind;
 
 /// What the executor needs from the local side.
 ///
-/// Paths are notebook-relative as they appear on disk (`V4PathState::display_path`),
+/// Paths are notebook-relative as they appear on disk (`PathState::display_path`),
 /// never the normalised key: on macOS the key is NFC while the file name is
 /// NFD, so only the display form can be opened.
 pub trait LocalStore: Send + Sync {
@@ -85,6 +87,55 @@ pub trait LocalStore: Send + Sync {
     fn remove_if_unchanged(&self, path: &str, expected: &[u8]) -> Result<bool, SyncError>;
 }
 
+/// Adapter that keeps the blocking file system calls off the async workers.
+///
+/// [`LocalStore`] is synchronous on purpose (file locks, atomic renames, `stat`),
+/// so calling it from a future would run on a Tokio worker. `write_if_unchanged`
+/// is overridden rather than left to the default implementation so a read plus a
+/// write stays one hop instead of two.
+struct OffThread<'a> {
+    inner: &'a dyn LocalStore,
+}
+
+impl LocalStore for OffThread<'_> {
+    fn is_syncable_path(&self, path: &str) -> bool {
+        self.inner.is_syncable_path(path)
+    }
+
+    fn read(&self, path: &str) -> Result<Option<LocalRead>, SyncError> {
+        crate::blocking::run(|| self.inner.read(path))
+    }
+
+    fn write(&self, path: &str, bytes: &[u8]) -> Result<LocalStamp, SyncError> {
+        crate::blocking::run(|| self.inner.write(path, bytes))
+    }
+
+    fn write_if_unchanged(
+        &self,
+        path: &str,
+        bytes: &[u8],
+        expected: Option<&[u8]>,
+    ) -> Result<Option<LocalStamp>, SyncError> {
+        crate::blocking::run(|| self.inner.write_if_unchanged(path, bytes, expected))
+    }
+
+    fn create_exclusive(&self, path: &str, bytes: &[u8]) -> Result<Option<LocalStamp>, SyncError> {
+        crate::blocking::run(|| self.inner.create_exclusive(path, bytes))
+    }
+
+    fn archive(&self, path: &str, bytes: &[u8], reason: ArchiveReason) -> Result<(), SyncError> {
+        crate::blocking::run(|| self.inner.archive(path, bytes, reason))
+    }
+
+    fn remove(&self, path: &str) -> Result<(), SyncError> {
+        crate::blocking::run(|| self.inner.remove(path))
+    }
+
+    fn remove_if_unchanged(&self, path: &str, expected: &[u8]) -> Result<bool, SyncError> {
+        crate::blocking::run(|| self.inner.remove_if_unchanged(path, expected))
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LocalStamp {
     pub size: u64,
@@ -113,12 +164,51 @@ pub enum ArchiveReason {
 pub struct ApplyFailure {
     pub path: String,
     pub message: String,
+    /// Why it failed. The message is for the user; this is for the retry loop
+    /// and the status UI, which must not depend on message wording.
+    pub kind: FailureKind,
+}
+
+impl ApplyFailure {
+    pub fn new(path: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            path: path.into(),
+            message: message.into(),
+            kind: FailureKind::Unknown,
+        }
+    }
+
+    pub fn of(path: impl Into<String>, kind: FailureKind, message: impl Into<String>) -> Self {
+        Self {
+            path: path.into(),
+            message: message.into(),
+            kind,
+        }
+    }
+
+    /// Carries the error's own classification into the outcome.
+    pub fn from_error(path: impl Into<String>, error: &SyncError) -> Self {
+        Self {
+            path: path.into(),
+            message: error.to_string(),
+            kind: error.failure_kind(),
+        }
+    }
+
+    /// A path the notebook's own rules keep out of the cloud.
+    pub fn unsupported(path: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::of(path, FailureKind::Unsupported, message)
+    }
+
+    pub fn retryable(&self) -> bool {
+        self.kind.is_retryable()
+    }
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct ApplyOutcome {
     /// State to upsert, already stamped with the server's `LastModified`.
-    pub states: Vec<V4PathState>,
+    pub states: Vec<PathState>,
     /// Paths whose rows must be dropped (the file is gone here and there).
     pub removed: Vec<String>,
     /// `HEAD` results from this pass, keyed by notebook-relative path. A `None`
@@ -197,11 +287,18 @@ pub struct ApplyContext<'a> {
     pub device_id: &'a str,
 }
 
+/// Transfer indicator: `Some(direction)` when the first transfer of a batch
+/// starts, `None` when the last one ends.
+pub(crate) type TransferObserver<'a> = dyn Fn(Option<&str>) + Send + Sync + 'a;
+
+/// `(completed, total)` after each applied action.
+pub(crate) type ProgressObserver<'a> = dyn Fn(usize, usize) + Send + Sync + 'a;
+
 // A batch can transfer several files at once. Only clear the indicator after
 // the last request finishes; dropping a cancelled future also releases it.
 struct TransferTracker<'a> {
     count: std::sync::Mutex<usize>,
-    notify: Option<&'a (dyn Fn(Option<&str>) + Send + Sync)>,
+    notify: Option<&'a TransferObserver<'a>>,
 }
 
 impl<'b> TransferTracker<'b> {
@@ -245,7 +342,7 @@ pub async fn apply(
     context: &ApplyContext<'_>,
     local: &dyn LocalStore,
     plan: &ReconcilePlan,
-    snapshot: &V4LocalSnapshot,
+    snapshot: &LocalSnapshot,
     now: DateTime<Utc>,
 ) -> ApplyOutcome {
     apply_with_checkpoint(http, context, local, plan, snapshot, now, &mut |_| Ok(())).await
@@ -259,7 +356,7 @@ pub async fn apply_with_checkpoint(
     context: &ApplyContext<'_>,
     local: &dyn LocalStore,
     plan: &ReconcilePlan,
-    snapshot: &V4LocalSnapshot,
+    snapshot: &LocalSnapshot,
     now: DateTime<Utc>,
     checkpoint: &mut (dyn FnMut(&ApplyOutcome) -> Result<(), SyncError> + Send),
 ) -> ApplyOutcome {
@@ -275,15 +372,42 @@ pub(crate) async fn apply_with_checkpoint_and_sizes(
     context: &ApplyContext<'_>,
     local: &dyn LocalStore,
     plan: &ReconcilePlan,
-    snapshot: &V4LocalSnapshot,
+    snapshot: &LocalSnapshot,
     now: DateTime<Utc>,
     checkpoint: &mut (dyn FnMut(&ApplyOutcome) -> Result<(), SyncError> + Send),
     sizes: Option<&BTreeMap<String, u64>>,
 ) -> ApplyOutcome {
     apply_with_progress(
-        http, context, local, plan, snapshot, now, checkpoint, sizes, None, None,
+        http,
+        context,
+        local,
+        plan,
+        snapshot,
+        now,
+        checkpoint,
+        ApplyOptions {
+            sizes,
+            ..ApplyOptions::default()
+        },
     )
     .await
+}
+
+/// Everything about *how* a plan is applied that does not change the plan
+/// itself: memory hints and the two progress observers.
+///
+/// Grouped into one value because the alternatives are all `Option`s, and a
+/// positional call with two `None`s says nothing about which knob is which at
+/// the call site.
+#[derive(Default)]
+pub(crate) struct ApplyOptions<'a> {
+    /// Per-file size estimates, used only to bound how many transfers run at
+    /// once.
+    pub sizes: Option<&'a BTreeMap<String, u64>>,
+    /// Transfer indicator, shared with the batch tracker.
+    pub on_transfer: Option<&'a TransferObserver<'a>>,
+    /// Progress after each applied action.
+    pub on_progress: Option<&'a ProgressObserver<'a>>,
 }
 
 pub(crate) async fn apply_with_progress(
@@ -291,14 +415,21 @@ pub(crate) async fn apply_with_progress(
     context: &ApplyContext<'_>,
     local: &dyn LocalStore,
     plan: &ReconcilePlan,
-    snapshot: &V4LocalSnapshot,
+    snapshot: &LocalSnapshot,
     now: DateTime<Utc>,
     checkpoint: &mut (dyn FnMut(&ApplyOutcome) -> Result<(), SyncError> + Send),
-    sizes: Option<&BTreeMap<String, u64>>,
-    on_transfer: Option<&(dyn Fn(Option<&str>) + Send + Sync)>,
-    on_progress: Option<&(dyn Fn(usize, usize) + Send + Sync)>,
+    options: ApplyOptions<'_>,
 ) -> ApplyOutcome {
+    let ApplyOptions {
+        sizes,
+        on_transfer,
+        on_progress,
+    } = options;
     let mut outcome = ApplyOutcome::default();
+    // Every local call below holds a file lock or touches the disk, so it must
+    // not run directly on the worker that also drives the network futures.
+    let local = OffThread { inner: local };
+    let local: &dyn LocalStore = &local;
     let tracker = TransferTracker {
         count: std::sync::Mutex::new(0),
         notify: on_transfer,
@@ -346,10 +477,11 @@ pub(crate) async fn apply_with_progress(
                 };
                 let path = display_path(snapshot, &upload.path);
                 if !local.is_syncable_path(&path) {
-                    outcome.failures.push(ApplyFailure {
-                        path,
-                        message: "path is excluded by the local notebook sync policy".to_string(),
-                    });
+                    outcome.failures
+                        .push(ApplyFailure::unsupported(
+                            path,
+                            "path is excluded by the local notebook sync policy",
+                        ));
                     continue;
                 }
                 let tracker = &tracker;
@@ -372,17 +504,15 @@ pub(crate) async fn apply_with_progress(
                     Ok(state) => {
                         outcome.states.push(state);
                         if let Err(error) = checkpoint(&outcome) {
-                            outcome.failures.push(ApplyFailure {
+                            outcome.failures.push(ApplyFailure::of(
                                 path,
-                                message: format!("could not persist sync progress: {error}"),
-                            });
+                                FailureKind::Storage,
+                                format!("could not persist sync progress: {error}"),
+                            ));
                             return outcome;
                         }
                     }
-                    Err(error) => outcome.failures.push(ApplyFailure {
-                        path,
-                        message: error.to_string(),
-                    }),
+                    Err(error) => outcome.failures.push(ApplyFailure::from_error(path, &error)),
                 }
             }
             completed += batch_len;
@@ -475,17 +605,17 @@ pub(crate) async fn apply_with_progress(
                     Ok(state) => {
                         outcome.states.push(state);
                         if let Err(error) = checkpoint(&outcome) {
-                            outcome.failures.push(ApplyFailure {
-                                path: download.path.clone(),
-                                message: format!("could not persist sync progress: {error}"),
-                            });
+                            outcome.failures.push(ApplyFailure::of(
+                                download.path.clone(),
+                                FailureKind::Storage,
+                                format!("could not persist sync progress: {error}"),
+                            ));
                             return outcome;
                         }
                     }
-                    Err(error) => outcome.failures.push(ApplyFailure {
-                        path: download.path.clone(),
-                        message: error.to_string(),
-                    }),
+                    Err(error) => outcome
+                        .failures
+                        .push(ApplyFailure::from_error(download.path.clone(), &error)),
                 }
             }
             completed += batch_len;
@@ -497,10 +627,10 @@ pub(crate) async fn apply_with_progress(
         if !matches!(action, SyncAction::Defer(_)) {
             let path = display_path(snapshot, &action_path(action));
             if !local.is_syncable_path(&path) {
-                outcome.failures.push(ApplyFailure {
+                outcome.failures.push(ApplyFailure::unsupported(
                     path,
-                    message: "path is excluded by the local notebook sync policy".to_string(),
-                });
+                    "path is excluded by the local notebook sync policy",
+                ));
                 completed += 1;
                 if let Some(notify) = on_progress {
                     notify(completed, total);
@@ -524,15 +654,33 @@ pub(crate) async fn apply_with_progress(
             SyncAction::Download(_) => unreachable!("downloads are processed in batches"),
             SyncAction::DeleteLocal(delete) => delete_one(local, snapshot, &delete.path)
                 .map(|()| outcome.removed.push(delete.path.clone())),
-            SyncAction::WriteTombstone(tombstone) => object_store_ops::write_tombstone(
-                http,
-                context.credential_resolver,
-                &object_key(context.notebook_id, &tombstone.path),
-            )
-            .await
-            // The row must go: keeping it would make the next pass read the
-            // tombstone as "a file I once had" and try to delete it again.
-            .map(|_| outcome.removed.push(tombstone.path.clone())),
+            SyncAction::WriteTombstone(tombstone) => {
+                let display = display_path(snapshot, &tombstone.path);
+                match local.read(&display) {
+                    Ok(None)
+                        if tombstone
+                            .expected_etag
+                            .as_deref()
+                            .is_some_and(|etag| !etag.trim().is_empty()) =>
+                    {
+                        object_store_ops::write_tombstone(
+                            http,
+                            context.credential_resolver,
+                            &object_key(context.notebook_id, &tombstone.path),
+                            tombstone.expected_etag.as_deref().unwrap(),
+                        )
+                        .await
+                        .map(|_| outcome.removed.push(tombstone.path.clone()))
+                    }
+                    Ok(None) => Err(SyncError::InvalidState(
+                        "cannot delete without an observed remote ETag".into(),
+                    )),
+                    Ok(Some(_)) => Err(SyncError::InvalidState(
+                        "local file reappeared before deletion".into(),
+                    )),
+                    Err(error) => Err(error),
+                }
+            }
             SyncAction::Probe(probe) => object_store_ops::head(
                 http,
                 context.credential_resolver,
@@ -552,15 +700,15 @@ pub(crate) async fn apply_with_progress(
         };
 
         if let Err(error) = result {
-            outcome.failures.push(ApplyFailure {
-                path: action_path(action),
-                message: error.to_string(),
-            });
+            outcome
+                .failures
+                .push(ApplyFailure::from_error(action_path(action), &error));
         } else if let Err(error) = checkpoint(&outcome) {
-            outcome.failures.push(ApplyFailure {
-                path: action_path(action),
-                message: format!("could not persist sync progress: {error}"),
-            });
+            outcome.failures.push(ApplyFailure::of(
+                action_path(action),
+                FailureKind::Storage,
+                format!("could not persist sync progress: {error}"),
+            ));
             break;
         }
         completed += 1;
@@ -583,7 +731,7 @@ fn action_path(action: &SyncAction) -> String {
     }
 }
 
-fn display_path(snapshot: &V4LocalSnapshot, key: &str) -> String {
+fn display_path(snapshot: &LocalSnapshot, key: &str) -> String {
     snapshot
         .states
         .get(key)
@@ -595,11 +743,11 @@ async fn upload_one(
     http: &reqwest::Client,
     context: &ApplyContext<'_>,
     local: &dyn LocalStore,
-    snapshot: &V4LocalSnapshot,
+    snapshot: &LocalSnapshot,
     key: &str,
     reason: UploadReason,
     tracker: Option<&TransferTracker<'_>>,
-) -> Result<V4PathState, SyncError> {
+) -> Result<PathState, SyncError> {
     let display = display_path(snapshot, key);
     let Some(LocalRead { bytes, stamp }) = local.read(&display)? else {
         return Err(SyncError::InvalidState(format!(
@@ -607,11 +755,12 @@ async fn upload_one(
         )));
     };
     let hash = content_hash(&bytes);
+    let size = bytes.len();
     let remote = object_store_ops::upload_with_progress(
         http,
         context.credential_resolver,
         &object_key(context.notebook_id, key),
-        &bytes,
+        bytes.into(),
         &hash,
         || tracker.map(|tracker| tracker.start("upload")),
     )
@@ -625,12 +774,7 @@ async fn upload_one(
             "{key} changed while this device was uploading; the local version remains pending"
         )));
     }
-    tracing::trace!(
-        path = key,
-        ?reason,
-        bytes = bytes.len(),
-        "v4 upload complete"
-    );
+    tracing::trace!(path = key, ?reason, bytes = size, "upload complete");
     Ok(state_after_transfer(
         key,
         display,
@@ -647,13 +791,13 @@ async fn upload_one(
 fn apply_download(
     context: &ApplyContext<'_>,
     local: &dyn LocalStore,
-    snapshot: &V4LocalSnapshot,
+    snapshot: &LocalSnapshot,
     key: &str,
     reason: DownloadReason,
     now: DateTime<Utc>,
     previous: Option<LocalRead>,
     DownloadedObject { remote, bytes }: DownloadedObject,
-) -> Result<V4PathState, SyncError> {
+) -> Result<PathState, SyncError> {
     let display = display_path(snapshot, key);
     if remote.tombstone {
         return Err(SyncError::InvalidState(format!(
@@ -725,7 +869,7 @@ fn apply_download(
 
 fn delete_one(
     local: &dyn LocalStore,
-    snapshot: &V4LocalSnapshot,
+    snapshot: &LocalSnapshot,
     key: &str,
 ) -> Result<(), SyncError> {
     let display = display_path(snapshot, key);
@@ -742,5 +886,5 @@ fn delete_one(
 }
 
 #[cfg(test)]
-#[path = "v4_apply_tests.rs"]
+#[path = "apply_tests.rs"]
 mod tests;

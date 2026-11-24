@@ -9,9 +9,8 @@
 //! Two rules carry most of the design, and both are pinned by the table test
 //! at the bottom:
 //!
-//! * An absent key only means "deleted" after the same absence is observed
-//!   across a full [`DELETE_CONFIRM_WINDOW_MS`] window. COS lists are
-//!   eventually consistent, so one empty listing proves nothing (§13.2①).
+//! * An absent key in a successfully listed directory is treated as deleted.
+//!   Eventually consistent listings can therefore cause a premature deletion.
 //! * A dirty local file is never overwritten without leaving the local bytes
 //!   behind under a conflict name (§5).
 //!
@@ -22,11 +21,6 @@
 //! present (§4.3.1).
 
 use std::collections::{BTreeMap, BTreeSet};
-
-/// How long an absence must persist before the local copy is removed. Two
-/// consecutive observations at the 30s poll interval fit comfortably; a single
-/// eventually-consistent listing does not.
-pub const DELETE_CONFIRM_WINDOW_MS: i64 = 300_000;
 
 /// `LastModified` has one-second granularity, and two writers in the same
 /// second are indistinguishable by time. Stamps this close to "now" get
@@ -92,11 +86,9 @@ pub struct LocalView {
     /// bytes; without this signal that case reads as "unchanged" and the loser's
     /// edit disappears silently.
     pub remote_etags: BTreeMap<String, String>,
-    /// Paths observed absent but not yet confirmed deleted (path -> first
-    /// observed at). Lives with the device state because both the decision and
-    /// the L1 gate need it: a hard delete never bumps a directory stamp, so the
-    /// gate must re-list the directory once the window has elapsed or the
-    /// confirmation would never happen.
+    /// Paths whose deletion publication or remote check needs retrying
+    /// (path -> first pending at). The L1 gate uses these to re-list the
+    /// containing directory even when its stamp has not changed.
     pub pending_deletions: BTreeMap<String, i64>,
     /// Used to name conflict copies only; never to order changes.
     pub device_id: String,
@@ -303,6 +295,8 @@ pub struct Download {
 pub enum DownloadReason {
     /// The device has no copy.
     NewToDevice,
+    /// A locally deleted path changed remotely since the previous sync.
+    RemoteUpdateAfterDelete,
     /// The device's copy was clean; the remote version wins after the local
     /// previous value is kept in bounded history.
     RemoteNew,
@@ -326,6 +320,7 @@ pub struct DeleteLocal {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Tombstone {
     pub path: String,
+    pub expected_etag: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -341,8 +336,6 @@ pub struct Defer {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeferReason {
-    /// Absent, but not absent for long enough yet.
-    DeleteUnconfirmed,
     /// The containing directory was not listed; absence proves nothing.
     RemoteUnknown,
     /// Inside the post-bind / post-migration grace window.
@@ -365,6 +358,7 @@ impl SyncAction {
             },
             SyncAction::Download(download) => match download.reason {
                 DownloadReason::NewToDevice => "download:new",
+                DownloadReason::RemoteUpdateAfterDelete => "download:delete-conflict",
                 DownloadReason::RemoteNew => "download:remote-new",
                 DownloadReason::Conflict => "download:conflict",
             },
@@ -372,7 +366,6 @@ impl SyncAction {
             SyncAction::WriteTombstone(_) => "write-tombstone",
             SyncAction::Probe(_) => "probe",
             SyncAction::Defer(defer) => match defer.reason {
-                DeferReason::DeleteUnconfirmed => "defer:delete-unconfirmed",
                 DeferReason::RemoteUnknown => "defer:remote-unknown",
                 DeferReason::GracePeriod => "defer:grace",
                 DeferReason::ReadOnly => "defer:read-only",
@@ -424,10 +417,9 @@ pub struct ReconcilePlan {
 /// The whole decision for one notebook.
 ///
 /// `LocalView::pending_deletions` must be cleared whenever the credential
-/// points at a different backend or bucket: a first-seen time from the old
-/// bucket would otherwise authorise an immediate delete in the new one, before
-/// anything has been uploaded. A grace window (`allow_deletes = false`) covers
-/// the same moment, but the pending set is the durable half of that guard.
+/// points at a different backend or bucket so old retry state does not cause
+/// unnecessary reads against the new target. The binding grace period
+/// (`allow_deletes = false`) independently prevents deletion during rebinding.
 pub fn reconcile(
     local: &LocalView,
     remote: &RemoteListing,
@@ -455,10 +447,8 @@ pub fn reconcile(
             (None, RemoteState::Unknown) => {
                 if let Some(first_seen) = local.pending_deletions.get(path) {
                     // A local deletion whose remote half could not be read.
-                    // Keep the first-seen time: dropping it would restart the
-                    // window on every blind pass, and because a local deletion
-                    // never moves the directory stamp, the gate would never be
-                    // forced to re-list and observe it either.
+                    // Keep the pending marker so the directory gate retries
+                    // this path after its remote state becomes readable.
                     defer(&mut plan, path, DeferReason::RemoteUnknown);
                     plan.pending_deletions.insert(path.to_string(), *first_seen);
                 }
@@ -468,10 +458,22 @@ pub fn reconcile(
                 // local to resurrect and nothing left to write.
                 forget(&mut plan, path);
             }
-            (None, RemoteState::Observed(_)) if baseline.is_some() => {
-                // We had this path and it is gone from disk: a local deletion
-                // to propagate, not a remote file to download.
-                reconcile_disappeared(&mut plan, local, path, server_now_millis);
+            (None, RemoteState::Observed(object)) if baseline.is_some() => {
+                // Preserve an update made on another device after our baseline.
+                let known = local.remote_etags.get(path).map(String::as_str);
+                let changed = (known.is_none() && object.etag.is_some())
+                    || object_replaced(object, known)
+                    || (!same_object(object, known) && object.mtime_millis > baseline.unwrap());
+                if changed {
+                    download(
+                        &mut plan,
+                        path,
+                        DownloadReason::RemoteUpdateAfterDelete,
+                        None,
+                    );
+                } else {
+                    reconcile_disappeared(&mut plan, local, object);
+                }
             }
             (None, RemoteState::Observed(object)) => {
                 set_baseline(&mut plan, path, object.mtime_millis, false);
@@ -484,7 +486,7 @@ pub fn reconcile(
                 reconcile_present(&mut plan, local, file, object, baseline, server_now_millis);
             }
             (Some(file), RemoteState::Missing) => {
-                reconcile_absent(&mut plan, local, file, baseline, server_now_millis);
+                reconcile_absent(&mut plan, local, file, baseline);
             }
             (Some(file), RemoteState::Unknown) => {
                 if file.dirty {
@@ -493,8 +495,7 @@ pub fn reconcile(
                     }));
                     plan.stats.probes += 1;
                 } else if let Some(first_seen) = local.pending_deletions.get(path) {
-                    // Blind does not age the window: a delete must be observed,
-                    // not inferred from the clock.
+                    // Keep retrying while the remote state is unknown.
                     defer(&mut plan, path, DeferReason::RemoteUnknown);
                     plan.pending_deletions.insert(path.to_string(), *first_seen);
                 }
@@ -507,40 +508,24 @@ pub fn reconcile(
 /// A path this device synced before, now absent from disk while the cloud
 /// still has it.
 ///
-/// Treated exactly like a remote deletion, mirrored: the disappearance must be
-/// observed twice, [`DELETE_CONFIRM_WINDOW_MS`] apart, before anything is
-/// written. One observation is not enough because a file is briefly absent
-/// during every atomic save (`write tmp` then `rename`), and a single `stat`
-/// landing in that window must not delete a note on every other device.
-fn reconcile_disappeared(
-    plan: &mut ReconcilePlan,
-    local: &LocalView,
-    path: &str,
-    server_now_millis: i64,
-) {
+/// Once the remote state is known, propagate the disappearance immediately.
+/// The binding grace period and unknown-remote safeguards still apply.
+fn reconcile_disappeared(plan: &mut ReconcilePlan, local: &LocalView, object: &RemoteObject) {
+    let path = object.path.as_str();
     if !local.allow_deletes {
         // A fresh bucket (first bind / bucket switch) can legitimately be
         // missing paths this device has; that says nothing about the disk.
         defer(plan, path, DeferReason::GracePeriod);
         return;
     }
-    let first_seen = local
-        .pending_deletions
-        .get(path)
-        .copied()
-        .unwrap_or(server_now_millis);
-    if server_now_millis - first_seen >= DELETE_CONFIRM_WINDOW_MS {
-        plan.actions.push(SyncAction::WriteTombstone(Tombstone {
-            path: path.to_string(),
-        }));
-        plan.stats.tombstones += 1;
-        // The tombstone *is* a write under f/, so every other device only
-        // notices through the directory stamp (§3.2).
-        plan.touch_dirs.insert(dir_of(path).to_string());
-    } else {
-        defer(plan, path, DeferReason::DeleteUnconfirmed);
-        plan.pending_deletions.insert(path.to_string(), first_seen);
-    }
+    plan.actions.push(SyncAction::WriteTombstone(Tombstone {
+        path: path.to_string(),
+        expected_etag: object.etag.clone(),
+    }));
+    plan.stats.tombstones += 1;
+    // The tombstone *is* a write under f/, so every other device only
+    // notices through the directory stamp (§3.2).
+    plan.touch_dirs.insert(dir_of(path).to_string());
 }
 
 fn forget(plan: &mut ReconcilePlan, path: &str) {
@@ -571,7 +556,6 @@ fn reconcile_absent(
     local: &LocalView,
     file: &LocalFile,
     baseline: Option<i64>,
-    server_now_millis: i64,
 ) {
     // No baseline means the device cannot claim this path was ever synced, so
     // absence cannot be a deletion — it is a new local file.
@@ -588,17 +572,7 @@ fn reconcile_absent(
         defer(plan, &file.path, DeferReason::GracePeriod);
         return;
     }
-    let first_seen = local
-        .pending_deletions
-        .get(&file.path)
-        .copied()
-        .unwrap_or(server_now_millis);
-    if server_now_millis - first_seen >= DELETE_CONFIRM_WINDOW_MS {
-        delete_local(plan, &file.path);
-    } else {
-        defer(plan, &file.path, DeferReason::DeleteUnconfirmed);
-        plan.pending_deletions.insert(file.path.clone(), first_seen);
-    }
+    delete_local(plan, &file.path);
 }
 
 fn reconcile_present(
@@ -847,16 +821,15 @@ pub struct DirScanRecord {
 ///   second (within [`STAMP_BOUNDARY_MS`]);
 /// * its stamp moved backwards, meaning the backend rewrote `LastModified` and
 ///   no stamp comparison is trustworthy until it is re-read;
-/// * it holds a pending deletion whose confirmation window has elapsed. A hard
-///   delete leaves no tombstone and bumps no stamp, so this is the only thing
-///   that brings the directory back for the second look.
+/// * it holds a pending deletion whose remote check or publication needs a
+///   retry. A hard delete leaves no tombstone and bumps no stamp, so this is
+///   the only thing that brings the directory back for another look.
 ///
 /// Everything else is skipped, which is what keeps the pass O(changed dirs).
 pub fn directories_to_scan(
     local: &LocalView,
     remote_stamps: &BTreeMap<String, i64>,
     scanned: &BTreeMap<String, DirScanRecord>,
-    server_now_millis: i64,
     force: bool,
 ) -> Vec<String> {
     let mut candidates: BTreeSet<&str> = remote_stamps.keys().map(String::as_str).collect();
@@ -864,11 +837,9 @@ pub fn directories_to_scan(
         candidates.insert(dir_of(&file.path));
     }
     let mut confirm: BTreeSet<&str> = BTreeSet::new();
-    for (path, first_seen) in &local.pending_deletions {
+    for path in local.pending_deletions.keys() {
         candidates.insert(dir_of(path));
-        if server_now_millis - first_seen >= DELETE_CONFIRM_WINDOW_MS {
-            confirm.insert(dir_of(path));
-        }
+        confirm.insert(dir_of(path));
     }
 
     let mut due: Vec<String> = candidates
@@ -904,3 +875,4 @@ mod simulation;
 #[cfg(test)]
 #[path = "reconcile_tests.rs"]
 mod tests;
+

@@ -110,3 +110,4 @@ fn clear_path_sync_state(transaction: &rusqlite::Transaction<'_>) -> Result<(), 
     )?;
     Ok(())
 }
+

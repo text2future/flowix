@@ -1,8 +1,8 @@
 use super::*;
 use crate::reconcile::DirScanRecord;
-use crate::v4::{
+use crate::state::{
     build_local_view, credential_fingerprint, state_after_transfer, ScannedLocalFile,
-    V4DirectoryState, V4NotebookState, V4PathState,
+    DirectoryState, NotebookState, PathState,
 };
 use std::collections::BTreeMap;
 
@@ -26,12 +26,12 @@ fn state_round_trips_including_pending_and_absent_hash() {
         2_000,
         None,
     );
-    let unhashed = V4PathState {
+    let unhashed = PathState {
         content_hash: None,
         last_synced_at: 0,
         ..state_after_transfer("notes/b.md", "notes/B.md", "sha256:bb", 7, 1_500, 0, None)
     };
-    let pending = V4PathState {
+    let pending = PathState {
         pending_since: Some(9_000),
         ..state_after_transfer(
             "notes/c.md",
@@ -45,10 +45,10 @@ fn state_round_trips_including_pending_and_absent_hash() {
     };
 
     store
-        .v4_save_path_states(NB, &[synced.clone(), unhashed.clone(), pending.clone()])
+        .save_path_states(NB, &[synced.clone(), unhashed.clone(), pending.clone()])
         .unwrap();
 
-    let snapshot = store.v4_snapshot(NB).unwrap();
+    let snapshot = store.snapshot(NB).unwrap();
     assert_eq!(snapshot.states.len(), 3);
     assert_eq!(snapshot.states["notes/a.md"], synced);
     assert_eq!(snapshot.states["notes/b.md"], unhashed);
@@ -60,14 +60,14 @@ fn state_round_trips_including_pending_and_absent_hash() {
 fn saving_the_same_path_twice_updates_instead_of_duplicating() {
     let (_temp, store) = store();
     let first = state_after_transfer("a.md", "a.md", "sha256:aa", 10, 1_000, 2_000, None);
-    store.v4_save_path_states(NB, &[first]).unwrap();
+    store.save_path_states(NB, &[first]).unwrap();
 
     let second = state_after_transfer("a.md", "a.md", "sha256:bb", 20, 3_000, 4_000, None);
     store
-        .v4_save_path_states(NB, std::slice::from_ref(&second))
+        .save_path_states(NB, std::slice::from_ref(&second))
         .unwrap();
 
-    let snapshot = store.v4_snapshot(NB).unwrap();
+    let snapshot = store.snapshot(NB).unwrap();
     assert_eq!(snapshot.states.len(), 1);
     assert_eq!(snapshot.states["a.md"], second);
 }
@@ -76,14 +76,14 @@ fn saving_the_same_path_twice_updates_instead_of_duplicating() {
 fn pending_set_is_replaced_not_merged() {
     let (_temp, store) = store();
     store
-        .v4_save_path_states(
+        .save_path_states(
             NB,
             &[
-                V4PathState {
+                PathState {
                     pending_since: Some(1_000),
                     ..state_after_transfer("a.md", "a.md", "h", 1, 1, 1, None)
                 },
-                V4PathState {
+                PathState {
                     pending_since: Some(2_000),
                     ..state_after_transfer("b.md", "b.md", "h", 1, 1, 1, None)
                 },
@@ -94,9 +94,9 @@ fn pending_set_is_replaced_not_merged() {
 
     // `a.md` confirmed, `b.md` dropped, `c.md` newly observed absent.
     let next = [(String::from("c.md"), 5_000)].into_iter().collect();
-    store.v4_set_pending_deletions(NB, &next).unwrap();
+    store.set_pending_deletions(NB, &next).unwrap();
 
-    let snapshot = store.v4_snapshot(NB).unwrap();
+    let snapshot = store.snapshot(NB).unwrap();
     assert_eq!(snapshot.states["a.md"].pending_since, None);
     assert_eq!(snapshot.states["b.md"].pending_since, None);
     assert_eq!(snapshot.states["c.md"].pending_since, Some(5_000));
@@ -114,7 +114,7 @@ fn dir_scans_upsert_by_directory() {
     )]
     .into_iter()
     .collect();
-    store.v4_save_dir_scans(NB, &first).unwrap();
+    store.save_dir_scans(NB, &first).unwrap();
 
     let second: BTreeMap<String, DirScanRecord> = [
         (
@@ -134,9 +134,9 @@ fn dir_scans_upsert_by_directory() {
     ]
     .into_iter()
     .collect();
-    store.v4_save_dir_scans(NB, &second).unwrap();
+    store.save_dir_scans(NB, &second).unwrap();
 
-    let snapshot = store.v4_snapshot(NB).unwrap();
+    let snapshot = store.snapshot(NB).unwrap();
     assert_eq!(snapshot.dir_scans.len(), 2);
     assert_eq!(snapshot.dir_scans[""].stamp_millis, 300);
     assert_eq!(snapshot.dir_scans["notes"].scanned_at_millis, 600);
@@ -150,10 +150,10 @@ fn rebinding_a_different_bucket_resets_pending_and_baselines() {
     let (_temp, store) = store();
     let fingerprint = credential_fingerprint("r2-primary", "flowix", "u/usr_1/");
     store
-        .v4_save_path_states(
+        .save_path_states(
             NB,
             &[
-                V4PathState {
+                PathState {
                     pending_since: Some(1_000),
                     ..state_after_transfer("a.md", "a.md", "sha256:aa", 1, 1, 2_000, None)
                 },
@@ -162,15 +162,15 @@ fn rebinding_a_different_bucket_resets_pending_and_baselines() {
         )
         .unwrap();
     store
-        .v4_save_notebook_state(&V4NotebookState::new(NB, fingerprint.clone()))
+        .save_notebook_state(&NotebookState::new(NB, fingerprint.clone()))
         .unwrap();
 
     let changed = store
-        .v4_rebind_credential(NB, "sha256:newbucket", 50_000, 350_000)
+        .rebind_credential(NB, "sha256:newbucket", 50_000, 350_000)
         .unwrap();
     assert!(changed);
 
-    let snapshot = store.v4_snapshot(NB).unwrap();
+    let snapshot = store.snapshot(NB).unwrap();
     assert_eq!(
         snapshot.states["a.md"].pending_since, None,
         "old bucket's first-seen is meaningless"
@@ -183,7 +183,7 @@ fn rebinding_a_different_bucket_resets_pending_and_baselines() {
         Some("sha256:bb")
     );
 
-    let state = store.v4_notebook_state(NB).unwrap().unwrap();
+    let state = store.notebook_state(NB).unwrap().unwrap();
     assert_eq!(state.credential_fingerprint, "sha256:newbucket");
     assert_eq!(state.grace_until, Some(350_000));
     assert!(!state.allows_deletes(349_999));
@@ -194,27 +194,27 @@ fn rebinding_the_same_bucket_keeps_baselines_and_reports_no_change() {
     let (_temp, store) = store();
     let fingerprint = credential_fingerprint("r2-primary", "flowix", "u/usr_1/");
     store
-        .v4_save_path_states(
+        .save_path_states(
             NB,
-            &[V4PathState {
+            &[PathState {
                 pending_since: Some(1_000),
                 ..state_after_transfer("a.md", "a.md", "sha256:aa", 1, 1, 2_000, None)
             }],
         )
         .unwrap();
     store
-        .v4_save_notebook_state(&V4NotebookState::new(NB, fingerprint.clone()))
+        .save_notebook_state(&NotebookState::new(NB, fingerprint.clone()))
         .unwrap();
 
     let changed = store
-        .v4_rebind_credential(NB, &fingerprint, 50_000, 350_000)
+        .rebind_credential(NB, &fingerprint, 50_000, 350_000)
         .unwrap();
     assert!(
         !changed,
         "same bucket, so credentials rotate without invalidating state"
     );
 
-    let snapshot = store.v4_snapshot(NB).unwrap();
+    let snapshot = store.snapshot(NB).unwrap();
     assert_eq!(snapshot.states["a.md"].last_synced_at, 2_000);
     assert_eq!(snapshot.states["a.md"].pending_since, Some(1_000));
 }
@@ -223,7 +223,7 @@ fn rebinding_the_same_bucket_keeps_baselines_and_reports_no_change() {
 fn clearing_one_notebook_leaves_the_other_alone() {
     let (_temp, store) = store();
     store
-        .v4_save_path_states(
+        .save_path_states(
             NB,
             &[state_after_transfer(
                 "a.md",
@@ -237,7 +237,7 @@ fn clearing_one_notebook_leaves_the_other_alone() {
         )
         .unwrap();
     store
-        .v4_save_path_states(
+        .save_path_states(
             "nb_other",
             &[state_after_transfer(
                 "a.md",
@@ -251,10 +251,10 @@ fn clearing_one_notebook_leaves_the_other_alone() {
         )
         .unwrap();
 
-    store.v4_clear_notebook(NB).unwrap();
+    store.clear_notebook(NB).unwrap();
 
-    assert!(store.v4_snapshot(NB).unwrap().states.is_empty());
-    assert_eq!(store.v4_snapshot("nb_other").unwrap().states.len(), 1);
+    assert!(store.snapshot(NB).unwrap().states.is_empty());
+    assert_eq!(store.snapshot("nb_other").unwrap().states.len(), 1);
 }
 
 /// End to end across the two halves: what SQL stores is what the decision
@@ -263,7 +263,7 @@ fn clearing_one_notebook_leaves_the_other_alone() {
 fn snapshot_and_scan_feed_the_decision_layer() {
     let (_temp, store) = store();
     store
-        .v4_save_path_states(
+        .save_path_states(
             NB,
             &[
                 state_after_transfer(
@@ -287,7 +287,7 @@ fn snapshot_and_scan_feed_the_decision_layer() {
             ],
         )
         .unwrap();
-    let snapshot = store.v4_snapshot(NB).unwrap();
+    let snapshot = store.snapshot(NB).unwrap();
 
     let scanned = vec![
         ScannedLocalFile::new("notes/synced.md", 10, 1_000).unwrap(),
@@ -318,13 +318,13 @@ fn schema_initialization_is_idempotent() {
     let (_temp, store) = store();
     store.initialize_schema().unwrap();
     store.initialize_schema().unwrap();
-    assert!(store.v4_snapshot(NB).unwrap().states.is_empty());
+    assert!(store.snapshot(NB).unwrap().states.is_empty());
 }
 
 #[test]
 fn directory_states_round_trip_confirmation_window() {
     let (_temp, store) = store();
-    let state = V4DirectoryState {
+    let state = DirectoryState {
         path: "projects/empty".into(),
         last_synced_at: 5_000,
         deleted: false,
@@ -332,10 +332,10 @@ fn directory_states_round_trip_confirmation_window() {
         pending_since: Some(8_000),
     };
     store
-        .v4_save_directory_states(NB, std::slice::from_ref(&state))
+        .save_directory_states(NB, std::slice::from_ref(&state))
         .unwrap();
 
-    assert_eq!(store.v4_directory_states(NB).unwrap(), [state]);
+    assert_eq!(store.directory_states(NB).unwrap(), [state]);
 }
 
 /// `remote_etag` arrived after the table shipped, so an existing install has
@@ -367,7 +367,7 @@ fn an_existing_table_gains_the_etag_column() {
 
     let store = SyncStore::new(&path).unwrap();
     store
-        .v4_save_path_states(
+        .save_path_states(
             NB,
             &[state_after_transfer(
                 "notes/a.md",
@@ -381,7 +381,7 @@ fn an_existing_table_gains_the_etag_column() {
         )
         .unwrap();
 
-    let snapshot = store.v4_snapshot(NB).unwrap();
+    let snapshot = store.snapshot(NB).unwrap();
     assert_eq!(
         snapshot
             .states

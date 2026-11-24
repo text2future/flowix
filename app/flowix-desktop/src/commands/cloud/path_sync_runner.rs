@@ -1,7 +1,7 @@
 //! Desktop wiring for the path-keyed object-storage engine.
 //!
 //! Everything interesting lives elsewhere: the decision is
-//! `flowix_sync::reconcile`, the transfers are `flowix_sync::v4_pass`, the disk
+//! `flowix_sync::reconcile`, the transfers are `flowix_sync::pass`, the disk
 //! is [`MemoLocalStore`]. This module answers the three questions those layers
 //! cannot: *which* notebooks take part, *what does the disk look like right
 //! now*, and *when is it worth doing again*.
@@ -25,13 +25,13 @@ use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use chrono::Utc;
 use flowix_core::memo_file::{scan_syncable_notebook_tree, MemoFile};
-use flowix_sync::v4::{normalize_key_path, PendingNotebookAction, ScannedLocalFile};
-use flowix_sync::V4PassInput;
+use flowix_sync::state::{normalize_key_path, PendingNotebookAction, ScannedLocalFile};
+use flowix_sync::PassInput;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::app::state::AppState;
 
-use super::v4_adapter::MemoLocalStore;
+use super::path_sync_adapter::MemoLocalStore;
 use directories::sync_directories;
 pub(super) use manifest::flush_deleted_notebook_manifests;
 use manifest::sync_notebook_manifest;
@@ -46,7 +46,7 @@ const MIN_INTERVAL_MS: i64 = super::coordinator::CLOUD_POLL_INTERVAL.as_millis()
 
 /// One notebook's last pass, for the status payload.
 #[derive(Debug, Clone)]
-pub(crate) struct V4PassSummary {
+pub(crate) struct PassSummary {
     pub writable: bool,
     pub allows_deletes: bool,
     pub deletion_deferred: bool,
@@ -55,7 +55,7 @@ pub(crate) struct V4PassSummary {
 }
 
 #[derive(Debug, Default, Clone)]
-pub(crate) struct V4RunReport {
+pub(crate) struct RunReport {
     pub notebooks: usize,
     pub uploaded: usize,
     pub downloaded: usize,
@@ -66,7 +66,7 @@ pub(crate) struct V4RunReport {
 struct NotebookScan {
     files: Vec<ScannedLocalFile>,
     directories: Vec<(String, String, i64)>,
-    failures: Vec<flowix_sync::v4_apply::ApplyFailure>,
+    failures: Vec<flowix_sync::apply::ApplyFailure>,
 }
 
 fn sweep_state() -> &'static Mutex<HashMap<String, i64>> {
@@ -74,8 +74,8 @@ fn sweep_state() -> &'static Mutex<HashMap<String, i64>> {
     SWEEPS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn summaries() -> &'static Mutex<HashMap<String, V4PassSummary>> {
-    static SUMMARIES: OnceLock<Mutex<HashMap<String, V4PassSummary>>> = OnceLock::new();
+fn summaries() -> &'static Mutex<HashMap<String, PassSummary>> {
+    static SUMMARIES: OnceLock<Mutex<HashMap<String, PassSummary>>> = OnceLock::new();
     SUMMARIES.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -87,7 +87,7 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 /// The last pass for this notebook, but only if it belongs to the run that
 /// started at `started_at`.
-pub(crate) fn summary_since(notebook_id: &str, started_at: i64) -> Option<V4PassSummary> {
+pub(crate) fn summary_since(notebook_id: &str, started_at: i64) -> Option<PassSummary> {
     lock(summaries())
         .get(notebook_id)
         .filter(|summary| summary.at_millis >= started_at)
@@ -106,10 +106,11 @@ fn scan_notebook(root: &Path) -> std::io::Result<NotebookScan> {
     for file in scanned {
         match ScannedLocalFile::new(file.display_path.clone(), file.size, file.mtime_millis) {
             Ok(file) => files.push(file),
-            Err(error) => failures.push(flowix_sync::v4_apply::ApplyFailure {
-                path: file.display_path,
-                message: error.to_string(),
-            }),
+            Err(error) => failures.push(flowix_sync::apply::ApplyFailure::of(
+                file.display_path,
+                flowix_sync::apply::FailureKind::Unsupported,
+                error.to_string(),
+            )),
         }
     }
     files.sort_by(|left, right| left.key.cmp(&right.key));
@@ -119,10 +120,11 @@ fn scan_notebook(root: &Path) -> std::io::Result<NotebookScan> {
             Ok(path) => {
                 normalized_directories.push((path, directory.display_path, directory.mtime_millis))
             }
-            Err(error) => failures.push(flowix_sync::v4_apply::ApplyFailure {
-                path: directory.display_path,
-                message: error.to_string(),
-            }),
+            Err(error) => failures.push(flowix_sync::apply::ApplyFailure::of(
+                directory.display_path,
+                flowix_sync::apply::FailureKind::Unsupported,
+                error.to_string(),
+            )),
         }
     }
     normalized_directories.sort_by(|left, right| left.0.cmp(&right.0));
@@ -136,7 +138,7 @@ fn scan_notebook(root: &Path) -> std::io::Result<NotebookScan> {
 /// Count only completed actions; planned actions can fail or be interrupted.
 fn completed_transfer_counts(
     plan: &flowix_sync::reconcile::ReconcilePlan,
-    outcome: &flowix_sync::v4_apply::ApplyOutcome,
+    outcome: &flowix_sync::apply::ApplyOutcome,
 ) -> (usize, usize, usize) {
     use flowix_sync::reconcile::SyncAction;
     let completed: BTreeSet<&str> = outcome
@@ -184,9 +186,9 @@ pub(crate) async fn run_passes(
     scoped: bool,
     on_transfer: &(dyn Fn(&str, Option<&str>) + Send + Sync),
     on_progress: &(dyn Fn(&str, usize, usize) + Send + Sync),
-) -> Result<V4RunReport, String> {
+) -> Result<RunReport, String> {
     if notebook_ids.is_empty() {
-        return Ok(V4RunReport::default());
+        return Ok(RunReport::default());
     }
     let config_dir = state.user_config.config_dir().clone();
     let configs = match MemoFile::new(config_dir.clone()).read_notebook_configs() {
@@ -195,7 +197,7 @@ pub(crate) async fn run_passes(
     };
     let pending_notebook_changes = state
         .cloud_sync
-        .v4_pending_notebook_changes()
+        .pending_notebook_changes()
         .map_err(|error| format!("CLOUD_NOTEBOOK_METADATA_READ_FAILED: {error}"))?;
     let device_id = app
         .state::<Arc<crate::device_registration::DeviceRegistry>>()
@@ -203,7 +205,7 @@ pub(crate) async fn run_passes(
         .to_string();
     let device_label = device_id.get(..8).unwrap_or(&device_id).to_string();
     let now = Utc::now().timestamp_millis();
-    let mut run_report = V4RunReport::default();
+    let mut run_report = RunReport::default();
     let mut errors = Vec::new();
 
     for notebook_id in notebook_ids {
@@ -311,7 +313,7 @@ pub(crate) async fn run_passes(
         );
         let result = state
             .cloud_sync
-            .v4_pass(V4PassInput {
+            .pass(PassInput {
                 notebook_id,
                 device_id: &device_label,
                 scanned: &scanned.files,
@@ -352,6 +354,34 @@ pub(crate) async fn run_passes(
             let stats = &report.plan.stats;
             let (uploaded, downloaded, deleted) =
                 completed_transfer_counts(&report.plan, &report.applied);
+            let restored: Vec<&str> = report
+                .plan
+                .actions
+                .iter()
+                .filter_map(|action| {
+                    if let flowix_sync::reconcile::SyncAction::Download(download) = action {
+                        if download.reason
+                            == flowix_sync::reconcile::DownloadReason::RemoteUpdateAfterDelete
+                            && report
+                                .applied
+                                .states
+                                .iter()
+                                .any(|state| state.path == download.path)
+                        {
+                            return Some(download.path.as_str());
+                        }
+                    }
+                    None
+                })
+                .collect();
+            if !restored.is_empty() {
+                let _ = app.emit(
+                    "cloud-delete-conflict-restored",
+                    serde_json::json!({
+                        "notebookId": notebook_id, "paths": restored,
+                    }),
+                );
+            }
             run_report.notebooks += 1;
             run_report.uploaded = run_report.uploaded.saturating_add(uploaded);
             run_report.downloaded = run_report.downloaded.saturating_add(downloaded);
@@ -403,7 +433,7 @@ pub(crate) async fn run_passes(
             }
             lock(summaries()).insert(
                 notebook_id.clone(),
-                V4PassSummary {
+                PassSummary {
                     writable: report.writable,
                     allows_deletes: report.allows_deletes,
                     deletion_deferred: report.plan.actions.iter().any(|action| {
@@ -470,8 +500,8 @@ const MAX_VISIBLE_FAILURE_TEXT_BYTES: usize = 240;
 
 fn summarize_pass_failures(
     notebook_id: &str,
-    scan_failures: &[flowix_sync::v4_apply::ApplyFailure],
-    report: &flowix_sync::v4_pass::PassReport,
+    scan_failures: &[flowix_sync::apply::ApplyFailure],
+    report: &flowix_sync::pass::PassReport,
 ) -> Option<String> {
     let failures = scan_failures
         .iter()
@@ -539,8 +569,8 @@ mod tests {
         use flowix_sync::reconcile::{
             DeleteLocal, Download, DownloadReason, ReconcilePlan, SyncAction, Upload, UploadReason,
         };
-        use flowix_sync::v4::state_after_transfer;
-        use flowix_sync::v4_apply::{ApplyFailure, ApplyOutcome};
+        use flowix_sync::state::state_after_transfer;
+        use flowix_sync::apply::{ApplyFailure, ApplyOutcome};
         let plan = ReconcilePlan {
             actions: vec![
                 SyncAction::Upload(Upload {
@@ -569,10 +599,11 @@ mod tests {
                 state_after_transfer("download.md", "download.md", "sha256:c", 1, 1, 1, None),
             ],
             removed: vec!["deleted.md".into()],
-            failures: vec![ApplyFailure {
-                path: "failed.md".into(),
-                message: "checkpoint failed".into(),
-            }],
+            failures: vec![ApplyFailure::of(
+                "failed.md",
+                flowix_sync::apply::FailureKind::Storage,
+                "checkpoint failed",
+            )],
             ..Default::default()
         };
         assert_eq!(completed_transfer_counts(&plan, &outcome), (1, 1, 1));
@@ -679,7 +710,7 @@ mod tests {
         let scan = scan_notebook(root.path()).unwrap();
         assert!(scan.files.is_empty());
         assert!(scan.failures.iter().any(|failure| {
-            failure.path.len() > flowix_sync::v4::MAX_NOTEBOOK_PATH_BYTES
+            failure.path.len() > flowix_sync::state::MAX_NOTEBOOK_PATH_BYTES
                 && failure.message.contains("exceeds 900 bytes")
         }));
     }
@@ -694,13 +725,10 @@ mod tests {
 
     #[test]
     fn summarizes_scan_transfer_listing_and_stamp_failures() {
-        use flowix_sync::v4_apply::{ApplyFailure, ApplyOutcome};
-        use flowix_sync::v4_pass::PassReport;
+        use flowix_sync::apply::{ApplyFailure, ApplyOutcome};
+        use flowix_sync::pass::PassReport;
 
-        let failure = |path: &str| ApplyFailure {
-            path: path.to_string(),
-            message: "request failed".to_string(),
-        };
+        let failure = |path: &str| ApplyFailure::new(path, "request failed");
         let report = PassReport {
             server_now_millis: 0,
             listed_dirs: Vec::new(),
@@ -738,7 +766,7 @@ mod tests {
     fn summaries_are_scoped_to_the_run_that_produced_them() {
         lock(summaries()).insert(
             "nb_scope".to_string(),
-            V4PassSummary {
+            PassSummary {
                 writable: true,
                 allows_deletes: true,
                 deletion_deferred: false,
@@ -750,3 +778,4 @@ mod tests {
         assert!(summary_since("nb_other", 0).is_none());
     }
 }
+

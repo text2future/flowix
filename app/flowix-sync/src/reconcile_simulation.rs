@@ -117,7 +117,6 @@ impl Store {
             &device.view(),
             &self.stamps,
             &device.scanned,
-            self.now,
             device.force_sweep,
         );
         let mut remote = RemoteListing::default();
@@ -234,7 +233,33 @@ fn pass(device: &mut Device, store: &mut Store) -> usize {
                 None => remote.mark_missing(path),
             }
         }
-        let plan = reconcile(&device.view(), &remote, store.now);
+        let mut plan = reconcile(&device.view(), &remote, store.now);
+        // The production planner checks an exact key after a directory listing
+        // reports it missing. Model that strong HEAD separately from the
+        // eventually consistent listing so the convergence simulation matches
+        // the pass orchestrator.
+        let missing_from_list: Vec<String> = plan
+            .actions
+            .iter()
+            .filter_map(|action| match action {
+                SyncAction::DeleteLocal(item)
+                    if !remote.missing_keys.contains(&item.path)
+                        && matches!(remote.state_for(&item.path), RemoteState::Missing) =>
+                {
+                    Some(item.path.clone())
+                }
+                _ => None,
+            })
+            .collect();
+        for path in missing_from_list {
+            match store.objects.get(&path) {
+                Some(stored) => remote.observe(stored.to_remote(&path)),
+                None => remote.mark_missing(&path),
+            }
+        }
+        if !remote.missing_keys.is_empty() || !remote.observed.is_empty() {
+            plan = reconcile(&device.view(), &remote, store.now);
+        }
         device.pending = plan.pending_deletions.clone();
 
         let mut probes = Vec::new();
@@ -433,7 +458,7 @@ fn a_tombstone_deletes_the_other_copy_on_the_first_observation() {
 }
 
 #[test]
-fn a_key_that_vanishes_without_a_tombstone_needs_a_second_look() {
+fn a_key_that_vanishes_without_a_tombstone_is_deleted_immediately() {
     let mut store = Store::new();
     let mut a = Device::new("mac-a");
     let mut b = Device::new("ipad-b");
@@ -442,16 +467,6 @@ fn a_key_that_vanishes_without_a_tombstone_needs_a_second_look() {
     sync(&mut a, &mut b, &mut store, 3);
 
     store.hard_delete("notes/plan.md");
-    pass(&mut b, &mut store);
-    assert!(
-        b.has("notes/plan.md"),
-        "one absence must not delete a local file"
-    );
-    assert_eq!(b.pending.get("notes/plan.md"), Some(&store.now));
-
-    // The directory is quiet again — nothing bumps the stamp — so the pending
-    // window is the only thing that brings it back for the second look.
-    store.advance(DELETE_CONFIRM_WINDOW_MS);
     pass(&mut b, &mut store);
     assert!(!b.has("notes/plan.md"));
     assert!(b.pending.is_empty());
@@ -478,14 +493,6 @@ fn a_local_deletion_propagates_instead_of_downloading_the_file_back() {
         !a.has("notes/plan.md"),
         "the first pass must not bring it back"
     );
-    assert_eq!(
-        store.files().get("notes/plan.md").map(Vec::as_slice),
-        Some(&b"v1"[..]),
-        "one absence is not evidence enough to delete it everywhere",
-    );
-
-    store.advance(DELETE_CONFIRM_WINDOW_MS);
-    pass(&mut a, &mut store);
     assert!(
         store.objects["notes/plan.md"].tombstone,
         "the confirmed deletion becomes a tombstone",
@@ -520,13 +527,6 @@ fn a_rename_settles_without_leaving_the_old_path_behind() {
 
     assert!(store.files().contains_key("notes/new.md"));
     assert!(
-        store.files().contains_key("notes/old.md"),
-        "the old key survives until the window elapses, which is the price of not trusting one absence",
-    );
-
-    store.advance(DELETE_CONFIRM_WINDOW_MS);
-    pass(&mut a, &mut store);
-    assert!(
         !store.files().contains_key("notes/old.md"),
         "the old path is tombstoned"
     );
@@ -538,7 +538,7 @@ fn a_rename_settles_without_leaving_the_old_path_behind() {
 }
 
 #[test]
-fn an_eventually_consistent_listing_never_deletes_a_live_file() {
+fn an_eventually_consistent_listing_is_verified_by_head() {
     let mut store = Store::new();
     let mut a = Device::new("mac-a");
     let mut b = Device::new("ipad-b");
@@ -551,20 +551,8 @@ fn an_eventually_consistent_listing_never_deletes_a_live_file() {
     store.put("notes/plan.md", b"v2-from-elsewhere");
 
     pass(&mut b, &mut store);
-    assert!(b.has("notes/plan.md"), "a stale listing is not a deletion");
-    assert_eq!(b.pending.get("notes/plan.md"), Some(&store.now));
-
-    store.advance(10 * SECOND);
-    pass(&mut b, &mut store);
     assert_eq!(b.files["notes/plan.md"], b"v2-from-elsewhere");
-    assert!(
-        b.pending.is_empty(),
-        "the window is dropped once the key reappears"
-    );
-    assert!(
-        b.conflicts.is_empty(),
-        "the local copy was clean, so nothing to keep"
-    );
+    assert!(b.pending.is_empty());
 }
 
 #[test]

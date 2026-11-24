@@ -90,7 +90,7 @@ impl SyncManager {
         let credentials = remote.open(access_key_id, secret_access_key)?;
         let mut selection = self.remote.lock().unwrap_or_else(|e| e.into_inner());
         selection.ensure_not_opened()?;
-        let fingerprint = crate::v4::credential_fingerprint(
+        let fingerprint = crate::state::credential_fingerprint(
             &credentials.backend_id,
             &credentials.bucket,
             &credentials.prefix,
@@ -133,7 +133,7 @@ impl SyncManager {
         secret_access_key: &str,
     ) -> Result<(), SyncError> {
         let credentials = remote.open(access_key_id, secret_access_key)?;
-        let fingerprint = crate::v4::credential_fingerprint(
+        let fingerprint = crate::state::credential_fingerprint(
             &credentials.backend_id,
             &credentials.bucket,
             &credentials.prefix,

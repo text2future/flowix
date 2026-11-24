@@ -5,6 +5,7 @@
 //! account contract, object-store credentials, and path-keyed sync engine.
 
 pub mod account;
+mod blocking;
 mod client;
 mod environment;
 mod error;
@@ -16,16 +17,16 @@ pub mod reconcile;
 pub mod remote;
 mod store;
 pub mod telemetry;
-pub mod v4;
-pub mod v4_apply;
-pub mod v4_pass;
+pub mod state;
+pub mod apply;
+pub mod pass;
 
 pub use account::{AccountService, PendingLogout};
 pub use client::CloudClient;
 pub use environment::{default_cloud_environment, CloudEnvironment};
-pub use error::SyncError;
+pub use error::{FailureKind, SyncError};
 pub use manager::SyncManager;
-pub use manager::{V4PassInput, V4_CREDENTIAL_RENEWAL_MARGIN_MS};
+pub use manager::{PassInput, V4_CREDENTIAL_RENEWAL_MARGIN_MS};
 pub use models::{
     AccountDeletionOutcome, AccountDeletionState, AppleAuthChallenge, AppleAuthorization,
     CloudAccount, CloudAiCredential, CloudAiCreditBalance, CloudAiModel, CloudAiProvider,
@@ -41,16 +42,17 @@ pub use reconcile::{
     directories_to_scan, reconcile, Baseline, ConflictBackup, Defer, DeferReason, DeleteLocal,
     DirScanRecord, Download, DownloadReason, LocalFile, LocalView, Probe, ReconcilePlan,
     ReconcileStats, RemoteListing, RemoteObject, SyncAction, Tombstone, Upload, UploadReason,
-    DELETE_CONFIRM_WINDOW_MS, STAMP_BOUNDARY_MS,
+    STAMP_BOUNDARY_MS,
 };
 pub use remote::RemoteKind;
 pub use store::SyncStore;
-pub use v4::{
+pub use state::{
     CloudDirectoryMarker, CloudNotebookManifest, PathNotebookLink, PathNotebookMetadata,
-    PendingNotebookAction, PendingNotebookChange, ScannedLocalFile, V4DirectoryState,
-    V4NotebookState, V4PathState,
+    PendingNotebookAction, PendingNotebookChange, ScannedLocalFile, DirectoryState,
+    NotebookState, PathState,
 };
-pub use v4_pass::{
+pub use pass::{
     plan_pass, run_pass, state_updates, DirectSource, ObjectSource, PassEnv, PassPlan, PassReport,
     PassRequest, StateUpdates, BIND_GRACE_MS,
 };
+

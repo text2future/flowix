@@ -26,7 +26,7 @@ async fn custom_target_is_persistent_and_cannot_be_reused_for_official() {
     drop(manager);
     let official = SyncManager::new("https://example.com", &db).unwrap();
     assert!(official
-        .v4_remote_notebooks()
+        .remote_notebooks()
         .await
         .unwrap_err()
         .to_string()
@@ -94,6 +94,6 @@ async fn custom_remote_lists_directly_without_official_login() {
     manager
         .configure_s3_remote(&remote(&endpoint), "local", "key", "secret")
         .unwrap();
-    assert!(manager.v4_remote_notebooks().await.unwrap().is_empty());
+    assert!(manager.remote_notebooks().await.unwrap().is_empty());
     server.join().unwrap();
 }

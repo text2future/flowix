@@ -1,5 +1,5 @@
 use super::*;
-use crate::v4::{
+use crate::state::{
     PathNotebookLink, PathNotebookMetadata, PendingNotebookAction, PendingNotebookChange,
 };
 
@@ -224,3 +224,4 @@ impl SyncStore {
         Ok(())
     }
 }
+

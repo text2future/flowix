@@ -1,4 +1,4 @@
-//! The production caller of [`crate::v4_pass::run_pass`].
+//! The production caller of [`crate::pass::run_pass`].
 //!
 //! Everything below the pass is deliberately environment-free (a pure decision
 //! function, an executor over a `LocalStore` trait, a signed-request layer), so
@@ -10,10 +10,10 @@
 //!
 //! * **One pass at a time, process-wide.** `execute_pass` ends by *replacing*
 //!   the notebook's pending-deletion table with the set its own plan computed
-//!   (`v4_set_pending_deletions` is a whole-table swap). Two concurrent passes
-//!   over the same notebook therefore erase each other's confirmations and the
-//!   five-minute window restarts forever — deletions never land. A pass is also
-//!   bandwidth-bound, so serialising costs nothing a single user notices.
+//!   (`set_pending_deletions` is a whole-table swap). Two concurrent passes
+//!   over the same notebook could erase retry state needed to revisit a failed
+//!   remote check or tombstone write. A pass is also bandwidth-bound, so
+//!   serialising costs nothing a single user notices.
 //! * **Resolve credentials at request boundaries.** A pass can run longer than
 //!   the 15-minute grant. Every object request renews the official grant with a
 //!   five-minute margin and signs with a fresh timestamp; custom S3 credentials
@@ -27,12 +27,12 @@ use super::*;
 use crate::models::CloudNotebook;
 use crate::object_store::{self, CredentialResolver, ObjectStoreCredentials, StorageQuota};
 use crate::object_store_ops;
-use crate::v4::{CloudDirectoryMarker, CloudNotebookManifest, ScannedLocalFile, V4DirectoryState};
-use crate::v4::{
+use crate::state::{CloudDirectoryMarker, CloudNotebookManifest, ScannedLocalFile, DirectoryState};
+use crate::state::{
     PathNotebookLink, PathNotebookMetadata, PendingNotebookAction, PendingNotebookChange,
 };
-use crate::v4_apply::LocalStore;
-use crate::v4_pass::{run_pass_with_progress, DirectSource, PassEnv, PassReport, PassRequest};
+use crate::apply::{LocalStore, ProgressObserver, TransferObserver};
+use crate::pass::{run_pass_with_progress, DirectSource, PassEnv, PassReport, PassRequest};
 
 /// Renew this long before expiry (`§8`: TTL 15 min, renew 5 min early).
 pub const V4_CREDENTIAL_RENEWAL_MARGIN_MS: i64 = 5 * 60 * 1_000;
@@ -42,7 +42,7 @@ pub const V4_CREDENTIAL_RENEWAL_MARGIN_MS: i64 = 5 * 60 * 1_000;
 const V4_CREDENTIAL_TTL_SECONDS: u32 = 900;
 
 /// What one pass needs from its caller.
-pub struct V4PassInput<'a> {
+pub struct PassInput<'a> {
     pub notebook_id: &'a str,
     /// Human-facing label used in stamp bodies and conflict-copy names.
     pub device_id: &'a str,
@@ -51,15 +51,15 @@ pub struct V4PassInput<'a> {
     pub scanned: &'a [ScannedLocalFile],
     pub local: &'a dyn LocalStore,
     /// Called when a pass has file transfers or deletions to execute.
-    pub on_transfer: Option<&'a (dyn Fn(Option<&str>) + Send + Sync)>,
-    pub on_progress: Option<&'a (dyn Fn(usize, usize) + Send + Sync)>,
+    pub on_transfer: Option<&'a TransferObserver<'a>>,
+    pub on_progress: Option<&'a ProgressObserver<'a>>,
     /// The hourly sweep: list `f/` recursively instead of trusting the stamps.
     pub force: bool,
 }
 
 /// A credential plus the quota it was issued under, remembered across passes.
 #[derive(Default)]
-pub(super) struct V4CredentialCache {
+pub(super) struct CredentialCache {
     /// The session generation the credential belongs to. A logout or account
     /// switch invalidates it even if it has not expired: the token is scoped to
     /// the previous user's prefix.
@@ -68,7 +68,7 @@ pub(super) struct V4CredentialCache {
     quota: Option<StorageQuota>,
 }
 
-impl V4CredentialCache {
+impl CredentialCache {
     fn invalidate_for_generation(&mut self, generation: u64) {
         if self.generation == generation {
             *self = Self::default();
@@ -122,7 +122,7 @@ struct CredentialContext<'a> {
     account: &'a crate::account::AccountService,
     client: &'a crate::client::CloudClient,
     store: &'a crate::store::SyncStore,
-    cache: &'a tokio::sync::Mutex<V4CredentialCache>,
+    cache: &'a tokio::sync::Mutex<CredentialCache>,
     refresh: &'a tokio::sync::Mutex<()>,
 }
 
@@ -221,7 +221,7 @@ impl RemoteCredentialProvider for OfficialCloudCredentialProvider {
             // The account can change while the request is in flight; never
             // cache the previous user's credential under the new generation.
             if context.account.session_generation() == generation {
-                *cache = V4CredentialCache {
+                *cache = CredentialCache {
                     generation,
                     credentials: Some(envelope.data.clone()),
                     quota: envelope.quota.clone(),
@@ -259,9 +259,23 @@ impl RemoteCredentialProvider for S3CredentialProvider {
     }
 }
 
+/// One request boundary's credential plus the resolver that renews it.
+///
+/// Every entry point that talks to the object store needs the same three
+/// things: the current signing material, the quota snapshot issued with it, and
+/// a resolver pinned to the scope the call planned with. Building them together
+/// keeps that invariant in one place instead of repeating a three-line dance
+/// that is easy to get subtly wrong (forgetting the clone, forgetting the
+/// mode).
+struct PassCredentials<'a> {
+    credentials: ObjectStoreCredentials,
+    quota: Option<StorageQuota>,
+    resolver: PassCredentialResolver<'a>,
+}
+
 /// The storage identity and write scope are fixed for one pass, while the
 /// short-lived signing material can rotate between requests.
-struct V4PassCredentialResolver<'a> {
+struct PassCredentialResolver<'a> {
     manager: &'a SyncManager,
     initial: ObjectStoreCredentials,
 }
@@ -270,9 +284,9 @@ fn supports_official_deletion_proxy(kind: crate::remote::RemoteKind, scheme: &st
     kind == crate::remote::RemoteKind::OfficialCloud && scheme == "s3-v4"
 }
 
-impl V4PassCredentialResolver<'_> {
+impl PassCredentialResolver<'_> {
     async fn invalidate_cached_credentials(&self, generation: u64) {
-        let mut cache = self.manager.v4_credentials.lock().await;
+        let mut cache = self.manager.credentials.lock().await;
         if self.manager.account.session_generation() == generation {
             cache.invalidate_for_generation(generation);
         }
@@ -280,7 +294,7 @@ impl V4PassCredentialResolver<'_> {
 }
 
 #[async_trait::async_trait]
-impl CredentialResolver for V4PassCredentialResolver<'_> {
+impl CredentialResolver for PassCredentialResolver<'_> {
     fn supports_deletion_proxy(&self) -> bool {
         let kind = self
             .manager
@@ -338,7 +352,7 @@ impl CredentialResolver for V4PassCredentialResolver<'_> {
     async fn resolve(&self, now_millis: i64) -> Result<ObjectStoreCredentials, SyncError> {
         let (credentials, _) = self
             .manager
-            .v4_credentials_for_mode(now_millis, Some(&self.initial.mode))
+            .credentials_for_mode(now_millis, Some(&self.initial.mode))
             .await?;
         let same_binding = credentials.backend_id == self.initial.backend_id
             && credentials.scheme == self.initial.scheme
@@ -364,7 +378,7 @@ impl CredentialResolver for V4PassCredentialResolver<'_> {
     ) -> Result<ObjectStoreCredentials, SyncError> {
         let credentials = self
             .manager
-            .v4_refresh_credentials_after_rejection(now_millis, rejected)
+            .refresh_credentials_after_rejection(now_millis, rejected)
             .await?;
         let same_binding = credentials.backend_id == self.initial.backend_id
             && credentials.scheme == self.initial.scheme
@@ -415,13 +429,13 @@ impl SyncManager {
     /// Lists active notebook manifests without consulting the indexed sync API.
     /// The delimiter keeps discovery proportional to notebook count instead of
     /// enumerating every note object under the account prefix.
-    pub async fn v4_remote_notebooks(&self) -> Result<Vec<CloudNotebook>, SyncError> {
+    pub async fn remote_notebooks(&self) -> Result<Vec<CloudNotebook>, SyncError> {
         let now = Utc::now();
-        let (credentials, _) = self.v4_credentials_for_pass(now.timestamp_millis()).await?;
-        let resolver = V4PassCredentialResolver {
-            manager: self,
-            initial: credentials.clone(),
-        };
+        let PassCredentials {
+            credentials,
+            quota: _,
+            resolver,
+        } = self.pass_credentials(now.timestamp_millis()).await?;
         let enabled: std::collections::HashSet<String> = self
             .path_enabled_notebooks()?
             .into_iter()
@@ -432,7 +446,7 @@ impl SyncManager {
         let mut page_count = 0usize;
         loop {
             let page = object_store::list_prefix(
-                &self.v4_http,
+                &self.http,
                 &resolver,
                 "nb/",
                 cursor.as_deref(),
@@ -452,7 +466,7 @@ impl SyncManager {
                     continue;
                 }
                 let Some((manifest, modified_at)) = self
-                    .v4_get_notebook_manifest_with_resolver(&resolver, id)
+                    .get_notebook_manifest_with_resolver(&resolver, id)
                     .await?
                 else {
                     continue;
@@ -497,22 +511,19 @@ impl SyncManager {
         Ok(notebooks)
     }
 
-    pub async fn v4_get_notebook_manifest(
+    pub async fn get_notebook_manifest(
         &self,
         notebook_id: &str,
     ) -> Result<Option<(CloudNotebookManifest, i64)>, SyncError> {
         validate_notebook_id(notebook_id)?;
         let now = Utc::now();
-        let (credentials, _) = self.v4_credentials_for_pass(now.timestamp_millis()).await?;
-        let resolver = V4PassCredentialResolver {
-            manager: self,
-            initial: credentials,
-        };
-        self.v4_get_notebook_manifest_with_resolver(&resolver, notebook_id)
+        let PassCredentials { resolver, .. } =
+            self.pass_credentials(now.timestamp_millis()).await?;
+        self.get_notebook_manifest_with_resolver(&resolver, notebook_id)
             .await
     }
 
-    pub async fn v4_put_notebook_manifest(
+    pub async fn put_notebook_manifest(
         &self,
         notebook_id: &str,
         manifest: &CloudNotebookManifest,
@@ -520,21 +531,21 @@ impl SyncManager {
         validate_notebook_id(notebook_id)?;
         manifest.validate()?;
         let now = Utc::now();
-        let (credentials, _) = self.v4_credentials_for_pass(now.timestamp_millis()).await?;
-        let resolver = V4PassCredentialResolver {
-            manager: self,
-            initial: credentials.clone(),
-        };
+        let PassCredentials {
+            credentials,
+            quota: _,
+            resolver,
+        } = self.pass_credentials(now.timestamp_millis()).await?;
         if !credentials.can_write() {
             return Ok(false);
         }
         let body = serde_json::to_vec(manifest)
             .map_err(|error| SyncError::InvalidState(error.to_string()))?;
         object_store_ops::put_object(
-            &self.v4_http,
+            &self.http,
             &resolver,
             &notebook_manifest_key(notebook_id),
-            &body,
+            body.into(),
             "application/json",
             &[],
         )
@@ -544,18 +555,18 @@ impl SyncManager {
 
     /// Reads durable directory records for one notebook. Listing keys first
     /// keeps the protocol flat; only marker bodies are fetched, never note data.
-    pub async fn v4_remote_directories(
+    pub async fn remote_directories(
         &self,
         notebook_id: &str,
     ) -> Result<(Vec<(CloudDirectoryMarker, i64)>, Option<i64>), SyncError> {
         validate_notebook_id(notebook_id)?;
         let now = Utc::now();
         let generation = self.account.session_generation();
-        let (credentials, _) = self.v4_credentials_for_pass(now.timestamp_millis()).await?;
-        let resolver = V4PassCredentialResolver {
-            manager: self,
-            initial: credentials.clone(),
-        };
+        let PassCredentials {
+            credentials,
+            quota: _,
+            resolver,
+        } = self.pass_credentials(now.timestamp_millis()).await?;
         let relative_prefix = format!("nb/{notebook_id}/d/");
         let scoped_prefix = credentials.scoped_key(&relative_prefix);
         let scope = (
@@ -567,7 +578,7 @@ impl SyncManager {
             notebook_id.to_string(),
         );
         let cached = {
-            let cache = self.v4_directory_cache.lock().await;
+            let cache = self.directory_cache.lock().await;
             if cache.scope.as_ref() == Some(&scope) {
                 cache.entries.clone()
             } else {
@@ -582,7 +593,7 @@ impl SyncManager {
         let mut server_clock_complete = true;
         loop {
             let page = object_store::list_prefix(
-                &self.v4_http,
+                &self.http,
                 &resolver,
                 &relative_prefix,
                 cursor.as_deref(),
@@ -648,7 +659,7 @@ impl SyncManager {
                 let relative_key = key.strip_prefix(&credentials.prefix).ok_or_else(|| {
                     SyncError::InvalidState("directory marker outside storage scope".into())
                 })?;
-                let downloaded = object_store_ops::download(&self.v4_http, resolver, relative_key)
+                let downloaded = object_store_ops::download(&self.http, resolver, relative_key)
                     .await?
                     .ok_or_else(|| {
                         SyncError::InvalidState(format!(
@@ -696,7 +707,7 @@ impl SyncManager {
             return Err(SyncError::NotAuthenticated);
         }
         {
-            let mut cache = self.v4_directory_cache.lock().await;
+            let mut cache = self.directory_cache.lock().await;
             cache.scope = Some(scope);
             cache.entries = next_cache;
         }
@@ -712,7 +723,7 @@ impl SyncManager {
     /// Writes a directory presence/deletion record, returning the bucket's
     /// authoritative modification time. `None` means this credential is
     /// deliberately read-only and the caller should leave the change pending.
-    pub async fn v4_put_directory_marker(
+    pub async fn put_directory_marker(
         &self,
         notebook_id: &str,
         marker: &CloudDirectoryMarker,
@@ -720,11 +731,11 @@ impl SyncManager {
         validate_notebook_id(notebook_id)?;
         marker.validate()?;
         let now = Utc::now();
-        let (credentials, _) = self.v4_credentials_for_pass(now.timestamp_millis()).await?;
-        let resolver = V4PassCredentialResolver {
-            manager: self,
-            initial: credentials.clone(),
-        };
+        let PassCredentials {
+            credentials,
+            quota: _,
+            resolver,
+        } = self.pass_credentials(now.timestamp_millis()).await?;
         if !credentials.can_write() {
             return Ok(None);
         }
@@ -732,15 +743,15 @@ impl SyncManager {
         let body = serde_json::to_vec(marker)
             .map_err(|error| SyncError::InvalidState(error.to_string()))?;
         object_store_ops::put_object(
-            &self.v4_http,
+            &self.http,
             &resolver,
             &key,
-            &body,
+            body.into(),
             "application/json",
             &[],
         )
         .await?;
-        let remote = object_store_ops::head(&self.v4_http, &resolver, &key)
+        let remote = object_store_ops::head(&self.http, &resolver, &key)
             .await?
             .ok_or_else(|| {
                 SyncError::InvalidState(format!("directory marker {key} vanished after PUT"))
@@ -748,11 +759,11 @@ impl SyncManager {
         Ok(Some(remote.mtime_millis))
     }
 
-    pub fn v4_pending_notebook_changes(&self) -> Result<Vec<PendingNotebookChange>, SyncError> {
+    pub fn pending_notebook_changes(&self) -> Result<Vec<PendingNotebookChange>, SyncError> {
         self.store.pending_path_notebook_changes()
     }
 
-    pub fn v4_ack_notebook_change(
+    pub fn ack_notebook_change(
         &self,
         notebook_id: &str,
         generation: i64,
@@ -762,29 +773,29 @@ impl SyncManager {
             .ack_path_notebook_change(notebook_id, generation, action)
     }
 
-    pub fn v4_directory_states(
+    pub fn directory_states(
         &self,
         notebook_id: &str,
-    ) -> Result<Vec<V4DirectoryState>, SyncError> {
-        self.store.v4_directory_states(notebook_id)
+    ) -> Result<Vec<DirectoryState>, SyncError> {
+        self.store.directory_states(notebook_id)
     }
 
-    pub fn v4_save_directory_states(
+    pub fn save_directory_states(
         &self,
         notebook_id: &str,
-        states: &[V4DirectoryState],
+        states: &[DirectoryState],
     ) -> Result<(), SyncError> {
-        self.store.v4_save_directory_states(notebook_id, states)
+        self.store.save_directory_states(notebook_id, states)
     }
 
-    async fn v4_get_notebook_manifest_with_resolver(
+    async fn get_notebook_manifest_with_resolver(
         &self,
         credential_resolver: &dyn CredentialResolver,
         notebook_id: &str,
     ) -> Result<Option<(CloudNotebookManifest, i64)>, SyncError> {
         let key = notebook_manifest_key(notebook_id);
         let Some(downloaded) =
-            object_store_ops::download(&self.v4_http, credential_resolver, &key).await?
+            object_store_ops::download(&self.http, credential_resolver, &key).await?
         else {
             return Ok(None);
         };
@@ -801,16 +812,16 @@ impl SyncManager {
     /// Returns the report instead of swallowing it: the caller decides whether a
     /// notebook that allowed no deletions or accepted no writes is worth
     /// surfacing, and that answer changes with the UI.
-    pub async fn v4_pass(&self, input: V4PassInput<'_>) -> Result<PassReport, SyncError> {
-        let _single = self.v4_pass_lock.clone().lock_owned().await;
+    pub async fn pass(&self, input: PassInput<'_>) -> Result<PassReport, SyncError> {
+        let _single = self.pass_lock.clone().lock_owned().await;
         let now = Utc::now();
-        let (credentials, quota) = self.v4_credentials_for_pass(now.timestamp_millis()).await?;
-        let resolver = V4PassCredentialResolver {
-            manager: self,
-            initial: credentials.clone(),
-        };
+        let PassCredentials {
+            credentials,
+            quota,
+            resolver,
+        } = self.pass_credentials(now.timestamp_millis()).await?;
         let mut source = DirectSource {
-            http: &self.v4_http,
+            http: &self.http,
             credentials: &credentials,
             credential_resolver: &resolver,
         };
@@ -823,7 +834,7 @@ impl SyncManager {
         };
         let mut env = PassEnv {
             source: &mut source,
-            http: &self.v4_http,
+            http: &self.http,
             credentials: &credentials,
             credential_resolver: &resolver,
             store: &self.store,
@@ -847,14 +858,33 @@ impl SyncManager {
     /// makes read scope always available precisely so that a lapsed account can
     /// still *receive* its data (§4.3), and the pass turns every publish into
     /// `defer:read-only` on its own.
-    async fn v4_credentials_for_pass(
+    async fn credentials_for_pass(
         &self,
         now_millis: i64,
     ) -> Result<ResolvedCredentials, SyncError> {
-        self.v4_credentials_for_mode(now_millis, None).await
+        self.credentials_for_mode(now_millis, None).await
     }
 
-    async fn v4_credentials_for_mode(
+    /// Credentials, quota and renewal resolver for one object-store entry
+    /// point.
+    ///
+    /// Callers that only read still go through here: the resolver is what lets
+    /// a long listing survive its grant expiring mid-page, so it is not an
+    /// optional extra.
+    async fn pass_credentials(&self, now_millis: i64) -> Result<PassCredentials<'_>, SyncError> {
+        let (credentials, quota) = self.credentials_for_pass(now_millis).await?;
+        let resolver = PassCredentialResolver {
+            manager: self,
+            initial: credentials.clone(),
+        };
+        Ok(PassCredentials {
+            credentials,
+            quota,
+            resolver,
+        })
+    }
+
+    async fn credentials_for_mode(
         &self,
         now_millis: i64,
         required_mode: Option<&str>,
@@ -877,19 +907,19 @@ impl SyncManager {
             account: &self.account,
             client: &self.client,
             store: &self.store,
-            cache: &self.v4_credentials,
-            refresh: &self.v4_credential_refresh,
+            cache: &self.credentials,
+            refresh: &self.credential_refresh,
         };
         provider.resolve(&context, now_millis, required_mode).await
     }
 
-    async fn v4_refresh_credentials_after_rejection(
+    async fn refresh_credentials_after_rejection(
         &self,
         now_millis: i64,
         rejected: &ObjectStoreCredentials,
     ) -> Result<ObjectStoreCredentials, SyncError> {
         {
-            let mut cache = self.v4_credentials.lock().await;
+            let mut cache = self.credentials.lock().await;
             if cache
                 .credentials
                 .as_ref()
@@ -901,15 +931,15 @@ impl SyncManager {
                 cache.quota = None;
             }
         }
-        self.v4_credentials_for_mode(now_millis, Some(&rejected.mode))
+        self.credentials_for_mode(now_millis, Some(&rejected.mode))
             .await
             .map(|(credentials, _)| credentials)
     }
 
     /// Drops the cached credential (logout, bucket rebind, quota change).
-    pub async fn forget_v4_credentials(&self) {
-        let mut cache = self.v4_credentials.lock().await;
-        *cache = V4CredentialCache::default();
+    pub async fn forget_credentials(&self) {
+        let mut cache = self.credentials.lock().await;
+        *cache = CredentialCache::default();
     }
 }
 
@@ -988,8 +1018,8 @@ mod tests {
         }
     }
 
-    fn cache(generation: u64, expires_at: i64) -> V4CredentialCache {
-        V4CredentialCache {
+    fn cache(generation: u64, expires_at: i64) -> CredentialCache {
+        CredentialCache {
             generation,
             credentials: Some(credentials(expires_at)),
             quota: None,
@@ -1016,7 +1046,8 @@ mod tests {
         let mut cached = cache(7, now + 10 * 60_000);
         assert!(cached.usable(8, now, None).is_none());
         // And an empty cache is never "usable", even at generation zero.
-        cached = V4CredentialCache::default();
+        cached = CredentialCache::default();
         assert!(cached.usable(0, now, None).is_none());
     }
 }
+

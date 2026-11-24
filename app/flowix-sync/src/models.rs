@@ -590,3 +590,4 @@ mod subscription_tests {
         assert!(subscription.is_annual_membership);
     }
 }
+

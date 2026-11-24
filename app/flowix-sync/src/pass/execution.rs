@@ -5,7 +5,9 @@ use chrono::{DateTime, Utc};
 use super::{stamp_body, stamp_key, state_updates, PassEnv, PassPlan, PassReport, PassRequest};
 use crate::error::SyncError;
 use crate::reconcile::{dir_of, SyncAction};
-use crate::v4_apply::{self, ApplyContext, ApplyFailure, ApplyOutcome};
+use crate::apply::{
+    self, ApplyContext, ApplyFailure, ApplyOutcome, ProgressObserver, TransferObserver,
+};
 
 /// Transfers, persistence and stamp bumps.
 pub async fn execute_pass(
@@ -22,14 +24,14 @@ pub(super) async fn execute_pass_with_progress(
     request: &PassRequest<'_>,
     prepared: &PassPlan,
     now: DateTime<Utc>,
-    on_transfer: Option<&(dyn Fn(Option<&str>) + Send + Sync)>,
-    on_progress: Option<&(dyn Fn(usize, usize) + Send + Sync)>,
+    on_transfer: Option<&TransferObserver<'_>>,
+    on_progress: Option<&ProgressObserver<'_>>,
 ) -> Result<PassReport, SyncError> {
     let notebook_id = request.notebook_id;
     let mut stamped_dirs = Vec::new();
     let mut stamp_failures = Vec::new();
     if env.credential_resolver.supports_deletion_proxy() {
-        for entry in env.store.v4_pending_stamps(notebook_id)? {
+        for entry in env.store.pending_stamps(notebook_id)? {
             let Some(path) = entry.strip_prefix("\0proxy/") else {
                 continue;
             };
@@ -39,18 +41,15 @@ pub(super) async fn execute_pass_with_progress(
                 .await
             {
                 Ok(()) => {
-                    env.store.v4_ack_stamp(notebook_id, &entry)?;
+                    env.store.ack_stamp(notebook_id, &entry)?;
                 }
                 // No tombstone remains to announce. Reconciliation will
                 // examine the live/missing object again; a delayed write is
                 // still covered by the periodic full sweep.
                 Err(crate::error::SyncError::Api { status: 409, .. }) => {
-                    env.store.v4_ack_stamp(notebook_id, &entry)?;
+                    env.store.ack_stamp(notebook_id, &entry)?;
                 }
-                Err(error) => stamp_failures.push(ApplyFailure {
-                    path: path.to_string(),
-                    message: error.to_string(),
-                }),
+                Err(error) => stamp_failures.push(ApplyFailure::from_error(path, &error)),
             }
         }
     }
@@ -76,7 +75,7 @@ pub(super) async fn execute_pass_with_progress(
                 _ => None,
             })
             .collect();
-        env.store.v4_queue_stamps(notebook_id, &planned_dirs)?;
+        env.store.queue_stamps(notebook_id, &planned_dirs)?;
     }
     let context = ApplyContext {
         credential_resolver: env.credential_resolver,
@@ -87,9 +86,9 @@ pub(super) async fn execute_pass_with_progress(
     let mut saved_removals = 0;
     let mut checkpoint = |outcome: &ApplyOutcome| {
         env.store
-            .v4_save_path_states(notebook_id, &outcome.states[saved_states..])?;
+            .save_path_states(notebook_id, &outcome.states[saved_states..])?;
         env.store
-            .v4_remove_path_states(notebook_id, &outcome.removed[saved_removals..])?;
+            .remove_path_states(notebook_id, &outcome.removed[saved_removals..])?;
         saved_states = outcome.states.len();
         saved_removals = outcome.removed.len();
         Ok(())
@@ -109,7 +108,6 @@ pub(super) async fn execute_pass_with_progress(
     }
     let mut execution_plan = prepared.plan.clone();
     let mut proxied = ApplyOutcome::default();
-    let mut failed_proxy_deletions = BTreeMap::new();
     if !prepared.writable && env.credential_resolver.supports_deletion_proxy() {
         execution_plan
             .actions
@@ -126,8 +124,8 @@ pub(super) async fn execute_pass_with_progress(
                 .unwrap_or(&item.path);
             let pending = format!("\0proxy/{}", item.path);
             env.store
-                .v4_queue_stamps(notebook_id, std::slice::from_ref(&pending))?;
-            let result = match env.local.read(display) {
+                .queue_stamps(notebook_id, std::slice::from_ref(&pending))?;
+            let result = match crate::blocking::run(|| env.local.read(display)) {
                 Ok(None) => match prepared
                     .listing
                     .observed
@@ -150,28 +148,20 @@ pub(super) async fn execute_pass_with_progress(
             };
             match result {
                 Ok(()) => {
-                    env.store.v4_ack_stamp(notebook_id, &pending)?;
+                    env.store.ack_stamp(notebook_id, &pending)?;
                     env.store
-                        .v4_remove_path_states(notebook_id, std::slice::from_ref(&item.path))?;
+                        .remove_path_states(notebook_id, std::slice::from_ref(&item.path))?;
                     proxied.removed.push(item.path.clone());
                 }
                 Err(error) => {
-                    let first_seen = prepared
-                        .snapshot
-                        .states
-                        .get(&item.path)
-                        .and_then(|state| state.pending_since)
-                        .unwrap_or(prepared.server_now_millis);
-                    failed_proxy_deletions.insert(item.path.clone(), first_seen);
-                    proxied.failures.push(ApplyFailure {
-                        path: item.path.clone(),
-                        message: error.to_string(),
-                    });
+                    proxied
+                        .failures
+                        .push(ApplyFailure::from_error(item.path.clone(), &error));
                 }
             }
         }
     }
-    let mut applied = v4_apply::apply_with_progress(
+    let mut applied = apply::apply_with_progress(
         env.http,
         &context,
         env.local,
@@ -179,30 +169,57 @@ pub(super) async fn execute_pass_with_progress(
         &prepared.snapshot,
         now,
         &mut checkpoint,
-        Some(&sizes),
-        on_transfer,
-        on_progress,
+        apply::ApplyOptions {
+            sizes: Some(&sizes),
+            on_transfer,
+            on_progress,
+        },
     )
     .await;
     applied.removed.extend(proxied.removed);
     applied.failures.extend(proxied.failures);
+    let mut failed_deletions = BTreeMap::new();
+    for action in &prepared.plan.actions {
+        let path = match action {
+            SyncAction::DeleteLocal(delete) => Some(&delete.path),
+            SyncAction::WriteTombstone(tombstone) => Some(&tombstone.path),
+            SyncAction::Download(download)
+                if download.reason == crate::reconcile::DownloadReason::RemoteUpdateAfterDelete =>
+            {
+                Some(&download.path)
+            }
+            _ => None,
+        };
+        let Some(path) = path else {
+            continue;
+        };
+        if applied.failures.iter().any(|failure| failure.path == *path) {
+            let first_seen = prepared
+                .snapshot
+                .states
+                .get(path)
+                .and_then(|state| state.pending_since)
+                .unwrap_or(prepared.server_now_millis);
+            failed_deletions.insert(path.clone(), first_seen);
+        }
+    }
     let updates = state_updates(request.scanned, prepared, &applied);
 
     // Order matters only in one direction: a transferred path writes its own
     // state (exact remote stamp + hash), so it must land after the baseline
     // vector, which never covers a transferred path but is cheap insurance.
     env.store
-        .v4_save_path_states(notebook_id, &updates.states)?;
+        .save_path_states(notebook_id, &updates.states)?;
     env.store
-        .v4_save_path_states(notebook_id, &applied.states)?;
+        .save_path_states(notebook_id, &applied.states)?;
     env.store
-        .v4_remove_path_states(notebook_id, &updates.removed)?;
+        .remove_path_states(notebook_id, &updates.removed)?;
     let mut pending_deletions = prepared.plan.pending_deletions.clone();
-    pending_deletions.extend(failed_proxy_deletions);
+    pending_deletions.extend(failed_deletions);
     env.store
-        .v4_set_pending_deletions(notebook_id, &pending_deletions)?;
+        .set_pending_deletions(notebook_id, &pending_deletions)?;
     env.store
-        .v4_save_dir_scans(notebook_id, &updates.dir_scans)?;
+        .save_dir_scans(notebook_id, &updates.dir_scans)?;
 
     if prepared.writable {
         flush_pending_stamps(
@@ -236,7 +253,7 @@ async fn flush_pending_stamps(
     stamped: &mut Vec<String>,
     failures: &mut Vec<ApplyFailure>,
 ) -> Result<(), SyncError> {
-    for dir in env.store.v4_pending_stamps(request.notebook_id)? {
+    for dir in env.store.pending_stamps(request.notebook_id)? {
         if dir.starts_with("\0proxy/") {
             continue;
         }
@@ -247,14 +264,12 @@ async fn flush_pending_stamps(
             .await
         {
             Ok(()) => {
-                env.store.v4_ack_stamp(request.notebook_id, &dir)?;
+                env.store.ack_stamp(request.notebook_id, &dir)?;
                 stamped.push(dir);
             }
-            Err(error) => failures.push(ApplyFailure {
-                path: dir,
-                message: error.to_string(),
-            }),
+            Err(error) => failures.push(ApplyFailure::from_error(dir, &error)),
         }
     }
     Ok(())
 }
+

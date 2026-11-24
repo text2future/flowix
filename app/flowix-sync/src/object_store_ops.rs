@@ -41,17 +41,20 @@ pub async fn upload(
     http: &reqwest::Client,
     credential_resolver: &dyn CredentialResolver,
     key: &str,
-    body: &[u8],
+    body: bytes::Bytes,
     content_hash: &str,
 ) -> Result<RemoteObject, SyncError> {
     upload_with_progress(http, credential_resolver, key, body, content_hash, || ()).await
 }
 
+/// Takes the body by value: a `PUT` may be retried once after a credential
+/// renewal, and a `Bytes` clone is a refcount bump where a `&[u8]` would force
+/// a full copy of the object per attempt.
 pub(crate) async fn upload_with_progress<G>(
     http: &reqwest::Client,
     credential_resolver: &dyn CredentialResolver,
     key: &str,
-    body: &[u8],
+    body: bytes::Bytes,
     content_hash: &str,
     start: impl FnOnce() -> G,
 ) -> Result<RemoteObject, SyncError> {
@@ -91,19 +94,27 @@ pub async fn write_tombstone(
     http: &reqwest::Client,
     credential_resolver: &dyn CredentialResolver,
     key: &str,
+    etag: &str,
 ) -> Result<RemoteObject, SyncError> {
     let metadata_credentials = credential_resolver
         .resolve(Utc::now().timestamp_millis())
         .await?;
-    put(
+    put_object(
         http,
         credential_resolver,
         key,
-        &[],
-        &[(
-            metadata_credentials.meta_header(META_DELETED),
-            "1".to_string(),
-        )],
+        bytes::Bytes::new(),
+        "application/octet-stream",
+        &[
+            (
+                metadata_credentials.meta_header(META_DELETED),
+                "1".to_string(),
+            ),
+            (
+                "if-match".to_string(),
+                format!("\"{}\"", etag.trim().trim_matches('"')),
+            ),
+        ],
     )
     .await?;
     let remote = head(http, credential_resolver, key).await?.ok_or_else(|| {
@@ -217,7 +228,7 @@ async fn put(
     http: &reqwest::Client,
     credential_resolver: &dyn CredentialResolver,
     key: &str,
-    body: &[u8],
+    body: bytes::Bytes,
     metadata: &[(String, String)],
 ) -> Result<(), SyncError> {
     put_object(
@@ -231,19 +242,19 @@ async fn put(
     .await
 }
 
-/// One unconditional `PUT`, with the content type spelled out.
+/// One `PUT`, with the content type and caller-supplied headers spelled out.
 ///
-/// `content-type` and every `x-*-meta-*` participate in the SigV4 signature, so
-/// they are declared once here and reach the wire through `SignedRequest`.
+/// All headers participate in the SigV4 signature and reach the wire through
+/// `SignedRequest`; callers can include metadata and conditional headers.
 pub async fn put_object(
     http: &reqwest::Client,
     credential_resolver: &dyn CredentialResolver,
     key: &str,
-    body: &[u8],
+    body: bytes::Bytes,
     content_type: &str,
     metadata: &[(String, String)],
 ) -> Result<(), SyncError> {
-    let payload_hash = hex(&Sha256::digest(body));
+    let payload_hash = hex(&Sha256::digest(&body));
     let mut headers = vec![("content-type".to_string(), content_type.to_string())];
     headers.extend(metadata.iter().cloned());
     let response = send_with_credential_renewal(
@@ -265,7 +276,12 @@ pub async fn put_object(
             )?;
             // Some S3 gateways reject empty PUTs unless Content-Length is
             // explicit. This also covers zero-byte notes and tombstones.
-            let bytes = bytes::Bytes::copy_from_slice(body);
+            //
+            // Cloning `Bytes` keeps the retry path allocation-free; the
+            // previous `copy_from_slice` duplicated the whole object once per
+            // attempt, which for attachments meant a second full-size buffer
+            // per in-flight upload.
+            let bytes = body.clone();
             let progress = crate::telemetry::progress_callback();
             let stream =
                 futures_util::stream::unfold((bytes, progress), |(bytes, progress)| async move {
@@ -411,7 +427,7 @@ mod tests {
             &http,
             &credentials,
             "nb/test/f/empty.md",
-            &[],
+            bytes::Bytes::new(),
             "application/octet-stream",
             &[],
         )
@@ -465,7 +481,7 @@ mod tests {
                     &http,
                     &credential,
                     "nb/test/f/large.bin",
-                    &vec![7; 150_000],
+                    bytes::Bytes::from(vec![7; 150_000]),
                     "application/octet-stream",
                     &[],
                 )
@@ -548,3 +564,4 @@ mod tests {
         assert_eq!(cos.meta_header("contenthash"), "x-cos-meta-contenthash");
     }
 }
+

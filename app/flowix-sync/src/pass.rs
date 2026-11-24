@@ -47,13 +47,14 @@ use crate::object_store::{
 };
 use crate::reconcile::{DirScanRecord, ReconcilePlan, RemoteListing, RemoteObject};
 use crate::store::SyncStore;
-use crate::v4::{ScannedLocalFile, V4LocalSnapshot, V4PathState};
-use crate::v4_apply::{object_key, ApplyFailure, ApplyOutcome, LocalStore};
+use crate::state::{ScannedLocalFile, LocalSnapshot, PathState};
+use crate::apply::{
+    object_key, ApplyFailure, ApplyOutcome, LocalStore, ProgressObserver, TransferObserver,
+};
 
 /// How long a freshly bound notebook refuses to delete anything (§13.2①).
-///
-/// Equal to the deletion confirm window on purpose: the first pass after
-/// binding must not read "the bucket is empty" as "the cloud deleted everything".
+/// This independent safeguard prevents an empty or newly selected bucket from
+/// being mistaken for a notebook-wide deletion.
 pub const BIND_GRACE_MS: i64 = 300_000;
 
 type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -209,7 +210,7 @@ impl ObjectSource for DirectSource<'_> {
                 self.http,
                 self.credential_resolver,
                 &key,
-                &body,
+                body.into(),
                 "application/json",
                 &[],
             )
@@ -342,7 +343,7 @@ pub struct PassPlan {
     /// device clock and suppresses deletions, because an untrusted clock must
     /// never authorise one.
     pub clock_trusted: bool,
-    pub snapshot: V4LocalSnapshot,
+    pub snapshot: LocalSnapshot,
     /// Directory → stamp `LastModified` as the `s/` listing reported it.
     pub stamps: BTreeMap<String, i64>,
     pub listing: RemoteListing,
@@ -361,7 +362,7 @@ pub struct PassPlan {
 /// Rows to persist after a pass, computed without touching the database.
 #[derive(Debug, Default)]
 pub struct StateUpdates {
-    pub states: Vec<V4PathState>,
+    pub states: Vec<PathState>,
     /// Paths whose row must go (file gone locally, or both sides gone).
     pub removed: Vec<String>,
     pub dir_scans: BTreeMap<String, DirScanRecord>,
@@ -419,8 +420,8 @@ pub(crate) async fn run_pass_with_progress(
     env: &mut PassEnv<'_>,
     request: &PassRequest<'_>,
     now: DateTime<Utc>,
-    on_transfer: Option<&(dyn Fn(Option<&str>) + Send + Sync)>,
-    on_progress: Option<&(dyn Fn(usize, usize) + Send + Sync)>,
+    on_transfer: Option<&TransferObserver<'_>>,
+    on_progress: Option<&ProgressObserver<'_>>,
 ) -> Result<PassReport, SyncError> {
     let started = std::time::Instant::now();
     let prepared = planning::plan_pass_with_proxy(
@@ -588,15 +589,13 @@ async fn resolve_tombstones(
             Ok(None) => listing.mark_missing(&path),
             Err(error) => {
                 listing.mark_unknown(&path);
-                failures.push(ApplyFailure {
-                    path,
-                    message: error.to_string(),
-                });
+                failures.push(ApplyFailure::from_error(path, &error));
             }
         }
     }
 }
 
 #[cfg(test)]
-#[path = "v4_pass_tests.rs"]
+#[path = "pass_tests.rs"]
 mod tests;
+

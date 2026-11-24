@@ -1,10 +1,13 @@
 use super::*;
 use crate::reconcile::DirScanRecord;
-use crate::v4::{V4DirectoryState, V4LocalSnapshot, V4NotebookState, V4PathState};
+use crate::state::{DirectoryState, LocalSnapshot, NotebookState, PathState};
 use std::collections::BTreeMap;
 
+// The table names keep their `v4_` prefix: they are on disk in every existing
+// installation, and renaming them would need a migration for no user benefit.
+// Everything else in this crate now speaks in path-sync terms.
 impl SyncStore {
-    pub(super) fn initialize_v4_schema(connection: &Connection) -> Result<(), SyncError> {
+    pub(super) fn initialize_state_schema(connection: &Connection) -> Result<(), SyncError> {
         connection.execute_batch(
             r#"
             CREATE TABLE IF NOT EXISTS v4_path_state (
@@ -67,7 +70,7 @@ impl SyncStore {
         Ok(())
     }
 
-    pub fn v4_queue_stamps(&self, notebook_id: &str, dirs: &[String]) -> Result<(), SyncError> {
+    pub fn queue_stamps(&self, notebook_id: &str, dirs: &[String]) -> Result<(), SyncError> {
         if dirs.is_empty() {
             return Ok(());
         }
@@ -83,7 +86,7 @@ impl SyncStore {
         Ok(())
     }
 
-    pub fn v4_pending_stamps(&self, notebook_id: &str) -> Result<Vec<String>, SyncError> {
+    pub fn pending_stamps(&self, notebook_id: &str) -> Result<Vec<String>, SyncError> {
         let connection = self.open()?;
         let mut statement = connection
             .prepare("SELECT dir FROM v4_pending_stamp WHERE notebook_id = ?1 ORDER BY dir")?;
@@ -91,7 +94,7 @@ impl SyncStore {
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
-    pub fn v4_ack_stamp(&self, notebook_id: &str, dir: &str) -> Result<(), SyncError> {
+    pub fn ack_stamp(&self, notebook_id: &str, dir: &str) -> Result<(), SyncError> {
         self.open()?.execute(
             "DELETE FROM v4_pending_stamp WHERE notebook_id = ?1 AND dir = ?2",
             params![notebook_id, dir],
@@ -99,17 +102,17 @@ impl SyncStore {
         Ok(())
     }
 
-    pub fn v4_directory_states(
+    pub fn directory_states(
         &self,
         notebook_id: &str,
-    ) -> Result<Vec<V4DirectoryState>, SyncError> {
+    ) -> Result<Vec<DirectoryState>, SyncError> {
         let connection = self.open()?;
         let mut statement = connection.prepare(
             "SELECT path, last_synced_at, deleted, local_mtime_millis, pending_since
              FROM v4_directory_state WHERE notebook_id = ?1",
         )?;
         let rows = statement.query_map(params![notebook_id], |row| {
-            Ok(V4DirectoryState {
+            Ok(DirectoryState {
                 path: row.get(0)?,
                 last_synced_at: row.get(1)?,
                 deleted: row.get(2)?,
@@ -120,10 +123,10 @@ impl SyncStore {
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 
-    pub fn v4_save_directory_states(
+    pub fn save_directory_states(
         &self,
         notebook_id: &str,
-        states: &[V4DirectoryState],
+        states: &[DirectoryState],
     ) -> Result<(), SyncError> {
         if states.is_empty() {
             return Ok(());
@@ -156,7 +159,7 @@ impl SyncStore {
         Ok(())
     }
 
-    pub fn v4_snapshot(&self, notebook_id: &str) -> Result<V4LocalSnapshot, SyncError> {
+    pub fn snapshot(&self, notebook_id: &str) -> Result<LocalSnapshot, SyncError> {
         let connection = self.open()?;
         let mut statement = connection.prepare(
             "SELECT path, display_path, content_hash, local_size, local_mtime_millis,
@@ -165,7 +168,7 @@ impl SyncStore {
         )?;
         let states = statement
             .query_map(params![notebook_id], |row| {
-                Ok(V4PathState {
+                Ok(PathState {
                     path: row.get(0)?,
                     display_path: row.get(1)?,
                     content_hash: row.get(2)?,
@@ -193,7 +196,7 @@ impl SyncStore {
             })?
             .collect::<Result<BTreeMap<_, _>, _>>()?;
 
-        Ok(V4LocalSnapshot {
+        Ok(LocalSnapshot {
             states: states
                 .into_iter()
                 .map(|state| (state.path.clone(), state))
@@ -202,10 +205,10 @@ impl SyncStore {
         })
     }
 
-    pub fn v4_notebook_state(
+    pub fn notebook_state(
         &self,
         notebook_id: &str,
-    ) -> Result<Option<V4NotebookState>, SyncError> {
+    ) -> Result<Option<NotebookState>, SyncError> {
         let connection = self.open()?;
         connection
             .query_row(
@@ -213,7 +216,7 @@ impl SyncStore {
                  FROM v4_notebook_state WHERE notebook_id = ?1",
                 params![notebook_id],
                 |row| {
-                    Ok(V4NotebookState {
+                    Ok(NotebookState {
                         notebook_id: notebook_id.to_string(),
                         grace_until: row.get(0)?,
                         credential_fingerprint: row.get(1)?,
@@ -224,10 +227,10 @@ impl SyncStore {
             .map_err(Into::into)
     }
 
-    pub fn v4_save_path_states(
+    pub fn save_path_states(
         &self,
         notebook_id: &str,
-        states: &[V4PathState],
+        states: &[PathState],
     ) -> Result<(), SyncError> {
         if states.is_empty() {
             return Ok(());
@@ -267,7 +270,7 @@ impl SyncStore {
         Ok(())
     }
 
-    pub fn v4_remove_path_states(
+    pub fn remove_path_states(
         &self,
         notebook_id: &str,
         paths: &[String],
@@ -288,13 +291,12 @@ impl SyncStore {
         Ok(())
     }
 
-    /// Replaces the notebook's pending-deletion set with `pending`.
+    /// Replaces the notebook's deletion-retry set with `pending`.
     ///
     /// Written as "clear then set" rather than a diff because the set is small
-    /// (only paths currently observed absent) and a diff would need to read the
-    /// old rows first, widening the window where the table disagrees with the
-    /// plan that produced it.
-    pub fn v4_set_pending_deletions(
+    /// and a diff would need to read the old rows first, widening the window
+    /// where the table disagrees with the plan that produced it.
+    pub fn set_pending_deletions(
         &self,
         notebook_id: &str,
         pending: &BTreeMap<String, i64>,
@@ -319,7 +321,7 @@ impl SyncStore {
         Ok(())
     }
 
-    pub fn v4_save_dir_scans(
+    pub fn save_dir_scans(
         &self,
         notebook_id: &str,
         scans: &BTreeMap<String, DirScanRecord>,
@@ -350,7 +352,7 @@ impl SyncStore {
         Ok(())
     }
 
-    pub fn v4_save_notebook_state(&self, state: &V4NotebookState) -> Result<(), SyncError> {
+    pub fn save_notebook_state(&self, state: &NotebookState) -> Result<(), SyncError> {
         self.open()?.execute(
             "INSERT INTO v4_notebook_state
                 (notebook_id, grace_until, credential_fingerprint)
@@ -372,14 +374,14 @@ impl SyncStore {
     /// Returns `true` when the fingerprint actually changed. Three things must
     /// happen together, which is why this is one method and not three:
     ///
-    /// * pending deletions are cleared — a first-seen time from the old bucket
-    ///   would otherwise authorise an immediate delete in the new one;
+    /// * deletion retry markers are cleared so they do not trigger scans
+    ///   against the new bucket;
     /// * every baseline is moved to `reset_baseline_to`, so a new bucket's
     ///   timestamps are compared with its clock rather than the old bucket's;
     /// * a grace window opens, because the new bucket is empty at first.
     ///
     /// Content hashes are deliberately kept for subsequent content comparisons.
-    pub fn v4_rebind_credential(
+    pub fn rebind_credential(
         &self,
         notebook_id: &str,
         fingerprint: &str,
@@ -426,11 +428,11 @@ impl SyncStore {
         Ok(changed)
     }
 
-    /// Drops every v4 row for a notebook (unbind, or "start over").
+    /// Drops every state row for a notebook (unbind, or "start over").
     ///
     /// Content is never touched here: rows describe what the *cloud* had, so
     /// deleting them only makes the next pass re-upload rather than re-download.
-    pub fn v4_clear_notebook(&self, notebook_id: &str) -> Result<(), SyncError> {
+    pub fn clear_notebook(&self, notebook_id: &str) -> Result<(), SyncError> {
         let mut connection = self.open()?;
         let transaction = connection.transaction()?;
         for table in [
@@ -449,3 +451,4 @@ impl SyncStore {
         Ok(())
     }
 }
+

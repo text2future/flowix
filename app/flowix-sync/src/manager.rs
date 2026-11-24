@@ -12,15 +12,15 @@ pub struct SyncManager {
     account: AccountService,
     client: CloudClient,
     store: SyncStore,
-    /// Serialises path-keyed passes. See `v4_engine` for why one at a time.
-    v4_pass_lock: Arc<tokio::sync::Mutex<()>>,
-    v4_credentials: Arc<tokio::sync::Mutex<v4_engine::V4CredentialCache>>,
-    v4_credential_refresh: Arc<tokio::sync::Mutex<()>>,
-    v4_directory_cache: Arc<tokio::sync::Mutex<v4_engine::DirectoryCache>>,
+    /// Serialises path-keyed passes. See `engine` for why one at a time.
+    pass_lock: Arc<tokio::sync::Mutex<()>>,
+    credentials: Arc<tokio::sync::Mutex<engine::CredentialCache>>,
+    credential_refresh: Arc<tokio::sync::Mutex<()>>,
+    directory_cache: Arc<tokio::sync::Mutex<engine::DirectoryCache>>,
     remote: Arc<std::sync::Mutex<crate::remote::RemoteSelection>>,
     /// Object storage is not the control plane: a single object can be large
     /// and a slow uplink must not be cut off at the API client's 30 seconds.
-    v4_http: reqwest::Client,
+    http: reqwest::Client,
 }
 
 impl SyncManager {
@@ -33,12 +33,12 @@ impl SyncManager {
             client: account.client().clone(),
             store: account.store().clone(),
             account,
-            v4_pass_lock: Arc::new(tokio::sync::Mutex::new(())),
-            v4_credentials: Arc::new(tokio::sync::Mutex::new(Default::default())),
-            v4_credential_refresh: Arc::new(tokio::sync::Mutex::new(())),
-            v4_directory_cache: Arc::new(tokio::sync::Mutex::new(Default::default())),
+            pass_lock: Arc::new(tokio::sync::Mutex::new(())),
+            credentials: Arc::new(tokio::sync::Mutex::new(Default::default())),
+            credential_refresh: Arc::new(tokio::sync::Mutex::new(())),
+            directory_cache: Arc::new(tokio::sync::Mutex::new(Default::default())),
             remote: Arc::new(std::sync::Mutex::new(Default::default())),
-            v4_http: reqwest::Client::builder()
+            http: reqwest::Client::builder()
                 .connect_timeout(std::time::Duration::from_secs(10))
                 .read_timeout(std::time::Duration::from_secs(300))
                 .build()
@@ -48,6 +48,7 @@ impl SyncManager {
 }
 
 mod account_api;
-mod v4_engine;
+mod engine;
 
-pub use v4_engine::{V4PassInput, V4_CREDENTIAL_RENEWAL_MARGIN_MS};
+pub use engine::{PassInput, V4_CREDENTIAL_RENEWAL_MARGIN_MS};
+

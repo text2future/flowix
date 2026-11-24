@@ -13,8 +13,8 @@ use crate::reconcile::{
     SyncAction,
 };
 use crate::store::SyncStore;
-use crate::v4::{build_local_view, credential_fingerprint, V4NotebookState};
-use crate::v4_apply::{object_key, ApplyFailure};
+use crate::state::{build_local_view, credential_fingerprint, NotebookState};
+use crate::apply::{object_key, ApplyFailure, FailureKind};
 
 /// Enumerates remote state and builds the action plan without transferring file bodies.
 ///
@@ -58,9 +58,9 @@ pub(super) async fn plan_pass_with_proxy(
     );
     let rebound = bind_if_needed(store, notebook_id, &fingerprint, server_now_millis)?;
     let notebook_state = store
-        .v4_notebook_state(notebook_id)?
-        .unwrap_or_else(|| V4NotebookState::new(notebook_id, &fingerprint));
-    let snapshot = store.v4_snapshot(notebook_id)?;
+        .notebook_state(notebook_id)?
+        .unwrap_or_else(|| NotebookState::new(notebook_id, &fingerprint));
+    let snapshot = store.snapshot(notebook_id)?;
     // The gate never looks at `allow_deletes`, only at the file list, so the
     // view is built once here and rebuilt below with the final flag.
     let gate_view = build_local_view(&snapshot, request.scanned, request.device_id, true);
@@ -97,36 +97,34 @@ pub(super) async fn plan_pass_with_proxy(
                 listed_dirs = dirs.into_iter().collect();
                 listing.observed_dirs.extend(listed_dirs.iter().cloned());
             }
-            Err(error) => list_failures.push(ApplyFailure {
-                path: "<sweep>".to_string(),
-                message: error.to_string(),
-            }),
+            Err(error) => list_failures.push(ApplyFailure::from_error("<sweep>", &error)),
         }
     } else {
-        let due = directories_to_scan(
-            &gate_view,
-            &stamps.dirs,
-            &snapshot.dir_scans,
-            server_now_millis,
-            false,
-        );
+        let mut due: BTreeSet<String> = directories_to_scan(&gate_view, &stamps.dirs, &snapshot.dir_scans, false).into_iter().collect();
+        let scanned: BTreeSet<&str> = request.scanned.iter().map(|file| file.key.as_str()).collect();
+        for path in snapshot.states.keys().filter(|path| !scanned.contains(path.as_str())) {
+            due.insert(dir_of(path).to_string());
+        }
+        let due: Vec<String> = due.into_iter().collect();
         let results = source
             .list_directories(notebook_id.to_string(), due.clone())
             .await;
         let mut results = results.into_iter();
         for expected in due {
             let Some((dir, partial, result)) = results.next() else {
-                list_failures.push(ApplyFailure {
-                    path: expected,
-                    message: "missing directory listing result".into(),
-                });
+                list_failures.push(ApplyFailure::of(
+                    expected,
+                    FailureKind::Transient,
+                    "missing directory listing result",
+                ));
                 continue;
             };
             if dir != expected {
-                list_failures.push(ApplyFailure {
-                    path: expected,
-                    message: "directory listing result out of order".into(),
-                });
+                list_failures.push(ApplyFailure::of(
+                    expected,
+                    FailureKind::Transient,
+                    "directory listing result out of order",
+                ));
                 continue;
             }
             for object in partial.observed.into_values() {
@@ -137,10 +135,7 @@ pub(super) async fn plan_pass_with_proxy(
                     listing.observed_dirs.insert(dir.clone());
                     listed_dirs.push(dir);
                 }
-                Err(error) => list_failures.push(ApplyFailure {
-                    path: dir,
-                    message: error.to_string(),
-                }),
+                Err(error) => list_failures.push(ApplyFailure::from_error(dir, &error)),
             }
         }
     }
@@ -150,6 +145,31 @@ pub(super) async fn plan_pass_with_proxy(
     // tombstone read as a file downloads as an empty body and overwrites the
     // note with nothing.
     resolve_tombstones(source, notebook_id, &mut listing, &mut list_failures).await;
+    listed_dirs.retain(|dir| !listing.unknown_keys.iter().any(|path| dir_of(path) == dir));
+
+    // A local absence and a listing omission are not enough to forget the
+    // baseline: HEAD the exact key before treating both sides as absent.
+    let scanned: BTreeSet<&str> = request.scanned.iter().map(|file| file.key.as_str()).collect();
+    let missing_local: Vec<String> = snapshot.states.keys()
+        .filter(|path| !scanned.contains(path.as_str())
+            && matches!(listing.state_for(path), crate::reconcile::RemoteState::Missing)
+            && !listing.missing_keys.contains(*path))
+        .cloned().collect();
+    if !missing_local.is_empty() {
+        let keys = missing_local.iter().map(|path| object_key(notebook_id, path)).collect();
+        let mut results = source.head_many(keys).await.into_iter();
+        for path in missing_local {
+            match results.next().unwrap_or_else(|| Err(SyncError::InvalidState("missing HEAD result".into()))) {
+                Ok(Some(mut object)) => { object.path = path; listing.observe(object); }
+                Ok(None) => listing.mark_missing(&path),
+                Err(error) => {
+                    listing.mark_unknown(&path);
+                    listed_dirs.retain(|dir| dir != dir_of(&path));
+                    list_failures.push(ApplyFailure::from_error(path, &error));
+                }
+            }
+        }
+    }
 
     // A changed credential fingerprint says the bucket binding changed; it
     // does not prove that any operator-side data copy completed. If known local
@@ -201,10 +221,52 @@ pub(super) async fn plan_pass_with_proxy(
                 // Keep it unknown: a 500 must not become evidence of absence.
                 Err(error) => {
                     listing.mark_unknown(&path);
-                    list_failures.push(ApplyFailure {
-                        path,
-                        message: error.to_string(),
-                    });
+                    list_failures.push(ApplyFailure::from_error(path, &error));
+                }
+            }
+        }
+        plan = reconcile(&local_view, &listing, server_now_millis);
+    }
+    // Listings can temporarily omit live objects. Confirm inferred remote
+    // deletions by HEAD; resolved tombstones already provide positive evidence.
+    let missing: Vec<String> = plan
+        .actions
+        .iter()
+        .filter_map(|action| match action {
+            SyncAction::DeleteLocal(item)
+                if !listing.missing_keys.contains(&item.path)
+                    && matches!(
+                        listing.state_for(&item.path),
+                        crate::reconcile::RemoteState::Missing
+                    ) =>
+            {
+                Some(item.path.clone())
+            }
+            _ => None,
+        })
+        .collect();
+    if !missing.is_empty() {
+        let keys = missing
+            .iter()
+            .map(|path| object_key(notebook_id, path))
+            .collect();
+        let mut results = source.head_many(keys).await.into_iter();
+        for path in missing {
+            match results
+                .next()
+                .unwrap_or_else(|| Err(SyncError::InvalidState("missing HEAD result".into())))
+            {
+                Ok(Some(mut object)) => {
+                    object.path = path;
+                    listing.observe(object);
+                }
+                Ok(None) => listing.mark_missing(&path),
+                Err(error) => {
+                    listing.mark_unknown(&path);
+                    // Do not checkpoint this listing: a later pass must retry
+                    // the unresolved absence even if the stamp stays quiet.
+                    listed_dirs.retain(|dir| dir != dir_of(&path));
+                    list_failures.push(ApplyFailure::from_error(path, &error));
                 }
             }
         }
@@ -307,7 +369,10 @@ mod mass_deletion_tests {
             plan.actions.push(if n % 2 == 0 {
                 SyncAction::DeleteLocal(DeleteLocal { path })
             } else {
-                SyncAction::WriteTombstone(Tombstone { path })
+                SyncAction::WriteTombstone(Tombstone {
+                    path,
+                    expected_etag: None,
+                })
             });
         }
         plan.actions.push(SyncAction::Upload(Upload {
@@ -336,19 +401,19 @@ fn probe_paths(plan: &ReconcilePlan) -> Vec<String> {
 
 /// Binds the notebook to this credential, or rebinds it after a bucket switch.
 ///
-/// The store changes the binding in one transaction: pending deletions are
-/// cleared, baselines move to the new bucket's clock, and a grace window opens
-/// so an empty bucket cannot be mistaken for a mass deletion.
+/// The store changes the binding in one transaction: deletion retry markers
+/// are cleared, baselines move to the new bucket's clock, and a grace window
+/// opens so an empty bucket cannot be mistaken for a mass deletion.
 fn bind_if_needed(
     store: &SyncStore,
     notebook_id: &str,
     fingerprint: &str,
     server_now_millis: i64,
 ) -> Result<bool, SyncError> {
-    match store.v4_notebook_state(notebook_id)? {
+    match store.notebook_state(notebook_id)? {
         Some(state) if state.credential_fingerprint == fingerprint => Ok(false),
         _ => {
-            store.v4_rebind_credential(
+            store.rebind_credential(
                 notebook_id,
                 fingerprint,
                 server_now_millis,
@@ -358,3 +423,4 @@ fn bind_if_needed(
         }
     }
 }
+

@@ -2,8 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::{PassPlan, StateUpdates};
 use crate::reconcile::{dir_of, DirScanRecord, ReconcilePlan, SyncAction};
-use crate::v4::{ScannedLocalFile, V4PathState};
-use crate::v4_apply::ApplyOutcome;
+use crate::state::{ScannedLocalFile, PathState};
+use crate::apply::ApplyOutcome;
 
 /// Rows to persist. Pure, so the rules below are asserted without a database.
 ///
@@ -54,7 +54,7 @@ pub fn state_updates(
             .get(path)
             .and_then(|object| object.etag.clone())
             .or_else(|| existing.and_then(|state| state.remote_etag.clone()));
-        states.push(V4PathState {
+        states.push(PathState {
             path: baseline.path.clone(),
             display_path: file.display_path.clone(),
             // Keeping the last known hash is correct here: this branch only
@@ -119,3 +119,4 @@ fn action_paths(plan: &ReconcilePlan) -> BTreeSet<&str> {
         })
         .collect()
 }
+

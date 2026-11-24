@@ -1,4 +1,4 @@
-//! The desktop [`LocalStore`] the v4 pass writes through.
+//! The desktop [`LocalStore`] the state pass writes through.
 //!
 //! Why this is not `fs::write`: every note the user can see comes from the
 //! SQLite projection (`note_index`), which feeds search, backlinks, the file
@@ -32,7 +32,7 @@ use flowix_core::memo_file::{
     is_syncable_notebook_file_path, FileLockIntent, IsMd, MemoFile, MemoVersionSource,
     NoteWriteOutcome,
 };
-use flowix_sync::v4_apply::{ArchiveReason, LocalRead, LocalStamp, LocalStore};
+use flowix_sync::apply::{ArchiveReason, LocalRead, LocalStamp, LocalStore};
 use flowix_sync::SyncError;
 use tauri::AppHandle;
 
@@ -71,7 +71,7 @@ impl MemoLocalStore {
     /// could leave it.
     ///
     /// The keys reaching this store have already been normalised
-    /// (`v4::normalize_key_path` rejects `..`), so this is the second gate, not
+    /// (`state::normalize_key_path` rejects `..`), so this is the second gate, not
     /// the first: it defends against a `display_path` that was relativised
     /// wrongly on a case-insensitive or NFD file system.
     fn resolve(&self, path: &str) -> Result<PathBuf, SyncError> {
@@ -439,7 +439,7 @@ mod tests {
     #[ignore = "requires a disposable staging R2 credential"]
     async fn live_r2_invalid_credential_reports_error_without_changing_local_data() {
         use flowix_core::memo_file::scan_syncable_notebook_files;
-        use flowix_sync::v4_pass::{DirectSource, PassEnv, PassRequest};
+        use flowix_sync::pass::{DirectSource, PassEnv, PassRequest};
         use flowix_sync::{run_pass, ObjectStoreCredentials, ScannedLocalFile, SyncStore};
 
         let path = std::env::var("FLOWIX_R2_ACCEPTANCE_CREDENTIAL").unwrap();
@@ -488,7 +488,7 @@ mod tests {
             std::fs::read(root.join("notes/offline.md")).unwrap(),
             b"# Keep local bytes\n"
         );
-        assert!(state.v4_snapshot(&notebook_id).unwrap().states.is_empty());
+        assert!(state.snapshot(&notebook_id).unwrap().states.is_empty());
         let now = chrono::Utc::now();
         let mut source = DirectSource {
             http: &http,
@@ -512,7 +512,7 @@ mod tests {
         );
         assert!(recovered.list_failures.is_empty());
         assert!(recovered.stamp_failures.is_empty());
-        assert_eq!(state.v4_snapshot(&notebook_id).unwrap().states.len(), 1);
+        assert_eq!(state.snapshot(&notebook_id).unwrap().states.len(), 1);
     }
 
     #[tokio::test]
@@ -520,7 +520,7 @@ mod tests {
     async fn live_r2_single_device_login_upload_and_restart() {
         use flowix_core::memo_file::scan_syncable_notebook_files;
         use flowix_sync::{
-            CloudDirectoryMarker, CloudNotebookManifest, ScannedLocalFile, SyncManager, V4PassInput,
+            CloudDirectoryMarker, CloudNotebookManifest, ScannedLocalFile, SyncManager, PassInput,
         };
 
         let account_path = std::env::var("FLOWIX_R2_ACCEPTANCE_ACCOUNT").unwrap();
@@ -557,11 +557,11 @@ mod tests {
             deleted: false,
         };
         assert!(manager
-            .v4_put_notebook_manifest(id, &manifest)
+            .put_notebook_manifest(id, &manifest)
             .await
             .unwrap());
         assert!(manager
-            .v4_put_directory_marker(id, &directory)
+            .put_directory_marker(id, &directory)
             .await
             .unwrap()
             .is_some());
@@ -571,7 +571,7 @@ mod tests {
             .map(|f| ScannedLocalFile::new(f.display_path, f.size, f.mtime_millis).unwrap())
             .collect::<Vec<_>>();
         let report = manager
-            .v4_pass(V4PassInput {
+            .pass(PassInput {
                 notebook_id: id,
                 device_id: "single-device",
                 scanned: &scanned,
@@ -598,7 +598,7 @@ mod tests {
         reopened.account().login(email, password).await.unwrap();
         assert_eq!(
             reopened
-                .v4_get_notebook_manifest(id)
+                .get_notebook_manifest(id)
                 .await
                 .unwrap()
                 .unwrap()
@@ -606,20 +606,20 @@ mod tests {
             manifest
         );
         assert!(reopened
-            .v4_remote_notebooks()
+            .remote_notebooks()
             .await
             .unwrap()
             .iter()
             .any(|notebook| notebook.id == id));
         assert!(reopened
-            .v4_remote_directories(id)
+            .remote_directories(id)
             .await
             .unwrap()
             .0
             .iter()
             .any(|(marker, _)| marker == &directory));
         let report = reopened
-            .v4_pass(V4PassInput {
+            .pass(PassInput {
                 notebook_id: id,
                 device_id: "single-device",
                 scanned: &scanned,
@@ -645,7 +645,7 @@ mod tests {
     #[ignore = "requires a disposable staging R2 credential"]
     async fn live_r2_upload_one_hundred_files() {
         use flowix_core::memo_file::scan_syncable_notebook_files;
-        use flowix_sync::v4_pass::{DirectSource, PassEnv, PassRequest};
+        use flowix_sync::pass::{DirectSource, PassEnv, PassRequest};
         use flowix_sync::{run_pass, ObjectStoreCredentials, ScannedLocalFile, SyncStore};
 
         let path = std::env::var("FLOWIX_R2_ACCEPTANCE_CREDENTIAL").unwrap();
@@ -719,13 +719,13 @@ mod tests {
             assert!(retry.list_failures.is_empty());
             assert!(retry.stamp_failures.is_empty());
         }
-        assert_eq!(state.v4_snapshot(&notebook_id).unwrap().states.len(), 100);
+        assert_eq!(state.snapshot(&notebook_id).unwrap().states.len(), 100);
     }
 
     #[tokio::test]
     #[ignore = "requires the disposable staging scale fixture"]
     async fn live_r2_list_ten_thousand_objects() {
-        use flowix_sync::v4_pass::{DirectSource, ObjectSource};
+        use flowix_sync::pass::{DirectSource, ObjectSource};
         use flowix_sync::ObjectStoreCredentials;
 
         let path = std::env::var("FLOWIX_R2_ACCEPTANCE_CREDENTIAL").unwrap();
@@ -796,7 +796,7 @@ mod tests {
     #[ignore = "requires a disposable staging R2 credential"]
     async fn live_r2_two_local_stores_transfer_notebook_content() {
         use flowix_core::memo_file::scan_syncable_notebook_files;
-        use flowix_sync::v4_pass::{DirectSource, PassEnv, PassRequest};
+        use flowix_sync::pass::{DirectSource, PassEnv, PassRequest};
         use flowix_sync::{run_pass, ObjectStoreCredentials, ScannedLocalFile, SyncStore};
 
         let credential_path = std::env::var("FLOWIX_R2_ACCEPTANCE_CREDENTIAL").unwrap();

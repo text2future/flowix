@@ -1,19 +1,19 @@
-//! v4 durable state: the device side of the path-keyed design.
+//! state durable state: the device side of the path-keyed design.
 //!
 //! Split the same way as `v2`: this module owns the value types and the pure
-//! derivations, `store::v4` owns the SQL. Nothing here touches the file system
+//! derivations, `store::state` owns the SQL. Nothing here touches the file system
 //! or the clock — `mtime`, `size` and `server_now` all arrive as arguments, so
 //! the state layer can be tested without a notebook on disk.
 //!
 //! Three tables back it (see `docs/CLOUD_STORAGE_PATH_LWW_DESIGN.md` §14.1):
 //!
-//! * [`V4PathState`]  one row per path, written on every save (hot)
+//! * [`PathState`]  one row per path, written on every save (hot)
 //! * [`crate::reconcile::DirScanRecord`]  one row per directory (warm)
-//! * [`V4NotebookState`]  one row per notebook (cold)
+//! * [`NotebookState`]  one row per notebook (cold)
 //!
 //! The reason these do not reuse `v2_note_states`: that table is keyed by
-//! `note_id`, which the v4 engine never has (the path *is* the identity), and
-//! it has `NOT NULL` revision/seq columns that have no v4 equivalent. Faking
+//! `note_id`, which the state engine never has (the path *is* the identity), and
+//! it has `NOT NULL` revision/seq columns that have no state equivalent. Faking
 //! values there would make the columns read as meaningful when they are not.
 
 use std::collections::BTreeMap;
@@ -131,7 +131,7 @@ impl CloudDirectoryMarker {
 /// from file state because a directory may be empty and therefore have no file
 /// row to anchor it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct V4DirectoryState {
+pub struct DirectoryState {
     pub path: String,
     pub last_synced_at: i64,
     pub deleted: bool,
@@ -179,7 +179,7 @@ pub fn normalize_key_path(raw: &str) -> Result<String, SyncError> {
 
 /// One path as the device last persisted it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct V4PathState {
+pub struct PathState {
     /// Normalised key (see [`normalize_key_path`]).
     pub path: String,
     /// Relative path exactly as it exists on disk.
@@ -212,7 +212,7 @@ pub struct V4PathState {
     pub pending_since: Option<i64>,
 }
 
-impl V4PathState {
+impl PathState {
     /// Whether the bytes on disk differ from what was last persisted.
     ///
     /// Compares with `!=` on purpose: a restored or `touch`ed file can move its
@@ -226,7 +226,7 @@ impl V4PathState {
 
 /// Per-notebook state that outlives any single path.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct V4NotebookState {
+pub struct NotebookState {
     pub notebook_id: String,
     /// Deletes are suppressed until this instant. Set when the notebook is
     /// first bound and again after a bucket switch (§13.2①): an empty new
@@ -238,7 +238,7 @@ pub struct V4NotebookState {
     pub credential_fingerprint: String,
 }
 
-impl V4NotebookState {
+impl NotebookState {
     pub fn new(notebook_id: impl Into<String>, credential_fingerprint: impl Into<String>) -> Self {
         Self {
             notebook_id: notebook_id.into(),
@@ -280,9 +280,9 @@ impl ScannedLocalFile {
 
 /// Everything the state layer contributes to a pass.
 #[derive(Debug, Clone, Default)]
-pub struct V4LocalSnapshot {
+pub struct LocalSnapshot {
     /// Persisted state, keyed by normalised path.
-    pub states: BTreeMap<String, V4PathState>,
+    pub states: BTreeMap<String, PathState>,
     /// Directories and the last time each was actually enumerated.
     pub dir_scans: BTreeMap<String, crate::reconcile::DirScanRecord>,
 }
@@ -298,7 +298,7 @@ pub struct V4LocalSnapshot {
 ///   exists. Dropping the row because the file vanished would erase the baseline
 ///   the next pass needs to tell "deleted here" from "never had it".
 pub fn build_local_view(
-    snapshot: &V4LocalSnapshot,
+    snapshot: &LocalSnapshot,
     scanned: &[ScannedLocalFile],
     device_id: &str,
     allow_deletes: bool,
@@ -354,8 +354,8 @@ pub fn state_after_transfer(
     local_mtime_millis: i64,
     remote_mtime_millis: i64,
     remote_etag: Option<String>,
-) -> V4PathState {
-    V4PathState {
+) -> PathState {
+    PathState {
         path: key.into(),
         display_path: display_path.into(),
         content_hash: Some(content_hash.into()),
@@ -460,10 +460,10 @@ mod tests {
 
     #[test]
     fn local_view_marks_unknown_files_dirty_and_keeps_baselines() {
-        let mut snapshot = V4LocalSnapshot::default();
+        let mut snapshot = LocalSnapshot::default();
         snapshot.states.insert(
             "notes/known.md".into(),
-            V4PathState {
+            PathState {
                 pending_since: Some(5_000),
                 ..state_after_transfer(
                     "notes/known.md",
@@ -496,7 +496,7 @@ mod tests {
     /// the absence means "deleted here" or "someone else still has it".
     #[test]
     fn a_vanished_file_keeps_its_row() {
-        let mut snapshot = V4LocalSnapshot::default();
+        let mut snapshot = LocalSnapshot::default();
         snapshot.states.insert(
             "gone.md".into(),
             state_after_transfer("gone.md", "gone.md", "sha256:aa", 10, 1_000, 2_000, None),
@@ -529,10 +529,11 @@ mod tests {
 
     #[test]
     fn grace_window_gates_deletes() {
-        let mut state = V4NotebookState::new("nb_1", "sha256:aa");
+        let mut state = NotebookState::new("nb_1", "sha256:aa");
         assert!(state.allows_deletes(0));
         state.grace_until = Some(10_000);
         assert!(!state.allows_deletes(9_999));
         assert!(state.allows_deletes(10_000));
     }
 }
+

@@ -568,7 +568,7 @@ async fn run_sync_activity(
             .iter()
             .map(|notebook| notebook.notebook_id.clone())
             .collect();
-        let pending_metadata = match state.cloud_sync.v4_pending_notebook_changes() {
+        let pending_metadata = match state.cloud_sync.pending_notebook_changes() {
             Ok(changes) => changes,
             Err(error) => {
                 return Err(fail_sync_activity(

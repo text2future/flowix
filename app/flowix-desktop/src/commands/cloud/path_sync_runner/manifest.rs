@@ -1,7 +1,7 @@
 //! Synchronizes notebook identity and explicit notebook deletions.
 
 use flowix_core::memo_file::{MemoFile, NotebookConfig};
-use flowix_sync::v4::{
+use flowix_sync::state::{
     CloudNotebookManifest, PathNotebookMetadata, PendingNotebookAction, PendingNotebookChange,
 };
 use tauri::{AppHandle, Emitter};
@@ -19,7 +19,7 @@ pub(in crate::commands::cloud) async fn flush_deleted_notebook_manifests(
         .map_err(|error| format!("CLOUD_NOTEBOOK_CONFIG_READ_FAILED: {error}"))?;
     let pending = state
         .cloud_sync
-        .v4_pending_notebook_changes()
+        .pending_notebook_changes()
         .map_err(|error| format!("CLOUD_NOTEBOOK_METADATA_READ_FAILED: {error}"))?;
     for change in pending
         .iter()
@@ -51,7 +51,7 @@ pub(super) async fn sync_notebook_manifest(
 ) -> Result<bool, String> {
     let remote = state
         .cloud_sync
-        .v4_get_notebook_manifest(notebook_id)
+        .get_notebook_manifest(notebook_id)
         .await
         .map_err(|error| format!("CLOUD_NOTEBOOK_MANIFEST_READ_FAILED: {notebook_id}: {error}"))?;
 
@@ -83,7 +83,7 @@ pub(super) async fn sync_notebook_manifest(
         {
             state
                 .cloud_sync
-                .v4_ack_notebook_change(
+                .ack_notebook_change(
                     notebook_id,
                     pending.unwrap().generation,
                     PendingNotebookAction::Delete,
@@ -91,7 +91,7 @@ pub(super) async fn sync_notebook_manifest(
                 .map_err(|error| format!("CLOUD_NOTEBOOK_MANIFEST_ACK_FAILED: {error}"))?;
         } else if state
             .cloud_sync
-            .v4_put_notebook_manifest(notebook_id, &deleted)
+            .put_notebook_manifest(notebook_id, &deleted)
             .await
             .map_err(|error| {
                 format!("CLOUD_NOTEBOOK_MANIFEST_WRITE_FAILED: {notebook_id}: {error}")
@@ -99,7 +99,7 @@ pub(super) async fn sync_notebook_manifest(
         {
             state
                 .cloud_sync
-                .v4_ack_notebook_change(
+                .ack_notebook_change(
                     notebook_id,
                     pending.unwrap().generation,
                     PendingNotebookAction::Delete,
@@ -128,7 +128,7 @@ pub(super) async fn sync_notebook_manifest(
         {
             state
                 .cloud_sync
-                .v4_ack_notebook_change(
+                .ack_notebook_change(
                     notebook_id,
                     pending.unwrap().generation,
                     PendingNotebookAction::Put,
@@ -136,7 +136,7 @@ pub(super) async fn sync_notebook_manifest(
                 .map_err(|error| format!("CLOUD_NOTEBOOK_MANIFEST_ACK_FAILED: {error}"))?;
         } else if state
             .cloud_sync
-            .v4_put_notebook_manifest(notebook_id, &local_manifest)
+            .put_notebook_manifest(notebook_id, &local_manifest)
             .await
             .map_err(|error| {
                 format!("CLOUD_NOTEBOOK_MANIFEST_WRITE_FAILED: {notebook_id}: {error}")
@@ -144,7 +144,7 @@ pub(super) async fn sync_notebook_manifest(
         {
             state
                 .cloud_sync
-                .v4_ack_notebook_change(
+                .ack_notebook_change(
                     notebook_id,
                     pending.unwrap().generation,
                     PendingNotebookAction::Put,
@@ -157,7 +157,7 @@ pub(super) async fn sync_notebook_manifest(
     let Some((remote_manifest, _)) = remote else {
         state
             .cloud_sync
-            .v4_put_notebook_manifest(notebook_id, &local_manifest)
+            .put_notebook_manifest(notebook_id, &local_manifest)
             .await
             .map_err(|error| {
                 format!("CLOUD_NOTEBOOK_MANIFEST_WRITE_FAILED: {notebook_id}: {error}")
