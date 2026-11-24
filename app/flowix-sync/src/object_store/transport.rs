@@ -32,9 +32,9 @@ pub(crate) async fn send_with_credential_renewal<F>(
 where
     F: FnMut(&ObjectStoreCredentials, DateTime<Utc>) -> Result<reqwest::RequestBuilder, SyncError>,
 {
-    let mut credentials = resolver.resolve(Utc::now().timestamp_millis()).await?;
+    let mut credentials = resolver.resolve(resolver.now().timestamp_millis()).await?;
     for attempt in 0..2 {
-        let request = build(&credentials, Utc::now())?;
+        let request = build(&credentials, resolver.now())?;
         let mut measurement = crate::telemetry::RequestMeasurement::start(category, operation);
         let mut response = match request.send().await {
             Ok(response) => response,
@@ -44,6 +44,17 @@ where
             }
         };
         let status = response.status();
+        // Every response carries the store's own clock. Feeding it back makes
+        // the next signature and the next freshness check independent of the
+        // device clock.
+        if let Some(server_millis) = response
+            .headers()
+            .get(reqwest::header::DATE)
+            .and_then(|value| value.to_str().ok())
+            .and_then(super::listing::parse_http_date)
+        {
+            resolver.observe_server_time(server_millis);
+        }
         let headers = response.headers().clone();
         let mut body = Vec::new();
         let progress = crate::telemetry::progress_callback();
@@ -68,7 +79,7 @@ where
         drop(measurement);
         if attempt == 0 && is_expired_token_response(status, &body) {
             let renewed = resolver
-                .refresh_after_rejection(Utc::now().timestamp_millis(), &credentials)
+                .refresh_after_rejection(resolver.now().timestamp_millis(), &credentials)
                 .await?;
             if !credentials.same_signing_material(&renewed) {
                 credentials = renewed;

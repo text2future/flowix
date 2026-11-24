@@ -19,20 +19,20 @@
 //!   five-minute margin and signs with a fresh timestamp; custom S3 credentials
 //!   remain static. The pass keeps its initial bucket, scope and quota policy.
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use futures_util::{stream, StreamExt};
 use std::collections::HashMap;
 
 use super::*;
+use crate::apply::{LocalStore, ProgressObserver, TransferObserver};
 use crate::models::CloudNotebook;
 use crate::object_store::{self, CredentialResolver, ObjectStoreCredentials, StorageQuota};
 use crate::object_store_ops;
-use crate::state::{CloudDirectoryMarker, CloudNotebookManifest, ScannedLocalFile, DirectoryState};
+use crate::pass::{run_pass_with_progress, DirectSource, PassEnv, PassReport, PassRequest};
+use crate::state::{CloudDirectoryMarker, CloudNotebookManifest, DirectoryState, ScannedLocalFile};
 use crate::state::{
     PathNotebookLink, PathNotebookMetadata, PendingNotebookAction, PendingNotebookChange,
 };
-use crate::apply::{LocalStore, ProgressObserver, TransferObserver};
-use crate::pass::{run_pass_with_progress, DirectSource, PassEnv, PassReport, PassRequest};
 
 /// Renew this long before expiry (`§8`: TTL 15 min, renew 5 min early).
 pub const V4_CREDENTIAL_RENEWAL_MARGIN_MS: i64 = 5 * 60 * 1_000;
@@ -130,6 +130,7 @@ struct CredentialContext<'a> {
     store: &'a crate::store::SyncStore,
     cache: &'a tokio::sync::Mutex<CredentialCache>,
     refresh: &'a tokio::sync::Mutex<()>,
+    clock: &'a crate::object_store::ClockSkew,
 }
 
 /// The selected Remote chooses how credentials are obtained. Object listing,
@@ -172,7 +173,11 @@ impl RemoteCredentialProvider for OfficialCloudCredentialProvider {
         }
         if let Some(hit) = {
             let cache = context.cache.lock().await;
-            cache.usable(generation, Utc::now().timestamp_millis(), required_mode)
+            cache.usable(
+                generation,
+                context.clock.now().timestamp_millis(),
+                required_mode,
+            )
         } {
             return Ok(hit);
         }
@@ -301,6 +306,14 @@ impl PassCredentialResolver<'_> {
 
 #[async_trait::async_trait]
 impl CredentialResolver for PassCredentialResolver<'_> {
+    fn now(&self) -> DateTime<Utc> {
+        self.manager.clock.now()
+    }
+
+    fn observe_server_time(&self, server_millis: i64) {
+        self.manager.clock.observe(server_millis);
+    }
+
     fn supports_deletion_proxy(&self) -> bool {
         let kind = self
             .manager
@@ -318,7 +331,7 @@ impl CredentialResolver for PassCredentialResolver<'_> {
         etag: &str,
     ) -> Result<(), SyncError> {
         let generation = self.manager.account.session_generation();
-        self.resolve(Utc::now().timestamp_millis()).await?;
+        self.resolve(self.now().timestamp_millis()).await?;
         if self.manager.account.session_generation() != generation {
             return Err(SyncError::NotAuthenticated);
         }
@@ -339,7 +352,7 @@ impl CredentialResolver for PassCredentialResolver<'_> {
 
     async fn proxy_deletion_stamp(&self, notebook: &str, path: &str) -> Result<(), SyncError> {
         let generation = self.manager.account.session_generation();
-        self.resolve(Utc::now().timestamp_millis()).await?;
+        self.resolve(self.now().timestamp_millis()).await?;
         if self.manager.account.session_generation() != generation {
             return Err(SyncError::NotAuthenticated);
         }
@@ -436,7 +449,7 @@ impl SyncManager {
     /// The delimiter keeps discovery proportional to notebook count instead of
     /// enumerating every note object under the account prefix.
     pub async fn remote_notebooks(&self) -> Result<Vec<CloudNotebook>, SyncError> {
-        let now = Utc::now();
+        let now = self.clock.now();
         let PassCredentials {
             credentials,
             quota: _,
@@ -522,7 +535,7 @@ impl SyncManager {
         notebook_id: &str,
     ) -> Result<Option<(CloudNotebookManifest, i64)>, SyncError> {
         validate_notebook_id(notebook_id)?;
-        let now = Utc::now();
+        let now = self.clock.now();
         let PassCredentials { resolver, .. } =
             self.pass_credentials(now.timestamp_millis()).await?;
         self.get_notebook_manifest_with_resolver(&resolver, notebook_id)
@@ -536,7 +549,11 @@ impl SyncManager {
     ) -> Result<bool, SyncError> {
         validate_notebook_id(notebook_id)?;
         manifest.validate()?;
-        let now = Utc::now();
+        // Same lock as a pass: the manifest describes the tree a pass is
+        // changing, so publishing it alongside one can describe a half-applied
+        // state.
+        let _single = self.write_lock.clone().lock_owned().await;
+        let now = self.clock.now();
         let PassCredentials {
             credentials,
             quota: _,
@@ -566,7 +583,7 @@ impl SyncManager {
         notebook_id: &str,
     ) -> Result<(Vec<(CloudDirectoryMarker, i64)>, Option<i64>), SyncError> {
         validate_notebook_id(notebook_id)?;
-        let now = Utc::now();
+        let now = self.clock.now();
         let generation = self.account.session_generation();
         let PassCredentials {
             credentials,
@@ -736,7 +753,10 @@ impl SyncManager {
     ) -> Result<Option<i64>, SyncError> {
         validate_notebook_id(notebook_id)?;
         marker.validate()?;
-        let now = Utc::now();
+        // Same lock as a pass, for the same reason: a marker is a claim about
+        // whether a directory exists, and a pass can be moving it.
+        let _single = self.write_lock.clone().lock_owned().await;
+        let now = self.clock.now();
         let PassCredentials {
             credentials,
             quota: _,
@@ -779,10 +799,7 @@ impl SyncManager {
             .ack_path_notebook_change(notebook_id, generation, action)
     }
 
-    pub fn directory_states(
-        &self,
-        notebook_id: &str,
-    ) -> Result<Vec<DirectoryState>, SyncError> {
+    pub fn directory_states(&self, notebook_id: &str) -> Result<Vec<DirectoryState>, SyncError> {
         self.store.directory_states(notebook_id)
     }
 
@@ -819,8 +836,8 @@ impl SyncManager {
     /// notebook that allowed no deletions or accepted no writes is worth
     /// surfacing, and that answer changes with the UI.
     pub async fn pass(&self, input: PassInput<'_>) -> Result<PassReport, SyncError> {
-        let _single = self.pass_lock.clone().lock_owned().await;
-        let now = Utc::now();
+        let _single = self.write_lock.clone().lock_owned().await;
+        let now = self.clock.now();
         let PassCredentials {
             credentials,
             quota,
@@ -921,6 +938,7 @@ impl SyncManager {
             store: &self.store,
             cache: &self.credentials,
             refresh: &self.credential_refresh,
+            clock: &self.clock,
         };
         provider.resolve(&context, now_millis, required_mode).await
     }
@@ -946,12 +964,6 @@ impl SyncManager {
         self.credentials_for_mode(now_millis, Some(&rejected.mode))
             .await
             .map(|(credentials, _)| credentials)
-    }
-
-    /// Drops the cached credential (logout, bucket rebind, quota change).
-    pub async fn forget_credentials(&self) {
-        let mut cache = self.credentials.lock().await;
-        *cache = CredentialCache::default();
     }
 }
 
@@ -1062,4 +1074,3 @@ mod tests {
         assert!(cached.usable(0, now, None).is_none());
     }
 }
-

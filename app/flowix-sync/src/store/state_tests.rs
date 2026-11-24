@@ -1,8 +1,8 @@
 use super::*;
 use crate::reconcile::DirScanRecord;
 use crate::state::{
-    build_local_view, credential_fingerprint, state_after_transfer, ScannedLocalFile,
-    DirectoryState, NotebookState, PathState,
+    build_local_view, credential_fingerprint, state_after_transfer, DirectoryState, NotebookState,
+    PathState, ScannedLocalFile,
 };
 use std::collections::BTreeMap;
 
@@ -319,6 +319,38 @@ fn schema_initialization_is_idempotent() {
     store.initialize_schema().unwrap();
     store.initialize_schema().unwrap();
     assert!(store.snapshot(NB).unwrap().states.is_empty());
+}
+
+/// Proxy deletions used to ride in the stamp queue behind a NUL-prefixed
+/// synthetic path. An install from before the split still has those rows, and
+/// the stamp queue only holds directories now — leaving them there would make
+/// the next pass publish a directory stamp for a file path.
+#[test]
+fn legacy_proxy_rows_move_out_of_the_stamp_queue() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("sync.db");
+    {
+        let connection = rusqlite::Connection::open(&path).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE v4_pending_stamp (
+                    notebook_id TEXT NOT NULL,
+                    dir TEXT NOT NULL,
+                    PRIMARY KEY(notebook_id, dir)
+                );",
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO v4_pending_stamp(notebook_id, dir) VALUES (?1, ?2), (?1, ?3)",
+                rusqlite::params![NB, "\0proxy/notes/a.md", "notes"],
+            )
+            .unwrap();
+    }
+
+    let store = SyncStore::new(&path).unwrap();
+    assert_eq!(store.pending_stamps(NB).unwrap(), ["notes"]);
+    assert_eq!(store.pending_proxy_deletions(NB).unwrap(), ["notes/a.md"]);
 }
 
 #[test]

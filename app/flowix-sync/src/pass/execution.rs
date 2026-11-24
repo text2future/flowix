@@ -3,11 +3,11 @@ use std::collections::BTreeMap;
 use chrono::{DateTime, Utc};
 
 use super::{stamp_body, stamp_key, state_updates, PassEnv, PassPlan, PassReport, PassRequest};
-use crate::error::SyncError;
-use crate::reconcile::{dir_of, SyncAction};
 use crate::apply::{
     self, ApplyContext, ApplyFailure, ApplyOutcome, ProgressObserver, TransferObserver,
 };
+use crate::error::SyncError;
+use crate::reconcile::{dir_of, SyncAction};
 
 /// Transfers, persistence and stamp bumps.
 pub async fn execute_pass(
@@ -31,25 +31,22 @@ pub(super) async fn execute_pass_with_progress(
     let mut stamped_dirs = Vec::new();
     let mut stamp_failures = Vec::new();
     if env.credential_resolver.supports_deletion_proxy() {
-        for entry in env.store.pending_stamps(notebook_id)? {
-            let Some(path) = entry.strip_prefix("\0proxy/") else {
-                continue;
-            };
+        for path in env.store.pending_proxy_deletions(notebook_id)? {
             match env
                 .credential_resolver
-                .proxy_deletion_stamp(notebook_id, path)
+                .proxy_deletion_stamp(notebook_id, &path)
                 .await
             {
                 Ok(()) => {
-                    env.store.ack_stamp(notebook_id, &entry)?;
+                    env.store.ack_proxy_deletion(notebook_id, &path)?;
                 }
                 // No tombstone remains to announce. Reconciliation will
                 // examine the live/missing object again; a delayed write is
                 // still covered by the periodic full sweep.
                 Err(crate::error::SyncError::Api { status: 409, .. }) => {
-                    env.store.ack_stamp(notebook_id, &entry)?;
+                    env.store.ack_proxy_deletion(notebook_id, &path)?;
                 }
-                Err(error) => stamp_failures.push(ApplyFailure::from_error(path, &error)),
+                Err(error) => stamp_failures.push(ApplyFailure::from_error(&path, &error)),
             }
         }
     }
@@ -122,9 +119,8 @@ pub(super) async fn execute_pass_with_progress(
                 .get(&item.path)
                 .map(|state| state.display_path.as_str())
                 .unwrap_or(&item.path);
-            let pending = format!("\0proxy/{}", item.path);
             env.store
-                .queue_stamps(notebook_id, std::slice::from_ref(&pending))?;
+                .queue_proxy_deletions(notebook_id, std::slice::from_ref(&item.path))?;
             let result = match crate::blocking::run(|| env.local.read(display)) {
                 Ok(None) => match prepared
                     .listing
@@ -148,7 +144,7 @@ pub(super) async fn execute_pass_with_progress(
             };
             match result {
                 Ok(()) => {
-                    env.store.ack_stamp(notebook_id, &pending)?;
+                    env.store.ack_proxy_deletion(notebook_id, &item.path)?;
                     env.store
                         .remove_path_states(notebook_id, std::slice::from_ref(&item.path))?;
                     proxied.removed.push(item.path.clone());
@@ -208,18 +204,15 @@ pub(super) async fn execute_pass_with_progress(
     // Order matters only in one direction: a transferred path writes its own
     // state (exact remote stamp + hash), so it must land after the baseline
     // vector, which never covers a transferred path but is cheap insurance.
-    env.store
-        .save_path_states(notebook_id, &updates.states)?;
-    env.store
-        .save_path_states(notebook_id, &applied.states)?;
+    env.store.save_path_states(notebook_id, &updates.states)?;
+    env.store.save_path_states(notebook_id, &applied.states)?;
     env.store
         .remove_path_states(notebook_id, &updates.removed)?;
     let mut pending_deletions = prepared.plan.pending_deletions.clone();
     pending_deletions.extend(failed_deletions);
     env.store
         .set_pending_deletions(notebook_id, &pending_deletions)?;
-    env.store
-        .save_dir_scans(notebook_id, &updates.dir_scans)?;
+    env.store.save_dir_scans(notebook_id, &updates.dir_scans)?;
 
     if prepared.writable {
         flush_pending_stamps(
@@ -254,9 +247,6 @@ async fn flush_pending_stamps(
     failures: &mut Vec<ApplyFailure>,
 ) -> Result<(), SyncError> {
     for dir in env.store.pending_stamps(request.notebook_id)? {
-        if dir.starts_with("\0proxy/") {
-            continue;
-        }
         let body = stamp_body(&dir, server_now_millis, request.device_id);
         match env
             .source
@@ -272,4 +262,3 @@ async fn flush_pending_stamps(
     }
     Ok(())
 }
-

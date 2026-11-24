@@ -136,6 +136,23 @@ impl ObjectStoreCredentials {
 pub trait CredentialResolver: Send + Sync {
     async fn resolve(&self, now_millis: i64) -> Result<ObjectStoreCredentials, SyncError>;
 
+    /// The clock a request should be signed and judged against.
+    ///
+    /// Defaults to the device clock. A resolver that has seen a `Date` header
+    /// overrides it with a corrected clock, because a grant is judged against
+    /// its own expiry: a device clock running minutes ahead renews every
+    /// request, and one running behind signs requests with a grant the store
+    /// already retired.
+    fn now(&self) -> chrono::DateTime<chrono::Utc> {
+        chrono::Utc::now()
+    }
+
+    /// Records the store's own time from a response header.
+    ///
+    /// Static credentials have nothing to correct; the official resolver feeds
+    /// this into its skew so `now` stops depending on the device clock.
+    fn observe_server_time(&self, _server_millis: i64) {}
+
     fn supports_deletion_proxy(&self) -> bool {
         false
     }
@@ -165,6 +182,46 @@ pub trait CredentialResolver: Send + Sync {
         _rejected: &ObjectStoreCredentials,
     ) -> Result<ObjectStoreCredentials, SyncError> {
         self.resolve(now_millis).await
+    }
+}
+
+/// Device clock plus the last offset the object store implied.
+///
+/// Only absolute times go through it. A grant is judged against its own expiry
+/// and signed with the current time, so an offset learned from one response
+/// keeps both in step with the store instead of with whatever the local clock
+/// says — a device running minutes ahead otherwise renews on every request,
+/// and one running behind signs with a grant the store already retired.
+#[derive(Default)]
+pub struct ClockSkew {
+    offset_millis: std::sync::atomic::AtomicI64,
+}
+
+impl ClockSkew {
+    /// A day of skew is already a broken clock; beyond that a header is more
+    /// likely stale or garbled than the device being wrong that far.
+    const MAX_PLAUSIBLE_SKEW_MILLIS: i64 = 24 * 60 * 60 * 1_000;
+
+    pub fn observe(&self, server_millis: i64) {
+        let offset = server_millis.saturating_sub(chrono::Utc::now().timestamp_millis());
+        if offset.abs() > Self::MAX_PLAUSIBLE_SKEW_MILLIS {
+            return;
+        }
+        self.offset_millis
+            .store(offset, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub fn now(&self) -> chrono::DateTime<chrono::Utc> {
+        chrono::Utc::now()
+            + chrono::Duration::milliseconds(
+                self.offset_millis
+                    .load(std::sync::atomic::Ordering::Relaxed),
+            )
+    }
+
+    pub fn offset_millis(&self) -> i64 {
+        self.offset_millis
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 }
 
@@ -206,4 +263,31 @@ pub struct StorageQuota {
     pub limit_bytes: Option<i64>,
     #[serde(default)]
     pub expires_at: Option<i64>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_server_time_moves_the_clock_away_from_the_device() {
+        let clock = ClockSkew::default();
+        let server = chrono::Utc::now().timestamp_millis() + 120_000;
+        clock.observe(server);
+        // The offset is applied, not the absolute time: reading the clock a
+        // moment later still lands within a second of the server's figure.
+        let drift = (clock.now().timestamp_millis() - server).abs();
+        assert!(drift < 1_000, "clock drifted {drift} ms from the server");
+    }
+
+    #[test]
+    fn an_implausible_header_is_ignored() {
+        let clock = ClockSkew::default();
+        clock.observe(chrono::Utc::now().timestamp_millis() + 60_000);
+        let kept = clock.offset_millis();
+        // A stale proxy cache or a garbled header must not move every later
+        // signature by two days.
+        clock.observe(chrono::Utc::now().timestamp_millis() + 48 * 60 * 60 * 1_000);
+        assert_eq!(clock.offset_millis(), kept);
+    }
 }

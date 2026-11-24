@@ -4,40 +4,44 @@ use chrono::Utc;
 
 use super::{
     collect, list_stamps, notebook_prefix, quota_exhausted, resolve_tombstones, ObjectSource,
-    PassPlan, PassRequest, BIND_GRACE_MS,
+    PassPlan, PassRequest, StampListing, BIND_GRACE_MS,
 };
+use crate::apply::{object_key, ApplyFailure, FailureKind};
 use crate::error::SyncError;
 use crate::object_store::ObjectStoreCredentials;
 use crate::reconcile::{
     dir_of, directories_to_scan, reconcile, Defer, DeferReason, ReconcilePlan, RemoteListing,
     SyncAction,
 };
+use crate::state::{build_local_view, credential_fingerprint, LocalSnapshot, NotebookState};
 use crate::store::SyncStore;
-use crate::state::{build_local_view, credential_fingerprint, NotebookState};
-use crate::apply::{object_key, ApplyFailure, FailureKind};
 
-/// Enumerates remote state and builds the action plan without transferring file bodies.
+/// The state a plan is built from, gathered once.
 ///
-/// This is not a read-only preview: on first binding or a target change it
-/// persists the binding and resets the relevant local baselines and grace period.
-pub async fn plan_pass(
-    source: &mut dyn ObjectSource,
-    credentials: &ObjectStoreCredentials,
-    store: &SyncStore,
-    request: &PassRequest<'_>,
-) -> Result<PassPlan, SyncError> {
-    plan_pass_with_proxy(source, credentials, store, request, false).await
+/// Split out of planning so the planner itself stops writing to the database:
+/// the first bind, or a bind after a target change, resets baselines and opens
+/// a grace period. That has to happen *before* the plan is built, not as a
+/// side effect of building it.
+pub struct PreparedPass {
+    pub(super) stamps: StampListing,
+    pub server_now_millis: i64,
+    pub clock_trusted: bool,
+    pub rebound: bool,
+    pub credential_writable: bool,
+    pub(super) notebook_state: NotebookState,
+    pub(super) snapshot: LocalSnapshot,
 }
 
-pub(super) async fn plan_pass_with_proxy(
+/// Lists the stamps, takes the server clock they carry, and settles the binding.
+///
+/// Everything here either touches the network or may write state; the plan
+/// built from the result does neither.
+pub async fn prepare_pass(
     source: &mut dyn ObjectSource,
     credentials: &ObjectStoreCredentials,
     store: &SyncStore,
-    request: &PassRequest<'_>,
-    deletion_proxy: bool,
-) -> Result<PassPlan, SyncError> {
-    let notebook_id = request.notebook_id;
-
+    notebook_id: &str,
+) -> Result<PreparedPass, SyncError> {
     // L0: one listing of the stamps is the whole steady-state cost.
     let stamps = list_stamps(source, notebook_id).await?;
     let (server_now_millis, clock_trusted) = match stamps.server_date_millis {
@@ -61,6 +65,38 @@ pub(super) async fn plan_pass_with_proxy(
         .notebook_state(notebook_id)?
         .unwrap_or_else(|| NotebookState::new(notebook_id, &fingerprint));
     let snapshot = store.snapshot(notebook_id)?;
+    Ok(PreparedPass {
+        stamps,
+        server_now_millis,
+        clock_trusted,
+        rebound,
+        credential_writable: credentials.can_write(),
+        notebook_state,
+        snapshot,
+    })
+}
+
+/// Enumerates remote state and builds the action plan without transferring file bodies.
+///
+/// Reads only what it is given: the listing, the clock and the baseline all
+/// arrive in [`PreparedPass`], so a plan can be built without touching the
+/// database at all.
+pub async fn plan_pass(
+    source: &mut dyn ObjectSource,
+    request: &PassRequest<'_>,
+    preparation: PreparedPass,
+    deletion_proxy: bool,
+) -> Result<PassPlan, SyncError> {
+    let notebook_id = request.notebook_id;
+    let PreparedPass {
+        stamps,
+        server_now_millis,
+        clock_trusted,
+        rebound,
+        credential_writable,
+        notebook_state,
+        snapshot,
+    } = preparation;
     // The gate never looks at `allow_deletes`, only at the file list, so the
     // view is built once here and rebuilt below with the final flag.
     let gate_view = build_local_view(&snapshot, request.scanned, request.device_id, true);
@@ -100,9 +136,20 @@ pub(super) async fn plan_pass_with_proxy(
             Err(error) => list_failures.push(ApplyFailure::from_error("<sweep>", &error)),
         }
     } else {
-        let mut due: BTreeSet<String> = directories_to_scan(&gate_view, &stamps.dirs, &snapshot.dir_scans, false).into_iter().collect();
-        let scanned: BTreeSet<&str> = request.scanned.iter().map(|file| file.key.as_str()).collect();
-        for path in snapshot.states.keys().filter(|path| !scanned.contains(path.as_str())) {
+        let mut due: BTreeSet<String> =
+            directories_to_scan(&gate_view, &stamps.dirs, &snapshot.dir_scans, false)
+                .into_iter()
+                .collect();
+        let scanned: BTreeSet<&str> = request
+            .scanned
+            .iter()
+            .map(|file| file.key.as_str())
+            .collect();
+        for path in snapshot
+            .states
+            .keys()
+            .filter(|path| !scanned.contains(path.as_str()))
+        {
             due.insert(dir_of(path).to_string());
         }
         let due: Vec<String> = due.into_iter().collect();
@@ -149,18 +196,39 @@ pub(super) async fn plan_pass_with_proxy(
 
     // A local absence and a listing omission are not enough to forget the
     // baseline: HEAD the exact key before treating both sides as absent.
-    let scanned: BTreeSet<&str> = request.scanned.iter().map(|file| file.key.as_str()).collect();
-    let missing_local: Vec<String> = snapshot.states.keys()
-        .filter(|path| !scanned.contains(path.as_str())
-            && matches!(listing.state_for(path), crate::reconcile::RemoteState::Missing)
-            && !listing.missing_keys.contains(*path))
-        .cloned().collect();
+    let scanned: BTreeSet<&str> = request
+        .scanned
+        .iter()
+        .map(|file| file.key.as_str())
+        .collect();
+    let missing_local: Vec<String> = snapshot
+        .states
+        .keys()
+        .filter(|path| {
+            !scanned.contains(path.as_str())
+                && matches!(
+                    listing.state_for(path),
+                    crate::reconcile::RemoteState::Missing
+                )
+                && !listing.missing_keys.contains(*path)
+        })
+        .cloned()
+        .collect();
     if !missing_local.is_empty() {
-        let keys = missing_local.iter().map(|path| object_key(notebook_id, path)).collect();
+        let keys = missing_local
+            .iter()
+            .map(|path| object_key(notebook_id, path))
+            .collect();
         let mut results = source.head_many(keys).await.into_iter();
         for path in missing_local {
-            match results.next().unwrap_or_else(|| Err(SyncError::InvalidState("missing HEAD result".into()))) {
-                Ok(Some(mut object)) => { object.path = path; listing.observe(object); }
+            match results
+                .next()
+                .unwrap_or_else(|| Err(SyncError::InvalidState("missing HEAD result".into())))
+            {
+                Ok(Some(mut object)) => {
+                    object.path = path;
+                    listing.observe(object);
+                }
                 Ok(None) => listing.mark_missing(&path),
                 Err(error) => {
                     listing.mark_unknown(&path);
@@ -282,7 +350,7 @@ pub(super) async fn plan_pass_with_proxy(
     // Planning an upload that will 403 on every pass is worse than deferring it:
     // the pass still pulls (read scope allows GET) and `writable` lets the caller
     // explain the silence.
-    let writable = credentials.can_write() && !quota_exhausted(request.quota);
+    let writable = credential_writable && !quota_exhausted(request.quota);
     if !writable {
         let mut blocked = 0usize;
         plan.actions = plan
@@ -430,6 +498,41 @@ fn defer_mass(pending: &mut std::collections::BTreeMap<String, i64>, path: &str,
     pending.entry(path.to_string()).or_insert(now);
 }
 
+fn probe_paths(plan: &ReconcilePlan) -> Vec<String> {
+    plan.actions
+        .iter()
+        .filter_map(|action| match action {
+            SyncAction::Probe(probe) => Some(probe.path.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Binds the notebook to this credential, or rebinds it after a bucket switch.
+///
+/// The store changes the binding in one transaction: deletion retry markers
+/// are cleared, baselines move to the new bucket's clock, and a grace window
+/// opens so an empty bucket cannot be mistaken for a mass deletion.
+fn bind_if_needed(
+    store: &SyncStore,
+    notebook_id: &str,
+    fingerprint: &str,
+    server_now_millis: i64,
+) -> Result<bool, SyncError> {
+    match store.notebook_state(notebook_id)? {
+        Some(state) if state.credential_fingerprint == fingerprint => Ok(false),
+        _ => {
+            store.rebind_credential(
+                notebook_id,
+                fingerprint,
+                server_now_millis,
+                server_now_millis + BIND_GRACE_MS,
+            )?;
+            Ok(true)
+        }
+    }
+}
+
 #[cfg(test)]
 mod mass_deletion_tests {
     use super::*;
@@ -527,39 +630,3 @@ mod mass_deletion_tests {
             .any(|action| action.kind_tag() == "write-tombstone"));
     }
 }
-
-fn probe_paths(plan: &ReconcilePlan) -> Vec<String> {
-    plan.actions
-        .iter()
-        .filter_map(|action| match action {
-            SyncAction::Probe(probe) => Some(probe.path.clone()),
-            _ => None,
-        })
-        .collect()
-}
-
-/// Binds the notebook to this credential, or rebinds it after a bucket switch.
-///
-/// The store changes the binding in one transaction: deletion retry markers
-/// are cleared, baselines move to the new bucket's clock, and a grace window
-/// opens so an empty bucket cannot be mistaken for a mass deletion.
-fn bind_if_needed(
-    store: &SyncStore,
-    notebook_id: &str,
-    fingerprint: &str,
-    server_now_millis: i64,
-) -> Result<bool, SyncError> {
-    match store.notebook_state(notebook_id)? {
-        Some(state) if state.credential_fingerprint == fingerprint => Ok(false),
-        _ => {
-            store.rebind_credential(
-                notebook_id,
-                fingerprint,
-                server_now_millis,
-                server_now_millis + BIND_GRACE_MS,
-            )?;
-            Ok(true)
-        }
-    }
-}
-

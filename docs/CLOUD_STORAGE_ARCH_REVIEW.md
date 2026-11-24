@@ -295,3 +295,59 @@ Step 4 把「整轮失败」换成了「暂缓」，但暂缓没有出口：桌�
 - `cargo check -p flowix-sync --all-targets`、`cargo check -p flowix-desktop --all-targets` 通过。
 - `cargo clippy -p flowix-sync --all-targets` → 8 条，全是既有的 `too_many_arguments` / `type_complexity` / `enum_variant_size` / `derivable_impls`。
 - 新写的代码 `rustfmt --check` 干净；文件里剩下的格式差异都是之前恢复时留下的（import 顺序、行末空行）。
+
+## 十三、P1 架构债清理（已完成）
+
+评审时留下的六条 P1，逐条落地。前三条是「让声明与运行时不打架」，后三条是「把隐式约定变成显式结构」。
+
+### 1. `protocolEpoch` 从 TS 类型里删掉
+
+`CloudState.account.protocolEpoch: 3` 在 Rust 的 `CloudAccount` 里没有对应字段，也没有任何读取点——
+它只是类型声明里的一个常量。服务端的 `protocolEpoch` 只出现在历史索引导出的响应里（`/v1/export`），
+登录响应不带它，所以补到 Rust 侧等于把同一个假设搬到后端。删除字段，以及 5 处测试里的字面量。
+
+### 2. 凭证新鲜度不再只看设备时钟
+
+- `CredentialResolver` 新增 `now()` 与 `observe_server_time()`（默认实现是设备时钟 + 空操作，自定义 S3 不受影响）。
+- `transport` 每收到一个响应就解析 `Date` 头并回喂给 resolver；签名、续签判断、`usable()` 全部改用
+  `resolver.now()`。
+- `SyncManager` 持有 `ClockSkew`（设备时钟 + 最近一次观察到的偏移），`PassCredentialResolver` 把它接出去。
+  偏移超过 24 小时视为垃圾头直接忽略，避免一次代理缓存把后续签名带偏。
+- 效果：设备时钟快几分钟不再每个请求都续签，慢几分钟也不会拿着一张已退役的授权签名。
+
+### 3. 写锁覆盖所有写入口
+
+`pass_lock` 改名 `write_lock`，`put_notebook_manifest` / `put_directory_marker` 与 `pass()` 共用同一把
+tokio 锁。仅覆盖 pass 的锁是名义上的互斥：发布 manifest 描述的是 pass 正在改的那棵树。
+
+### 4. `plan_pass` 不再写库
+
+拆成两步：
+
+- `prepare_pass(...) -> PreparedPass`：列目录戳、取服务端时间、必要时 `bind_if_needed`（唯一的写库点）、
+  读 `notebook_state` 与 `snapshot`；
+- `plan_pass(source, request, PreparedPass, deletion_proxy)`：只读输入，产出 `ReconcilePlan`。
+
+`run_pass_with_progress` 先 prepare 再 plan。测试里 25 处调用通过一个 `plan()` 辅助函数收口。
+
+### 5. `\0proxy/` 魔法前缀变成一张表
+
+代理删除原先塞在目录戳队列里，用 NUL 前缀的伪路径区分，读这张表的每一处都必须知道这个约定。
+新增 `v4_pending_proxy_delete(notebook_id, path)` 与 `queue_proxy_deletions` / `pending_proxy_deletions` /
+`ack_proxy_deletion`，`flush_pending_stamps` 里的跳过判断随之删除。
+
+迁移在 `initialize_state_schema`：把旧表里 NUL 前缀的行搬到新表再删掉。匹配逻辑放在 Rust 而不是 SQL——
+SQLite 的 `LIKE` / `substr` 遇到 NUL 会截断，`char(0)` 比较也不可靠。有回归测试覆盖。
+
+### 6. 死代码
+
+`SyncManager::forget_credentials` 无调用点，删除。缓存失效本来就有两条活路：`CredentialCache::usable()`
+在会话代际变化时直接判为不可用，`PassCredentialResolver` 在删除代理成功后主动失效一次。
+
+### 验证
+
+- `cargo test -p flowix-sync` → **204 passed / 0 failed / 0 ignored**，integration 3 passed（新增：代理删除迁移、
+  时钟偏移；`plan_pass` 拆分后原 202 条全部保持通过）。
+- `cargo clippy -p flowix-sync --all-targets` → 7 条，均为既有告警；顺手把 `planning.rs` 里「测试模块之后的
+  条目」这一条整理掉（测试模块移到文件末尾）。
+- 改动的 11 个文件 `rustfmt` 干净。

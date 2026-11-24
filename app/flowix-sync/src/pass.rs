@@ -31,7 +31,7 @@ mod state;
 
 pub use execution::execute_pass;
 use execution::execute_pass_with_progress;
-pub use planning::plan_pass;
+pub use planning::{plan_pass, prepare_pass, PreparedPass};
 pub use state::state_updates;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -41,16 +41,16 @@ use std::pin::Pin;
 use chrono::{DateTime, Utc};
 use futures_util::{stream, StreamExt};
 
+use crate::apply::{
+    object_key, ApplyFailure, ApplyOutcome, LocalStore, ProgressObserver, TransferObserver,
+};
 use crate::error::SyncError;
 use crate::object_store::{
     self, CredentialResolver, ListPage, ObjectStoreCredentials, StorageQuota,
 };
 use crate::reconcile::{DirScanRecord, ReconcilePlan, RemoteListing, RemoteObject};
+use crate::state::{LocalSnapshot, PathState, ScannedLocalFile};
 use crate::store::SyncStore;
-use crate::state::{ScannedLocalFile, LocalSnapshot, PathState};
-use crate::apply::{
-    object_key, ApplyFailure, ApplyOutcome, LocalStore, ProgressObserver, TransferObserver,
-};
 
 /// How long a freshly bound notebook refuses to delete anything (§13.2①).
 /// This independent safeguard prevents an empty or newly selected bucket from
@@ -431,11 +431,17 @@ pub(crate) async fn run_pass_with_progress(
     on_progress: Option<&ProgressObserver<'_>>,
 ) -> Result<PassReport, SyncError> {
     let started = std::time::Instant::now();
-    let prepared = planning::plan_pass_with_proxy(
+    let preparation = planning::prepare_pass(
         &mut *env.source,
         env.credentials,
         env.store,
+        request.notebook_id,
+    )
+    .await?;
+    let prepared = planning::plan_pass(
+        &mut *env.source,
         request,
+        preparation,
         env.credential_resolver.supports_deletion_proxy(),
     )
     .await?;
@@ -459,9 +465,9 @@ pub(crate) async fn run_pass_with_progress(
     result
 }
 
-struct StampListing {
-    dirs: BTreeMap<String, i64>,
-    server_date_millis: Option<i64>,
+pub(super) struct StampListing {
+    pub(super) dirs: BTreeMap<String, i64>,
+    pub(super) server_date_millis: Option<i64>,
 }
 
 async fn list_stamps(
@@ -605,4 +611,3 @@ async fn resolve_tombstones(
 #[cfg(test)]
 #[path = "pass_tests.rs"]
 mod tests;
-

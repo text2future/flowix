@@ -12,9 +12,20 @@ pub struct SyncManager {
     account: AccountService,
     client: CloudClient,
     store: SyncStore,
-    /// Serialises path-keyed passes. See `engine` for why one at a time.
-    pass_lock: Arc<tokio::sync::Mutex<()>>,
+    /// Serialises everything that writes the notebook: passes, manifests and
+    /// directory markers.
+    ///
+    /// A lock that only covered passes made the other two writers look safe
+    /// while publishing a manifest that describes a tree the pass was in the
+    /// middle of changing.
+    write_lock: Arc<tokio::sync::Mutex<()>>,
     credentials: Arc<tokio::sync::Mutex<engine::CredentialCache>>,
+    /// Device clock plus the offset the object store last implied.
+    ///
+    /// Grants are checked against their expiry and requests are signed with the
+    /// current time; both have to agree with the store, not with a clock the
+    /// user can set.
+    clock: Arc<crate::object_store::ClockSkew>,
     credential_refresh: Arc<tokio::sync::Mutex<()>>,
     directory_cache: Arc<tokio::sync::Mutex<engine::DirectoryCache>>,
     remote: Arc<std::sync::Mutex<crate::remote::RemoteSelection>>,
@@ -39,8 +50,9 @@ impl SyncManager {
             client: account.client().clone(),
             store: account.store().clone(),
             account,
-            pass_lock: Arc::new(tokio::sync::Mutex::new(())),
+            write_lock: Arc::new(tokio::sync::Mutex::new(())),
             credentials: Arc::new(tokio::sync::Mutex::new(Default::default())),
+            clock: Arc::new(crate::object_store::ClockSkew::default()),
             credential_refresh: Arc::new(tokio::sync::Mutex::new(())),
             directory_cache: Arc::new(tokio::sync::Mutex::new(Default::default())),
             remote: Arc::new(std::sync::Mutex::new(Default::default())),

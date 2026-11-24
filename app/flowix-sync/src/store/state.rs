@@ -36,6 +36,11 @@ impl SyncStore {
                 dir TEXT NOT NULL,
                 PRIMARY KEY(notebook_id, dir)
             );
+            CREATE TABLE IF NOT EXISTS v4_pending_proxy_delete (
+                notebook_id TEXT NOT NULL,
+                path TEXT NOT NULL,
+                PRIMARY KEY(notebook_id, path)
+            );
             CREATE TABLE IF NOT EXISTS v4_notebook_state (
                 notebook_id TEXT PRIMARY KEY,
                 grace_until INTEGER,
@@ -66,6 +71,35 @@ impl SyncStore {
         };
         if !has_remote_etag {
             connection.execute("ALTER TABLE v4_path_state ADD COLUMN remote_etag TEXT", [])?;
+        }
+        // Older builds parked proxy deletions in the stamp queue, tagged with a
+        // NUL-prefixed synthetic path. The stamp table now only holds
+        // directories, so anything left over moves to its own table first:
+        // otherwise the next pass would publish a directory stamp for a path
+        // that is not a directory.
+        //
+        // Matched in Rust rather than SQL: SQLite's string functions stop at
+        // NUL, so LIKE and substr cannot see this prefix at all.
+        let legacy: Vec<(String, String)> = {
+            let mut statement =
+                connection.prepare("SELECT notebook_id, dir FROM v4_pending_stamp")?;
+            let rows = statement.query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        };
+        for (notebook_id, dir) in legacy {
+            let Some(path) = dir.strip_prefix("\0proxy/") else {
+                continue;
+            };
+            connection.execute(
+                "INSERT OR IGNORE INTO v4_pending_proxy_delete(notebook_id, path) VALUES (?1, ?2)",
+                params![notebook_id, path],
+            )?;
+            connection.execute(
+                "DELETE FROM v4_pending_stamp WHERE notebook_id = ?1 AND dir = ?2",
+                params![notebook_id, dir],
+            )?;
         }
         Ok(())
     }
@@ -102,10 +136,50 @@ impl SyncStore {
         Ok(())
     }
 
-    pub fn directory_states(
+    /// Remembers deletions the official backend wants announced through its
+    /// deletion proxy rather than as tombstone objects.
+    ///
+    /// They used to ride in the stamp queue behind a NUL-prefixed synthetic
+    /// path, which meant every reader of that queue had to know the trick and a
+    /// forgotten check would publish a directory stamp for a file path.
+    pub fn queue_proxy_deletions(
         &self,
         notebook_id: &str,
-    ) -> Result<Vec<DirectoryState>, SyncError> {
+        paths: &[String],
+    ) -> Result<(), SyncError> {
+        if paths.is_empty() {
+            return Ok(());
+        }
+        let mut connection = self.open()?;
+        let transaction = connection.transaction()?;
+        for path in paths {
+            transaction.execute(
+                "INSERT OR IGNORE INTO v4_pending_proxy_delete(notebook_id, path) VALUES (?1, ?2)",
+                params![notebook_id, path],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn pending_proxy_deletions(&self, notebook_id: &str) -> Result<Vec<String>, SyncError> {
+        let connection = self.open()?;
+        let mut statement = connection.prepare(
+            "SELECT path FROM v4_pending_proxy_delete WHERE notebook_id = ?1 ORDER BY path",
+        )?;
+        let rows = statement.query_map(params![notebook_id], |row| row.get(0))?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    pub fn ack_proxy_deletion(&self, notebook_id: &str, path: &str) -> Result<(), SyncError> {
+        self.open()?.execute(
+            "DELETE FROM v4_pending_proxy_delete WHERE notebook_id = ?1 AND path = ?2",
+            params![notebook_id, path],
+        )?;
+        Ok(())
+    }
+
+    pub fn directory_states(&self, notebook_id: &str) -> Result<Vec<DirectoryState>, SyncError> {
         let connection = self.open()?;
         let mut statement = connection.prepare(
             "SELECT path, last_synced_at, deleted, local_mtime_millis, pending_since
@@ -205,10 +279,7 @@ impl SyncStore {
         })
     }
 
-    pub fn notebook_state(
-        &self,
-        notebook_id: &str,
-    ) -> Result<Option<NotebookState>, SyncError> {
+    pub fn notebook_state(&self, notebook_id: &str) -> Result<Option<NotebookState>, SyncError> {
         let connection = self.open()?;
         connection
             .query_row(
@@ -270,11 +341,7 @@ impl SyncStore {
         Ok(())
     }
 
-    pub fn remove_path_states(
-        &self,
-        notebook_id: &str,
-        paths: &[String],
-    ) -> Result<(), SyncError> {
+    pub fn remove_path_states(&self, notebook_id: &str, paths: &[String]) -> Result<(), SyncError> {
         if paths.is_empty() {
             return Ok(());
         }
@@ -451,4 +518,3 @@ impl SyncStore {
         Ok(())
     }
 }
-

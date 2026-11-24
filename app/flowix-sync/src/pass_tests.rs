@@ -15,16 +15,31 @@ use std::sync::Mutex;
 use chrono::{TimeZone, Utc};
 
 use super::*;
+use crate::apply::{object_key, ArchiveReason, FailureKind, LocalRead, LocalStamp};
 use crate::object_store::{ListedObject, StorageQuota};
 use crate::reconcile::{Baseline, DirScanRecord, SyncAction, Upload, UploadReason};
-use crate::state::{credential_fingerprint, ScannedLocalFile, NotebookState, PathState};
-use crate::apply::{object_key, ArchiveReason, FailureKind, LocalRead, LocalStamp};
+use crate::state::{credential_fingerprint, NotebookState, PathState, ScannedLocalFile};
 
 const NB: &str = "nb_notes";
 /// 2026-11-22T12:00:00Z. A round number because `LastModified` is
 /// second-granular, so nothing finer can round-trip anyway.
 const NOW: i64 = 1_795_377_600_000;
 const MINUTE: i64 = 60_000;
+
+/// Prepare and plan in one call.
+///
+/// The split exists so that building a plan reads no database state and writes
+/// none; the cases here only care about the resulting actions.
+async fn plan(
+    source: &mut dyn ObjectSource,
+    credentials: &crate::object_store::ObjectStoreCredentials,
+    store: &crate::store::SyncStore,
+    request: &PassRequest<'_>,
+) -> Result<PassPlan, crate::error::SyncError> {
+    let preparation =
+        planning::prepare_pass(source, credentials, store, request.notebook_id).await?;
+    planning::plan_pass(source, request, preparation, false).await
+}
 
 struct FakeObject {
     size: u64,
@@ -424,7 +439,7 @@ async fn mass_remote_deletion_is_deferred_and_keeps_every_baseline() {
     store.save_path_states(NB, &states).unwrap();
 
     for _ in 0..2 {
-        let prepared = plan_pass(
+        let prepared = plan(
             &mut bucket,
             &credentials,
             &store,
@@ -514,17 +529,15 @@ async fn undoing_a_bulk_deletion_downloads_the_cloud_copies_back() {
         paths.push(path);
     }
 
-    let prepared = plan_pass(
-        &mut bucket,
-        &credentials,
-        &store,
-        &pass_request(&[], true),
-    )
-    .await
-    .unwrap();
+    let prepared = plan(&mut bucket, &credentials, &store, &pass_request(&[], true))
+        .await
+        .unwrap();
 
     assert_eq!(prepared.plan.stats.uploads, 0);
-    assert_eq!(prepared.plan.stats.deletes + prepared.plan.stats.tombstones, 0);
+    assert_eq!(
+        prepared.plan.stats.deletes + prepared.plan.stats.tombstones,
+        0
+    );
     assert_eq!(
         prepared
             .plan
@@ -557,7 +570,7 @@ async fn undoing_a_received_bulk_deletion_uploads_the_local_copies_back() {
             .map(|path| (path.as_str(), 8, 1_000))
             .collect::<Vec<_>>(),
     );
-    let prepared = plan_pass(
+    let prepared = plan(
         &mut bucket,
         &credentials,
         &store,
@@ -566,7 +579,10 @@ async fn undoing_a_received_bulk_deletion_uploads_the_local_copies_back() {
     .await
     .unwrap();
 
-    assert_eq!(prepared.plan.stats.deletes + prepared.plan.stats.tombstones, 0);
+    assert_eq!(
+        prepared.plan.stats.deletes + prepared.plan.stats.tombstones,
+        0
+    );
     assert_eq!(
         prepared
             .plan
@@ -694,7 +710,7 @@ async fn a_quiet_pass_pays_for_one_stamp_listing_and_nothing_else() {
         .file("notes/a.md", 8, NOW - MINUTE)
         .stamp("notes", NOW - 5 * MINUTE);
     let scanned = scan(&[("notes/a.md", 8, 1_000)]);
-    let prepared = plan_pass(
+    let prepared = plan(
         &mut bucket,
         &credentials,
         &store,
@@ -731,7 +747,7 @@ async fn a_stamp_that_moved_lists_exactly_that_directory() {
         .stamp("notes", NOW)
         .stamp("archive", NOW - 5 * MINUTE);
     let scanned = scan(&[("notes/a.md", 8, 1_000)]);
-    let prepared = plan_pass(
+    let prepared = plan(
         &mut bucket,
         &credentials,
         &store,
@@ -769,7 +785,7 @@ async fn a_tombstone_is_resolved_by_head_before_it_can_be_downloaded() {
         .tombstone("notes/a.md", NOW)
         .stamp("notes", NOW);
     let scanned = scan(&[("notes/a.md", 8, 1_000)]);
-    let prepared = plan_pass(
+    let prepared = plan(
         &mut bucket,
         &credentials,
         &store,
@@ -796,7 +812,7 @@ async fn an_empty_note_is_not_mistaken_for_a_deletion() {
         .file("notes/empty.md", 0, NOW - MINUTE)
         .stamp("notes", NOW);
     let scanned = scan(&[("notes/empty.md", 0, 1_000)]);
-    let prepared = plan_pass(
+    let prepared = plan(
         &mut bucket,
         &credentials,
         &store,
@@ -827,7 +843,7 @@ async fn a_failed_directory_listing_deletes_nothing() {
         .stamp("notes", NOW)
         .failing_list("nb/nb_notes/f/notes/");
     let scanned = scan(&[("notes/a.md", 8, 1_000)]);
-    let prepared = plan_pass(
+    let prepared = plan(
         &mut bucket,
         &credentials,
         &store,
@@ -869,7 +885,7 @@ async fn a_probe_answer_is_judged_in_the_same_pass() {
         .stamp("notes", NOW - 5 * MINUTE);
     // Edited here: size and mtime both moved off the baseline.
     let scanned = scan(&[("notes/a.md", 20, 9_000)]);
-    let prepared = plan_pass(
+    let prepared = plan(
         &mut bucket,
         &credentials,
         &store,
@@ -903,7 +919,7 @@ async fn a_probe_404_turns_a_dirty_file_into_a_resurrection() {
 
     let mut bucket = FakeBucket::new().stamp("notes", NOW - 5 * MINUTE);
     let scanned = scan(&[("notes/gone.md", 20, 9_000)]);
-    let prepared = plan_pass(
+    let prepared = plan(
         &mut bucket,
         &credentials,
         &store,
@@ -932,7 +948,7 @@ async fn a_failed_probe_defers_instead_of_deciding() {
         .stamp("notes", NOW - 5 * MINUTE)
         .failing_head("notes/a.md");
     let scanned = scan(&[("notes/a.md", 20, 9_000)]);
-    let prepared = plan_pass(
+    let prepared = plan(
         &mut bucket,
         &credentials,
         &store,
@@ -955,7 +971,7 @@ async fn a_brand_new_local_directory_is_listed_even_without_a_stamp() {
 
     let mut bucket = FakeBucket::new();
     let scanned = scan(&[("brand-new/note.md", 8, 1_000)]);
-    let prepared = plan_pass(
+    let prepared = plan(
         &mut bucket,
         &credentials,
         &store,
@@ -987,7 +1003,7 @@ async fn the_forced_sweep_enumerates_everything_in_one_listing() {
         .file("elsewhere/deep/b.md", 8, NOW - MINUTE)
         .stamp("notes", NOW - 5 * MINUTE);
     let scanned = scan(&[("notes/a.md", 8, 1_000)]);
-    let prepared = plan_pass(
+    let prepared = plan(
         &mut bucket,
         &credentials,
         &store,
@@ -1031,7 +1047,7 @@ async fn rebinding_moves_baselines_to_the_switch_instant() {
         .file("notes/a.md", 8, NOW)
         .stamp("notes", NOW);
     let scanned = scan(&[("notes/a.md", 8, 1_000)]);
-    let prepared = plan_pass(
+    let prepared = plan(
         &mut bucket,
         &credentials,
         &store,
@@ -1072,7 +1088,7 @@ async fn an_empty_bucket_right_after_a_rebind_deletes_nothing() {
 
     let mut bucket = FakeBucket::new();
     let scanned = scan(&[("notes/a.md", 8, 1_000)]);
-    let prepared = plan_pass(
+    let prepared = plan(
         &mut bucket,
         &credentials,
         &store,
@@ -1107,7 +1123,7 @@ async fn a_missing_date_header_suppresses_deletes_but_not_transfers() {
         .date(None)
         .stamp("notes", NOW);
     let scanned = scan(&[("notes/a.md", 8, 1_000), ("notes/b.md", 8, 1_000)]);
-    let prepared = plan_pass(
+    let prepared = plan(
         &mut bucket,
         &credentials,
         &store,
@@ -1234,7 +1250,7 @@ async fn cancellation_keeps_completed_action_checkpoint() {
         .stamp("notes", NOW);
     let scanned = scan(&[("notes/a.md", 8, 1_000)]);
     let request = pass_request(&scanned, false);
-    let mut prepared = plan_pass(&mut bucket, &credentials, &store, &request)
+    let mut prepared = plan(&mut bucket, &credentials, &store, &request)
         .await
         .unwrap();
     assert!(matches!(
@@ -1284,7 +1300,7 @@ async fn interrupted_publish_retries_queued_stamp_after_read_only_pass() {
     let mut bucket = FakeBucket::new();
     let scanned = scan(&[("notes/a.md", 8, 1_000)]);
     let request = pass_request(&scanned, false);
-    let mut prepared = plan_pass(&mut bucket, &credentials, &store, &request)
+    let mut prepared = plan(&mut bucket, &credentials, &store, &request)
         .await
         .unwrap();
     prepared.plan.actions = vec![SyncAction::Upload(Upload {
@@ -1348,7 +1364,7 @@ async fn failed_stamp_remains_queued_until_a_later_success() {
     let mut bucket = FakeBucket::new();
     let scanned = scan(&[]);
     let request = pass_request(&scanned, false);
-    let prepared = plan_pass(&mut bucket, &credentials, &store, &request)
+    let prepared = plan(&mut bucket, &credentials, &store, &request)
         .await
         .unwrap();
     bucket.fail_put = true;
@@ -1400,9 +1416,7 @@ fn pending_stamps_are_scoped_to_the_current_binding_and_notebook() {
     store
         .queue_stamps(NB, &["notes".into(), "notes".into()])
         .unwrap();
-    store
-        .queue_stamps("other", &["other-dir".into()])
-        .unwrap();
+    store.queue_stamps("other", &["other-dir".into()]).unwrap();
     assert_eq!(store.pending_stamps(NB).unwrap(), ["notes"]);
     store
         .rebind_credential(NB, "new-target", NOW, NOW + BIND_GRACE_MS)
@@ -1618,7 +1632,7 @@ async fn pagination_collects_every_page_of_a_stamp_listing() {
     for dir in ["a", "b", "c", "d", "e"] {
         bucket = bucket.stamp(dir, NOW - MINUTE);
     }
-    let prepared = plan_pass(&mut bucket, &credentials, &store, &pass_request(&[], true))
+    let prepared = plan(&mut bucket, &credentials, &store, &pass_request(&[], true))
         .await
         .unwrap();
 
@@ -1662,11 +1676,13 @@ async fn read_only_proxy_plans_a_tombstone_and_defers_the_upload() {
         .unwrap();
     let scanned = scan(&[("notes/new.md", 4, 1_000)]);
     let mut bucket = FakeBucket::new().file("notes/a.md", 8, NOW - MINUTE);
-    let prepared = super::planning::plan_pass_with_proxy(
+    let preparation = super::planning::prepare_pass(&mut bucket, &credentials, &store, NB)
+        .await
+        .unwrap();
+    let prepared = super::planning::plan_pass(
         &mut bucket,
-        &credentials,
-        &store,
         &pass_request(&scanned, true),
+        preparation,
         true,
     )
     .await
@@ -1826,10 +1842,10 @@ async fn a_failed_proxy_deletion_stays_pending_and_retries() {
     );
     assert!(
         store
-            .pending_stamps(NB)
+            .pending_proxy_deletions(NB)
             .unwrap()
             .iter()
-            .any(|entry| entry.contains("notes/a.md")),
+            .any(|entry| entry == "notes/a.md"),
         "the retry has to be queued, or nothing would revisit this path"
     );
 
@@ -1860,7 +1876,7 @@ async fn a_read_only_credential_defers_publishes_and_writes_no_stamp() {
     // A local file the device never published: normally `upload:new`.
     let scanned = scan(&[("notes/brand-new.md", 4, 1_000)]);
     let mut bucket = FakeBucket::new();
-    let prepared = plan_pass(
+    let prepared = plan(
         &mut bucket,
         &credentials,
         &store,
@@ -1905,7 +1921,7 @@ async fn an_exhausted_quota_defers_publishes_like_a_read_only_credential() {
     let mut request = pass_request(&scanned, false);
     request.quota = Some(&quota);
 
-    let prepared = plan_pass(&mut bucket, &credentials, &store, &request)
+    let prepared = plan(&mut bucket, &credentials, &store, &request)
         .await
         .unwrap();
 
@@ -1935,7 +1951,7 @@ async fn a_zero_limit_is_not_an_exhausted_quota() {
     let mut request = pass_request(&scanned, false);
     request.quota = Some(&quota);
 
-    let prepared = plan_pass(&mut bucket, &credentials, &store, &request)
+    let prepared = plan(&mut bucket, &credentials, &store, &request)
         .await
         .unwrap();
 
@@ -1957,7 +1973,7 @@ async fn a_read_only_credential_still_applies_downloads() {
         .stamp("notes", NOW);
     bucket.date_millis = Some(NOW);
 
-    let prepared = plan_pass(&mut bucket, &credentials, &store, &pass_request(&[], false))
+    let prepared = plan(&mut bucket, &credentials, &store, &pass_request(&[], false))
         .await
         .unwrap();
 

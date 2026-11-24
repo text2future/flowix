@@ -21,7 +21,7 @@ mod signing;
 mod transport;
 
 pub use credentials::{
-    CredentialResolver, ObjectStoreCredentials, StorageCredentialEnvelope, StorageQuota,
+    ClockSkew, CredentialResolver, ObjectStoreCredentials, StorageCredentialEnvelope, StorageQuota,
 };
 pub use listing::{list_prefix, parse_http_date, parse_list_page, ListPage, ListedObject};
 pub use signing::{sign_get, SignedRequest};
