@@ -12,13 +12,9 @@ pub struct SyncManager {
     account: AccountService,
     client: CloudClient,
     store: SyncStore,
-    /// Serialises everything that writes the notebook: passes, manifests and
+    /// Serialises the writers of each notebook: passes, manifests and
     /// directory markers.
-    ///
-    /// A lock that only covered passes made the other two writers look safe
-    /// while publishing a manifest that describes a tree the pass was in the
-    /// middle of changing.
-    write_lock: Arc<tokio::sync::Mutex<()>>,
+    write_locks: Arc<NotebookWriteLocks>,
     credentials: Arc<tokio::sync::Mutex<engine::CredentialCache>>,
     /// Device clock plus the offset the object store last implied.
     ///
@@ -50,7 +46,7 @@ impl SyncManager {
             client: account.client().clone(),
             store: account.store().clone(),
             account,
-            write_lock: Arc::new(tokio::sync::Mutex::new(())),
+            write_locks: Arc::new(NotebookWriteLocks::default()),
             credentials: Arc::new(tokio::sync::Mutex::new(Default::default())),
             clock: Arc::new(crate::object_store::ClockSkew::default()),
             credential_refresh: Arc::new(tokio::sync::Mutex::new(())),
@@ -110,6 +106,35 @@ impl SyncManager {
     }
 }
 
+/// Per-notebook write serialisation.
+///
+/// The invariant is ordering between a pass and a manifest (or directory
+/// marker) that describe *the same tree*: a manifest published while a pass is
+/// moving files can describe a half-applied state. That is a statement about
+/// one notebook, so a single global lock was too coarse — it made every
+/// notebook's metadata wait for the longest pass in flight, and a pass holds
+/// its lock across every listing page and every file transfer.
+#[derive(Default)]
+pub(super) struct NotebookWriteLocks {
+    locks: tokio::sync::Mutex<std::collections::HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+}
+
+impl NotebookWriteLocks {
+    /// Waits until this notebook has no other writer.
+    ///
+    /// Locks whose only remaining reference is the map are dropped on the way
+    /// in, so the map tracks the notebooks being written right now rather than
+    /// every notebook that was ever synced.
+    pub(super) async fn acquire(&self, notebook_id: &str) -> tokio::sync::OwnedMutexGuard<()> {
+        let lock = {
+            let mut locks = self.locks.lock().await;
+            locks.retain(|_, lock| Arc::strong_count(lock) > 1);
+            locks.entry(notebook_id.to_string()).or_default().clone()
+        };
+        lock.lock_owned().await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -135,8 +160,7 @@ mod tests {
         }
     }
 
-    /// A confirmation is an answer about one batch. Spending it twice would
-    /// turn one "yes" into standing permission, which is exactly the guard the
+    /// A confirmation is an answer about one batch. Spending it twice would    /// turn one "yes" into standing permission, which is exactly the guard the
     /// prompt exists to be.
     #[test]
     fn a_mass_deletion_confirmation_is_spent_by_one_pass() {
@@ -157,9 +181,44 @@ mod tests {
         assert!(manager.take_mass_deletion_allowance("nb_a"));
     }
 
+    /// The ordering invariant — "a manifest must not describe a tree a pass is
+    /// changing" — is a statement about one notebook. A pass holds its lock
+    /// across every listing page and every transfer, so a lock shared by all
+    /// notebooks would make every metadata write wait out the longest pass.
+    #[tokio::test]
+    async fn a_pass_does_not_block_another_notebook() {
+        let locks = NotebookWriteLocks::default();
+        let held = locks.acquire("nb_a").await;
+        tokio::time::timeout(std::time::Duration::from_secs(1), locks.acquire("nb_b"))
+            .await
+            .expect("another notebook must not wait for this one's pass");
+        drop(held);
+    }
+
+    /// The other half of the same invariant: within one notebook the ordering
+    /// still has to hold, which is what stops a deleted-notebook manifest from
+    /// racing the pass that is resurrecting its files.
+    #[tokio::test]
+    async fn a_pass_still_blocks_a_write_to_its_own_notebook() {
+        let locks = NotebookWriteLocks::default();
+        let held = locks.acquire("nb_a").await;
+
+        let mut waiting = Box::pin(locks.acquire("nb_a"));
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(50), &mut waiting)
+                .await
+                .is_err(),
+            "a second writer for the same notebook has to wait"
+        );
+
+        drop(held);
+        tokio::time::timeout(std::time::Duration::from_secs(1), waiting)
+            .await
+            .expect("the lock is handed over once the first writer drops it");
+    }
+
     /// Undo has to leave nothing behind that would re-plan the same deletion:
-    /// the row carries both the baseline and the pending marker, and the
-    /// directory stamp is what makes the next pass look at all.
+    /// the row carries both the baseline and the pending marker, and the    /// directory stamp is what makes the next pass look at all.
     #[test]
     fn undo_drops_the_state_rows_and_reopens_their_directories() {
         let (_directory, manager) = manager();

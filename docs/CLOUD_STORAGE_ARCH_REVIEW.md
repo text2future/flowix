@@ -320,6 +320,9 @@ Step 4 把「整轮失败」换成了「暂缓」，但暂缓没有出口：桌�
 `pass_lock` 改名 `write_lock`，`put_notebook_manifest` / `put_directory_marker` 与 `pass()` 共用同一把
 tokio 锁。仅覆盖 pass 的锁是名义上的互斥：发布 manifest 描述的是 pass 正在改的那棵树。
 
+后续（见第十四节）把它的粒度收窄到「每个笔记本一把」。不变式说的是同一棵树上的先后顺序，全局锁把
+它错当成了全局顺序。
+
 ### 4. `plan_pass` 不再写库
 
 拆成两步：
@@ -351,3 +354,48 @@ SQLite 的 `LIKE` / `substr` 遇到 NUL 会截断，`char(0)` 比较也不可靠
 - `cargo clippy -p flowix-sync --all-targets` → 7 条，均为既有告警；顺手把 `planning.rs` 里「测试模块之后的
   条目」这一条整理掉（测试模块移到文件末尾）。
 - 改动的 11 个文件 `rustfmt` 干净。
+
+## 十四、写锁粒度：从全局改成按笔记本
+
+第十三节留了一条取舍：「写锁现在会让 pass 运行中发布 manifest/marker 排队」。复核后确认这不是理论问题，
+而是粒度选错了。
+
+### 不变式到底约束什么
+
+「manifest/marker 不能描述一棵 pass 正在改的树」是一句关于**某个笔记本**的话。全局锁把它读成了
+「所有笔记本的元数据要等最长的那个 pass」。pass 持锁的范围包括每一页 listing、每一次传输：几十个文件
+的笔记能持锁几十秒，`write_lock` 期间别的笔记本连 `put_notebook_manifest` 都进不来。
+
+真实的并发来源有两处：
+
+- **删除工作线程**：`schedule_pending_notebook_deletions` 在独立 task 上跑
+  `flush_deleted_notebook_manifests`，用户删掉笔记本时它会去写 tombstone manifest，而协调器可能正在给
+  另一个笔记本跑 pass。当前 UI 不等这次写（笔记本已经从列表里消失，墓碑晚几秒到云端不可见），所以只
+  是延迟，不是卡死。
+- **未来把各笔记本的 pass 并行化**：那正是第十三节说「要重新审视这把锁」的场景。
+
+### 改法
+
+`write_lock: Mutex<()>` → `NotebookWriteLocks`（`Mutex<HashMap<String, Arc<Mutex<()>>>>`）：
+
+- `acquire(notebook_id)` 从 map 里取（或新建）该笔记本的锁再 `lock_owned()`，返回 `OwnedMutexGuard`；
+- 每次取锁前 `retain(|_, lock| Arc::strong_count(lock) > 1)`，map 里只留「正在被写」的笔记本，不会随
+  笔记本总数无限增长；
+- 三个写入口（`pass` / `put_notebook_manifest` / `put_directory_marker`）改用它。`pass` 用
+  `input.notebook_id`。
+
+跨笔记本并发写入不需要额外保护：`SyncStore` 本身是 `Mutex<Option<Connection>>` 的单一共享句柄，
+SQLite 是 WAL + 5s busy_timeout；凭证缓存、`credential_refresh`、时钟偏移各有自己的锁；每本笔记本的
+状态行按 `notebook_id` 分区。
+
+### 已知的后续项（本次不处理）
+
+`DirectoryCache` 是**单槽**的（`scope` 含 `notebook_id`，scope 一变整表作废）。现在各笔记本的 pass 仍是
+串行，所以不触发；真正并行化 pass 时要把它改成按 scope 分键的 map，否则两个笔记本会互相清缓存。
+
+### 验证
+
+- 新增两条用例：另一个笔记本的写不等本笔记本的 pass（用 `timeout` 断言不会挂住）；同一笔记本仍然串行
+  （50ms 内拿不到，前一个 guard 释放后立刻拿到）。前一条在旧的全局锁下必然失败。
+- `cargo test -p flowix-sync` → **206 passed / 0 failed / 0 ignored**，integration 3 passed。
+- `cargo clippy -p flowix-sync --all-targets` 无新增告警；`rustfmt --check` 干净。

@@ -551,8 +551,8 @@ impl SyncManager {
         manifest.validate()?;
         // Same lock as a pass: the manifest describes the tree a pass is
         // changing, so publishing it alongside one can describe a half-applied
-        // state.
-        let _single = self.write_lock.clone().lock_owned().await;
+        // state. Keyed by notebook, so this only waits for *this* tree.
+        let _single = self.write_locks.acquire(notebook_id).await;
         let now = self.clock.now();
         let PassCredentials {
             credentials,
@@ -755,7 +755,7 @@ impl SyncManager {
         marker.validate()?;
         // Same lock as a pass, for the same reason: a marker is a claim about
         // whether a directory exists, and a pass can be moving it.
-        let _single = self.write_lock.clone().lock_owned().await;
+        let _single = self.write_locks.acquire(notebook_id).await;
         let now = self.clock.now();
         let PassCredentials {
             credentials,
@@ -836,7 +836,7 @@ impl SyncManager {
     /// notebook that allowed no deletions or accepted no writes is worth
     /// surfacing, and that answer changes with the UI.
     pub async fn pass(&self, input: PassInput<'_>) -> Result<PassReport, SyncError> {
-        let _single = self.write_lock.clone().lock_owned().await;
+        let _single = self.write_locks.acquire(input.notebook_id).await;
         let now = self.clock.now();
         let PassCredentials {
             credentials,
