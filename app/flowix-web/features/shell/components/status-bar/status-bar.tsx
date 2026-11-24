@@ -9,8 +9,10 @@ import type { Notebook } from '@features/memo/store/note-store';
 import { NotebookSelectorPopup } from '@features/shell/components/status-bar/notebook-selector-popup';
 import { ProductUpdatePill } from '@features/shell/components/status-bar/product-update-pill';
 import { ProductIntroDialog } from '@features/product-intro';
+import { MassDeletionDialog } from '@features/shell/components/status-bar/mass-deletion-dialog';
 import { degradedSyncState, selectedNotebookSyncStatuses, stabilizeTransferPhase, updateNotebookSyncFailures } from '@features/shell/components/status-bar/sync-degradation';
 import { useI18n } from '@/lib/i18n';
+import { toast } from '@/lib/toast';
 import { useDocumentMetricsStore } from '@features/document/store/document-metrics-store';
 import { useNoteStore } from '@features/memo/store/note-store';
 import { CloudStatusIcon } from '@shared/icons/cloud-status-icon';
@@ -19,6 +21,7 @@ import {
   listenToCloudStateChanges,
   listenToCloudStorageAccessChanges,
   listenToCloudSyncStatusChanges,
+  listenToCloudDeleteConflictRestored,
   type CloudSyncStatus,
 } from '@platform/tauri/client';
 import type { AppUpdaterState } from '@features/shell/hooks/use-app-updater';
@@ -124,6 +127,12 @@ export function StatusBar({
     window.addEventListener('flowix:toggle-notebook-switcher', handleToggle);
     return () => window.removeEventListener('flowix:toggle-notebook-switcher', handleToggle);
   }, []);
+
+  useEffect(() => {
+    return listenToCloudDeleteConflictRestored(({ paths }) => {
+      toast.info(t('cloudSync.deleteConflictRestored'), { description: paths.slice(0, 3).join(', ') });
+    });
+  }, [t]);
 
   useEffect(() => {
     return listenToCloudSyncStatusChanges((status) => {
@@ -287,6 +296,11 @@ export function StatusBar({
         </Tooltip>
       </div>
       <ProductIntroDialog open={productIntroOpen} onOpenChange={onProductIntroOpenChange} />
+      <MassDeletionDialog
+        notebookId={selectedNotebook?.id}
+        localCount={currentSyncStatuses[0]?.massDeletionLocal ?? 0}
+        remoteCount={currentSyncStatuses[0]?.massDeletionRemote ?? 0}
+      />
     </div>
   );
 }

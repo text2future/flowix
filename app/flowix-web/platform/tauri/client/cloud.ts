@@ -185,6 +185,14 @@ export interface CloudSyncStatus {
    */
   allowsDeletes?: boolean | null;
   deletionDeferred?: boolean | null;
+  /**
+   * Paths a pass held back because applying the batch would delete this
+   * device's copies (the cloud already recorded the deletions). Non-zero means
+   * the user has to answer before those files go away.
+   */
+  massDeletionLocal?: number | null;
+  /** Paths held back because applying the batch would delete the cloud copies. */
+  massDeletionRemote?: number | null;
 }
 
 export interface CloudProduct {
@@ -324,6 +332,12 @@ export const cloud = {
   ) => invoke<void>('cloud_submit_feedback', { deviceId, kind, content, appVersion, platform, attachments }),
   syncNow: (notebookId?: string) =>
     invoke<CloudSyncResult>('cloud_sync_now', { notebookId }),
+  /**
+   * Answers the bulk-deletion prompt. `restore` means "undo": the deletion is
+   * dropped and the files come back from whichever side still has them.
+   */
+  resolveMassDeletion: (notebookId: string, restore: boolean) =>
+    invoke<void>('cloud_resolve_mass_deletion', { notebookId, restore }),
   createNoteShareLink: (notebookId: string, relativePath: string) =>
     invoke<CloudNoteShareLink>('cloud_create_note_share_link', { notebookId, relativePath }),
   createFolderShareLink: (notebookId: string, relativePath: string) =>
@@ -358,6 +372,12 @@ export function listenToCloudSyncStatusChanges(
   handler: (status: CloudSyncStatus) => void,
 ): UnlistenFn {
   return subscribe<CloudSyncStatus>('cloud-sync-status-changed', handler);
+}
+
+export function listenToCloudDeleteConflictRestored(
+  handler: (event: { notebookId: string; paths: string[] }) => void,
+): UnlistenFn {
+  return subscribe('cloud-delete-conflict-restored', handler);
 }
 
 // Files

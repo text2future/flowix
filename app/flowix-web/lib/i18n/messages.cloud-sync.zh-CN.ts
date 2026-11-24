@@ -59,8 +59,19 @@ const zhCN = {
   "cloudSync.deletesPaused.badge": "删除暂缓",
   "cloudSync.deletesPaused.title": "删除操作已暂缓",
   "cloudSync.deletesPaused.body":
-    "为避免误删，部分删除操作暂时延后。保护条件解除后会自动重试；上传和下载不受影响。",
+    "为避免误删，部分删除操作被安全校验暂缓。上传和下载不受影响。",
+  "cloudSync.massDeletion.title": "大量文档被删除，继续云同步？",
+  "cloudSync.massDeletion.bodyLocal":
+    "云端已删除 {count} 个文档。继续同步会同时删除本机上的这些副本。",
+  "cloudSync.massDeletion.bodyRemote":
+    "本机有 {count} 个文档被删除。继续同步会一并删除云端副本。",
+  "cloudSync.massDeletion.bodyBoth":
+    "本机有 {count} 个文档与云端不一致（一方已删除）。继续同步会以删除为准。",
+  "cloudSync.massDeletion.warning": "确认删除后，被删除内容不可恢复",
+  "cloudSync.massDeletion.confirm": "确认",
+  "cloudSync.massDeletion.restore": "撤销删除",
   "cloudSync.failed.title": "云同步失败",
+  "cloudSync.deleteConflictRestored": "已删除的文件在其他设备上有更新，已保留云端版本。",
   "cloudSync.failed.body": "本轮同步未完成。错误信息：",
 };
 

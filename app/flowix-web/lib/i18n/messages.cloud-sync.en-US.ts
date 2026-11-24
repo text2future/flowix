@@ -60,8 +60,19 @@ const enUS: Record<keyof typeof zhCN, string> = {
   "cloudSync.deletesPaused.badge": "Deletes paused",
   "cloudSync.deletesPaused.title": "Deletions are paused",
   "cloudSync.deletesPaused.body":
-    "Some deletions are temporarily delayed to prevent accidental data loss. They will be retried when the safety checks allow it. Uploads and downloads are unaffected.",
+    "Some deletions are held back by a safety check to prevent accidental data loss. Uploads and downloads are unaffected.",
+  "cloudSync.massDeletion.title": "A large number of documents were deleted. Continue syncing?",
+  "cloudSync.massDeletion.bodyLocal":
+    "The cloud already deleted {count} documents. Continuing also deletes these copies on this device.",
+  "cloudSync.massDeletion.bodyRemote":
+    "{count} documents were deleted on this device. Continuing also deletes the cloud copies.",
+  "cloudSync.massDeletion.bodyBoth":
+    "{count} documents disagree between this device and the cloud (one side deleted them). Continuing applies the deletion.",
+  "cloudSync.massDeletion.warning": "Once confirmed, deleted content cannot be recovered",
+  "cloudSync.massDeletion.confirm": "Confirm",
+  "cloudSync.massDeletion.restore": "Undo deletion",
   "cloudSync.failed.title": "Cloud sync failed",
+  "cloudSync.deleteConflictRestored": "A deleted file was updated on another device. The cloud version was kept.",
   "cloudSync.failed.body": "This sync pass did not finish. Error details:",
 };
 
