@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { degradedSyncState, selectedNotebookSyncStatuses, stabilizeTransferPhase, updateNotebookSyncFailures } from './sync-degradation';
+import { degradedSyncState, notebooksAwaitingDeletionDecision, selectedNotebookSyncStatuses, stabilizeTransferPhase, updateNotebookSyncFailures } from './sync-degradation';
 
 it('reports nothing for a healthy pass or without a health report', () => {
   expect(degradedSyncState([])).toBeNull();
@@ -35,6 +35,22 @@ it('surfaces the worst notebook when several disagree', () => {
   ])).toBe('readOnly');
 });
 
+
+it('points at every notebook that still waits for a deletion decision', () => {
+  // Both directions count: the prompt asks the same question, only the sentence
+  // and the consequence differ.
+  expect(
+    [...notebooksAwaitingDeletionDecision([
+      { notebookId: 'local', massDeletionLocal: 20 },
+      { notebookId: 'remote', massDeletionRemote: 25 },
+      { notebookId: 'settled', massDeletionLocal: 0, massDeletionRemote: 0 },
+      // A pass that reported no bulk deletion leaves the fields absent; that is
+      // "nothing to ask", not a batch of zero.
+      { notebookId: 'quiet' },
+    ])],
+  ).toEqual(['local', 'remote']);
+  expect(notebooksAwaitingDeletionDecision([])).toEqual(new Set());
+});
 
 it('only shows sync status for the selected notebook', () => {
   const old = { state: 'syncing', writable: false };

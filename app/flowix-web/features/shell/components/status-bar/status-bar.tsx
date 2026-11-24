@@ -10,7 +10,7 @@ import { NotebookSelectorPopup } from '@features/shell/components/status-bar/not
 import { ProductUpdatePill } from '@features/shell/components/status-bar/product-update-pill';
 import { ProductIntroDialog } from '@features/product-intro';
 import { MassDeletionDialog } from '@features/shell/components/status-bar/mass-deletion-dialog';
-import { degradedSyncState, selectedNotebookSyncStatuses, stabilizeTransferPhase, updateNotebookSyncFailures } from '@features/shell/components/status-bar/sync-degradation';
+import { degradedSyncState, notebooksAwaitingDeletionDecision, selectedNotebookSyncStatuses, stabilizeTransferPhase, updateNotebookSyncFailures } from '@features/shell/components/status-bar/sync-degradation';
 import { useI18n } from '@/lib/i18n';
 import { toast } from '@/lib/toast';
 import { useDocumentMetricsStore } from '@features/document/store/document-metrics-store';
@@ -158,6 +158,9 @@ export function StatusBar({
   // transfer indicator: "local only" is the standing conclusion.
   const degradedSync = degradedSyncState(currentSyncStatuses);
   const failedSync = selectedNotebook?.id ? cloudSyncFailures.get(selectedNotebook.id) : undefined;
+  // The prompt can only speak for the notebook on screen; a background notebook
+  // sitting on a deferred batch has no other way of saying so.
+  const pendingDeletionNotebookIds = notebooksAwaitingDeletionDecision(cloudSyncStatuses.values());
 
   return (
     <div className="flex h-[26px] shrink-0 select-none items-stretch text-xs text-[var(--muted-foreground)]">
@@ -175,6 +178,7 @@ export function StatusBar({
           onRefresh={setNotebooks}
           cloudSyncedNotebookIds={cloudSyncedNotebookIds}
           cloudSyncAvailable={cloudSyncAvailable}
+          pendingDeletionNotebookIds={pendingDeletionNotebookIds}
         />
       </div>
       {/* Right column: full-width content area. */}

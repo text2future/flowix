@@ -69,6 +69,13 @@ const enUS: Record<keyof typeof zhCN, string> = {
   "cloudSync.massDeletion.bodyBoth":
     "{count} documents disagree between this device and the cloud (one side deleted them). Continuing applies the deletion.",
   "cloudSync.massDeletion.warning": "Once confirmed, deleted content cannot be recovered",
+  "cloudSync.massDeletion.restoreHintLocal":
+    "\"Undo deletion\" keeps the files on this device and uploads them to the cloud again.",
+  "cloudSync.massDeletion.restoreHintRemote":
+    "\"Undo deletion\" restores the files from the cloud, so they reappear on this device.",
+  "cloudSync.massDeletion.restoreHintBoth":
+    "\"Undo deletion\" keeps the files on this device and fills in whichever side is missing.",
+  "cloudSync.massDeletion.pendingBadge": "Deletion awaiting confirmation",
   "cloudSync.massDeletion.confirm": "Confirm",
   "cloudSync.massDeletion.restore": "Undo deletion",
   "cloudSync.failed.title": "Cloud sync failed",

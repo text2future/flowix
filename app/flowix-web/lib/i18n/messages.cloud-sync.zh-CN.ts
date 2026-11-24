@@ -68,6 +68,13 @@ const zhCN = {
   "cloudSync.massDeletion.bodyBoth":
     "本机有 {count} 个文档与云端不一致（一方已删除）。继续同步会以删除为准。",
   "cloudSync.massDeletion.warning": "确认删除后，被删除内容不可恢复",
+  "cloudSync.massDeletion.restoreHintLocal":
+    "选择「撤销删除」会保留本机文件，并重新上传到云端。",
+  "cloudSync.massDeletion.restoreHintRemote":
+    "选择「撤销删除」会从云端恢复到本机，删除的文件会重新出现。",
+  "cloudSync.massDeletion.restoreHintBoth":
+    "选择「撤销删除」会保留本机文件，并把缺失的一侧补回来。",
+  "cloudSync.massDeletion.pendingBadge": "有删除待确认",
   "cloudSync.massDeletion.confirm": "确认",
   "cloudSync.massDeletion.restore": "撤销删除",
   "cloudSync.failed.title": "云同步失败",

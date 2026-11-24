@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronsUpDown, Pencil, Plus, Star, Trash2 } from 'lucide-react';
+import { ChevronRight, ChevronsUpDown, Pencil, Plus, Star, Trash2 } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@shared/ui/popover';
 import { notebooks as notebooksClient } from '@platform/tauri/client';
 import { NotebookIcon } from '@features/memo/components/notebook-icon';
@@ -25,6 +25,12 @@ export interface NotebookSelectorPopupProps {
   onRefresh: (notebooks: Notebook[]) => void;
   cloudSyncedNotebookIds?: ReadonlySet<string>;
   cloudSyncAvailable?: boolean;
+  /**
+   * Notebooks holding a deferred bulk deletion that still waits for an answer.
+   * The prompt itself only renders for the notebook on screen, so these ids
+   * carry the hint for every other one.
+   */
+  pendingDeletionNotebookIds?: ReadonlySet<string>;
   /** Optional alternate anchor, e.g. the current notebook card in the sidebar. */
   trigger?: React.ReactElement;
   side?: 'top' | 'right' | 'bottom' | 'left';
@@ -95,6 +101,7 @@ export function NotebookSelectorPopup({
   onRefresh,
   cloudSyncedNotebookIds,
   cloudSyncAvailable = false,
+  pendingDeletionNotebookIds,
   trigger,
   side = 'top',
   sideOffset = 6,
@@ -392,6 +399,12 @@ export function NotebookSelectorPopup({
 
   const sourceNotebook = ghost ? notebooks.find((notebook) => notebook.id === ghost.sourceId) : null;
 
+  // The notebook on screen gets a dialog instead; a badge there would be
+  // pointing at a question the user is already being asked.
+  const hasPendingDeletionElsewhere = pendingDeletionNotebookIds
+    ? [...pendingDeletionNotebookIds].some((id) => id !== selectedNotebook?.id)
+    : false;
+
   const renderNotebookItem = (notebookId: string) => {
     if (notebookId === draggingId) {
       return (
@@ -461,6 +474,14 @@ export function NotebookSelectorPopup({
                 <Star className="h-4 w-4 fill-current text-[var(--primary)]" aria-hidden="true" />
               </span>
             )}
+            {pendingDeletionNotebookIds?.has(notebook.id) && !isActive && (
+              <span
+                role="img"
+                aria-label={t('cloudSync.massDeletion.pendingBadge')}
+                title={t('cloudSync.massDeletion.pendingBadge')}
+                className="h-2 w-2 shrink-0 rounded-full bg-[var(--destructive)]"
+              />
+            )}
             {cloudSyncedNotebookIds?.has(notebook.id) && (
               <span className="flex h-4 w-3 shrink-0 items-center justify-center" aria-hidden="true">
                 <span
@@ -528,7 +549,7 @@ export function NotebookSelectorPopup({
         {trigger ?? (
           <button
             type="button"
-            className="flex h-[26px] items-center gap-0.5 pl-2.5 pr-1 text-[var(--foreground)] hover:bg-[var(--muted)]"
+            className="relative flex h-[26px] items-center gap-0.5 pl-2.5 pr-1 text-[var(--foreground)] hover:bg-[var(--muted)]"
             aria-label={t('status.switchNotebook')}
             title={t('status.switchNotebook')}
           >
@@ -545,6 +566,14 @@ export function NotebookSelectorPopup({
               </span>
             )}
             <ChevronsUpDown className="h-3 w-3 shrink-0 text-[var(--foreground)]" />
+            {hasPendingDeletionElsewhere && (
+              <span
+                role="img"
+                aria-label={t('cloudSync.massDeletion.pendingBadge')}
+                title={t('cloudSync.massDeletion.pendingBadge')}
+                className="absolute right-0 top-0 h-1.5 w-1.5 rounded-full bg-[var(--destructive)]"
+              />
+            )}
           </button>
         )}
       </PopoverTrigger>
@@ -618,6 +647,17 @@ export function NotebookSelectorPopup({
                 </div>
               </>
             )}
+            <button
+              type="button"
+              aria-label={t('notebook.cloudImport.action')}
+              className="flex h-7 w-full shrink-0 items-center justify-start gap-1 rounded-lg px-2 text-left text-xs text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+              onClick={() => closeThen(() => {
+                window.dispatchEvent(new Event('flowix:open-cloud-notebook-import'));
+              })}
+            >
+              {t('notebook.cloudImport.action')}
+              <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
           </div>
         </PopupScrollArea>
         <div className="shrink-0 p-2">

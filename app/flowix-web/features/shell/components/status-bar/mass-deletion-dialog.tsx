@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useReducer, useState } from 'react';
 
 import { Button } from '@shared/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@shared/ui/dialog';
@@ -17,6 +17,34 @@ interface MassDeletionDialogProps {
 }
 
 /**
+ * Answers already given or closed, per notebook.
+ *
+ * Outside the component on purpose: the status bar re-renders and this dialog
+ * unmounts whenever the notebook selection changes, and a question the user
+ * closed must not come back because of that. Session storage rather than a
+ * module-level map so a reload keeps the answer — still the same stretch of
+ * work — while a new window starts clean.
+ */
+const ANSWER_KEY = 'flowix.mass-deletion.answered';
+
+function readAnswer(notebookId: string): string | null {
+  try {
+    return window.sessionStorage.getItem(`${ANSWER_KEY}:${notebookId}`);
+  } catch {
+    return null;
+  }
+}
+
+function writeAnswer(notebookId: string, signature: string) {
+  try {
+    window.sessionStorage.setItem(`${ANSWER_KEY}:${notebookId}`, signature);
+  } catch {
+    // A blocked storage only costs a repeat prompt: the answer itself already
+    // reached the backend.
+  }
+}
+
+/**
  * The one place a bulk deletion asks for a decision.
  *
  * A pass cannot tell a deliberate "delete this folder" from a scan or a listing
@@ -27,24 +55,21 @@ interface MassDeletionDialogProps {
 export function MassDeletionDialog({ notebookId, localCount, remoteCount }: MassDeletionDialogProps) {
   const { t } = useI18n();
   const [busy, setBusy] = useState(false);
-  // The batch the user already dismissed. Keyed by counts so a *different*
-  // batch (more files, or the other direction) asks again instead of inheriting
-  // the answer to a question it never saw.
-  const [dismissed, setDismissed] = useState<string | null>(null);
+  // Signature of the batch, so a *different* one (more files, or the other
+  // direction) asks again instead of inheriting the answer to a question it
+  // never saw.
+  const signature = `${localCount}:${remoteCount}`;
+  const [, bumpRevision] = useReducer((value: number) => value + 1, 0);
 
   const total = localCount + remoteCount;
-  const signature = `${notebookId ?? ''}:${localCount}:${remoteCount}`;
-  const open = Boolean(notebookId) && total > 0 && dismissed !== signature;
+  const answered = notebookId ? readAnswer(notebookId) === signature : false;
+  const open = Boolean(notebookId) && total > 0 && !answered;
 
-  // A finished pass replaces the counts; keeping the old signature would hide
-  // the dialog for a batch that is now a different one.
-  const lastSignature = useRef(signature);
-  useEffect(() => {
-    if (lastSignature.current !== signature) {
-      lastSignature.current = signature;
-      setDismissed(null);
-    }
-  }, [signature]);
+  const remember = useCallback(() => {
+    if (!notebookId) return;
+    writeAnswer(notebookId, signature);
+    bumpRevision();
+  }, [notebookId, signature]);
 
   const resolve = useCallback(
     async (restore: boolean) => {
@@ -52,7 +77,6 @@ export function MassDeletionDialog({ notebookId, localCount, remoteCount }: Mass
       setBusy(true);
       try {
         await cloud.resolveMassDeletion(notebookId, restore);
-        setDismissed(signature);
       } catch (error) {
         // `CLOUD_MASS_DELETION_GONE` means another pass resolved the batch while
         // this dialog was open: closing it is the right answer, not an error.
@@ -60,12 +84,12 @@ export function MassDeletionDialog({ notebookId, localCount, remoteCount }: Mass
         if (!message.includes('CLOUD_MASS_DELETION_GONE')) {
           toast.error(message);
         }
-        setDismissed(signature);
       } finally {
         setBusy(false);
+        remember();
       }
     },
-    [notebookId, signature],
+    [notebookId, remember],
   );
 
   if (!open) return null;
@@ -75,15 +99,23 @@ export function MassDeletionDialog({ notebookId, localCount, remoteCount }: Mass
     : localCount > 0
       ? t('cloudSync.massDeletion.bodyLocal', { count: localCount })
       : t('cloudSync.massDeletion.bodyRemote', { count: remoteCount });
+  // "Undo" means something different in each direction, and the surprising half
+  // is that it moves data: the local copies go back up, or come back down.
+  const restoreHint = localCount > 0 && remoteCount > 0
+    ? t('cloudSync.massDeletion.restoreHintBoth')
+    : localCount > 0
+      ? t('cloudSync.massDeletion.restoreHintLocal')
+      : t('cloudSync.massDeletion.restoreHintRemote');
 
   return (
-    <Dialog open onOpenChange={(next) => { if (!next && !busy) setDismissed(signature); }}>
+    <Dialog open onOpenChange={(next) => { if (!next && !busy) remember(); }}>
       <DialogContent className="max-w-md">
         <DialogTitle>{t('cloudSync.massDeletion.title')}</DialogTitle>
         <DialogDescription className="pt-2">{body}</DialogDescription>
         <p className="pt-3 text-xs text-[var(--destructive)]">
           {t('cloudSync.massDeletion.warning')}
         </p>
+        <p className="pt-1 text-xs text-[var(--muted-foreground)]">{restoreHint}</p>
         <div className="flex justify-end gap-2 pt-5">
           <Button variant="outline" disabled={busy} onClick={() => void resolve(true)}>
             {t('cloudSync.massDeletion.restore')}

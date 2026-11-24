@@ -35,6 +35,36 @@ export function degradedSyncState(statuses: Iterable<SyncHealthFlags>): Degraded
   return deletesPaused ? 'deletesPaused' : null;
 }
 
+/** The part of a sync status this decision needs. See `SyncHealthFlags`. */
+export interface PendingDeletionFlags {
+  notebookId: string;
+  massDeletionLocal?: number | null;
+  massDeletionRemote?: number | null;
+}
+
+/**
+ * Notebooks whose last pass held a bulk deletion back and is still waiting for
+ * an answer.
+ *
+ * The prompt only ever renders for the notebook on screen, so a background
+ * notebook can sit on a deferred batch indefinitely: its deletions are paused,
+ * uploads and downloads keep working, and nothing in the UI says why half the
+ * notebook stopped moving. These ids drive the badge that points at it.
+ *
+ * Counts only ever come from the pass that just ran (`summary_since`), so a
+ * notebook drops out as soon as a later pass has nothing left to hold back.
+ */
+export function notebooksAwaitingDeletionDecision(
+  statuses: Iterable<PendingDeletionFlags>,
+): Set<string> {
+  const pending = new Set<string>();
+  for (const status of statuses) {
+    const total = (status.massDeletionLocal ?? 0) + (status.massDeletionRemote ?? 0);
+    if (total > 0) pending.add(status.notebookId);
+  }
+  return pending;
+}
+
 /** Show only the current notebook's status, never a stale status from another notebook. */
 export function selectedNotebookSyncStatuses<T>(
   statuses: ReadonlyMap<string, T>,
