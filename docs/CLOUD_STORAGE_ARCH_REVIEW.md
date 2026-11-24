@@ -388,14 +388,24 @@ SQLite 的 `LIKE` / `substr` 遇到 NUL 会截断，`char(0)` 比较也不可靠
 SQLite 是 WAL + 5s busy_timeout；凭证缓存、`credential_refresh`、时钟偏移各有自己的锁；每本笔记本的
 状态行按 `notebook_id` 分区。
 
-### 已知的后续项（本次不处理）
+### 顺带修掉：`DirectoryCache` 的单槽
 
-`DirectoryCache` 是**单槽**的（`scope` 含 `notebook_id`，scope 一变整表作废）。现在各笔记本的 pass 仍是
-串行，所以不触发；真正并行化 pass 时要把它改成按 scope 分键的 map，否则两个笔记本会互相清缓存。
+原以为「各笔记本的 pass 串行，所以单槽不触发」。查完发现更糟：**单槽对两个以上笔记本本来就没用**。
+
+- `run_passes` 的一次运行会遍历所有启用的笔记本（`enabled_notebooks_for_target`，Poll 的 scope 是 None），
+  循环里每个笔记本各调一次 `remote_directories`。scope 含 `notebook_id`，于是 A → B → A 每轮都在换
+  scope，单槽每次被顶掉，命中率恒为 0。
+- 这个缓存不是「跳过 listing」而是「按 etag 跳过 marker 正文下载」：listing 总会重列，只有
+  `etag` 与 `last_modified` 都对得上时才复用正文。所以它省的是「每个目录一次 GET」，10 秒一轮的
+  轮询下，多笔记本用户的这部分请求等于全部重下。
+
+改成按 scope 分键的 map，`store` 时按首次出现顺序淘汰，上限 16 个 scope（远超正常笔记本数）。
+正文复用仍要求 etag + mtime 匹配，所以不存在「拿旧正文」的正确性问题。
 
 ### 验证
 
 - 新增两条用例：另一个笔记本的写不等本笔记本的 pass（用 `timeout` 断言不会挂住）；同一笔记本仍然串行
   （50ms 内拿不到，前一个 guard 释放后立刻拿到）。前一条在旧的全局锁下必然失败。
-- `cargo test -p flowix-sync` → **206 passed / 0 failed / 0 ignored**，integration 3 passed。
+- 新增三条缓存用例：两个笔记本各留自己的正文、换 bucket 不复用、scope 数封顶且先淘汰最旧的。
+- `cargo test -p flowix-sync` → **209 passed / 0 failed / 0 ignored**，integration 3 passed。
 - `cargo clippy -p flowix-sync --all-targets` 无新增告警；`rustfmt --check` 干净。

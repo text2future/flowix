@@ -8,12 +8,12 @@
 //!
 //! Two invariants live here, and both are invisible from the pass itself:
 //!
-//! * **One pass at a time, process-wide.** `execute_pass` ends by *replacing*
+//! * **One pass at a time per notebook.** `execute_pass` ends by *replacing*
 //!   the notebook's pending-deletion table with the set its own plan computed
 //!   (`set_pending_deletions` is a whole-table swap). Two concurrent passes
 //!   over the same notebook could erase retry state needed to revisit a failed
 //!   remote check or tombstone write. A pass is also bandwidth-bound, so
-//!   serialising costs nothing a single user notices.
+//!   serialising per notebook costs nothing a single user notices.
 //! * **Resolve credentials at request boundaries.** A pass can run longer than
 //!   the 15-minute grant. Every object request renews the official grant with a
 //!   five-minute margin and signs with a fresh timestamp; custom S3 credentials
@@ -21,7 +21,7 @@
 
 use chrono::{DateTime, Utc};
 use futures_util::{stream, StreamExt};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use super::*;
 use crate::apply::{LocalStore, ProgressObserver, TransferObserver};
@@ -103,12 +103,43 @@ impl CredentialCache {
 
 type ResolvedCredentials = (ObjectStoreCredentials, Option<StorageQuota>);
 
-/// Disposable cache of validated marker bodies for the last notebook listed.
+/// Disposable cache of validated marker bodies, keyed by storage scope.
 /// It is never used as evidence that a remote key is absent.
+///
+/// The scope names the notebook as well as the bucket, so a single slot only
+/// helped an account with one notebook: with two, consecutive passes alternate
+/// scopes and every cycle re-downloads every marker body. Keyed by scope each
+/// notebook keeps its bodies until its credentials or storage target change.
 #[derive(Default)]
 pub(super) struct DirectoryCache {
-    scope: Option<(u64, String, String, String, String, String)>,
-    entries: HashMap<String, CachedDirectory>,
+    scopes: HashMap<DirectoryScope, HashMap<String, CachedDirectory>>,
+    /// First-seen order, oldest first: bounds the map for accounts that open
+    /// many notebooks.
+    order: VecDeque<DirectoryScope>,
+}
+
+/// Session generation, backend, endpoint, bucket, prefix, notebook.
+pub(super) type DirectoryScope = (u64, String, String, String, String, String);
+
+/// More notebooks than a pass will revisit before the oldest entries are stale
+/// enough to be worth refetching anyway.
+const DIRECTORY_CACHE_SCOPES: usize = 16;
+
+impl DirectoryCache {
+    fn entries(&self, scope: &DirectoryScope) -> HashMap<String, CachedDirectory> {
+        self.scopes.get(scope).cloned().unwrap_or_default()
+    }
+
+    fn store(&mut self, scope: DirectoryScope, entries: HashMap<String, CachedDirectory>) {
+        if self.scopes.insert(scope.clone(), entries).is_none() {
+            self.order.push_back(scope);
+            while self.order.len() > DIRECTORY_CACHE_SCOPES {
+                if let Some(oldest) = self.order.pop_front() {
+                    self.scopes.remove(&oldest);
+                }
+            }
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -600,14 +631,7 @@ impl SyncManager {
             credentials.prefix.clone(),
             notebook_id.to_string(),
         );
-        let cached = {
-            let cache = self.directory_cache.lock().await;
-            if cache.scope.as_ref() == Some(&scope) {
-                cache.entries.clone()
-            } else {
-                HashMap::new()
-            }
-        };
+        let cached = self.directory_cache.lock().await.entries(&scope);
         let started = std::time::Instant::now();
         let mut cursor = None;
         let mut objects = Vec::new();
@@ -731,8 +755,7 @@ impl SyncManager {
         }
         {
             let mut cache = self.directory_cache.lock().await;
-            cache.scope = Some(scope);
-            cache.entries = next_cache;
+            cache.store(scope, next_cache);
         }
         result.sort_by(|left, right| left.0.path.cmp(&right.0.path));
         tracing::info!(%notebook_id, markers = total, cache_hits, pages = page_count,
@@ -1072,5 +1095,68 @@ mod tests {
         // And an empty cache is never "usable", even at generation zero.
         cached = CredentialCache::default();
         assert!(cached.usable(0, now, None).is_none());
+    }
+
+    fn scope(notebook_id: &str) -> DirectoryScope {
+        (
+            1,
+            "r2-primary".to_string(),
+            "https://example.r2.cloudflarestorage.com".to_string(),
+            "flowix-blobs".to_string(),
+            "".to_string(),
+            notebook_id.to_string(),
+        )
+    }
+
+    fn bodies(path: &str) -> HashMap<String, CachedDirectory> {
+        HashMap::from([(
+            path.to_string(),
+            CachedDirectory {
+                etag: "e1".to_string(),
+                modified: 1,
+                marker: CloudDirectoryMarker {
+                    schema: 1,
+                    path: path.to_string(),
+                    deleted: false,
+                },
+            },
+        )])
+    }
+
+    /// The scope names the notebook, so one slot only helped an account with a
+    /// single notebook: alternating passes dropped the other's bodies and
+    /// re-downloaded every marker on every cycle.
+    #[test]
+    fn every_notebook_keeps_its_own_marker_bodies() {
+        let mut cache = DirectoryCache::default();
+        cache.store(scope("nb_a"), bodies("notes"));
+        cache.store(scope("nb_b"), bodies("work"));
+
+        assert!(cache.entries(&scope("nb_a")).contains_key("notes"));
+        assert!(cache.entries(&scope("nb_b")).contains_key("work"));
+    }
+
+    /// A bucket or credential change invalidates the bodies even for the same
+    /// notebook: the etag belongs to the object that was there, not to the path.
+    #[test]
+    fn a_different_storage_target_does_not_reuse_bodies() {
+        let mut cache = DirectoryCache::default();
+        cache.store(scope("nb_a"), bodies("notes"));
+        let mut moved = scope("nb_a");
+        moved.3 = "another-bucket".to_string();
+        assert!(cache.entries(&moved).is_empty());
+    }
+
+    #[test]
+    fn the_cache_stops_growing_at_its_scope_limit() {
+        let mut cache = DirectoryCache::default();
+        for index in 0..DIRECTORY_CACHE_SCOPES + 4 {
+            cache.store(scope(&format!("nb_{index}")), bodies("notes"));
+        }
+        assert_eq!(cache.scopes.len(), DIRECTORY_CACHE_SCOPES);
+        assert!(!cache.scopes.contains_key(&scope("nb_0")), "oldest first");
+        assert!(cache
+            .scopes
+            .contains_key(&scope(&format!("nb_{}", DIRECTORY_CACHE_SCOPES + 3))));
     }
 }
