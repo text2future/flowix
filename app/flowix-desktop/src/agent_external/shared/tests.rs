@@ -424,12 +424,22 @@ async fn cancelled_start_rejects_a_late_child() {
         .await
         .unwrap();
     assert!(registry.cancel_start("thread_1", Some("run-a")).await);
+    // A bare program name is resolved through `PATH`, and sibling tests rewrite
+    // `PATH` (to a temp dir, or to `""`) while they hold the shared env lock —
+    // this test does not take that lock, so `Command::new("true")` intermittently
+    // failed with `NotFound` under parallel runs. Absolute paths remove the
+    // dependency entirely: the child only has to exist, not be findable.
     #[cfg(windows)]
-    let mut command = tokio::process::Command::new("cmd");
+    let mut command = tokio::process::Command::new(
+        std::env::var_os("COMSPEC").unwrap_or_else(|| "cmd".into()),
+    );
     #[cfg(windows)]
     command.args(["/C", "exit", "0"]);
     #[cfg(not(windows))]
-    let mut command = tokio::process::Command::new("true");
+    // `/bin/sh` is POSIX-guaranteed and needs no lookup.
+    let mut command = tokio::process::Command::new("/bin/sh");
+    #[cfg(not(windows))]
+    command.args(["-c", "exit 0"]);
     let child = command.spawn().unwrap();
     let mut rejected = registry
         .insert_reserved(
@@ -521,8 +531,10 @@ async fn stopping_slot_blocks_new_run_and_is_visible_to_queries() {
 #[tokio::test]
 async fn stop_run_keeps_slot_until_process_exit_is_confirmed() {
     let registry = ExternalRunRegistry::new("claude", "ClaudeCli");
-    let child = tokio::process::Command::new("cmd")
-        .args(["/C", "ping -n 20 127.0.0.1 >nul"])
+    let child = tokio::process::Command::new(
+        std::env::var_os("COMSPEC").unwrap_or_else(|| "cmd".into()),
+    )
+    .args(["/C", "ping -n 20 127.0.0.1 >nul"])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
