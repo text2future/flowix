@@ -71,7 +71,9 @@ impl WhitelistConfig {
         let components: Vec<_> = path.components().collect();
         if components.iter().enumerate().any(|(index, component)| {
             component.as_os_str() == ".flowix"
-                && components.get(index + 1).is_none_or(|next| next.as_os_str() != "database")
+                && components
+                    .get(index + 1)
+                    .is_none_or(|next| next.as_os_str() != "database")
         }) {
             return Err(DropReason::InternalDirectory);
         }
@@ -111,10 +113,11 @@ impl WhitelistConfig {
                 .and_then(|e| e.to_str())
                 .map(|e| e.to_ascii_lowercase())
                 .unwrap_or_default();
-            if !flowix_core::collection::is_collection_document_path(path) && !self
-                .allowed_extensions
-                .iter()
-                .any(|e| e.to_ascii_lowercase() == ext)
+            if !flowix_core::collection::is_collection_document_path(path)
+                && !self
+                    .allowed_extensions
+                    .iter()
+                    .any(|e| e.to_ascii_lowercase() == ext)
             {
                 return Err(DropReason::ExtensionMismatch);
             }
@@ -196,9 +199,17 @@ mod tests {
     #[test]
     fn table_database_notes_pass_but_other_internals_remain_blocked() {
         let w = WhitelistConfig::default();
-        assert!(w.allows(Path::new("/x/.flowix/database/col_1/note.md")).is_ok());
-        assert_eq!(w.allows(Path::new("/x/.flowix/plugin/database/note.md")), Err(DropReason::InternalDirectory));
-        assert_eq!(w.allows(Path::new("/x/.flowix/database/.flowix/versions/note.md")), Err(DropReason::InternalDirectory));
+        assert!(w
+            .allows(Path::new("/x/.flowix/database/col_1/note.md"))
+            .is_ok());
+        assert_eq!(
+            w.allows(Path::new("/x/.flowix/plugin/database/note.md")),
+            Err(DropReason::InternalDirectory)
+        );
+        assert_eq!(
+            w.allows(Path::new("/x/.flowix/database/.flowix/versions/note.md")),
+            Err(DropReason::InternalDirectory)
+        );
     }
 
     /// Name-based exclusions (`.DS_Store`, `attachments`, …) moved to the

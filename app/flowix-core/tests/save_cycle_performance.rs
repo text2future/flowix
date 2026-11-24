@@ -26,7 +26,8 @@ fn report_real_save_cycle_cost() {
         .unwrap();
     let mut service = NoteService::new(&store);
     for kb in [2, 20, 60] {
-        let unit = "## Section\n\nThe quick brown fox jumps over the lazy dog. 中文内容用于保存测试。\n\n";
+        let unit =
+            "## Section\n\nThe quick brown fox jumps over the lazy dog. 中文内容用于保存测试。\n\n";
         let mut body = unit.repeat((kb * 1024 / unit.len()) + 1);
         let note = service
             .create("perf", None, &format!("perf-{kb}"), &body)
@@ -40,9 +41,7 @@ fn report_real_save_cycle_cost() {
         for round in 0..12 {
             let next = format!("{body}edit-{round}\n");
             let start = Instant::now();
-            let outcome = service
-                .save("perf", &relative, &next, Some(&body))
-                .unwrap();
+            let outcome = service.save("perf", &relative, &next, Some(&body)).unwrap();
             let service_ms = start.elapsed().as_secs_f64() * 1000.0;
             assert!(matches!(outcome, NoteSaveOutcome::Saved(_)));
             assert_eq!(fs::read_to_string(&note.path).unwrap(), next);

@@ -1,5 +1,7 @@
 import * as React from "react";
-import { Check, Copy } from "lucide-react";
+import { Check, Copy, Loader2, RotateCw } from "lucide-react";
+import { Button } from "@shared/ui/button";
+import { cloud } from "@platform/tauri/client";
 import {
   HoverCard,
   HoverCardContent,
@@ -8,6 +10,7 @@ import {
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import type { AgentTypeKey, UsageInfo } from "@/types/agent";
+import { useAgentDataStore } from "@features/agent/store/agent-data-store";
 import { useBadgeRuntimeInfo, type BadgeHoverCardRuntimeInfo } from "./runtime/use-badge-runtime-info";
 
 interface BadgeHoverCardProps {
@@ -101,7 +104,7 @@ function percentageFromRate(rate: number | undefined): string {
  *
  * 通用 metadata 协议字段均通过 props 传入,组件本身不读取 store。
  *
- * Pi 显示 model、session id、token 用量、缓存命中、工作目录和运行模式；
+ * Pi 显示 model、session id、token 用量、工作目录和运行模式；
  * 其他 agent 保留通用模型/用量信息，并按需展示 Codex 配额。
  */
 export function BadgeHoverCard({
@@ -118,12 +121,41 @@ export function BadgeHoverCard({
 }: BadgeHoverCardProps) {
   const { t, language } = useI18n();
   const pi = agentType === "pi";
+  const piModels = useAgentDataStore((state) => state.agents.pi.catalog.models.items);
   const codex = agentType === "codex";
   const [copied, setCopied] = React.useState(false);
+  const [credits, setCredits] = React.useState<number | null>(null);
+  const [creditsLoading, setCreditsLoading] = React.useState(false);
+  const [creditsError, setCreditsError] = React.useState(false);
+  const creditRequest = React.useRef(0);
+  React.useEffect(() => () => { creditRequest.current += 1; }, []);
+  const refreshCredits = React.useCallback(async () => {
+    if (!pi) return;
+    const request = ++creditRequest.current;
+    setCreditsLoading(true);
+    setCreditsError(false);
+    try {
+      const state = await cloud.getState();
+      if (!state.authenticated) {
+        if (request === creditRequest.current) setCredits(null);
+        return;
+      }
+      const result = await cloud.getAiCreditBalance();
+      if (request === creditRequest.current) setCredits(result.balanceMicrocredits / 1_000_000);
+    } catch {
+      if (request === creditRequest.current) {
+        setCredits(null);
+        setCreditsError(true);
+      }
+    } finally {
+      if (request === creditRequest.current) setCreditsLoading(false);
+    }
+  }, [pi]);
   const runtimeInfo = useBadgeRuntimeInfo({
     identity: `${threadId ?? ""}:${sessionId ?? ""}:${runId ?? ""}`,
     model,
-    usage,
+    usage: pi ? undefined : usage,
+    refreshOnRequest: pi,
     sessionId,
     onRequest: onRequestRuntimeInfo,
   });
@@ -139,9 +171,18 @@ export function BadgeHoverCard({
   const handleOpenChange = React.useCallback(
     (open: boolean) => {
       onOpenChange?.(open);
-      if (open) requestRuntimeInfo();
+      if (open) {
+        requestRuntimeInfo();
+        if (pi) {
+          setCredits(null);
+          void refreshCredits();
+        }
+      } else {
+        creditRequest.current += 1;
+        setCreditsLoading(false);
+      }
     },
-    [onOpenChange, requestRuntimeInfo],
+    [onOpenChange, requestRuntimeInfo, pi, refreshCredits],
   );
 
   const hitRate = cacheHitRate(displayUsage, codex);
@@ -172,9 +213,14 @@ export function BadgeHoverCard({
       ? resetAt.toLocaleTimeString(language, { hour: "2-digit", minute: "2-digit", hour12: false })
       : resetAt.toLocaleDateString(language, { month: "long", day: "numeric" })}`;
   };
-  const piModelParts = displayModel?.includes("/")
+  const cloudModel = pi && displayModel ? piModels.find((entry) =>
+    entry.source === "flowix-cloud" && (
+      displayModel === entry.id || displayModel === `${entry.providerId}/${entry.id}`
+    ),
+  ) : undefined;
+  const piModelParts = cloudModel?.label || (displayModel?.includes("/")
     ? displayModel.slice(displayModel.indexOf("/") + 1)
-    : displayModel ?? "";
+    : displayModel ?? "");
 
   const handleCopy = React.useCallback(async () => {
     if (!displaySessionId) return;
@@ -214,7 +260,7 @@ export function BadgeHoverCard({
           <div className="flex items-center gap-2">
             <span
               className="min-w-0 flex-1 truncate font-mono text-[11px] text-[var(--foreground)]"
-              title={displaySessionId ?? ""}
+              title={t("editor.threadCard.conversationId")}
             >
               {sessionIdPending ? <HoverCardSkeleton width="8rem" /> : displaySessionId || "-"}
             </span>
@@ -263,10 +309,27 @@ export function BadgeHoverCard({
             </div>
           )}
 
+          {pi && (
+            <div className="grid grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-2 text-[11px]">
+              <span className="text-[var(--muted-foreground)]">{t("editor.threadCard.memberCredits")}</span>
+              <span className="flex items-center justify-end gap-1 font-mono tabular-nums text-[var(--foreground)]" aria-live="polite">
+                {creditsLoading && credits === null ? <HoverCardSkeleton width="3rem" /> : creditsError
+                  ? t("preferences.pi.cloudCreditsUnavailable")
+                  : credits === null ? "-" : new Intl.NumberFormat(language, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(credits)}
+                <Button type="button" variant="ghost" size="icon-xs" onClick={() => void refreshCredits()} disabled={creditsLoading}
+                  aria-label={t("preferences.pi.cloudCreditsRefresh")}
+                  title={t("preferences.pi.cloudCreditsRefresh")}
+                  className="rounded-full text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+                  {creditsLoading ? <Loader2 className="size-3 flowix-spin" aria-hidden="true" /> : <RotateCw className="size-3" aria-hidden="true" />}
+                </Button>
+              </span>
+            </div>
+          )}
+
           {/* Token 明细: Harness 的 inputTokens 不包含 cacheReadTokens。 */}
           <div className="grid grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-2 text-[11px]">
             <span className="text-[var(--muted-foreground)]">
-              {t("editor.threadCard.inputOutputTokens")}
+              {t(pi ? "editor.threadCard.cumulativeInputOutputTokens" : "editor.threadCard.inputOutputTokens")}
             </span>
             <span className="text-right font-mono tabular-nums text-[var(--foreground)]">
               {tokensPending ? <HoverCardSkeleton width="3.5rem" /> : <>
@@ -276,21 +339,23 @@ export function BadgeHoverCard({
             </span>
           </div>
 
-          <div className="grid grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-2 text-[11px]">
-            <span className="text-[var(--muted-foreground)]">
-              {t("editor.threadCard.cacheReadTokens")}
-            </span>
-            <span
-              className="agent-thread-card__cache-hit-value"
-              aria-label={percentageFromRate(hitRate) || "-"}
-            >
-              {cachePending ? <HoverCardSkeleton width="1.75rem" /> : (
-                <span className="font-mono tabular-nums text-[var(--foreground)]">
-                  {percentageFromRate(hitRate) || "-"}
-                </span>
-              )}
-            </span>
-          </div>
+          {!pi && (
+            <div className="grid grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-2 text-[11px]">
+              <span className="text-[var(--muted-foreground)]">
+                {t("editor.threadCard.cacheReadTokens")}
+              </span>
+              <span
+                className="agent-thread-card__cache-hit-value"
+                aria-label={percentageFromRate(hitRate) || "-"}
+              >
+                {cachePending ? <HoverCardSkeleton width="1.75rem" /> : (
+                  <span className="font-mono tabular-nums text-[var(--foreground)]">
+                    {percentageFromRate(hitRate) || "-"}
+                  </span>
+                )}
+              </span>
+            </div>
+          )}
 
           {!pi && <div className="grid grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-2 text-[11px]">
             <span className="text-[var(--muted-foreground)]">

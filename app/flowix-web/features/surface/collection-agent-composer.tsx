@@ -190,7 +190,7 @@ export function CollectionAgentComposer({
         }}
         placeholder={notebookId ? t('collection.composerPlaceholder') : ''}
         disabled={!notebookId || !collectionPath}
-        className="h-[30px] min-w-0 flex-1 border-0 bg-transparent p-0 text-[13px] text-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)]"
+        className="h-[30px] min-w-0 flex-1 border-0 bg-transparent p-0 text-[13px] text-[var(--foreground)] outline-none placeholder:text-[var(--input-placeholder)]"
       />
       <button
         type="button"

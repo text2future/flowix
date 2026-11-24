@@ -218,8 +218,13 @@
 }
 
 .code-block-language-search::placeholder {
-  color: var(--muted-foreground);
-  opacity: 0.8;
+  color: var(--input-placeholder);
+}
+
+.code-block-language-search:focus-visible {
+  border-color: var(--input-ring);
+  outline: 1px solid var(--input-ring);
+  outline-offset: 0;
 }
 
 .code-block-language-list {

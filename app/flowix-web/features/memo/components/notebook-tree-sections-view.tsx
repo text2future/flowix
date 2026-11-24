@@ -48,6 +48,7 @@ interface NotebookTreeSectionsViewProps {
     renderItem: (item: PinnedTreeItem) => ReactNode;
   };
   files: {
+    sharePath?: string;
     notebookName: string;
     collapsed: boolean;
     onToggleCollapsed: () => void;
@@ -168,6 +169,7 @@ export function NotebookTreeSectionsView({
             onImportFolder: files.onImportFolder,
             sort: files.sort,
             onSort: files.onSort,
+            sharePath: files.sharePath,
           })}
           isRootDropTarget={files.isRootDropTarget}
           headerRef={files.headerRef}

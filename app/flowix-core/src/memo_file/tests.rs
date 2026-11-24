@@ -67,7 +67,10 @@ fn create_memo_uses_relative_path_as_compatibility_key() {
     let memo = mf.create_memo("Eight", "body", None).unwrap();
 
     assert_eq!(memo.relative_path, "Eight.md");
-    assert_eq!(mf.read_memo(&memo.relative_path).unwrap().relative_path, memo.relative_path);
+    assert_eq!(
+        mf.read_memo(&memo.relative_path).unwrap().relative_path,
+        memo.relative_path
+    );
 
     let content = fs::read_to_string(mf.get_memo_base().join(&memo.filename)).unwrap();
     assert!(!content.contains("flowix_key:"));
@@ -224,7 +227,13 @@ fn legacy_memo_index_retirement_rebuilds_path_projection_from_markdown() {
     mf.retire_legacy_memo_index("nb_test").unwrap();
     assert_eq!(fs::read(&note_path).unwrap(), original_content);
     assert_eq!(mf.read_note_entries("nb_test").unwrap().len(), 1);
-    assert_eq!(mf.read_note_entry_by_path("nb_test", &memo.relative_path).unwrap().unwrap().relative_path, memo.relative_path);
+    assert_eq!(
+        mf.read_note_entry_by_path("nb_test", &memo.relative_path)
+            .unwrap()
+            .unwrap()
+            .relative_path,
+        memo.relative_path
+    );
 
     let conn = rusqlite::Connection::open(&notebook_db).unwrap();
     let legacy_memos_exists: i64 = conn
@@ -480,7 +489,10 @@ fn write_memo_global_is_scoped_by_notebook_and_relative_path() {
     assert_eq!(current_collision.relative_path, other_memo.relative_path);
 
     let updated = mf
-        .write_memo_renaming_on_title_change_global(&other_memo.relative_path, "Renamed Other\nBody")
+        .write_memo_renaming_on_title_change_global(
+            &other_memo.relative_path,
+            "Renamed Other\nBody",
+        )
         .expect("global write ok");
     let other_content = fs::read_to_string(other_dir.join(&updated.filename)).unwrap();
     let current_content = fs::read_to_string(tmp.join(&current_collision.filename)).unwrap();
@@ -491,10 +503,18 @@ fn write_memo_global_is_scoped_by_notebook_and_relative_path() {
     assert!(!other_dir.join(&other_memo.filename).exists());
     assert!(other_content.contains("Renamed Other"));
     assert!(current_content.contains("# Current copy"));
-    assert!(mf.read_memo_for_notebook_id("nb_test", &current_collision.relative_path).is_some());
-    assert!(mf.read_memo_for_notebook_id("nb_other", &updated.relative_path).is_some());
-    assert!(mf.read_memo_for_notebook_id("nb_other", &other_memo.relative_path).is_none());
-    assert!(mf.read_memo_for_notebook_id("nb_test", &current_memo.relative_path).is_some());
+    assert!(mf
+        .read_memo_for_notebook_id("nb_test", &current_collision.relative_path)
+        .is_some());
+    assert!(mf
+        .read_memo_for_notebook_id("nb_other", &updated.relative_path)
+        .is_some());
+    assert!(mf
+        .read_memo_for_notebook_id("nb_other", &other_memo.relative_path)
+        .is_none());
+    assert!(mf
+        .read_memo_for_notebook_id("nb_test", &current_memo.relative_path)
+        .is_some());
     assert!(mf
         .read_indexed_note_entry_by_path("nb_other", &other_memo.relative_path)
         .unwrap()
@@ -588,7 +608,10 @@ fn pasted_file_with_key_from_other_notebook_gets_new_id_in_current_notebook() {
     let pasted_path = tmp.join("Copied.md");
     fs::write(
         &pasted_path,
-        format!("---\nflowix_key: {}\n---\n# Copied\n", other_memo.relative_path),
+        format!(
+            "---\nflowix_key: {}\n---\n# Copied\n",
+            other_memo.relative_path
+        ),
     )
     .unwrap();
     let copied = mf
@@ -599,7 +622,9 @@ fn pasted_file_with_key_from_other_notebook_gets_new_id_in_current_notebook() {
     assert_ne!(copied.relative_path, other_memo.relative_path);
     assert_eq!(copied.filename, "Copied.md");
     assert!(mf.read_memo(&other_memo.relative_path).is_none());
-    assert!(mf.read_memo_for_notebook_id("nb_other", &other_memo.relative_path).is_some());
+    assert!(mf
+        .read_memo_for_notebook_id("nb_other", &other_memo.relative_path)
+        .is_some());
     assert!(copied_content.contains(&format!("flowix_key: {}", other_memo.relative_path)));
 }
 
@@ -828,7 +853,10 @@ fn occupied_names_and_cache_follow_only_the_target_directory() {
         .read_index_for_notebook_id(Some("nb_test"))
         .unwrap()
         .unwrap();
-    assert!(index.memos.iter().any(|entry| entry.relative_path == conflict.relative_path));
+    assert!(index
+        .memos
+        .iter()
+        .any(|entry| entry.relative_path == conflict.relative_path));
 }
 
 #[test]
@@ -839,11 +867,15 @@ fn delayed_remove_cannot_unregister_a_path_that_reappeared() {
 
     // A queued Remove may be delivered after a template writes this path.
     assert!(!mf.unregister_memo_by_path_for_notebook_id("nb_test", &path));
-    assert!(mf.read_memo_for_notebook_id("nb_test", &memo.relative_path).is_some());
+    assert!(mf
+        .read_memo_for_notebook_id("nb_test", &memo.relative_path)
+        .is_some());
 
     fs::remove_file(&path).unwrap();
     assert!(mf.unregister_memo_by_path_for_notebook_id("nb_test", &path));
-    assert!(mf.read_memo_for_notebook_id("nb_test", &memo.relative_path).is_none());
+    assert!(mf
+        .read_memo_for_notebook_id("nb_test", &memo.relative_path)
+        .is_none());
 }
 
 #[test]
@@ -897,12 +929,19 @@ fn rename_memo_renames_file_and_updates_list() {
     let memo = mf.create_memo("Old", "body", None).unwrap();
     assert!(base.join("Old.md").exists());
 
-    let updated = mf.rename_memo(&memo.relative_path, "New").expect("rename ok");
+    let updated = mf
+        .rename_memo(&memo.relative_path, "New")
+        .expect("rename ok");
     assert_eq!(updated.filename, "New.md");
     assert!(!base.join("Old.md").exists(), "old file should be gone");
     assert!(base.join("New.md").exists());
-    assert!(mf.read_memo(&memo.relative_path).is_none(), "renaming changes the path identity");
-    let queried = mf.read_memo(&updated.relative_path).expect("new path is indexed");
+    assert!(
+        mf.read_memo(&memo.relative_path).is_none(),
+        "renaming changes the path identity"
+    );
+    let queried = mf
+        .read_memo(&updated.relative_path)
+        .expect("new path is indexed");
     assert_eq!(queried.filename, "New.md");
 }
 
@@ -969,7 +1008,9 @@ fn rename_memo_not_found_returns_io_error() {
 fn write_memo_updates_body_and_keeps_filename() {
     let (mf, base) = fresh_memo_file();
     let memo = mf.create_memo("Title", "old\n", None).unwrap();
-    let updated = mf.write_memo(&memo.relative_path, "new\n").expect("write ok");
+    let updated = mf
+        .write_memo(&memo.relative_path, "new\n")
+        .expect("write ok");
     assert_eq!(updated.filename, "Title.md");
     // single-line body → preview empty
     let content = fs::read_to_string(base.join("Title.md")).unwrap();
@@ -1015,8 +1056,13 @@ fn write_rename_changes_disk_when_first_line_changes() {
     assert_eq!(updated.filename, "Renamed.md");
     assert!(!base.join("Old.md").exists(), "old file should be gone");
     assert!(base.join("Renamed.md").exists());
-    assert!(mf.read_memo(&memo.relative_path).is_none(), "renaming changes the path identity");
-    let queried = mf.read_memo(&updated.relative_path).expect("new path is indexed");
+    assert!(
+        mf.read_memo(&memo.relative_path).is_none(),
+        "renaming changes the path identity"
+    );
+    let queried = mf
+        .read_memo(&updated.relative_path)
+        .expect("new path is indexed");
     assert_eq!(queried.filename, "Renamed.md");
 }
 
@@ -1032,7 +1078,9 @@ fn write_rename_noop_when_first_line_unchanged() {
         .write_memo_renaming_on_title_change(&memo.relative_path, new_body)
         .expect("write ok");
     assert!(base.join("Stable.md").exists());
-    let queried = mf.read_memo(&memo.relative_path).expect("same path remains indexed");
+    let queried = mf
+        .read_memo(&memo.relative_path)
+        .expect("same path remains indexed");
     assert_eq!(queried.filename, "Stable.md");
 }
 
@@ -1152,8 +1200,13 @@ fn write_rename_empty_body_uses_untitled_memo() {
     assert_eq!(updated.filename, "Untitled Memo.md");
     assert!(!base.join("Keep.md").exists());
     assert!(base.join("Untitled Memo.md").exists());
-    assert!(mf.read_memo(&memo.relative_path).is_none(), "renaming changes the path identity");
-    let queried = mf.read_memo(&updated.relative_path).expect("new path is indexed");
+    assert!(
+        mf.read_memo(&memo.relative_path).is_none(),
+        "renaming changes the path identity"
+    );
+    let queried = mf
+        .read_memo(&updated.relative_path)
+        .expect("new path is indexed");
     assert_eq!(queried.filename, "Untitled Memo.md");
     assert_eq!(queried.preview, "");
 }
@@ -1325,7 +1378,10 @@ fn reconcile_indexes_agent_directories_without_indexing_non_markdown_files() {
     fs::write(agents.join("memo index"), "{}").unwrap();
     fs::write(agents.join("todo metadata"), "{}").unwrap();
     let added = mf.reconcile_with_disk().expect("reconcile ok");
-    assert_eq!(added, 0, "non-Markdown files should stay out of the note index");
+    assert_eq!(
+        added, 0,
+        "non-Markdown files should stay out of the note index"
+    );
 }
 
 #[test]
@@ -1382,7 +1438,11 @@ fn reconcile_skips_every_hidden_folder_but_the_file_tree_keeps_showing_them() {
     }
     fs::write(base.join(".hidden-note.md"), "# Hidden\n").unwrap();
     fs::write(base.join("AGENTS.md"), "# Agent instructions\n").unwrap();
-    fs::write(base.join("docs").join("AGENTS.md"), "# Nested instructions\n").unwrap();
+    fs::write(
+        base.join("docs").join("AGENTS.md"),
+        "# Nested instructions\n",
+    )
+    .unwrap();
     fs::create_dir_all(base.join("docs/public")).unwrap();
     fs::write(base.join("docs/public/Visible.md"), "# Visible\n").unwrap();
 
@@ -1534,7 +1594,10 @@ fn reconcile_bidirectional_adds_orphans_and_removes_ghosts() {
     assert_eq!(report.removed, 1, "应清 Ghost.md 幽灵条目");
 
     // memo index: Ghost entry 已清, NewOnDisk 已注册
-    assert!(mf.read_memo(&ghost.relative_path).is_none(), "ghost entry 应被清");
+    assert!(
+        mf.read_memo(&ghost.relative_path).is_none(),
+        "ghost entry 应被清"
+    );
     assert!(
         mf.find_memo_by_filename("NewOnDisk.md").is_some(),
         "新文件应被注册"
@@ -1666,7 +1729,10 @@ fn unregister_clears_ghost_entry_when_file_gone() {
     let abs = base.join("Ghost.md");
     let removed = mf.unregister_memo_by_path(&abs);
     assert!(removed);
-    assert!(mf.read_memo(&memo.relative_path).is_none(), "ghost entry 已清");
+    assert!(
+        mf.read_memo(&memo.relative_path).is_none(),
+        "ghost entry 已清"
+    );
 }
 
 #[test]
@@ -1695,7 +1761,9 @@ fn reload_refreshes_preview_after_external_edit() {
         "---\nfilename: Reload\n---\n# changed title\nchanged body\n",
     )
     .unwrap();
-    let updated = mf.reload_memo_from_disk(&memo.relative_path).expect("reload ok");
+    let updated = mf
+        .reload_memo_from_disk(&memo.relative_path)
+        .expect("reload ok");
     assert_eq!(updated.filename, "Reload.md");
     assert_eq!(updated.preview, "changed title");
 }
@@ -1834,7 +1902,9 @@ fn read_memo_with_body_returns_full_content() {
 fn find_memo_file_path_returns_disk_path() {
     let (mf, base) = fresh_memo_file();
     let memo = mf.create_memo("Find", "x", None).unwrap();
-    let p = mf.find_memo_file_path(&memo.relative_path).expect("path found");
+    let p = mf
+        .find_memo_file_path(&memo.relative_path)
+        .expect("path found");
     assert_eq!(p, base.join("Find.md"));
 }
 
@@ -2026,7 +2096,10 @@ fn independent_instance_writes_are_visible_after_local_cache_was_populated() {
         .expect("peer create");
 
     let refreshed = first.read_index().expect("peer row visible");
-    assert!(refreshed.memos.iter().any(|memo| memo.relative_path == created.relative_path));
+    assert!(refreshed
+        .memos
+        .iter()
+        .any(|memo| memo.relative_path == created.relative_path));
 }
 
 // =====================================================================
@@ -2109,7 +2182,10 @@ fn rename_memo_file_rekeys_entry_to_new_relative_path() {
         "old filename must be gone from memo index"
     );
 
-    assert!(list.memos.iter().all(|entry| entry.relative_path != old_relative_path));
+    assert!(list
+        .memos
+        .iter()
+        .all(|entry| entry.relative_path != old_relative_path));
     let by_path = mf.read_memo("Hello-renamed.md").expect("read by path");
     assert_eq!(by_path.filename, "Hello-renamed.md");
 }
@@ -2181,7 +2257,11 @@ fn explicit_path_rename_rekeys_note_index() {
     assert_eq!(rereg.filename, "Hello-renamed.md");
     let list = mf.read_index().expect("memo index");
     assert_eq!(list.memos.len(), 1);
-    let entry = list.memos.iter().find(|e| e.relative_path == rereg.relative_path).unwrap();
+    let entry = list
+        .memos
+        .iter()
+        .find(|e| e.relative_path == rereg.relative_path)
+        .unwrap();
     assert_eq!(entry.filename, "Hello-renamed.md");
 }
 
@@ -2391,7 +2471,9 @@ fn index_cache_disk_and_memory_coherent_after_write() {
     let memo = mf.create_memo("Hello", "body1", None).unwrap();
 
     // write_memo 内部走 sync_index_on_write_locked → write_index (cache 同步)
-    let _ = mf.write_memo(&memo.relative_path, "body2\n").expect("write ok");
+    let _ = mf
+        .write_memo(&memo.relative_path, "body2\n")
+        .expect("write ok");
 
     // cache 内容跟 local.db 一致
     let cached = mf.read_index().expect("cached list");
@@ -2488,9 +2570,13 @@ fn read_index_returns_none_for_missing_file_without_caching() {
 
 fn read_note_tags(mf: &MemoFile, relative_path: &str) -> Vec<String> {
     let conn = rusqlite::Connection::open(mf.notebook_db_path("nb_test").unwrap()).unwrap();
-    let tags: String = conn.query_row(
-        "SELECT tags FROM notes WHERE relative_path = ?1", [relative_path], |row| row.get(0),
-    ).unwrap();
+    let tags: String = conn
+        .query_row(
+            "SELECT tags FROM notes WHERE relative_path = ?1",
+            [relative_path],
+            |row| row.get(0),
+        )
+        .unwrap();
     let mut tags: Vec<String> = serde_json::from_str(&tags).unwrap();
     tags.sort();
     tags
@@ -2682,7 +2768,9 @@ fn delete_tag_ignores_unrelated_invalid_legacy_frontmatter_path() {
 #[test]
 fn move_tag_rejects_invalid_paths() {
     let (mf, _base) = fresh_memo_file();
-    let _ = mf.create_note_by_path("nb_test", None, "Any", "#x").unwrap();
+    let _ = mf
+        .create_note_by_path("nb_test", None, "Any", "#x")
+        .unwrap();
 
     // 含 //
     assert!(mf
@@ -2810,7 +2898,10 @@ fn deleting_last_tagged_memo_removes_derived_tag() {
         .unwrap();
 
     assert!(mf.delete_memo(&memo.relative_path));
-    assert!(mf.read_notebook_tag_paths(Some("nb_test")).unwrap().is_empty());
+    assert!(mf
+        .read_notebook_tag_paths(Some("nb_test"))
+        .unwrap()
+        .is_empty());
 }
 
 #[test]
@@ -3249,10 +3340,7 @@ fn tag_union_index_upgrade_rebuilds_index_without_touching_markdown() {
     // The tags JSON column is a set-like projection; assert membership without depending on order.
     let mut tags = read_note_tags(&mf, &memo.relative_path);
     tags.sort();
-    assert_eq!(
-        tags,
-        vec!["bodytag".to_string(), "yamltag".to_string()]
-    );
+    assert_eq!(tags, vec!["bodytag".to_string(), "yamltag".to_string()]);
     assert_ne!(before_upgrade, original);
     assert_eq!(fs::read_to_string(&path).unwrap(), before_upgrade);
     assert_eq!(

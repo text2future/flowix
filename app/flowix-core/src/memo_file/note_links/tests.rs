@@ -137,7 +137,10 @@ fn wiki_relative_names_do_not_resolve_to_same_named_notes_in_other_folders() {
     drain(&memo);
     memo.reconcile_note_index_blocking("links").unwrap();
     fs::remove_file(root.join("source.md")).unwrap(); // Queries use only DB state.
-    let query = || memo.query_note_outlinks("links", "source.md", None, 50).unwrap();
+    let query = || {
+        memo.query_note_outlinks("links", "source.md", None, 50)
+            .unwrap()
+    };
     assert_eq!(query().links[0].resolution, "missing");
     put(&memo, &root, "b/same.md", "");
     assert_eq!(query().links[0].resolution, "missing");
@@ -728,7 +731,10 @@ fn report_high_degree_backlink_performance() {
 fn wiki_paths_follow_document_relative_and_absolute_filesystem_rules() {
     let (_temp, memo, root) = fixture();
     let mut book = memo.get_notebook_config_by_id("links").unwrap();
-    let body = format!("[[./目标.md]] [[../目标.md]] [[{}/绝对.md]] [[/outside/目标.md]]", root.display());
+    let body = format!(
+        "[[./目标.md]] [[../目标.md]] [[{}/绝对.md]] [[/outside/目标.md]]",
+        root.display()
+    );
     let links = parser::extract("sub/source.md", &body, &book).unwrap();
     assert_eq!(links.len(), 3, "{links:?}");
     assert!(links.iter().any(|link| link.target_key == "sub/目标.md"));
@@ -736,10 +742,18 @@ fn wiki_paths_follow_document_relative_and_absolute_filesystem_rules() {
     assert!(links.iter().any(|link| link.target_key == "绝对.md"));
 
     book.path = "C:\\Book".into();
-    let links = parser::extract("sub/source.md", r"[[..\相对.md]] [[c:\book\盘符.md]] [[file:///C:/Book/文件.md]] [[D:/Other/外部.md]]", &book).unwrap();
+    let links = parser::extract(
+        "sub/source.md",
+        r"[[..\相对.md]] [[c:\book\盘符.md]] [[file:///C:/Book/文件.md]] [[D:/Other/外部.md]]",
+        &book,
+    )
+    .unwrap();
     assert_eq!(links.len(), 3, "{links:?}");
     for expected in ["相对.md", "盘符.md", "文件.md"] {
-        assert!(links.iter().any(|link| link.target_key == expected), "{links:?}");
+        assert!(
+            links.iter().any(|link| link.target_key == expected),
+            "{links:?}"
+        );
     }
 
     book.path = r"\\server\share\Book".into();
@@ -753,7 +767,8 @@ fn wiki_paths_follow_document_relative_and_absolute_filesystem_rules() {
 fn wiki_paths_match_the_shared_frontend_contract() {
     let cases: serde_json::Value = serde_json::from_str(include_str!(
         "../../../../../test-fixtures/note-reference-paths.json"
-    )).unwrap();
+    ))
+    .unwrap();
     let (_temp, memo, _root) = fixture();
     let mut book = memo.get_notebook_config_by_id("links").unwrap();
     for case in cases.as_array().unwrap() {
@@ -773,8 +788,16 @@ fn wiki_paths_match_the_shared_frontend_contract() {
 #[test]
 fn bare_markdown_names_prefer_notebook_root_notes() {
     let links = extract("[目录](资料#标题) [文档](./资料.md) [[资料]] [[folder/资料.md]]");
-    assert!(links.iter().any(|r| r.syntax == "markdown" && r.target_key == "资料.md"));
-    assert!(links.iter().any(|r| r.syntax == "markdown" && r.target_key == "目录/资料.md"));
-    assert!(links.iter().any(|r| r.syntax == "wiki" && r.target_key == "目录/资料.md"));
-    assert!(links.iter().any(|r| r.syntax == "wiki" && r.target_key == "目录/folder/资料.md"));
+    assert!(links
+        .iter()
+        .any(|r| r.syntax == "markdown" && r.target_key == "资料.md"));
+    assert!(links
+        .iter()
+        .any(|r| r.syntax == "markdown" && r.target_key == "目录/资料.md"));
+    assert!(links
+        .iter()
+        .any(|r| r.syntax == "wiki" && r.target_key == "目录/资料.md"));
+    assert!(links
+        .iter()
+        .any(|r| r.syntax == "wiki" && r.target_key == "目录/folder/资料.md"));
 }

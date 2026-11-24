@@ -5,12 +5,12 @@
 
 use super::*;
 
-use std::path::PathBuf;
-use serde_json::{Value, json};
 use super::super::command::resolve_codex_cwd;
 use super::super::AGENT_TYPE;
 use crate::agent_external::select_external_session_for_runtime;
 use crate::agent_wire::AgentUserMessage;
+use serde_json::{json, Value};
+use std::path::PathBuf;
 
 impl CodexAppServerManager {
     /// Read skills independently of model, plugin and MCP discovery.
@@ -26,7 +26,6 @@ impl CodexAppServerManager {
         )
         .await
     }
-
 
     /// Read the Codex capabilities that are effective for one project root.
     /// This is a metadata-only operation: it does not create a thread or spend
@@ -110,7 +109,6 @@ impl CodexAppServerManager {
             "refreshedAt": chrono::Utc::now().timestamp_millis(),
         }))
     }
-
 
     pub async fn write_project_config(
         &self,
@@ -207,7 +205,6 @@ impl CodexAppServerManager {
         .await
     }
 
-
     pub async fn set_skill_enabled(&self, name: &str, enabled: bool) -> Result<Value, String> {
         self.ensure_connection().await?;
         self.request(
@@ -216,7 +213,6 @@ impl CodexAppServerManager {
         )
         .await
     }
-
 
     pub async fn set_plugin_installed(
         &self,
@@ -232,12 +228,10 @@ impl CodexAppServerManager {
         self.request(method, params).await
     }
 
-
     pub async fn reload_mcp_servers(&self) -> Result<Value, String> {
         self.ensure_connection().await?;
         self.request("config/mcpServer/reload", json!({})).await
     }
-
 
     pub async fn upsert_project_mcp(
         &self,
@@ -315,7 +309,6 @@ impl CodexAppServerManager {
         Ok(result)
     }
 
-
     pub(super) async fn resolve_codex_thread(
         &self,
         flowix_thread_id: &str,
@@ -380,7 +373,6 @@ impl CodexAppServerManager {
         Ok((codex_thread_id, cwd))
     }
 
-
     /// `turn/start` accepts `cwd`, so Codex can deliberately apply a workspace
     /// selection made while a previous turn was running. Keep Flowix's stored
     /// cwd in sync for session metadata, but do not let that historical value
@@ -416,5 +408,4 @@ impl CodexAppServerManager {
         }
         Ok(cwd)
     }
-
 }

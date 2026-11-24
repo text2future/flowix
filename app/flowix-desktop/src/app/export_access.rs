@@ -138,11 +138,11 @@ impl ExportAccess {
                 let _guard = memo_file.acquire_cross_process_write_lock()?;
                 publish(&target)
             }
-            _ => {
-                memo_file.with_registered_path_change(&[target.as_path()], "export_save_nested_notebooks", || {
-                    publish(&target)
-                })
-            }
+            _ => memo_file.with_registered_path_change(
+                &[target.as_path()],
+                "export_save_nested_notebooks",
+                || publish(&target),
+            ),
         }
     }
 

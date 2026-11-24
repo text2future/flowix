@@ -36,10 +36,12 @@ impl super::store::ThreadManager {
         if current_version == THREAD_DB_SCHEMA_VERSION {
             // A version marker can survive manual table deletion. Validate only
             // the essential schema; this does not scan conversation contents.
-            conn.execute_batch("SELECT thread_id FROM threads LIMIT 0;
+            conn.execute_batch(
+                "SELECT thread_id FROM threads LIMIT 0;
                 SELECT id, thread_id, content FROM thread_messages LIMIT 0;
                 SELECT instance_id FROM agent_conversation_instances LIMIT 0;
-                SELECT id FROM threads_index LIMIT 0;")?;
+                SELECT id FROM threads_index LIMIT 0;",
+            )?;
             return Ok(());
         }
         if current_version > THREAD_DB_SCHEMA_VERSION {
@@ -190,7 +192,9 @@ impl super::store::ThreadManager {
             ("agent_conversation_instances", "role_name"),
         ] {
             let exists: bool = conn.query_row(
-                &format!("SELECT EXISTS(SELECT 1 FROM pragma_table_info('{table}') WHERE name = ?1)"),
+                &format!(
+                    "SELECT EXISTS(SELECT 1 FROM pragma_table_info('{table}') WHERE name = ?1)"
+                ),
                 [column],
                 |row| row.get(0),
             )?;
@@ -458,7 +462,10 @@ impl super::store::ThreadManager {
         }
         for column in ["parent_thread_id", "parent_session_id", "fork_entry_id"] {
             if !columns.iter().any(|existing| existing == column) {
-                conn.execute(&format!("ALTER TABLE threads_pi ADD COLUMN {column} TEXT"), [])?;
+                conn.execute(
+                    &format!("ALTER TABLE threads_pi ADD COLUMN {column} TEXT"),
+                    [],
+                )?;
             }
         }
         Ok(())

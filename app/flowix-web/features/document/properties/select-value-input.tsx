@@ -58,7 +58,7 @@ export function SelectValueInput({
         className={cn(
           'h-8 gap-2 rounded-lg',
           variant === 'table' && (outlined
-            ? 'multidimensional-table__select-trigger border border-[var(--border)] bg-transparent px-2 text-left shadow-none hover:bg-[var(--hover-bg)] focus:border-[var(--primary)]'
+            ? 'multidimensional-table__select-trigger border border-[var(--border)] bg-transparent px-2 text-left shadow-none hover:bg-[var(--hover-bg)] focus:border-[var(--input-ring)]'
             : 'multidimensional-table__select-trigger border-0 bg-transparent px-0 text-left shadow-none hover:bg-transparent focus:border-0'),
           disabled && 'cursor-not-allowed disabled:opacity-50 disabled:cursor-not-allowed'
         )}
@@ -125,7 +125,7 @@ export function SelectValueInput({
                 setDraft('');
               }
             }}
-            className="h-7 min-w-0 flex-1 rounded-md border-0 bg-transparent px-1 text-sm outline-none multidimensional-table__option-input placeholder:text-[var(--muted-foreground)] placeholder:opacity-85 focus:placeholder:opacity-60"
+            className="h-7 min-w-0 flex-1 rounded-md border-0 bg-transparent px-1 text-sm outline-none multidimensional-table__option-input placeholder:text-[var(--input-placeholder)]"
           />
         </div>}
         {normalizedOptions.length === 0 ? (

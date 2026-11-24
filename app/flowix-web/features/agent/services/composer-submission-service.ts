@@ -1,3 +1,6 @@
+import { CloudAccessBlockedError } from "@features/agent/config/cloud-access";
+import { openCloudLoginDialog } from "@features/preferences/public/cloud-login-dialog";
+import { openCloudCreditsDialog } from "@features/agent/thread-card/cloud-access/cloud-credits-dialog";
 import type { AgentTypeKey, RuntimeConfig } from "@/types/agent";
 import { createLogger } from "@/lib/logger";
 import { toast } from "@/lib/toast";
@@ -36,17 +39,25 @@ export async function acceptComposerSubmission(
   const imageAttachments = snapshot.attachments.filter(isAgentThreadCardImageAttachment);
   const imagePaths = imageAttachments.map((image) => image.path);
   if (kind === "message") {
-    await useAgentSessionStore.getState().sendMessageToThread(
-      bound.threadId, snapshot.prompt, bound.typeKey, {
-        instanceId: bound.instanceId, conversationTitle: bound.title,
-        runtimeConfig: bound.runtimeConfig, isFirstMessage: bound.isFirstMessage,
-        runId: bound.runId,
-        currentNoteContent: documentContext, imagePaths,
-        displayContent: snapshot.displayContent,
-        attachments: createAgentMessageAttachments(imageAttachments),
-        rejectOnFailure: true,
-      },
-    );
+    try {
+      await useAgentSessionStore.getState().sendMessageToThread(
+        bound.threadId, snapshot.prompt, bound.typeKey, {
+          instanceId: bound.instanceId, conversationTitle: bound.title,
+          runtimeConfig: bound.runtimeConfig, isFirstMessage: bound.isFirstMessage,
+          runId: bound.runId,
+          currentNoteContent: documentContext, imagePaths,
+          displayContent: snapshot.displayContent,
+          attachments: createAgentMessageAttachments(imageAttachments),
+          rejectOnFailure: true,
+        },
+      );
+    } catch (error) {
+      if (error instanceof CloudAccessBlockedError) {
+        if (error.kind === "signed_out") void openCloudLoginDialog();
+        else void openCloudCreditsDialog();
+      }
+      throw error;
+    }
   } else if (bound.typeKey === "dsh") {
     await runDshCommand({
       command: snapshot.prompt, imagePaths, rejectOnFailure: true,

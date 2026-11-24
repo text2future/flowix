@@ -21,6 +21,24 @@ function createModelItem(model: AgentModelOption): HTMLElement {
 }
 
 describe("Pi model picker provider icons", () => {
+  it("opens a separate details popup on hover and removes it with the picker", async () => {
+    const picker = createPiModelPicker({
+      models: [{ id: "member", label: "Model", source: "flowix-cloud", subtitle: "Description", creditMultiplier: 0.2, reasoningConfig: { levels: ["low", "high"] } }],
+      showMemberSection: true, selectedModelId: "member", memberLabel: "会员", mineLabel: "我的",
+      emptyLabel: "空", personalEmptyLabel: "空", onAddCustomModel: () => {}, createModelItem,
+    });
+    document.body.append(picker);
+    picker.querySelector<HTMLElement>(".agent-pi-model-picker__item-wrapper")!.dispatchEvent(new MouseEvent("mouseenter"));
+    const popup = document.body.querySelector<HTMLElement>(".agent-pi-model-picker__details");
+    expect(popup?.parentElement).toBe(document.body);
+    expect(popup?.textContent).toContain("Description");
+    expect(popup?.textContent).toContain("0.20x");
+    expect(popup?.querySelectorAll("select option")).toHaveLength(3);
+    picker.remove();
+    await Promise.resolve();
+    expect(document.body.querySelector(".agent-pi-model-picker__details")).toBeNull();
+  });
+
   it("shows member and personal models in stacked sections", () => {
     const picker = createPiModelPicker({
       models: [
@@ -128,7 +146,7 @@ describe("Pi model picker provider icons", () => {
 
     const categories = picker.querySelectorAll(".agent-pi-model-picker__category");
     const memberItem = picker.querySelector<HTMLButtonElement>(".agent-pi-model-picker__item");
-    expect(memberItem?.title).toBe("稳定高速模型");
+    expect(memberItem?.getAttribute("aria-description")).toBe("稳定高速模型");
     const memberIcon = memberItem?.querySelector(".agent-pi-model-picker__provider-icon");
     expect(memberIcon).not.toBeNull();
     expect(memberItem?.firstElementChild).toBe(memberIcon);

@@ -326,14 +326,6 @@
 		transform-origin: top left !important;
 	}
 
-	/* 笔记本选择器的搜索框复用 .agent-composer__note-search 的排版, 但
-	 * 「聚焦时 placeholder 变淡」是 Agent composer 的语义, 这里还原。
-	 * 规则放在本文件 (与 .flowix-notebook-selector-popup 同处) 而不是
-	 * composer.css: 它属于笔记本选择器, 不属于 Agent 输入区。 */
-	.flowix-notebook-selector-search:focus::placeholder {
-		opacity: 0.85;
-	}
-
 	@media (prefers-reduced-motion: reduce) {
 		.flowix-popover-content {
 			animation: none !important;

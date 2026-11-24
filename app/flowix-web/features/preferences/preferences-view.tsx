@@ -144,13 +144,13 @@ export function PreferencesView({ initialTab }: PreferencesViewProps) {
 											key={tab.id}
 											// 始终走 ghost 变体, 选中态手动叠加 bg-muted 跟 ghost 的 hover
 											// 同色, 在 light/dark 主题下都保持视觉一致。
-											variant="ghost"
+												variant="ghost"
 											size="sm"
 											aria-current={activeTab === tab.id ? 'page' : undefined}
 											// 行高统一 h-8（32px），覆盖 size="sm" 的 h-7。不要再加 py-*：
 											// padding 与固定高度在 border-box 下会互相撑高（py-4 + h-7 曾把盒子
 											// 顶到 32px，多出来的 4px 看起来像 item 间距）。
-											className={cn(
+												className={cn(
 												'w-full justify-start gap-1.5 h-8 px-1.5 rounded-lg',
 												activeTab === tab.id &&
 													'bg-muted hover:bg-muted dark:bg-[color-mix(in_oklch,var(--muted)_50%,transparent)] dark:hover:bg-[color-mix(in_oklch,var(--muted)_50%,transparent)]'

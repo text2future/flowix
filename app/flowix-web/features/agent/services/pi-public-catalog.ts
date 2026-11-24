@@ -22,6 +22,8 @@ export type PublicCloudModel = {
   title?: string;
   subtitle?: string;
   creditMultiplier?: number;
+  reasoning?: { levels: string[]; defaultLevel?: string | null };
+  iconUrl?: string;
   providerIconUrl?: string;
   /** Directory rank set in the Cloud admin; larger values come first. */
   sortOrder?: number;
@@ -106,7 +108,8 @@ export function withPublicCloudModels(
       providerName: "Flowix Cloud",
       subtitle: model.subtitle,
       creditMultiplier: model.creditMultiplier,
-      iconUrl: model.providerIconUrl,
+      reasoningConfig: model.reasoning,
+      iconUrl: model.iconUrl || model.providerIconUrl,
       sortOrder: model.sortOrder,
     })), ...local.items.filter((model) => !isFlowixCloudModel(model))],
   };
@@ -123,5 +126,5 @@ export async function withCachedGuestCloudModels(
   local: AgentModelCatalog,
 ): Promise<AgentModelCatalog> {
   const cached = readPiPublicCatalogCache(await getPiCloudEnvironment());
-  return cached && cached.models.length ? withPublicCloudModels(local, cached.models) : local;
+  return cached ? withPublicCloudModels(local, cached.models) : local;
 }

@@ -6,7 +6,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::lock_utils::{read_lock, write_lock};
 use flowix_core::memo_file::{MemoFile, Notebook, NotebookConfig};
-use flowix_sync::V2LocalNotebook;
+use flowix_sync::PathNotebookMetadata;
 
 use super::agent_workspace::AGENT_WORKSPACE_CHANGED_EVENT;
 use super::helpers::{
@@ -63,13 +63,13 @@ fn normalize_notebook_path(path: &str) -> String {
 }
 
 fn record_notebook_metadata_change(state: &AppState, app: &AppHandle, config: &NotebookConfig) {
-    let notebook = V2LocalNotebook {
+    let notebook = PathNotebookMetadata {
         id: config.id.clone(),
         name: config.name.clone(),
         icon: config.icon.clone(),
         sort_order: config.sort,
     };
-    match state.cloud_sync.record_v2_notebook_change(&notebook) {
+    match state.cloud_sync.record_path_notebook_change(&notebook) {
         Ok(true) => crate::commands::cloud::schedule_notebook_sync(app.clone(), config.id.clone()),
         Ok(false) => {}
         Err(error) => tracing::warn!(
@@ -295,15 +295,17 @@ fn set_current_notebook_inner(
     // same serialized transition. The lock covers the complete operation so
     // a second request cannot observe a half-switched MemoFile/search pair.
     state.startup.wait_until_ready()?;
-    let _transition = state
-        .notebook_transition
-        .lock();
+    let _transition = state.notebook_transition.lock();
     let previous_id = read_lock(&state.memo_file, "memo_file").current_notebook_id_value();
+
+    if previous_id != notebook_id {
+        crate::commands::cloud::invalidate_notebook_selection();
+    }
 
     // Fast path for ordinary switching: trust memo index and avoid synchronous
     // disk reconciliation. Search index rebuild is lazy, triggered by search.
     if let Err(error) = switch_notebook_trusting_index(state, notebook_id.clone()) {
-        if let Err(restore_error) = switch_notebook_trusting_index(state, previous_id) {
+        if let Err(restore_error) = switch_notebook_trusting_index(state, previous_id.clone()) {
             tracing::error!(
                 "[set_current_notebook] failed to restore previous notebook after switch error: {restore_error}"
             );
@@ -317,7 +319,7 @@ fn set_current_notebook_inner(
     {
         // Keep the process-local and persisted selection aligned if the second
         // half of the switch fails. The original error remains authoritative.
-        if let Err(restore_error) = switch_notebook_trusting_index(state, previous_id) {
+        if let Err(restore_error) = switch_notebook_trusting_index(state, previous_id.clone()) {
             tracing::error!(
                 "[set_current_notebook] failed to restore previous notebook after persistence error: {restore_error}"
             );
@@ -330,6 +332,9 @@ fn set_current_notebook_inner(
             state, app,
         );
     drop(_transition);
+    if previous_id != notebook_id {
+        crate::commands::cloud::notebook_selection_changed(app, notebook_id.as_deref());
+    }
     if let Some(notebook_id) = notebook_id.as_deref() {
         state.notebook_background.prioritize(notebook_id);
     }
@@ -772,9 +777,7 @@ pub fn set_notebook_primary_directory(
 ) -> Result<Notebook, String> {
     state.startup.wait_until_ready()?;
     let updated = {
-        let _transition = state
-            .notebook_transition
-            .lock();
+        let _transition = state.notebook_transition.lock();
         let memo_file = write_lock(&state.memo_file, "memo_file");
         let _change_guard = memo_file
             .operation_locks()
@@ -818,9 +821,7 @@ pub fn save_notebook_settings(
 ) -> Result<NotebookSettingsResult, String> {
     state.startup.wait_until_ready()?;
     let (updated, workspace, path_changed) = {
-        let _transition = state
-            .notebook_transition
-            .lock();
+        let _transition = state.notebook_transition.lock();
         let memo_file = write_lock(&state.memo_file, "memo_file");
         let _change_guard = memo_file
             .operation_locks()
@@ -945,10 +946,10 @@ pub fn delete_notebook(
         false
     };
 
-    if let Err(error) = state.cloud_sync.record_v2_notebook_delete(&id) {
+    if let Err(error) = state.cloud_sync.record_path_notebook_delete(&id) {
         tracing::warn!("failed to persist cloud notebook deletion {id}: {error}");
     } else {
-        crate::commands::cloud::schedule_notebook_sync(app.clone(), id.clone());
+        crate::commands::cloud::schedule_pending_notebook_deletions(app.clone());
     }
 
     notify_notebook_workspace_changed(&app);
@@ -1056,7 +1057,7 @@ pub fn clear_notebooks(state: State<AppState>, app: AppHandle) -> Result<bool, S
     drop(memo_file);
     // 把�?清掉的非默�? notebook �?access 列表里也清掉, 然后 emit 一欰�?
     for id in before_ids {
-        if let Err(error) = state.cloud_sync.record_v2_notebook_delete(&id) {
+        if let Err(error) = state.cloud_sync.record_path_notebook_delete(&id) {
             tracing::warn!("failed to persist cleared cloud notebook {id}: {error}");
         } else {
             crate::commands::cloud::schedule_notebook_sync(app.clone(), id.clone());

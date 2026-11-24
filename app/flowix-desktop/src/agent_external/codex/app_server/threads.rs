@@ -5,10 +5,10 @@
 
 use super::*;
 
-use serde_json::{Value, json};
 use super::super::AGENT_TYPE;
 use crate::agent_external::select_external_session_for_runtime;
 use crate::agent_session::{ChatMessage, ThreadInfo, ThreadMessagesPage};
+use serde_json::{json, Value};
 
 impl CodexAppServerManager {
     pub async fn list_threads(&self) -> Result<Vec<ThreadInfo>, String> {
@@ -74,7 +74,6 @@ impl CodexAppServerManager {
         Ok(threads)
     }
 
-
     pub async fn get_thread_messages(&self, thread_id: &str) -> Result<Vec<ChatMessage>, String> {
         let mut page = self
             .get_thread_messages_page(thread_id, None, None, 1000)
@@ -91,7 +90,6 @@ impl CodexAppServerManager {
         }
         Ok(messages)
     }
-
 
     pub async fn get_thread_messages_page(
         &self,
@@ -162,7 +160,6 @@ impl CodexAppServerManager {
         ))
     }
 
-
     /// Fork a persisted Codex thread at the requested completed Turn and bind
     /// the new Codex session to a new Flowix product thread.
     pub async fn fork_thread(
@@ -209,7 +206,6 @@ impl CodexAppServerManager {
         Ok(new_codex_thread_id)
     }
 
-
     /// Archive the provider-side Codex thread: the rollout moves into Codex's
     /// archived sessions directory, so `thread/list` stops returning it. The
     /// rollout stays recoverable through `thread/unarchive`.
@@ -218,7 +214,6 @@ impl CodexAppServerManager {
             .await
     }
 
-
     /// Hard-delete the provider-side Codex thread together with any spawned
     /// descendant threads. Rollout files and metadata are removed permanently;
     /// missing rollouts are treated as already deleted by the app-server.
@@ -226,7 +221,6 @@ impl CodexAppServerManager {
         self.provider_thread_lifecycle("thread/delete", codex_thread_id)
             .await
     }
-
 
     pub(super) async fn provider_thread_lifecycle(
         &self,
@@ -238,5 +232,4 @@ impl CodexAppServerManager {
             .await?;
         Ok(())
     }
-
 }

@@ -3,12 +3,12 @@
 //! Lock files are stable coordination objects. They are deliberately kept outside
 //! notebook roots and are never removed after an operation completes.
 
-use std::fs::{self, File, OpenOptions};
-use std::io;
-use std::path::{Path, PathBuf};
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::fs::{self, File, OpenOptions};
+use std::io;
 use std::marker::PhantomData;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
@@ -108,7 +108,10 @@ impl OperationLocks {
     }
 
     fn lock_path(path: PathBuf, mode: LockMode, operation: &str) -> io::Result<OsLock> {
-        fs::create_dir_all(path.parent().ok_or_else(|| io::Error::other("invalid lock path"))?)?;
+        fs::create_dir_all(
+            path.parent()
+                .ok_or_else(|| io::Error::other("invalid lock path"))?,
+        )?;
         let file = OpenOptions::new()
             .create(true)
             .read(true)
@@ -132,7 +135,11 @@ impl OperationLocks {
                             io::ErrorKind::TimedOut,
                             format!(
                                 "{operation}: timed out waiting for {} lock {} after {} ms",
-                                if mode == LockMode::Shared { "notebook shared" } else { "exclusive" },
+                                if mode == LockMode::Shared {
+                                    "notebook shared"
+                                } else {
+                                    "exclusive"
+                                },
                                 path.display(),
                                 started.elapsed().as_millis(),
                             ),
@@ -144,7 +151,12 @@ impl OperationLocks {
             }
         }
         tracing::debug!(operation, lock = %path.display(), mode = ?mode, wait_ms = started.elapsed().as_millis(), "operation lock acquired");
-        Ok(OsLock { file, path, operation: operation.to_owned(), acquired_at: Instant::now() })
+        Ok(OsLock {
+            file,
+            path,
+            operation: operation.to_owned(),
+            acquired_at: Instant::now(),
+        })
     }
 
     /// Attempt a single non-blocking lock acquisition. Returns `Ok(None)` when
@@ -152,7 +164,10 @@ impl OperationLocks {
     /// waiting. Used for coordination that must never turn into a blocking
     /// bottleneck (e.g. a second full-index reconcile pass).
     fn try_lock_path(path: PathBuf, mode: LockMode, operation: &str) -> io::Result<Option<OsLock>> {
-        fs::create_dir_all(path.parent().ok_or_else(|| io::Error::other("invalid lock path"))?)?;
+        fs::create_dir_all(
+            path.parent()
+                .ok_or_else(|| io::Error::other("invalid lock path"))?,
+        )?;
         let file = OpenOptions::new()
             .create(true)
             .read(true)
@@ -166,7 +181,12 @@ impl OperationLocks {
         match result {
             Ok(()) => {
                 tracing::debug!(operation, lock = %path.display(), mode = ?mode, "operation lock acquired (non-blocking)");
-                Ok(Some(OsLock { file, path, operation: operation.to_owned(), acquired_at: Instant::now() }))
+                Ok(Some(OsLock {
+                    file,
+                    path,
+                    operation: operation.to_owned(),
+                    acquired_at: Instant::now(),
+                }))
             }
             Err(error)
                 if error.kind() == io::ErrorKind::WouldBlock
@@ -179,25 +199,42 @@ impl OperationLocks {
     }
 
     fn lock_file(&self, relative: &Path, mode: LockMode, operation: &str) -> io::Result<OsLock> {
-        Self::lock_path(self.config_dir.join("locks").join(relative), mode, operation)
+        Self::lock_path(
+            self.config_dir.join("locks").join(relative),
+            mode,
+            operation,
+        )
     }
 
     fn legacy_gate(&self, operation: &str) -> io::Result<OsLock> {
         // Older Flowix processes take this lock exclusively. A shared hold
         // coordinates with them without serializing new file operations.
-        Self::lock_path(self.config_dir.join(".memo-write.lock"), LockMode::Shared, operation)
+        Self::lock_path(
+            self.config_dir.join(".memo-write.lock"),
+            LockMode::Shared,
+            operation,
+        )
     }
 
     fn notebook_lock_path(notebook_id: &str) -> io::Result<PathBuf> {
         if notebook_id.is_empty()
-            || !notebook_id.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+            || !notebook_id
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
         {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid notebook lock id"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid notebook lock id",
+            ));
         }
         Ok(PathBuf::from("notebooks").join(format!("{notebook_id}.lock")))
     }
 
-    pub fn notebook_read(&self, notebook_id: &str, operation: &str) -> io::Result<NotebookReadGuard> {
+    pub fn notebook_read(
+        &self,
+        notebook_id: &str,
+        operation: &str,
+    ) -> io::Result<NotebookReadGuard> {
         let relative = Self::notebook_lock_path(notebook_id)?;
         let key = (self.config_dir.clone(), notebook_id.to_owned());
         if let Some(lock) = NOTEBOOK_READ_LOCKS.with_borrow(|locks| locks.get(&key).cloned()) {
@@ -207,36 +244,61 @@ impl OperationLocks {
         NOTEBOOK_READ_LOCKS.with_borrow_mut(|locks| {
             locks.insert(key.clone(), lock.clone());
         });
-        Ok(NotebookReadGuard {
-            lock, key,
-        })
+        Ok(NotebookReadGuard { lock, key })
     }
 
-    pub fn notebook_change(&self, notebook_ids: &[&str], operation: &str) -> io::Result<NotebookChangeGuard> {
+    pub fn notebook_change(
+        &self,
+        notebook_ids: &[&str],
+        operation: &str,
+    ) -> io::Result<NotebookChangeGuard> {
         if notebook_ids.is_empty() {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "notebook change needs at least one notebook"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "notebook change needs at least one notebook",
+            ));
         }
         let legacy_gate = self.legacy_gate(operation)?;
         let mut ids = notebook_ids.to_vec();
         ids.sort_unstable();
         ids.dedup();
-        let upgrading = NOTEBOOK_READ_LOCKS.with_borrow(|locks| ids.iter().any(|id| {
-            locks.contains_key(&(self.config_dir.clone(), (*id).to_owned()))
-        }));
+        let upgrading = NOTEBOOK_READ_LOCKS.with_borrow(|locks| {
+            ids.iter()
+                .any(|id| locks.contains_key(&(self.config_dir.clone(), (*id).to_owned())))
+        });
         if upgrading {
-            return Err(io::Error::new(io::ErrorKind::WouldBlock, "cannot upgrade notebook shared lock to exclusive"));
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "cannot upgrade notebook shared lock to exclusive",
+            ));
         }
         let mut locks = Vec::with_capacity(ids.len());
         for id in ids {
-            locks.push(self.lock_file(&Self::notebook_lock_path(id)?, LockMode::Exclusive, operation)?);
+            locks.push(self.lock_file(
+                &Self::notebook_lock_path(id)?,
+                LockMode::Exclusive,
+                operation,
+            )?);
         }
-        Ok(NotebookChangeGuard { _locks: locks, _legacy_gate: legacy_gate, _not_send: PhantomData })
+        Ok(NotebookChangeGuard {
+            _locks: locks,
+            _legacy_gate: legacy_gate,
+            _not_send: PhantomData,
+        })
     }
 
-    pub fn notebook_maintenance(&self, notebook_id: &str, operation: &str) -> io::Result<NotebookMaintenanceGuard> {
+    pub fn notebook_maintenance(
+        &self,
+        notebook_id: &str,
+        operation: &str,
+    ) -> io::Result<NotebookMaintenanceGuard> {
         let relative = Self::notebook_lock_path(notebook_id)?;
         Ok(NotebookMaintenanceGuard {
-            _lock: self.lock_file(&PathBuf::from("maintenance").join(relative), LockMode::Exclusive, operation)?,
+            _lock: self.lock_file(
+                &PathBuf::from("maintenance").join(relative),
+                LockMode::Exclusive,
+                operation,
+            )?,
         })
     }
 
@@ -249,21 +311,35 @@ impl OperationLocks {
         operation: &str,
     ) -> io::Result<Option<NotebookMaintenanceGuard>> {
         let relative = Self::notebook_lock_path(notebook_id)?;
-        let path = self.config_dir.join("locks").join(PathBuf::from("maintenance").join(relative));
+        let path = self
+            .config_dir
+            .join("locks")
+            .join(PathBuf::from("maintenance").join(relative));
         Ok(Self::try_lock_path(path, LockMode::Exclusive, operation)?
             .map(|_lock| NotebookMaintenanceGuard { _lock }))
     }
 
     /// Serialize changes to one path archive's manifest. Callers also hold
     /// either the notebook's shared lock or its structural exclusive lock.
-    pub fn version_manifest_write(&self, notebook_id: &str, relative_path: &str) -> io::Result<VersionManifestGuard> {
+    pub fn version_manifest_write(
+        &self,
+        notebook_id: &str,
+        relative_path: &str,
+    ) -> io::Result<VersionManifestGuard> {
         Self::notebook_lock_path(notebook_id)?;
-        let identity = format!("version-manifest:{notebook_id}:{}", relative_path.replace('\\', "/"));
+        let identity = format!(
+            "version-manifest:{notebook_id}:{}",
+            relative_path.replace('\\', "/")
+        );
         #[cfg(any(windows, target_os = "macos"))]
         let identity = identity.to_lowercase();
         let key = format!("{:x}.lock", Sha256::digest(identity.as_bytes()));
         Ok(VersionManifestGuard {
-            _lock: self.lock_file(&PathBuf::from("files").join(key), LockMode::Exclusive, "write_path_version_manifest")?,
+            _lock: self.lock_file(
+                &PathBuf::from("files").join(key),
+                LockMode::Exclusive,
+                "write_path_version_manifest",
+            )?,
         })
     }
 
@@ -271,8 +347,12 @@ impl OperationLocks {
         match intent {
             FileLockIntent::Existing => fs::canonicalize(path),
             FileLockIntent::Create => {
-                let parent = path.parent().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "file has no parent"))?;
-                let name = path.file_name().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "file has no name"))?;
+                let parent = path.parent().ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::InvalidInput, "file has no parent")
+                })?;
+                let name = path.file_name().ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::InvalidInput, "file has no name")
+                })?;
                 Ok(fs::canonicalize(parent)?.join(name))
             }
             FileLockIntent::ExistingOrMissing => match fs::canonicalize(path) {
@@ -298,15 +378,27 @@ impl OperationLocks {
         let root = fs::canonicalize(notebook_root)?;
         let stable = Self::stable_file_path(path, intent)?;
         if !stable.starts_with(&root) || stable == root {
-            return Err(io::Error::new(io::ErrorKind::PermissionDenied, "file leaves notebook"));
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "file leaves notebook",
+            ));
         }
         let identity = stable.to_string_lossy().replace('\\', "/");
         #[cfg(any(windows, target_os = "macos"))]
         let identity = identity.to_lowercase();
         let digest = Sha256::digest(identity.as_bytes());
         let key = format!("{digest:x}.lock");
-        let file = self.lock_file(&PathBuf::from("files").join(key), LockMode::Exclusive, operation)?;
-        Ok(FileWriteGuard { file, notebook, legacy_gate, path: stable })
+        let file = self.lock_file(
+            &PathBuf::from("files").join(key),
+            LockMode::Exclusive,
+            operation,
+        )?;
+        Ok(FileWriteGuard {
+            file,
+            notebook,
+            legacy_gate,
+            path: stable,
+        })
     }
 }
 
@@ -323,8 +415,24 @@ mod tests {
         fs::write(root.join("a.md"), "a").unwrap();
         fs::write(root.join("b.md"), "b").unwrap();
         let locks = OperationLocks::new(temp.path().join("config"));
-        let first = locks.file_write("book", &root, &root.join("a.md"), FileLockIntent::Existing, "test_a").unwrap();
-        let second = locks.file_write("book", &root, &root.join("b.md"), FileLockIntent::Existing, "test_b").unwrap();
+        let first = locks
+            .file_write(
+                "book",
+                &root,
+                &root.join("a.md"),
+                FileLockIntent::Existing,
+                "test_a",
+            )
+            .unwrap();
+        let second = locks
+            .file_write(
+                "book",
+                &root,
+                &root.join("b.md"),
+                FileLockIntent::Existing,
+                "test_b",
+            )
+            .unwrap();
         assert_ne!(first.path(), second.path());
     }
 
@@ -336,11 +444,15 @@ mod tests {
         let path = root.join("a.md");
         fs::write(&path, "old").unwrap();
         let config = temp.path().join("config");
-        let first = OperationLocks::new(config.clone()).file_write("book", &root, &path, FileLockIntent::Existing, "first").unwrap();
+        let first = OperationLocks::new(config.clone())
+            .file_write("book", &root, &path, FileLockIntent::Existing, "first")
+            .unwrap();
         super::super::atomic_write_bytes(&path, b"new").unwrap();
         let (sender, receiver) = mpsc::channel();
         let worker = std::thread::spawn(move || {
-            let _second = OperationLocks::new(config).file_write("book", &root, &path, FileLockIntent::Existing, "second").unwrap();
+            let _second = OperationLocks::new(config)
+                .file_write("book", &root, &path, FileLockIntent::Existing, "second")
+                .unwrap();
             sender.send(()).unwrap();
         });
         assert!(receiver.recv_timeout(Duration::from_millis(150)).is_err());
@@ -357,10 +469,14 @@ mod tests {
         let path = root.join("a.md");
         fs::write(&path, "a").unwrap();
         let config = temp.path().join("config");
-        let file = OperationLocks::new(config.clone()).file_write("book", &root, &path, FileLockIntent::Existing, "save").unwrap();
+        let file = OperationLocks::new(config.clone())
+            .file_write("book", &root, &path, FileLockIntent::Existing, "save")
+            .unwrap();
         let (sender, receiver) = mpsc::channel();
         let worker = std::thread::spawn(move || {
-            let _change = OperationLocks::new(config).notebook_change(&["book"], "rename").unwrap();
+            let _change = OperationLocks::new(config)
+                .notebook_change(&["book"], "rename")
+                .unwrap();
             sender.send(()).unwrap();
         });
         assert!(receiver.recv_timeout(Duration::from_millis(150)).is_err());
@@ -377,17 +493,32 @@ mod tests {
         let path = root.join("a.md");
         fs::write(&path, "a").unwrap();
         let config = temp.path().join("config");
-        let change = OperationLocks::new(config.clone()).notebook_change(&["book"], "delete_directory").unwrap();
+        let change = OperationLocks::new(config.clone())
+            .notebook_change(&["book"], "delete_directory")
+            .unwrap();
         let (sender, receiver) = mpsc::channel();
         let root_for_worker = root.clone();
         let worker = std::thread::spawn(move || {
-            let result = OperationLocks::new(config).file_write("book", &root_for_worker, &path, FileLockIntent::Existing, "save");
+            let result = OperationLocks::new(config).file_write(
+                "book",
+                &root_for_worker,
+                &path,
+                FileLockIntent::Existing,
+                "save",
+            );
             sender.send(result.map(|_| ())).unwrap();
         });
         assert!(receiver.recv_timeout(Duration::from_millis(150)).is_err());
         fs::remove_dir_all(&root).unwrap();
         drop(change);
-        assert_eq!(receiver.recv_timeout(Duration::from_secs(2)).unwrap().unwrap_err().kind(), io::ErrorKind::NotFound);
+        assert_eq!(
+            receiver
+                .recv_timeout(Duration::from_secs(2))
+                .unwrap()
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::NotFound
+        );
         assert!(!root.exists());
         worker.join().unwrap();
     }
@@ -401,12 +532,18 @@ mod tests {
         fs::write(&path, "a").unwrap();
         let config = temp.path().join("config");
         fs::create_dir(&config).unwrap();
-        let legacy = OpenOptions::new().create(true).read(true).write(true)
-            .open(config.join(".memo-write.lock")).unwrap();
+        let legacy = OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .open(config.join(".memo-write.lock"))
+            .unwrap();
         fs2::FileExt::lock_exclusive(&legacy).unwrap();
         let (sender, receiver) = mpsc::channel();
         let worker = std::thread::spawn(move || {
-            let _guard = OperationLocks::new(config).file_write("book", &root, &path, FileLockIntent::Existing, "new_save").unwrap();
+            let _guard = OperationLocks::new(config)
+                .file_write("book", &root, &path, FileLockIntent::Existing, "new_save")
+                .unwrap();
             sender.send(()).unwrap();
         });
         assert!(receiver.recv_timeout(Duration::from_millis(150)).is_err());
@@ -425,7 +562,9 @@ mod tests {
         drop(outer);
         let (sender, receiver) = mpsc::channel();
         let worker = std::thread::spawn(move || {
-            let _change = OperationLocks::new(config).notebook_change(&["book"], "change").unwrap();
+            let _change = OperationLocks::new(config)
+                .notebook_change(&["book"], "change")
+                .unwrap();
             sender.send(()).unwrap();
         });
         assert!(receiver.recv_timeout(Duration::from_millis(150)).is_err());

@@ -14,6 +14,7 @@ interface UseBadgeRuntimeInfoOptions {
   identity: string;
   model?: string;
   usage?: UsageInfo;
+  refreshOnRequest?: boolean;
   sessionId?: string;
   onRequest?: () => Promise<BadgeHoverCardRuntimeInfo | null>;
 }
@@ -49,6 +50,7 @@ export function useBadgeRuntimeInfo({
   identity,
   model,
   usage,
+  refreshOnRequest = false,
   sessionId,
   onRequest,
 }: UseBadgeRuntimeInfoOptions) {
@@ -69,7 +71,7 @@ export function useBadgeRuntimeInfo({
   }, [identity, onRequest]);
 
   const requestRuntimeInfo = React.useCallback(() => {
-    if (!onRequest || loadedIdentityRef.current === identity) return;
+    if (!onRequest || (!refreshOnRequest && loadedIdentityRef.current === identity)) return;
     if (requestRef.current?.identity === identity) return;
 
     let promise: Promise<BadgeHoverCardRuntimeInfo | null>;
@@ -102,7 +104,7 @@ export function useBadgeRuntimeInfo({
             : current);
         }
       });
-  }, [identity, onRequest]);
+  }, [identity, onRequest, refreshOnRequest]);
 
   const fetched = snapshot?.identity === identity ? snapshot.info : null;
   const displayModel = nonEmpty(model) ?? nonEmpty(fetched?.model);

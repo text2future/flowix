@@ -1,17 +1,9 @@
 'use client';
 
-import { DialogFooter } from '@shared/ui/dialog-footer';
 import { useEffect, useState } from 'react';
 import { boot, product, relaunch, type CloudEnvironment, type ProductInfo } from '@platform/tauri/client';
 import { Button } from '@shared/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@shared/ui/select';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@shared/ui/dialog';
 import { Tooltip } from '@shared/ui/tooltip';
 import { toast } from '@/lib/toast';
 import { useI18n } from '@/lib/i18n';
@@ -22,13 +14,14 @@ interface EnvironmentConfigSectionProps {
   productInfo: ProductInfo | null;
 }
 
+type DevCloudEnvironment = Exclude<CloudEnvironment, 'prod'>;
+
 export function EnvironmentConfigSection({ productInfo }: EnvironmentConfigSectionProps) {
   const { t } = useI18n();
   const region = useUserSettingsStore((state) => state.settings.region);
   const updateSettings = useUserSettingsStore((state) => state.updateSettings);
   const flushSettings = useUserSettingsStore((state) => state.flushPending);
   const [switchingCloudEnvironment, setSwitchingCloudEnvironment] = useState(false);
-  const [confirmingProdSwitch, setConfirmingProdSwitch] = useState(false);
   const [versionInitializationCompleted, setVersionInitializationCompleted] = useState<boolean | null>(null);
   const [savingVersionInitialization, setSavingVersionInitialization] = useState(false);
   const cloudEnvironmentLabel = productInfo?.cloudEnvironment === 'prod'
@@ -68,21 +61,18 @@ export function EnvironmentConfigSection({ productInfo }: EnvironmentConfigSecti
     }
   };
 
-  const applyCloudEnvironment = async (environment: CloudEnvironment) => {
+  const applyCloudEnvironment = async (environment: DevCloudEnvironment) => {
     if (!productInfo?.isDevBuild) return;
     setSwitchingCloudEnvironment(true);
     let preferenceSaved = false;
     try {
-      if (environment !== 'prod') {
-        await updateSettings({ region: environment === 'cn-staging' ? 'mainland' : 'overseas' });
-        await flushSettings();
-      }
+      await updateSettings({ region: environment === 'cn-staging' ? 'mainland' : 'overseas' });
+      await flushSettings();
       await product.setCloudEnvironment(environment);
       preferenceSaved = true;
       await relaunch();
     } catch {
       setSwitchingCloudEnvironment(false);
-      setConfirmingProdSwitch(false);
       toast.error(t(preferenceSaved
         ? 'preferences.environmentConfig.cloudEnvironment.restartFailed'
         : 'preferences.environmentConfig.cloudEnvironment.failed'));
@@ -92,19 +82,14 @@ export function EnvironmentConfigSection({ productInfo }: EnvironmentConfigSecti
   const switchRegion = async () => {
     const nextRegion = region === 'mainland' ? 'overseas' : 'mainland';
     await updateSettings({ region: nextRegion });
-    if (productInfo?.cloudEnvironment === 'prod') return;
     await flushSettings();
     await applyCloudEnvironment(nextRegion === 'mainland' ? 'cn-staging' : 'staging');
   };
 
   const handleCloudEnvironmentChange = (value: string) => {
     if (!productInfo?.isDevBuild) return;
-    const environment = value === 'staging' || value === 'cn-staging' || value === 'prod' ? value : null;
+    const environment = value === 'staging' || value === 'cn-staging' ? value : null;
     if (!environment || environment === productInfo.cloudEnvironment) return;
-    if (environment === 'prod') {
-      setConfirmingProdSwitch(true);
-      return;
-    }
     void applyCloudEnvironment(environment);
   };
 
@@ -153,9 +138,6 @@ export function EnvironmentConfigSection({ productInfo }: EnvironmentConfigSecti
               <SelectItem value="cn-staging">
                 {t('preferences.environmentConfig.cloudEnvironment.cnStaging')}
               </SelectItem>
-              <SelectItem value="prod">
-                {t('preferences.environmentConfig.cloudEnvironment.prod')}
-              </SelectItem>
             </SelectContent>
           </Select>
         </FieldRow>
@@ -196,35 +178,6 @@ export function EnvironmentConfigSection({ productInfo }: EnvironmentConfigSecti
           </Button>
         </Tooltip>
       </FieldRow>
-
-      <Dialog open={confirmingProdSwitch} onOpenChange={(open) => {
-        if (!switchingCloudEnvironment) setConfirmingProdSwitch(open);
-      }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('preferences.environmentConfig.cloudEnvironment.prodConfirm.title')}</DialogTitle>
-            <DialogDescription>
-              {t('preferences.environmentConfig.cloudEnvironment.prodConfirm.description')}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="ghost"
-              disabled={switchingCloudEnvironment}
-              onClick={() => setConfirmingProdSwitch(false)}
-            >
-              {t('dialog.cancel')}
-            </Button>
-            <Button
-              variant="destructive"
-              disabled={switchingCloudEnvironment}
-              onClick={() => void applyCloudEnvironment('prod')}
-            >
-              {t('preferences.environmentConfig.cloudEnvironment.prodConfirm.confirm')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

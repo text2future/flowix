@@ -2,7 +2,7 @@
 //!
 //! This crate deliberately has no Tauri dependency. `flowix-desktop` owns the
 //! local Markdown adapter and secret persistence; this crate owns the Cloud
-//! HTTP contract, sync state database, revisions, cursors and conflict plans.
+//! account contract, object-store credentials, and path-keyed sync engine.
 
 pub mod account;
 mod client;
@@ -10,32 +10,47 @@ mod environment;
 mod error;
 mod manager;
 mod models;
+pub mod object_store;
+pub mod object_store_ops;
+pub mod reconcile;
+pub mod remote;
 mod store;
-mod v2;
+pub mod telemetry;
+pub mod v4;
+pub mod v4_apply;
+pub mod v4_pass;
 
+pub use account::{AccountService, PendingLogout};
 pub use client::CloudClient;
 pub use environment::{default_cloud_environment, CloudEnvironment};
 pub use error::SyncError;
-pub use account::{AccountService, PendingLogout};
 pub use manager::SyncManager;
+pub use manager::{V4PassInput, V4_CREDENTIAL_RENEWAL_MARGIN_MS};
 pub use models::{
     AccountDeletionOutcome, AccountDeletionState, AppleAuthChallenge, AppleAuthorization,
-    CloudAiCredential, CloudAiCreditBalance, CloudAiModel, CloudAiProvider, CloudAuthStatus,
-    CloudCheckout, CloudEntitlementStatus, CloudMembership, CloudNotebook, CloudOrder,
-    CloudOrderCheck, CloudPrice, CloudProduct, CloudState, CloudSubscription, CloudUser,
-    LocalChangeKind, ProductDuration, ProductEntitlement, RefreshTokenStore,
+    CloudAccount, CloudAiCredential, CloudAiCreditBalance, CloudAiModel, CloudAiProvider,
+    CloudAuthStatus, CloudCheckout, CloudEntitlementStatus, CloudMembership, CloudNoteShareLink,
+    CloudNotebook, CloudOrder, CloudOrderCheck, CloudPrice, CloudProduct, CloudState,
+    CloudSubscription, CloudUser, PasswordResetCodeRequest, ProductDuration, ProductEntitlement,
+    RefreshTokenStore, RegistrationCodeRequest, RegistrationCodeResend,
 };
+pub use object_store::{
+    list_prefix, ListedObject, ObjectStoreCredentials, StorageCredentialEnvelope, StorageQuota,
+};
+pub use reconcile::{
+    directories_to_scan, reconcile, Baseline, ConflictBackup, Defer, DeferReason, DeleteLocal,
+    DirScanRecord, Download, DownloadReason, LocalFile, LocalView, Probe, ReconcilePlan,
+    ReconcileStats, RemoteListing, RemoteObject, SyncAction, Tombstone, Upload, UploadReason,
+    DELETE_CONFIRM_WINDOW_MS, STAMP_BOUNDARY_MS,
+};
+pub use remote::RemoteKind;
 pub use store::SyncStore;
-pub use v2::{
-    collect_v2_attachments, new_v2_operation_id, referenced_attachment_paths, v2_content_hash,
-    v2_local_content_diverged, v2_notebook_metadata_hash, v2_path_note_id, V2AccountSyncReport,
-    V2Attachment, V2BlobDownload, V2BlobDownloadCapability, V2BlobDownloadEnvelope,
-    V2BlobReservation, V2BlobReservationEnvelope, V2BlobUpload, V2Bootstrap, V2BootstrapNote,
-    V2Change, V2ChangesPage, V2CloudAccount, V2ConflictMaterial, V2DirtyEntity, V2EntityType,
-    V2FreezeOperation, V2InflightOperation, V2LocalAttachment,
-    V2LocalNote, V2LocalNotebook, V2NoteState, V2NotebookState, V2OperationError, V2OperationKind,
-    V2PendingMove, V2PushOperation, V2PushResult, V2RemoteApply, V2RemoteAttachment, V2SyncStatus,
-    V2SyncedNotebook, PROTOCOL_EPOCH,
+pub use v4::{
+    CloudDirectoryMarker, CloudNotebookManifest, PathNotebookLink, PathNotebookMetadata,
+    PendingNotebookAction, PendingNotebookChange, ScannedLocalFile, V4DirectoryState,
+    V4NotebookState, V4PathState,
 };
-
-pub mod text_merge;
+pub use v4_pass::{
+    plan_pass, run_pass, state_updates, DirectSource, ObjectSource, PassEnv, PassPlan, PassReport,
+    PassRequest, StateUpdates, BIND_GRACE_MS,
+};

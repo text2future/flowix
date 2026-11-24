@@ -11,11 +11,11 @@
 //! and hand the bytes here. Keeping the extraction here means the CLI can
 //! install the same template without duplicating the symlink and path-escape
 //! rules.
+use crate::path_scope::path_is_inside;
 use fs2::FileExt;
 use serde_json::Value;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Write};
-use crate::path_scope::path_is_inside;
 use std::path::{Path, PathBuf};
 
 const MAX_TEMPLATE_PACKAGE_BYTES: usize = 24 * 1024 * 1024;
@@ -118,10 +118,7 @@ fn ensure_template_install_directory(root: &Path, path: &Path) -> Result<(), Str
         }
     }
     let metadata = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
-    if metadata.file_type().is_symlink()
-        || !metadata.is_dir()
-        || !path_is_inside(path, root)
-    {
+    if metadata.file_type().is_symlink() || !metadata.is_dir() || !path_is_inside(path, root) {
         return Err("Notebook template install path must stay inside the notebook".to_string());
     }
     Ok(())

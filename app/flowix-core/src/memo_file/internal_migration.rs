@@ -88,8 +88,9 @@ impl MemoFile {
 
         // Once migration completed, a missing target may be an intentional
         // deletion. Retained sources are recovery inputs, not a live mirror.
-        if self.local_migration_completed(&super::NotebookInitializationJob::ResetLegacyStorage.key(notebook_id))?
-            || self
+        if self.local_migration_completed(
+            &super::NotebookInitializationJob::ResetLegacyStorage.key(notebook_id),
+        )? || self
             .notebook_data_migration_version(notebook_id, NOTEBOOK_INTERNAL_MIGRATION_KEY)?
             .unwrap_or_default()
             >= NOTEBOOK_INTERNAL_MIGRATION_VERSION
@@ -415,10 +416,18 @@ mod tests {
             "a completed migration must not resurrect deleted targets"
         );
         assert_eq!(fs::read(old_plugin).unwrap(), b"plugin bytes");
-        mf.mark_local_migration_completed(&super::super::NotebookInitializationJob::ResetLegacyStorage.key("nb_test")).unwrap();
+        mf.mark_local_migration_completed(
+            &super::super::NotebookInitializationJob::ResetLegacyStorage.key("nb_test"),
+        )
+        .unwrap();
         let conn = rusqlite::Connection::open(notebook.join(".flowix/notebook.db")).unwrap();
-        conn.execute("DROP TABLE notebook_data_migrations", []).unwrap();
-        assert!(mf.migrate_notebook_internal_data("nb_test").unwrap().completed);
+        conn.execute("DROP TABLE notebook_data_migrations", [])
+            .unwrap();
+        assert!(
+            mf.migrate_notebook_internal_data("nb_test")
+                .unwrap()
+                .completed
+        );
         assert!(!notebook.join(".flowix/plugin/mindmap/map.md").exists());
     }
 

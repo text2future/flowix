@@ -13,8 +13,8 @@ pub use property_presets::{PropertyPresetChange, PropertyPresetRegistry, Propert
 pub use security_bookmark::SecurityBookmarkStore;
 pub use user::{
     dsh_credential_ref_for_route, AiConfigFile, AiMemoryLocation, AiModelConfig, AiModelEntry,
-    CloudDevRefreshTokenStore, PreferenceFile, Theme, UserConfigError, UserConfigStore,
-    DSH_SETTINGS_FILE_NAME,
+    CloudDevRefreshTokenStore, DevCloudEnvironment, PreferenceFile, Theme, UserConfigError,
+    UserConfigStore, DSH_SETTINGS_FILE_NAME,
 };
 pub(crate) use user::{
     merge_harness_provider, DeepSeekHarnessProviderSettings, DeepSeekHarnessSettingsFile,

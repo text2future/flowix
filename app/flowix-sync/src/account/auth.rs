@@ -1,20 +1,62 @@
 use super::*;
 
 impl AccountService {
-    pub async fn register(
+    pub async fn request_password_reset_code(
+        &self,
+        email: &str,
+        email_language: &str,
+    ) -> Result<PasswordResetCodeRequest, SyncError> {
+        self.client
+            .request_password_reset_code(&email.trim().to_lowercase(), email_language)
+            .await
+    }
+
+    pub async fn confirm_password_reset_code(
+        &self,
+        email: &str,
+        code: &str,
+        new_password: &str,
+    ) -> Result<(), SyncError> {
+        self.client
+            .confirm_password_reset_code(&email.trim().to_lowercase(), code.trim(), new_password)
+            .await
+    }
+
+    pub async fn request_registration_code(
         &self,
         email: &str,
         password: &str,
         display_name: &str,
+        email_language: &str,
+    ) -> Result<RegistrationCodeRequest, SyncError> {
+        self.client
+            .request_registration_code(email.trim(), password, display_name.trim(), email_language)
+            .await
+    }
+
+    pub async fn resend_registration_code(
+        &self,
+        email: &str,
+    ) -> Result<RegistrationCodeResend, SyncError> {
+        self.client
+            .resend_registration_code(&email.trim().to_lowercase())
+            .await
+    }
+
+    pub async fn confirm_registration(
+        &self,
+        email: &str,
+        code: &str,
+        password: &str,
     ) -> Result<CloudState, SyncError> {
         let generation = self.begin_auth_attempt();
-        let auth = self.client.register(email, password, display_name).await?;
+        let auth = self
+            .client
+            .confirm_registration(&email.trim().to_lowercase(), code.trim(), password)
+            .await?;
         self.accept_auth(
             generation,
-            V2CloudAccount {
-                user: auth.user,
-                protocol_epoch: crate::v2::PROTOCOL_EPOCH,
-            },
+            CloudAccount { user: auth.user },
             auth.session.into(),
             false,
         )
@@ -39,16 +81,10 @@ impl AccountService {
         restore_deleted: bool,
     ) -> Result<CloudState, SyncError> {
         let generation = self.begin_auth_attempt();
-        let auth = self
-            .client
-            .login(email, password, restore_deleted)
-            .await?;
+        let auth = self.client.login(email, password, restore_deleted).await?;
         self.accept_auth(
             generation,
-            V2CloudAccount {
-                user: auth.user,
-                protocol_epoch: crate::v2::PROTOCOL_EPOCH,
-            },
+            CloudAccount { user: auth.user },
             auth.session.into(),
             auth.restored,
         )
@@ -61,15 +97,13 @@ impl AccountService {
     pub async fn sign_in_with_apple(
         &self,
         authorization: &AppleAuthorization,
+        account_region: &str,
     ) -> Result<CloudState, SyncError> {
         let generation = self.begin_auth_attempt();
-        let auth = self.client.apple_exchange(authorization).await?;
+        let auth = self.client.apple_exchange(authorization, account_region).await?;
         self.accept_auth(
             generation,
-            V2CloudAccount {
-                user: auth.user,
-                protocol_epoch: crate::v2::PROTOCOL_EPOCH,
-            },
+            CloudAccount { user: auth.user },
             auth.session.into(),
             auth.restored,
         )
@@ -94,10 +128,7 @@ impl AccountService {
             .await?;
         self.accept_auth(
             generation,
-            V2CloudAccount {
-                user: auth.user,
-                protocol_epoch: crate::v2::PROTOCOL_EPOCH,
-            },
+            CloudAccount { user: auth.user },
             auth.session.into(),
             auth.restored,
         )
@@ -141,7 +172,7 @@ impl AccountService {
                 return Err(SyncError::NotAuthenticated);
             }
         }
-        let account = self.store.v2_account()?;
+        let account = self.store.account()?;
         let refreshed = match self.client.refresh(refresh_token).await {
             Ok(refreshed) => refreshed,
             Err(error) if error.is_invalid_refresh_token() => {
@@ -164,9 +195,8 @@ impl AccountService {
         }
         let account = match account {
             Some(account) => account,
-            None => V2CloudAccount {
+            None => CloudAccount {
                 user: self.client.me(&runtime.access_token).await?.user,
-                protocol_epoch: crate::v2::PROTOCOL_EPOCH,
             },
         };
         self.accept_auth(generation, account, runtime, false)
@@ -175,7 +205,7 @@ impl AccountService {
     fn accept_auth(
         &self,
         generation: u64,
-        account: V2CloudAccount,
+        account: CloudAccount,
         runtime: RuntimeSession,
         restored: bool,
     ) -> Result<CloudState, SyncError> {
@@ -186,13 +216,13 @@ impl AccountService {
     pub(crate) fn install_authenticated_session(
         &self,
         generation: u64,
-        account: V2CloudAccount,
+        account: CloudAccount,
         runtime: RuntimeSession,
         restored: bool,
     ) -> Result<u64, SyncError> {
         let mut current_generation = self.require_auth_generation(generation)?;
         let mut auth = self.auth.write().unwrap_or_else(|p| p.into_inner());
-        self.store.save_v2_account(&account)?;
+        self.store.save_account(&account)?;
         self.persist_auth_token(&mut auth, &runtime.refresh_token);
         auth.error = None;
         auth.session = Some(runtime);
@@ -283,7 +313,7 @@ impl AccountService {
         auth.status = CloudAuthStatus::SignedOut;
         auth.restored = false;
         auth.revision = auth.revision.saturating_add(1);
-        let account_result = self.store.clear_v2_account();
+        let account_result = self.store.clear_account();
         let cleanup_result = cleanup();
         if cleanup_result.is_err() {
             auth.pending_credential = Some(CredentialWrite::Delete);
@@ -441,7 +471,7 @@ impl AccountService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{SyncManager, V2AccountSyncReport};
+    use crate::SyncManager;
     use std::future::Future;
 
     struct NoopWake;
@@ -464,14 +494,13 @@ mod tests {
             .account()
             .install_authenticated_session(
                 generation,
-                V2CloudAccount {
+                CloudAccount {
                     user: crate::models::CloudUser {
                         id: token.into(),
                         email: "test@example.test".into(),
                         display_name: "Test".into(),
                         region: "non_mainland".into(),
                     },
-                    protocol_epoch: crate::v2::PROTOCOL_EPOCH,
                 },
                 runtime(token),
                 false,
@@ -562,41 +591,6 @@ mod tests {
         sign_in(&manager, "second");
         drop(guard);
         assert!(matches!(ready(request), Err(SyncError::NotAuthenticated)));
-    }
-
-    #[test]
-    fn stale_and_unbound_reports_do_not_apply_files_or_advance_cursor() {
-        let directory = tempfile::tempdir().unwrap();
-        let manager = SyncManager::new(
-            "https://cloud.example.test",
-            directory.path().join("sync.db"),
-        )
-        .unwrap();
-        let first = sign_in(&manager, "first");
-        let mut report = V2AccountSyncReport::default();
-        report.auth_generation = Some(first);
-        report.cursor = 100;
-        sign_in(&manager, "second");
-        let applied = std::cell::Cell::new(false);
-        let cursor = manager.store().v2_cursor().unwrap();
-        assert!(manager
-            .complete_v2_sync_with_apply(&report, None, || {
-                applied.set(true);
-                Ok(())
-            })
-            .is_err());
-        assert!(!applied.get());
-        assert_eq!(manager.store().v2_cursor().unwrap(), cursor);
-        assert!(manager
-            .complete_v2_account_sync(&V2AccountSyncReport::default())
-            .is_err());
-        report.auth_generation = Some(manager.account().auth_generation());
-        assert!(manager
-            .complete_v2_sync_with_apply(&report, None, || Err(SyncError::InvalidState(
-                "apply failed".into()
-            )))
-            .is_err());
-        assert_eq!(manager.store().v2_cursor().unwrap(), cursor);
     }
 
     fn runtime(token: &str) -> RuntimeSession {

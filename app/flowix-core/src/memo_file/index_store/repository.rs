@@ -54,12 +54,15 @@ impl MemoFile {
         relative_path: &str,
     ) -> std::io::Result<Option<MemoLocation>> {
         let notebook_config = self.get_notebook_config_by_id(notebook_id).ok_or_else(|| {
-            std::io::Error::new(std::io::ErrorKind::NotFound, format!("notebook not found: {notebook_id}"))
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("notebook not found: {notebook_id}"),
+            )
         })?;
         let conn = self.open_memo_index_db_for_notebook_id(notebook_id)?;
         let row = conn
-                .query_row(
-                    r#"
+            .query_row(
+                r#"
                 SELECT
                     m.filename,
                     m.relative_path,
@@ -82,67 +85,67 @@ impl MemoFile {
                 WHERE m.notebook_id = ?1 AND m.relative_path = ?2
                 LIMIT 1
                 "#,
-                    params![notebook_id, relative_path],
-                    |row| {
-                        let is_default: i64 = row.get(13)?;
-                        Ok((
-                            MemoIndexEntry {
-                                filename: row.get(0)?,
-                                relative_path: row.get(1)?,
-                                preview: row.get(2)?,
-                                thumbnail: row.get(3)?,
-                                tags: Vec::new(),
-                                todos: Vec::new(),
-                                agents: Vec::new(),
-                                created_at: row.get(4)?,
-                                updated_at: row.get(5)?,
-                                favorited: row.get::<_, i64>(6)? != 0,
-                                icon: row.get(7)?,
-                                colors: Vec::new(),
-                                properties: serde_json::from_str::<serde_json::Value>(
-                                    &row.get::<_, String>(8)?,
-                                )
-                                .unwrap_or_else(|_| serde_json::json!({})),
-                            },
-                            NotebookConfig {
-                                id: notebook_config.id.clone(),
-                                name: notebook_config.name.clone(),
-                                icon: notebook_config.icon.clone(),
-                                path: notebook_config.path.clone(),
-                                is_default: is_default != 0,
-                                sort: notebook_config.sort,
-                                created_at: notebook_config.created_at,
-                                updated_at: notebook_config.updated_at,
-                            },
-                        ))
-                    },
-                )
-                .optional()
-                .map_err(sqlite_to_io)?;
+                params![notebook_id, relative_path],
+                |row| {
+                    let is_default: i64 = row.get(13)?;
+                    Ok((
+                        MemoIndexEntry {
+                            filename: row.get(0)?,
+                            relative_path: row.get(1)?,
+                            preview: row.get(2)?,
+                            thumbnail: row.get(3)?,
+                            tags: Vec::new(),
+                            todos: Vec::new(),
+                            agents: Vec::new(),
+                            created_at: row.get(4)?,
+                            updated_at: row.get(5)?,
+                            favorited: row.get::<_, i64>(6)? != 0,
+                            icon: row.get(7)?,
+                            colors: Vec::new(),
+                            properties: serde_json::from_str::<serde_json::Value>(
+                                &row.get::<_, String>(8)?,
+                            )
+                            .unwrap_or_else(|_| serde_json::json!({})),
+                        },
+                        NotebookConfig {
+                            id: notebook_config.id.clone(),
+                            name: notebook_config.name.clone(),
+                            icon: notebook_config.icon.clone(),
+                            path: notebook_config.path.clone(),
+                            is_default: is_default != 0,
+                            sort: notebook_config.sort,
+                            created_at: notebook_config.created_at,
+                            updated_at: notebook_config.updated_at,
+                        },
+                    ))
+                },
+            )
+            .optional()
+            .map_err(sqlite_to_io)?;
 
         let Some((mut memo, notebook)) = row else {
             return Ok(None);
         };
-            memo.colors = self.read_entry_colors(&conn, &memo.relative_path)?;
-            memo.agents = self.read_entry_agents(&conn, &memo.relative_path)?;
-            self.backfill_missing_properties(
-                &conn,
-                &notebook.id,
-                &PathBuf::from(&notebook.path),
-                std::slice::from_mut(&mut memo),
-            )?;
-            self.backfill_missing_agents(
-                &conn,
-                &notebook.id,
-                &PathBuf::from(&notebook.path),
-                std::slice::from_mut(&mut memo),
-            )?;
-            self.backfill_missing_thumbnails(
-                &conn,
-                &notebook.id,
-                &PathBuf::from(&notebook.path),
-                std::slice::from_mut(&mut memo),
-            )?;
+        memo.colors = self.read_entry_colors(&conn, &memo.relative_path)?;
+        memo.agents = self.read_entry_agents(&conn, &memo.relative_path)?;
+        self.backfill_missing_properties(
+            &conn,
+            &notebook.id,
+            &PathBuf::from(&notebook.path),
+            std::slice::from_mut(&mut memo),
+        )?;
+        self.backfill_missing_agents(
+            &conn,
+            &notebook.id,
+            &PathBuf::from(&notebook.path),
+            std::slice::from_mut(&mut memo),
+        )?;
+        self.backfill_missing_thumbnails(
+            &conn,
+            &notebook.id,
+            &PathBuf::from(&notebook.path),
+            std::slice::from_mut(&mut memo),
+        )?;
 
         Ok(Some(MemoLocation { memo, notebook }))
     }
@@ -266,7 +269,11 @@ impl MemoFile {
             let mut cache = self.index_cache.write().expect("index_cache poisoned");
             if let Some(index) = cache.as_mut() {
                 let entry = Self::memo_to_index_entry(memo);
-                if let Some(existing) = index.memos.iter_mut().find(|item| item.relative_path == memo.relative_path) {
+                if let Some(existing) = index
+                    .memos
+                    .iter_mut()
+                    .find(|item| item.relative_path == memo.relative_path)
+                {
                     *existing = entry;
                 } else {
                     index.memos.push(entry);
@@ -280,7 +287,6 @@ impl MemoFile {
         }
         Ok(())
     }
-
 
     pub fn sync_index_on_delete(&self, relative_path: &str) -> std::io::Result<()> {
         let _guard = self.current_index_io.lock().expect("index_io poisoned");

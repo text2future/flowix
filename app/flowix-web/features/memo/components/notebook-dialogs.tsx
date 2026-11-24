@@ -6,9 +6,6 @@ import { Input } from '@shared/ui/input';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
 } from '@shared/ui/dialog';
 import {
   DropdownMenu,
@@ -37,7 +34,6 @@ import type { Notebook } from '@features/memo/store/note-store';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n';
 import type { CloudNotebook, ObsidianVaultRecord } from '@platform/tauri/client';
-import googleLogo from '@/assets/google.svg';
 import {
   ArrowLeft,
   Check,
@@ -51,6 +47,7 @@ import { useExperimentalMode } from '@platform/tauri/use-experimental-mode';
 import { WindowsTitlebarControls } from '@shared/window-titlebar-controls';
 import { isMac } from '@features/shortcuts';
 import { OnboardingTitlebarMac } from '@features/onboarding/onboarding-titlebar-mac';
+import { AccountAuthFlow } from '@features/preferences/public/account-auth-flow';
 
 const NOTEBOOK_DIALOG_THEME_CLASS = '[--onboarding-ink:var(--foreground)] [--onboarding-subtle:var(--muted-foreground)] [--onboarding-panel:color-mix(in_oklch,var(--card)_96%,var(--background))] [--onboarding-line:color-mix(in_oklch,var(--border)_78%,transparent)] [&_button:focus-visible]:outline-2 [&_button:focus-visible]:outline-[var(--ring)] [&_button:focus-visible]:outline-offset-[3px]';
 
@@ -108,8 +105,6 @@ interface NotebookDialogsProps {
   onRetryEditStorage: () => void;
   loginOpen: boolean;
   onLoginOpenChange: (open: boolean) => void;
-  googleSignInBusy: boolean;
-  onGoogleSignIn: () => void;
 }
 
 function normalizeNotebookIconId(icon: string | null | undefined): string {
@@ -233,8 +228,6 @@ export function NotebookDialogs({
   onRetryEditStorage,
   loginOpen,
   onLoginOpenChange,
-  googleSignInBusy,
-  onGoogleSignIn,
 }: NotebookDialogsProps) {
   const { t } = useI18n();
   const experimental = useExperimentalMode();
@@ -522,23 +515,8 @@ export function NotebookDialogs({
         </DialogContent>
       </Dialog>
       <Dialog open={loginOpen} onOpenChange={onLoginOpenChange}>
-        <DialogContent className="w-[min(92vw,400px)] rounded-2xl p-6">
-          <div className="space-y-5">
-            <DialogHeader className="mb-0 space-y-2 text-left">
-              <DialogTitle className="text-lg font-semibold tracking-tight">{t('notebook.cloudLogin.title')}</DialogTitle>
-              <DialogDescription className="text-sm leading-relaxed">{t('notebook.cloudLogin.description')}</DialogDescription>
-            </DialogHeader>
-            <Button
-              type="button"
-              variant="outline"
-              className="flex h-10 w-full gap-2 rounded-lg bg-[var(--card)] text-[var(--foreground)]"
-              disabled={googleSignInBusy}
-              onClick={onGoogleSignIn}
-            >
-              <img src={googleLogo} alt="" aria-hidden="true" className="h-4 w-4 object-contain" />
-              {googleSignInBusy ? t('preferences.cloud.loggingIn') : t('notebook.cloudLogin.googleSignIn')}
-            </Button>
-          </div>
+        <DialogContent className="max-h-[calc(100dvh-32px)] w-[min(92vw,420px)] max-w-[420px] overflow-y-auto p-6">
+          <AccountAuthFlow layout="dialog" onAuthenticated={() => onLoginOpenChange(false)} />
         </DialogContent>
       </Dialog>
     </>

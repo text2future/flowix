@@ -316,7 +316,7 @@ describe('AgentWindowEffects', () => {
     // setPiCloudAccount 的签名带第三个可选参数 membership；该状态没有会员信息，
     // 因此调用方显式传 undefined，断言按真实签名书写。
     await vi.waitFor(() => {
-      expect(mocks.setPiCloudAccount).toHaveBeenCalledWith('user-1', 2, undefined);
+      expect(mocks.setPiCloudAccount).toHaveBeenCalledWith('user-1', 2, undefined, 'mainland');
       expect(mocks.refreshCloudPiModelProviderAtStartup).toHaveBeenCalledOnce();
       expect(mocks.refreshAgentModelCatalog).toHaveBeenCalledWith('pi');
     });
@@ -335,7 +335,7 @@ describe('AgentWindowEffects', () => {
       authStatus: 'signed_out',
     }));
     await vi.waitFor(() => {
-      expect(mocks.setPiCloudAccount).toHaveBeenLastCalledWith(null, 3, undefined);
+      expect(mocks.setPiCloudAccount).toHaveBeenLastCalledWith(null, 3, undefined, null);
     });
     expect(mocks.piCloudAccountId).toBeNull();
 

@@ -7,39 +7,66 @@
 //! 断言的都是外部可观察的行为（哪些笔记能被搜到、排序键怎么变、重建后的行数），
 //! 不涉及私有函数调用形态。
 
-
 use super::*;
 use crate::memo_file::NotebookConfig;
 
 fn background_fixture() -> (tempfile::TempDir, MemoFile, std::path::PathBuf) {
     let temp = tempfile::tempdir().unwrap();
-    let root = temp.path().join("notebook"); fs::create_dir_all(&root).unwrap();
+    let root = temp.path().join("notebook");
+    fs::create_dir_all(&root).unwrap();
     let memo = MemoFile::new(temp.path().join("config"));
     memo.initialize_current_registry_storage().unwrap();
     memo.write_notebook_configs(&[NotebookConfig {
-        id: "background".into(), name: "Background".into(), icon: None,
-        path: root.to_string_lossy().into_owned(), is_default: true,
-        sort: 0, created_at: 0, updated_at: 0,
-    }]).unwrap();
+        id: "background".into(),
+        name: "Background".into(),
+        icon: None,
+        path: root.to_string_lossy().into_owned(),
+        is_default: true,
+        sort: 0,
+        created_at: 0,
+        updated_at: 0,
+    }])
+    .unwrap();
     (temp, memo, root)
 }
 
 #[test]
 fn table_database_notes_survive_reconciliation_without_exposing_internals() {
     let (_temp, memo, root) = background_fixture();
-    let path = memo.create_note_by_path("background", Some(".flowix/database/col_test"), "Table note", "hello").unwrap();
+    let path = memo
+        .create_note_by_path(
+            "background",
+            Some(".flowix/database/col_test"),
+            "Table note",
+            "hello",
+        )
+        .unwrap();
     assert_eq!(path, ".flowix/database/col_test/Table note.md");
     fs::create_dir_all(root.join(".flowix/versions")).unwrap();
     fs::write(root.join(".flowix/versions/secret.md"), "internal").unwrap();
     fs::create_dir_all(root.join("nested/.flowix/database/col_test")).unwrap();
-    fs::write(root.join("nested/.flowix/database/col_test/ignored.md"), "internal").unwrap();
+    fs::write(
+        root.join("nested/.flowix/database/col_test/ignored.md"),
+        "internal",
+    )
+    .unwrap();
     memo.reconcile_note_index("background").unwrap();
-    assert_eq!(memo.list_note_paths_from_disk("background").unwrap(), vec![path.clone()]);
+    assert_eq!(
+        memo.list_note_paths_from_disk("background").unwrap(),
+        vec![path.clone()]
+    );
     let conn = memo.open_note_index_connection("background").unwrap();
-    let paths: Vec<String> = conn.prepare("SELECT relative_path FROM notes").unwrap()
-        .query_map([], |row| row.get(0)).unwrap().map(Result::unwrap).collect();
+    let paths: Vec<String> = conn
+        .prepare("SELECT relative_path FROM notes")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
     assert_eq!(paths, vec![path]);
-    assert!(memo.create_note_by_path("background", Some(".flowix/versions"), "bad", "").is_err());
+    assert!(memo
+        .create_note_by_path("background", Some(".flowix/versions"), "bad", "")
+        .is_err());
 }
 
 #[cfg(unix)]
@@ -48,10 +75,18 @@ fn table_database_rejects_symlinked_directories() {
     let (_temp, memo, root) = background_fixture();
     fs::create_dir_all(root.join(".flowix/versions")).unwrap();
     fs::write(root.join(".flowix/versions/secret.md"), "internal").unwrap();
-    std::os::unix::fs::symlink(root.join(".flowix/versions"), root.join(".flowix/database")).unwrap();
-    assert!(memo.create_note_by_path("background", Some(".flowix/database/col_test"), "bad", "").is_err());
-    assert!(memo.refresh_note_path("background", ".flowix/database/secret.md").is_err());
-    assert!(memo.list_note_paths_from_disk("background").unwrap().is_empty());
+    std::os::unix::fs::symlink(root.join(".flowix/versions"), root.join(".flowix/database"))
+        .unwrap();
+    assert!(memo
+        .create_note_by_path("background", Some(".flowix/database/col_test"), "bad", "")
+        .is_err());
+    assert!(memo
+        .refresh_note_path("background", ".flowix/database/secret.md")
+        .is_err());
+    assert!(memo
+        .list_note_paths_from_disk("background")
+        .unwrap()
+        .is_empty());
 }
 
 #[test]
@@ -67,7 +102,9 @@ fn tree_metadata_reads_only_requested_paths_in_bounded_batches() {
     let mut paths: Vec<String> = (0..650).map(|i| format!("missing-{i}.md")).collect();
     paths.push("a.md".into());
     paths.push("quote'%_?.md".into());
-    let result = memo.read_note_tree_metadata_for_paths("background", &paths).unwrap();
+    let result = memo
+        .read_note_tree_metadata_for_paths("background", &paths)
+        .unwrap();
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].relative_path, "a.md");
     assert!(result[0].favorited);
@@ -109,14 +146,23 @@ fn schema_fast_path_opens_while_another_connection_holds_the_writer_lock() {
 fn schema_fast_path_checks_missing_objects_and_replaced_database() {
     let (_temp, memo, _root) = background_fixture();
     let conn = memo.open_note_index_connection("background").unwrap();
-    conn.execute_batch("DROP TABLE note_content_revisions").unwrap();
+    conn.execute_batch("DROP TABLE note_content_revisions")
+        .unwrap();
     assert!(!note_schema_is_current(&conn, "background").unwrap());
     drop(conn);
-    assert!(note_schema_is_current(&memo.open_note_index_connection("background").unwrap(), "background").unwrap());
+    assert!(note_schema_is_current(
+        &memo.open_note_index_connection("background").unwrap(),
+        "background"
+    )
+    .unwrap());
     let path = memo.notebook_db_path("background").unwrap();
     fs::remove_file(path).unwrap();
     // A newly opened file must initialize even in the same process.
-    assert!(note_schema_is_current(&memo.open_note_index_connection("background").unwrap(), "background").unwrap());
+    assert!(note_schema_is_current(
+        &memo.open_note_index_connection("background").unwrap(),
+        "background"
+    )
+    .unwrap());
 }
 
 #[test]
@@ -124,9 +170,19 @@ fn schema_fast_path_rejects_wrong_notebook_and_version() {
     let (_temp, memo, _root) = background_fixture();
     let conn = memo.open_note_index_connection("background").unwrap();
     assert!(note_schema_is_current(&conn, "another").is_err());
-    conn.execute("UPDATE note_index_meta SET value='999' WHERE key='schema_version'", []).unwrap();
+    conn.execute(
+        "UPDATE note_index_meta SET value='999' WHERE key='schema_version'",
+        [],
+    )
+    .unwrap();
     assert!(memo.open_note_index_connection("background").is_err());
-    let version: String = conn.query_row("SELECT value FROM note_index_meta WHERE key='schema_version'", [], |row| row.get(0)).unwrap();
+    let version: String = conn
+        .query_row(
+            "SELECT value FROM note_index_meta WHERE key='schema_version'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
     assert_eq!(version, "999");
 }
 
@@ -135,17 +191,49 @@ fn note_page_reads_projection_without_repairing_or_opening_markdown() {
     let (_temp, memo, root) = background_fixture();
     fs::write(root.join("a.md"), "# Indexed\nOriginal body").unwrap();
     memo.reconcile_note_index("background").unwrap();
-    let before = memo.read_indexed_note_entry_by_path("background", "a.md").unwrap().unwrap();
+    let before = memo
+        .read_indexed_note_entry_by_path("background", "a.md")
+        .unwrap()
+        .unwrap();
     // The watcher has not processed this external change yet. A list query
     // must keep the index snapshot rather than repairing the selected rows.
     fs::write(root.join("a.md"), "# Changed\nDifferent body").unwrap();
-    let page = memo.read_note_page("background", "all", None, None, "updatedAt", i64::MAX, 0, 0, None, 51).unwrap();
+    let page = memo
+        .read_note_page(
+            "background",
+            "all",
+            None,
+            None,
+            "updatedAt",
+            i64::MAX,
+            0,
+            0,
+            None,
+            51,
+        )
+        .unwrap();
     assert_eq!(page.len(), 1);
     assert_eq!(page[0].preview, before.preview);
     assert_eq!(page[0].updated_at, before.updated_at);
     // Even a temporarily missing source file cannot break the index query.
     fs::remove_file(root.join("a.md")).unwrap();
-    assert_eq!(memo.read_note_page("background", "all", None, None, "createdAt", i64::MAX, 0, 0, None, 51).unwrap().len(), 1);
+    assert_eq!(
+        memo.read_note_page(
+            "background",
+            "all",
+            None,
+            None,
+            "createdAt",
+            i64::MAX,
+            0,
+            0,
+            None,
+            51
+        )
+        .unwrap()
+        .len(),
+        1
+    );
 }
 
 #[test]
@@ -161,29 +249,61 @@ fn cached_counts_treat_an_old_database_without_projection_as_unknown() {
     let (_temp, memo, _root) = background_fixture();
     let path = memo.notebook_db_path("background").unwrap();
     let conn = Connection::open(&path).unwrap();
-    conn.execute_batch("CREATE TABLE legacy_data (value TEXT); INSERT INTO legacy_data VALUES ('keep');").unwrap();
+    conn.execute_batch(
+        "CREATE TABLE legacy_data (value TEXT); INSERT INTO legacy_data VALUES ('keep');",
+    )
+    .unwrap();
     assert_eq!(memo.cached_note_count("background").unwrap(), None);
-    let value: String = conn.query_row("SELECT value FROM legacy_data", [], |row| row.get(0)).unwrap();
+    let value: String = conn
+        .query_row("SELECT value FROM legacy_data", [], |row| row.get(0))
+        .unwrap();
     assert_eq!(value, "keep");
-    let tables: i64 = conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE name='notes'", [], |row| row.get(0)).unwrap();
+    let tables: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE name='notes'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
     assert_eq!(tables, 0);
 }
 
 #[test]
 fn background_scan_reports_busy_instead_of_claiming_completion() {
     let (_temp, memo, _root) = background_fixture();
-    let _guard = memo.operation_locks().notebook_maintenance("background", "test_busy").unwrap();
-    assert_eq!(memo.reconcile_note_index_background("background", &|| true).unwrap_err().kind(), io::ErrorKind::WouldBlock);
+    let _guard = memo
+        .operation_locks()
+        .notebook_maintenance("background", "test_busy")
+        .unwrap();
+    assert_eq!(
+        memo.reconcile_note_index_background("background", &|| true)
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::WouldBlock
+    );
     // Preserve the older passive API's documented skip behavior.
-    assert_eq!(memo.reconcile_note_index("background").unwrap(), NoteIndexReconcileReport::default());
+    assert_eq!(
+        memo.reconcile_note_index("background").unwrap(),
+        NoteIndexReconcileReport::default()
+    );
 }
 
 #[test]
 fn cold_tag_queries_request_preparation_without_scanning() {
     let (_temp, memo, root) = background_fixture();
     fs::write(root.join("a.md"), "#tag\nbody").unwrap();
-    assert_eq!(memo.read_tag_usage_summary_for_notebook_id(Some("background")).unwrap_err().kind(), io::ErrorKind::WouldBlock);
-    assert_eq!(memo.read_tag_prefix_counts_for_notebook_id(Some("background")).unwrap_err().kind(), io::ErrorKind::WouldBlock);
+    assert_eq!(
+        memo.read_tag_usage_summary_for_notebook_id(Some("background"))
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::WouldBlock
+    );
+    assert_eq!(
+        memo.read_tag_prefix_counts_for_notebook_id(Some("background"))
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::WouldBlock
+    );
     assert_eq!(memo.note_count("background").unwrap(), 0);
     assert_eq!(memo.cached_note_count("background").unwrap(), None);
 }
@@ -192,22 +312,35 @@ fn cold_tag_queries_request_preparation_without_scanning() {
 fn cancelled_cold_index_can_resume_without_changing_source_files() {
     let (_temp, memo, root) = background_fixture();
     fs::write(root.join("a.md"), "# Keep\nbody").unwrap();
-    assert_eq!(memo.reconcile_note_index_background("background", &|| false).unwrap_err().kind(), io::ErrorKind::Interrupted);
+    assert_eq!(
+        memo.reconcile_note_index_background("background", &|| false)
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::Interrupted
+    );
     assert_eq!(memo.cached_note_count("background").unwrap(), None);
-    memo.reconcile_note_index_background("background", &|| true).unwrap();
+    memo.reconcile_note_index_background("background", &|| true)
+        .unwrap();
     assert_eq!(memo.cached_note_count("background").unwrap(), Some(1));
-    assert_eq!(fs::read_to_string(root.join("a.md")).unwrap(), "# Keep\nbody");
+    assert_eq!(
+        fs::read_to_string(root.join("a.md")).unwrap(),
+        "# Keep\nbody"
+    );
 }
 
 #[test]
 fn cancelled_warm_refresh_keeps_the_previous_projection_readable() {
     let (_temp, memo, root) = background_fixture();
     fs::write(root.join("a.md"), "a").unwrap();
-    memo.reconcile_note_index_background("background", &|| true).unwrap();
+    memo.reconcile_note_index_background("background", &|| true)
+        .unwrap();
     fs::write(root.join("b.md"), "b").unwrap();
-    assert!(memo.reconcile_note_index_background("background", &|| false).is_err());
+    assert!(memo
+        .reconcile_note_index_background("background", &|| false)
+        .is_err());
     assert_eq!(memo.read_note_entries("background").unwrap().len(), 1);
-    memo.reconcile_note_index_background("background", &|| true).unwrap();
+    memo.reconcile_note_index_background("background", &|| true)
+        .unwrap();
     assert_eq!(memo.read_note_entries("background").unwrap().len(), 2);
 }
 
@@ -218,13 +351,21 @@ fn parser_upgrade_refreshes_preview_without_html_comments() {
     fs::write(root.join("a.md"), content).unwrap();
     memo.reconcile_note_index("background").unwrap();
     let conn = memo.open_note_index_connection("background").unwrap();
-    conn.execute("UPDATE notes SET preview='<!-- hidden metadata -->'", []).unwrap();
-    conn.execute("UPDATE note_index_meta SET value='10' WHERE key='parser_version'", []).unwrap();
+    conn.execute("UPDATE notes SET preview='<!-- hidden metadata -->'", [])
+        .unwrap();
+    conn.execute(
+        "UPDATE note_index_meta SET value='10' WHERE key='parser_version'",
+        [],
+    )
+    .unwrap();
     drop(conn);
 
     assert!(!memo.note_index_is_ready("background").unwrap());
     assert_eq!(memo.reconcile_note_index("background").unwrap().updated, 1);
-    assert_eq!(memo.read_note_entries("background").unwrap()[0].preview, "Visible text");
+    assert_eq!(
+        memo.read_note_entries("background").unwrap()[0].preview,
+        "Visible text"
+    );
     assert_eq!(fs::read_to_string(root.join("a.md")).unwrap(), content);
 }
 
@@ -235,13 +376,21 @@ fn parser_upgrade_refreshes_wiki_previews_without_changing_markdown() {
     fs::write(root.join("a.md"), content).unwrap();
     memo.reconcile_note_index("background").unwrap();
     let conn = memo.open_note_index_connection("background").unwrap();
-    conn.execute("UPDATE notes SET preview='[[./target.md]]'", []).unwrap();
-    conn.execute("UPDATE note_index_meta SET value='11' WHERE key='parser_version'", []).unwrap();
+    conn.execute("UPDATE notes SET preview='[[./target.md]]'", [])
+        .unwrap();
+    conn.execute(
+        "UPDATE note_index_meta SET value='11' WHERE key='parser_version'",
+        [],
+    )
+    .unwrap();
     drop(conn);
 
     assert!(!memo.note_index_is_ready("background").unwrap());
     assert_eq!(memo.reconcile_note_index("background").unwrap().updated, 1);
-    assert_eq!(memo.read_note_entries("background").unwrap()[0].preview, "Visible text");
+    assert_eq!(
+        memo.read_note_entries("background").unwrap()[0].preview,
+        "Visible text"
+    );
     assert_eq!(fs::read_to_string(root.join("a.md")).unwrap(), content);
 }
 
@@ -250,21 +399,34 @@ fn parser_upgrade_repairs_null_tag_properties_without_changing_note() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("notebook");
     fs::create_dir_all(&root).unwrap();
-    let content = "---\ntags: null\n哈哈哈: \"111\"\n测试111日起: 2026-10-13\ntest: hhhhh\n---\nbody\n";
+    let content =
+        "---\ntags: null\n哈哈哈: \"111\"\n测试111日起: 2026-10-13\ntest: hhhhh\n---\nbody\n";
     let path = root.join("哈哈-1哈哈哈.md");
     fs::write(&path, content).unwrap();
     let store = MemoFile::new(temp.path().join("config"));
-    store.write_notebook_configs(&[NotebookConfig {
-        id: "nb_null_tags".into(), name: "Null tags".into(), icon: None,
-        path: root.to_string_lossy().into_owned(), is_default: true,
-        sort: 0, created_at: 0, updated_at: 0,
-    }]).unwrap();
+    store
+        .write_notebook_configs(&[NotebookConfig {
+            id: "nb_null_tags".into(),
+            name: "Null tags".into(),
+            icon: None,
+            path: root.to_string_lossy().into_owned(),
+            is_default: true,
+            sort: 0,
+            created_at: 0,
+            updated_at: 0,
+        }])
+        .unwrap();
     store.reconcile_note_index("nb_null_tags").unwrap();
     // Reproduce a version-7 projection: the hash is current but parsing
     // null tags discarded every frontmatter property.
     let conn = store.open_note_index_connection("nb_null_tags").unwrap();
-    conn.execute("UPDATE notes SET properties_json='{}'", []).unwrap();
-    conn.execute("UPDATE note_index_meta SET value='7' WHERE key='parser_version'", []).unwrap();
+    conn.execute("UPDATE notes SET properties_json='{}'", [])
+        .unwrap();
+    conn.execute(
+        "UPDATE note_index_meta SET value='7' WHERE key='parser_version'",
+        [],
+    )
+    .unwrap();
     drop(conn);
 
     assert!(!store.note_index_is_ready("nb_null_tags").unwrap());
@@ -275,9 +437,14 @@ fn parser_upgrade_repairs_null_tag_properties_without_changing_note() {
     assert_eq!(note.properties["测试111日起"], "2026-10-13");
     assert_eq!(note.properties["test"], "hhhhh");
     assert_eq!(fs::read_to_string(path).unwrap(), content);
-    assert_eq!(store.reconcile_note_index("nb_null_tags").unwrap().unchanged, 1);
+    assert_eq!(
+        store
+            .reconcile_note_index("nb_null_tags")
+            .unwrap()
+            .unchanged,
+        1
+    );
 }
-
 
 #[test]
 fn mixed_v2_and_note_tables_keep_current_note_rows() {
@@ -285,33 +452,51 @@ fn mixed_v2_and_note_tables_keep_current_note_rows() {
     let root = temp.path().join("notebook");
     fs::create_dir_all(&root).unwrap();
     let store = MemoFile::new(temp.path().join("config"));
-    store.write_notebook_configs(&[NotebookConfig {
-        id: "nb_test".into(), name: "Test".into(), icon: None,
-        path: root.to_string_lossy().into_owned(), is_default: true,
-        sort: 0, created_at: 0, updated_at: 0,
-    }]).unwrap();
+    store
+        .write_notebook_configs(&[NotebookConfig {
+            id: "nb_test".into(),
+            name: "Test".into(),
+            icon: None,
+            path: root.to_string_lossy().into_owned(),
+            is_default: true,
+            sort: 0,
+            created_at: 0,
+            updated_at: 0,
+        }])
+        .unwrap();
     let conn = store.open_note_index_connection("nb_test").unwrap();
     conn.execute("INSERT INTO notes (relative_path, size_bytes, content_hash, title, preview, properties_json, indexed_at) VALUES ('current.md', 1, 'hash', 'Current', '', '{}', 1)", []).unwrap();
-    conn.execute_batch("CREATE TABLE v2_index_meta (key TEXT PRIMARY KEY, value TEXT);
+    conn.execute_batch(
+        "CREATE TABLE v2_index_meta (key TEXT PRIMARY KEY, value TEXT);
         CREATE TABLE v2_notes (relative_path TEXT PRIMARY KEY);
         INSERT INTO v2_notes VALUES ('old.md');
         CREATE VIRTUAL TABLE v2_note_search USING fts5(body);
         INSERT INTO v2_note_search (body) VALUES ('old');
         CREATE TABLE memos (relative_path TEXT PRIMARY KEY);
-        INSERT INTO memos VALUES ('legacy-note.md');").unwrap();
+        INSERT INTO memos VALUES ('legacy-note.md');",
+    )
+    .unwrap();
     drop(conn);
 
     // Legacy projection cleanup is part of startup schema initialization,
     // while ordinary reads keep the common connection path lightweight.
     store.initialize_note_index_schema("nb_test").unwrap();
     let conn = store.open_note_index_connection("nb_test").unwrap();
-    let note: String = conn.query_row("SELECT relative_path FROM notes", [], |row| row.get(0)).unwrap();
+    let note: String = conn
+        .query_row("SELECT relative_path FROM notes", [], |row| row.get(0))
+        .unwrap();
     assert_eq!(note, "current.md");
     let memo_path: String = conn
         .query_row("SELECT relative_path FROM memos", [], |row| row.get(0))
         .unwrap();
     assert_eq!(memo_path, "legacy-note.md");
-    let old_tables: i64 = conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name LIKE 'v2_%'", [], |row| row.get(0)).unwrap();
+    let old_tables: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name LIKE 'v2_%'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
     assert_eq!(old_tables, 0);
 }
 
@@ -322,15 +507,25 @@ fn v2_only_projection_rebuilds_from_markdown() {
     fs::create_dir_all(root.join(".flowix")).unwrap();
     fs::write(root.join("new.md"), "# New note\n").unwrap();
     let store = MemoFile::new(temp.path().join("config"));
-    store.write_notebook_configs(&[NotebookConfig {
-        id: "nb_test".into(), name: "Test".into(), icon: None,
-        path: root.to_string_lossy().into_owned(), is_default: true,
-        sort: 0, created_at: 0, updated_at: 0,
-    }]).unwrap();
+    store
+        .write_notebook_configs(&[NotebookConfig {
+            id: "nb_test".into(),
+            name: "Test".into(),
+            icon: None,
+            path: root.to_string_lossy().into_owned(),
+            is_default: true,
+            sort: 0,
+            created_at: 0,
+            updated_at: 0,
+        }])
+        .unwrap();
     let conn = Connection::open(root.join(".flowix/notebook.db")).unwrap();
-    conn.execute_batch("CREATE TABLE v2_index_meta (key TEXT PRIMARY KEY, value TEXT);
+    conn.execute_batch(
+        "CREATE TABLE v2_index_meta (key TEXT PRIMARY KEY, value TEXT);
         CREATE TABLE v2_notes (relative_path TEXT PRIMARY KEY);
-        INSERT INTO v2_notes VALUES ('stale.md');").unwrap();
+        INSERT INTO v2_notes VALUES ('stale.md');",
+    )
+    .unwrap();
     drop(conn);
 
     assert!(!store.note_index_is_ready("nb_test").unwrap());
@@ -340,8 +535,21 @@ fn v2_only_projection_rebuilds_from_markdown() {
     assert_eq!(entries[0].relative_path, "new.md");
     let expected_size = fs::metadata(root.join("new.md")).unwrap().len();
     assert_eq!(entries[0].size_bytes, expected_size);
-    assert_eq!(store.read_indexed_note_entry_by_path("nb_test", "new.md").unwrap().unwrap().size_bytes, expected_size);
-    assert_eq!(store.derive_note_entry_from_disk("nb_test", "new.md").unwrap().size_bytes, expected_size);
+    assert_eq!(
+        store
+            .read_indexed_note_entry_by_path("nb_test", "new.md")
+            .unwrap()
+            .unwrap()
+            .size_bytes,
+        expected_size
+    );
+    assert_eq!(
+        store
+            .derive_note_entry_from_disk("nb_test", "new.md")
+            .unwrap()
+            .size_bytes,
+        expected_size
+    );
 }
 
 #[test]

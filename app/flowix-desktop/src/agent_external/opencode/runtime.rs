@@ -320,17 +320,22 @@ impl OpenCodeAcpManager {
             manager.runs.release_start(&thread_id, &run_id).await;
             let reason = if cancelled {
                 Some(USER_STOPPED_REASON.to_string())
-            } else { match result {
-                Ok(()) => None,
-                Err(error) => {
-                    manager
-                        .emit_run_error(&app_handle, &thread_id, error.clone(), &run_id)
-                        .await;
-                    Some(error)
+            } else {
+                match result {
+                    Ok(()) => None,
+                    Err(error) => {
+                        manager
+                            .emit_run_error(&app_handle, &thread_id, error.clone(), &run_id)
+                            .await;
+                        Some(error)
+                    }
                 }
-            }};
+            };
             let mut controls = manager.controls.lock().await;
-            if controls.get(&thread_id).is_some_and(|control| control.run_id == run_id) {
+            if controls
+                .get(&thread_id)
+                .is_some_and(|control| control.run_id == run_id)
+            {
                 controls.remove(&thread_id);
             }
             drop(controls);
@@ -368,7 +373,9 @@ impl OpenCodeAcpManager {
                     .and_then(|mapped| controls.get(mapped).cloned())
             })
         };
-        if let Some(control) = control.filter(|control| run_id.is_none() || run_id == Some(control.run_id.as_str())) {
+        if let Some(control) =
+            control.filter(|control| run_id.is_none() || run_id == Some(control.run_id.as_str()))
+        {
             if let Some(session_id) = control.session_id.lock().await.clone() {
                 let _ = write_message(&control.stdin, &protocol::cancel_notification(&session_id))
                     .await;
@@ -378,43 +385,63 @@ impl OpenCodeAcpManager {
         let mut stopped = match self
             .runs
             .stop_run(thread_id, thread_id, run_id, "OpenCode ACP")
-            .await {
-                Ok(stopped) => stopped,
-                Err(unconfirmed) => {
-                    tracing::warn!("[OpenCode ACP] stop still unconfirmed for run {}", unconfirmed.run_id);
-                    return false;
-                }
-            };
+            .await
+        {
+            Ok(stopped) => stopped,
+            Err(unconfirmed) => {
+                tracing::warn!(
+                    "[OpenCode ACP] stop still unconfirmed for run {}",
+                    unconfirmed.run_id
+                );
+                return false;
+            }
+        };
         if stopped.is_none() {
             if let Some(mapped) = mapped_thread_id.as_deref() {
                 stopped = match self
                     .runs
                     .stop_run(mapped, thread_id, run_id, "OpenCode ACP")
-                    .await {
-                        Ok(stopped) => stopped,
-                        Err(unconfirmed) => {
-                            tracing::warn!("[OpenCode ACP] stop still unconfirmed for run {}", unconfirmed.run_id);
-                            return false;
-                        }
-                    };
+                    .await
+                {
+                    Ok(stopped) => stopped,
+                    Err(unconfirmed) => {
+                        tracing::warn!(
+                            "[OpenCode ACP] stop still unconfirmed for run {}",
+                            unconfirmed.run_id
+                        );
+                        return false;
+                    }
+                };
             }
         }
         let stopped = if let Some(stopped) = stopped {
             stopped
         } else {
             let lookup = mapped_thread_id.as_deref().unwrap_or(thread_id);
-            if self.runs.cancel_start(lookup, run_id).await { return true; }
-            match self.runs.stop_run(lookup, thread_id, run_id, "OpenCode ACP").await {
+            if self.runs.cancel_start(lookup, run_id).await {
+                return true;
+            }
+            match self
+                .runs
+                .stop_run(lookup, thread_id, run_id, "OpenCode ACP")
+                .await
+            {
                 Ok(Some(stopped)) => stopped,
                 _ => return false,
             }
         };
         let mut controls = self.controls.lock().await;
-        if controls.get(thread_id).is_some_and(|control| control.run_id == stopped.run_id) {
+        if controls
+            .get(thread_id)
+            .is_some_and(|control| control.run_id == stopped.run_id)
+        {
             controls.remove(thread_id);
         }
         if let Some(mapped) = mapped_thread_id {
-            if controls.get(&mapped).is_some_and(|control| control.run_id == stopped.run_id) {
+            if controls
+                .get(&mapped)
+                .is_some_and(|control| control.run_id == stopped.run_id)
+            {
                 controls.remove(&mapped);
             }
         }
@@ -539,12 +566,7 @@ impl OpenCodeAcpManager {
 
         if let Err(mut duplicate) = self
             .runs
-            .insert_reserved(
-                thread_id.to_string(),
-                child,
-                run_id,
-                stream_end_emitted,
-            )
+            .insert_reserved(thread_id.to_string(), child, run_id, stream_end_emitted)
             .await
         {
             let _ = duplicate.kill().await;
@@ -698,12 +720,22 @@ impl OpenCodeAcpManager {
         let _ = turn_events.finish();
 
         let mut controls = self.controls.lock().await;
-        if controls.get(thread_id).is_some_and(|control| control.run_id == run_id) {
+        if controls
+            .get(thread_id)
+            .is_some_and(|control| control.run_id == run_id)
+        {
             controls.remove(thread_id);
         }
         drop(controls);
-        if let Err(unconfirmed) = self.runs.stop_run(thread_id, thread_id, Some(run_id), "OpenCode ACP").await {
-            tracing::warn!("[OpenCode ACP] normal cleanup unconfirmed for run {}", unconfirmed.run_id);
+        if let Err(unconfirmed) = self
+            .runs
+            .stop_run(thread_id, thread_id, Some(run_id), "OpenCode ACP")
+            .await
+        {
+            tracing::warn!(
+                "[OpenCode ACP] normal cleanup unconfirmed for run {}",
+                unconfirmed.run_id
+            );
             return Err("StopUnconfirmed: OpenCode ACP process exit was not confirmed".to_string());
         }
         let stderr_text = stderr_task

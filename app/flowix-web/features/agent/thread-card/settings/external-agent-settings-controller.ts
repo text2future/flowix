@@ -1751,12 +1751,12 @@ export class ExternalAgentSettingsController {
   private getExternalModelDefaultLabel(): string {
     if (this.getTypeKey() === "pi") {
       const model = this.readRuntimeSetting("model");
-      if (!model || model === "inherit") {
-        return this.piDefaultModel
-          ? formatModelDisplayLabel(this.piDefaultModel)
-          : "";
-      }
-      return formatModelDisplayLabel(model);
+      const id = !model || model === "inherit" ? this.piDefaultModel : model;
+      if (!id) return "";
+      const providerId = !model || model === "inherit" ? this.piDefaultProviderId : this.getExternalAgentModelProviderId();
+      const match = this.getLoadedModelOptions().find((option) =>
+        option.id === id && (!providerId || option.providerId === providerId));
+      return match?.label || formatModelDisplayLabel(id);
     }
     if (this.getTypeKey() === "claudecode" || this.getTypeKey() === "opencode") {
       return this.t("agent.permission.default");
@@ -2080,6 +2080,11 @@ export class ExternalAgentSettingsController {
         this.renderPopover();
         this.schedulePosition();
       },
+      onSelectReasoning: (option, level) => {
+        this.setExternalAgentModel(option);
+        this.writeRuntimeSetting("reasoning", level);
+        this.setSettingsPopoverOpen(false);
+      },
       createSpeedToggle: () => this.createCodexSpeedToggle(),
       createReasoningSlider: () => this.createCodexReasoningSlider(),
       renderReasoningOptions: (target, useButtonSelectionState) =>
@@ -2237,8 +2242,14 @@ export class ExternalAgentSettingsController {
     const current =
       this.readRuntimeSetting("reasoning") ??
       "medium";
+    const selectedModel = this.getLoadedModelOptions().find((option) => {
+      const selected = this.resolveCurrentSelection();
+      return option.id === selected.id && option.providerId === selected.providerId;
+    });
     const reasoningOptions = this.getTypeKey() === "pi"
-      ? PI_THINKING_OPTIONS
+      ? (selectedModel && isFlowixCloudModelOption(selectedModel)
+        ? PI_THINKING_OPTIONS.filter((option) => selectedModel.reasoningConfig?.levels.includes(option.id))
+        : PI_THINKING_OPTIONS)
       : this.getTypeKey() === "codex"
         ? this.getCodexReasoningOptions().map((option) => ({
             ...option,

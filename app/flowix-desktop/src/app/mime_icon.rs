@@ -253,7 +253,10 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         let theme = temp.path().join("hicolor");
         install_into(&theme).expect("first install");
-        let stale = theme.join("48x48").join("mimetypes").join("text-markdown.png");
+        let stale = theme
+            .join("48x48")
+            .join("mimetypes")
+            .join("text-markdown.png");
         fs::write(&stale, b"not a png").expect("corrupt one icon");
 
         let report = install_into(&theme).expect("repair install");
@@ -290,7 +293,10 @@ mod tests {
         let index = fs::read_to_string(theme.join("index.theme")).expect("index readable");
 
         for (size, _) in ICONS {
-            assert!(index.contains(&format!("{size}x{size}/mimetypes")), "missing {size} in index");
+            assert!(
+                index.contains(&format!("{size}x{size}/mimetypes")),
+                "missing {size} in index"
+            );
         }
     }
 }

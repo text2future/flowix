@@ -142,7 +142,10 @@ impl DeepSeekHarnessManager {
             return Err("DeepSeek Harness runtime is not installed".to_string());
         }
         if !dsh_status.app_server_profile_installed {
-            return Err("DSH App Server profile is not installed; install it from Flowix Preferences".to_string());
+            return Err(
+                "DSH App Server profile is not installed; install it from Flowix Preferences"
+                    .to_string(),
+            );
         }
 
         let thread_id = thread_id.to_string();
@@ -269,15 +272,21 @@ impl DeepSeekHarnessManager {
             return Ok(());
         };
         let host = self.model_host().await?;
-        let goal = host.request(serde_json::json!({
-            "jsonrpc": "2.0", "id": host.next_request_id(),
-            "method": "thread/goal/get", "params": { "threadId": session_id }
-        })).await?;
-        if goal.get("goal").is_none_or(Value::is_null) { return Ok(()); }
-        let result = host.request(serde_json::json!({
-            "jsonrpc": "2.0", "id": host.next_request_id(),
-            "method": "thread/goal/clear", "params": { "threadId": session_id }
-        })).await?;
+        let goal = host
+            .request(serde_json::json!({
+                "jsonrpc": "2.0", "id": host.next_request_id(),
+                "method": "thread/goal/get", "params": { "threadId": session_id }
+            }))
+            .await?;
+        if goal.get("goal").is_none_or(Value::is_null) {
+            return Ok(());
+        }
+        let result = host
+            .request(serde_json::json!({
+                "jsonrpc": "2.0", "id": host.next_request_id(),
+                "method": "thread/goal/clear", "params": { "threadId": session_id }
+            }))
+            .await?;
         if result.get("cleared").and_then(Value::as_bool) != Some(true) {
             return Err("StopUnconfirmed: DSH pending goal was not cleared".to_string());
         }
@@ -722,8 +731,7 @@ impl DeepSeekHarnessManager {
 
     async fn command_attachments(&self, message: &AgentUserMessage) -> Result<Vec<Value>, String> {
         let encoded =
-            crate::agent_image_cache::encode_cached_agent_images(&message.image_paths)
-                .await?;
+            crate::agent_image_cache::encode_cached_agent_images(&message.image_paths).await?;
         Ok(encoded
             .into_iter()
             .map(|(media_type, data, name)| {
@@ -958,7 +966,6 @@ impl DeepSeekHarnessManager {
         .await;
         emit_chunk_with_run_id_and_metadata(app, chunk, AGENT_TYPE, run_id, metadata);
     }
-
 
     pub(crate) async fn model_host(&self) -> Result<HostLease, String> {
         self.hosts.shared(&self.host_launch_spec()).await
@@ -1283,7 +1290,9 @@ impl DeepSeekHarnessManager {
         for host in hosts {
             let request =
                 protocol::app_turn_interrupt_request(host.next_request_id(), &target.session_id);
-            if host.request(request).await.is_ok() { accepted = true; }
+            if host.request(request).await.is_ok() {
+                accepted = true;
+            }
         }
         if !accepted {
             tracing::warn!("[DSH] native interruption was not accepted for run {run_id}");
@@ -1294,7 +1303,9 @@ impl DeepSeekHarnessManager {
             while self.runs.target(thread_id, Some(&run_id)).await.is_some() {
                 tokio::time::sleep(Duration::from_millis(50)).await;
             }
-        }).await.is_ok();
+        })
+        .await
+        .is_ok();
         if !confirmed {
             tracing::warn!("[DSH] StopUnconfirmed for run {run_id}");
         }

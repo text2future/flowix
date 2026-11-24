@@ -31,7 +31,7 @@ function modelsFromPreviewCatalog(catalog: AgentModelCatalog): PublicCloudModel[
       title: model.label,
       subtitle: model.subtitle,
       creditMultiplier: model.creditMultiplier,
-      providerIconUrl: model.iconUrl,
+      iconUrl: model.iconUrl,
       sortOrder: model.sortOrder,
     }));
 }
@@ -77,7 +77,7 @@ function syncGuestPublicCatalog(
     ? cachedModels
     : modelsFromPreviewCatalog(store.agents.pi.catalog.models);
   if (retainedModels.length) applyGuestCatalog(epoch, retainedModels);
-  const isFresh = !!cached && cachedModels.length > 0
+  const isFresh = !!cached
     && Date.now() - cached.fetchedAt < PI_PUBLIC_CATALOG_MAX_AGE_MS;
   if (!options.force && isFresh) return loadAgentModelCatalog("pi", options);
 
@@ -90,14 +90,11 @@ function syncGuestPublicCatalog(
     const receivedModels = response.data.models.filter((model) =>
       typeof model?.id === "string" && model.id.trim().length > 0,
     );
-    // A transient empty response must not erase the last usable directory.
-    // Rewriting the retained list updates its check time so an empty service
-    // response is retried on the normal daily cadence, not on every picker open.
-    const models = receivedModels.length ? receivedModels : retainedModels;
-    if (models.length) {
-      lastGoodModels = models;
-      writePiPublicCatalogCache(environment, models);
-    }
+    // A successful empty directory is authoritative (for example, all models
+    // were disabled). Retain the last good list only when the request fails.
+    const models = receivedModels;
+    lastGoodModels = models;
+    writePiPublicCatalogCache(environment, models);
     // Rebuild through the loader so the store matches what every other path
     // produces, then re-apply the fetched list: the cache write can fail, and
     // this response is newer than whatever the loader read.
@@ -112,6 +109,9 @@ function syncGuestPublicCatalog(
   }).catch((error: unknown) => {
     logger.warn('Failed to sync public Pi Cloud model catalog', { error });
     if (lastGoodModels.length) return applyGuestCatalog(epoch, lastGoodModels);
+    const current = useAgentDataStore.getState();
+    if (current.piCloudCatalogEpoch === epoch && !current.piCloudAccountId
+      && current.agents.pi.catalog.models.items.length > 0) return current.agents.pi.catalog.models;
     throw error;
   }).finally(() => pending.delete(epoch));
   pending.set(epoch, request);
@@ -125,6 +125,7 @@ function applyCloudState(state: CloudState): boolean {
     state.authenticated ? state.account?.user.id ?? null : null,
     state.revision,
     state.membership,
+    state.authenticated ? state.account?.user.region ?? null : null,
   );
   return true;
 }
@@ -146,13 +147,16 @@ export function syncPiCloudModelCatalog(state: CloudState): Promise<AgentModelCa
 
 /** Reconcile on opening the picker, including a missed native session event. */
 export async function loadPiCloudModelCatalog(options: { force?: boolean } = {}): Promise<AgentModelCatalog> {
+  const previousEpoch = useAgentDataStore.getState().piCloudCatalogEpoch;
   try {
     const state = await cloud.getState();
     applyCloudState(state);
   } catch (error) {
     logger.warn('Failed to reconcile Cloud session before loading Pi models', { error });
   }
-  return ensurePiCloudModelCatalog(options);
+  return ensurePiCloudModelCatalog({
+    force: options.force || useAgentDataStore.getState().piCloudCatalogEpoch !== previousEpoch,
+  });
 }
 
 function ensurePiCloudModelCatalog(options: { force?: boolean } = {}): Promise<AgentModelCatalog> {

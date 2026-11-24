@@ -29,6 +29,7 @@
 	--muted: oklch(0.948 0.006 var(--neutral-hue));
 	--hover-bg: var(--muted);
 	--muted-foreground: oklch(0.620 0.009 var(--neutral-hue));
+	--input-placeholder: color-mix(in oklch, var(--muted-foreground) 50%, transparent);
 	--accent: oklch(0.95 0.006 var(--neutral-hue));
 
 	--border: oklch(0.946 0.006 var(--neutral-hue));
@@ -39,6 +40,7 @@
 	 * ≈ 0.056. */
 	--divider: oklch(0.932 0.006 var(--neutral-hue));
 	--ring: var(--primary);
+	--input-ring: color-mix(in oklch, var(--primary) 50%, transparent);
 
 	--agent-bg: #ffffff;
 	--agent-status-surface: oklch(0.965 0.004 var(--neutral-hue));

@@ -153,7 +153,7 @@ impl AccountService {
                 auth.status
             },
             auth_error: auth.error.clone().or_else(|| auth.credential_error.clone()),
-            account: self.store.v2_account()?,
+            account: self.store.account()?,
             membership: entitlement.membership.clone(),
             membership_status: entitlement.status,
             membership_error: entitlement.error.clone(),

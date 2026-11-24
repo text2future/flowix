@@ -4,15 +4,15 @@
 //! owns many Codex threads and turns, so Flowix keeps the process connection
 //! separately from the per-thread run registry.
 
-mod history_projection;
-mod tool_items;
 mod chat;
 mod connection;
 mod control;
+mod history_projection;
 mod project;
 mod queue;
 mod run;
 mod threads;
+mod tool_items;
 use history_projection::*;
 use tool_items::{
     codex_custom_tool_message_type, codex_tool_call_identity, codex_tool_call_input,
@@ -567,7 +567,6 @@ async fn bind_automatically_started_queue_turn(
         )
         .await;
 }
-
 
 async fn write_inner(inner: &Arc<Inner>, message: Value) -> Result<(), String> {
     let stdin = inner

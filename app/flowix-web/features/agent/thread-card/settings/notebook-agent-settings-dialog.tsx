@@ -54,7 +54,7 @@ const EMPTY_WORKSPACE: NotebookAgentWorkspace = {
 
 const inputClass = cn(INPUT_CLASS, DIALOG_INPUT_CLASS);
 const textareaClass =
-  "min-h-32 w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2.5 text-sm leading-6 text-[var(--foreground)] outline-none transition-colors placeholder:text-[var(--muted-foreground)] focus:border-[var(--primary)] focus:ring-2 focus:ring-[color-mix(in_oklch,var(--primary)_16%,transparent)]";
+  "min-h-32 w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2.5 text-sm leading-6 text-[var(--foreground)] outline-none transition-colors placeholder:text-[var(--input-placeholder)] focus:border-[var(--input-ring)]";
 
 function newId(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 7)}`;

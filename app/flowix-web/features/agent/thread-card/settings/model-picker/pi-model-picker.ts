@@ -12,6 +12,7 @@ type PiModelPickerProps = {
   personalEmptyLabel: string;
   onAddCustomModel: () => void;
   createModelItem: (model: AgentModelOption) => HTMLElement;
+  onSelectReasoning?: (model: AgentModelOption, level: string) => void;
 };
 
 type ProviderLabelPlacement = "group" | "item" | "none";
@@ -39,6 +40,107 @@ function providerLabel(model: AgentModelOption): string {
   return model.providerName?.trim() || model.providerId?.trim() || "Other";
 }
 
+function createDetails(model: AgentModelOption, props: PiModelPickerProps): HTMLElement {
+  const item = document.createElement("div");
+  item.className = "agent-pi-model-picker__details";
+  const title = document.createElement("strong");
+  title.textContent = model.label;
+  item.append(title);
+  const description = model.description?.trim() || model.subtitle?.trim();
+  const text = document.createElement("span");
+  text.textContent = description || "暂无模型描述";
+  item.append(text);
+  if (model.creditMultiplier != null) {
+    const rate = document.createElement("span");
+    rate.textContent = `消耗倍率：${model.creditMultiplier.toFixed(2)}x`;
+    item.append(rate);
+  }
+  if (model.reasoningConfig) {
+    const label = document.createElement("label");
+    label.textContent = "思考强度 ";
+    const select = document.createElement("select");
+    select.setAttribute("aria-label", `${model.label} 思考强度`);
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = model.reasoningConfig.defaultLevel
+      ? `默认 (${model.reasoningConfig.defaultLevel})` : "服务商默认";
+    placeholder.selected = true;
+    placeholder.disabled = true;
+    select.append(placeholder);
+    for (const level of model.reasoningConfig.levels) {
+      const option = document.createElement("option");
+      option.value = level;
+      option.textContent = level;
+      select.append(option);
+    }
+    select.addEventListener("change", () => props.onSelectReasoning?.(model, select.value));
+    label.append(select);
+    item.append(label);
+  } else {
+    const unavailable = document.createElement("span");
+    unavailable.textContent = "思考强度：未配置";
+    item.append(unavailable);
+  }
+  return item;
+}
+
+function attachModelDetails(wrapper: HTMLElement, model: AgentModelOption, props: PiModelPickerProps): void {
+  const doc = wrapper.ownerDocument;
+  let details: HTMLElement | null = null;
+  let closeTimer: ReturnType<typeof setTimeout> | undefined;
+  let observer: MutationObserver | undefined;
+  const close = () => {
+    if (closeTimer) clearTimeout(closeTimer);
+    details?.remove();
+    details = null;
+    observer?.disconnect();
+    observer = undefined;
+    doc.removeEventListener("scroll", close, true);
+    doc.defaultView?.removeEventListener("resize", close);
+  };
+  const scheduleClose = () => {
+    if (closeTimer) clearTimeout(closeTimer);
+    closeTimer = setTimeout(close, 180);
+  };
+  const show = () => {
+    if (closeTimer) clearTimeout(closeTimer);
+    if (details) return;
+    // Only one secondary popup may be visible, even while a previous row's
+    // short pointer-crossing grace period is pending.
+    doc.querySelectorAll<HTMLElement>(".agent-pi-model-picker__details").forEach((popup) => popup.dispatchEvent(new Event("pi-details-close")));
+    details = createDetails(model, props);
+    details.addEventListener("pi-details-close", close, { once: true });
+    details.setAttribute("role", "group");
+    details.setAttribute("aria-label", `${model.label} 详情`);
+    details.addEventListener("mouseenter", () => { if (closeTimer) clearTimeout(closeTimer); });
+    details.addEventListener("mouseleave", scheduleClose);
+    details.addEventListener("focusin", () => { if (closeTimer) clearTimeout(closeTimer); });
+    details.addEventListener("focusout", (event) => {
+      if (!details?.contains(event.relatedTarget as Node | null)) scheduleClose();
+    });
+    doc.body.append(details);
+    const rect = wrapper.getBoundingClientRect();
+    const width = details.offsetWidth || 240;
+    const height = details.offsetHeight || 120;
+    const viewportWidth = doc.defaultView?.innerWidth ?? 1024;
+    const viewportHeight = doc.defaultView?.innerHeight ?? 768;
+    const left = rect.right + width <= viewportWidth ? rect.right : rect.left - width;
+    details.style.left = `${Math.max(8, Math.min(left, viewportWidth - width - 8))}px`;
+    details.style.top = `${Math.max(8, Math.min(rect.top, viewportHeight - height - 8))}px`;
+    doc.addEventListener("scroll", close, true);
+    doc.defaultView?.addEventListener("resize", close);
+    observer = new MutationObserver(() => { if (!wrapper.isConnected) close(); });
+    observer.observe(doc.body, { childList: true, subtree: true });
+  };
+  wrapper.addEventListener("mouseenter", show);
+  wrapper.addEventListener("mouseleave", scheduleClose);
+  wrapper.addEventListener("focusin", show);
+  wrapper.addEventListener("focusout", (event) => {
+    const target = event.relatedTarget as Node | null;
+    if (!wrapper.contains(target) && !details?.contains(target)) scheduleClose();
+  });
+}
+
 function createModelGroups(
   models: readonly AgentModelOption[],
   props: PiModelPickerProps,
@@ -64,7 +166,7 @@ function createModelGroups(
       const item = props.createModelItem(model);
       item.classList.add("agent-pi-model-picker__item");
       const subtitle = isFlowixCloudModelOption(model) ? model.subtitle?.trim() : undefined;
-      if (subtitle) item.title = subtitle;
+      if (subtitle) item.setAttribute("aria-description", subtitle);
       const checkmark = item.querySelector(".agent-thread-card__copy-icon");
       if (providerLabelPlacement === "item") {
         const providerName = document.createElement("span");
@@ -103,7 +205,11 @@ function createModelGroups(
           ? "true"
           : "false",
       );
-      groupElement.append(item);
+      const wrapper = document.createElement("div");
+      wrapper.className = "agent-pi-model-picker__item-wrapper";
+      wrapper.append(item);
+      if (isFlowixCloudModelOption(model)) attachModelDetails(wrapper, model, props);
+      groupElement.append(wrapper);
     });
     list.append(groupElement);
   });

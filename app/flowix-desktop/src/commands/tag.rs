@@ -10,22 +10,6 @@ use flowix_core::memo_file::types::{DeleteTagReport, MoveTagReport};
 
 use crate::app::state::AppState;
 
-fn mark_tagged_memos_cloud_dirty(state: &AppState, notebook_id: &str, relative_paths: &[String]) {
-    for relative_path in relative_paths {
-        let cloud_id = flowix_sync::v2_path_note_id(notebook_id, relative_path);
-        if let Err(error) = state.cloud_sync.record_v2_local_change(
-            notebook_id,
-            &cloud_id,
-            flowix_sync::LocalChangeKind::Put,
-            "unobserved",
-        ) {
-            tracing::warn!(
-                "failed to persist cloud dirty tag change for {notebook_id}/{relative_path}: {error}"
-            );
-        }
-    }
-}
-
 #[derive(Serialize)]
 pub struct GetAllTagsResponse {
     pub tags: Vec<TagWithId>,
@@ -45,9 +29,14 @@ pub async fn get_all_tags(
     tauri::async_runtime::spawn_blocking(move || -> Result<GetAllTagsResponse, String> {
         let state = app.state::<AppState>();
         let memo_file = read_lock(&state.memo_file, "memo_file");
-        let id = notebook_id.or_else(|| memo_file.current_notebook_id_value()).unwrap_or_default();
-        let tags = memo_file.derived_tags_for_notebook_id(Some(&id))
-            .map_err(|error| crate::app::notebook_background::query_error(state.inner(), &id, error))?;
+        let id = notebook_id
+            .or_else(|| memo_file.current_notebook_id_value())
+            .unwrap_or_default();
+        let tags = memo_file
+            .derived_tags_for_notebook_id(Some(&id))
+            .map_err(|error| {
+                crate::app::notebook_background::query_error(state.inner(), &id, error)
+            })?;
         Ok(GetAllTagsResponse {
             tags: tags
                 .into_iter()
@@ -95,7 +84,6 @@ pub fn move_memo_tag(
     };
 
     let sync_notebook_id = notebook_id.as_deref().unwrap_or("nb_default");
-    mark_tagged_memos_cloud_dirty(state.inner(), sync_notebook_id, &affected_relative_paths);
     if !affected_relative_paths.is_empty() {
         crate::commands::cloud::schedule_notebook_sync(app.clone(), sync_notebook_id.to_string());
     }
@@ -138,7 +126,6 @@ pub fn delete_memo_tag(
     };
 
     let sync_notebook_id = notebook_id.as_deref().unwrap_or("nb_default");
-    mark_tagged_memos_cloud_dirty(state.inner(), sync_notebook_id, &affected_relative_paths);
     if !affected_relative_paths.is_empty() {
         crate::commands::cloud::schedule_notebook_sync(app.clone(), sync_notebook_id.to_string());
     }
@@ -171,7 +158,10 @@ pub async fn get_tag_prefix_counts(
         memo_file
             .read_tag_prefix_counts_for_notebook_id(notebook_id.as_deref())
             .map_err(|error| {
-                let id = notebook_id.clone().or_else(|| memo_file.current_notebook_id_value()).unwrap_or_default();
+                let id = notebook_id
+                    .clone()
+                    .or_else(|| memo_file.current_notebook_id_value())
+                    .unwrap_or_default();
                 crate::app::notebook_background::query_error(state.inner(), &id, error)
             })
     })

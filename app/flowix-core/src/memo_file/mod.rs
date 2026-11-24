@@ -35,6 +35,7 @@ mod note_index;
 mod note_links;
 mod notebook;
 mod notebook_registry;
+mod notebook_scan;
 mod onboarding;
 mod operation_locks;
 mod ops;
@@ -49,10 +50,15 @@ pub mod types;
 mod versions;
 
 pub(crate) use note_index::NoteWriteResult;
-pub use note_links::{NoteLink, NoteLinkPage, NoteLinkStatus, NoteLinkBatch};
 pub use note_index::{
     NoteEntry, NoteIndexReconcileReport, NoteSearchHit, NoteSummary, NoteTitleCondition,
     NoteTitleFilter, NoteTreeMetadata, NoteWriteOutcome,
+};
+pub use note_links::{NoteLink, NoteLinkBatch, NoteLinkPage, NoteLinkStatus};
+pub use notebook_scan::{
+    is_syncable_notebook_directory_path, is_syncable_notebook_file_path,
+    scan_syncable_notebook_files, scan_syncable_notebook_tree, NotebookDirectoryMetadata,
+    NotebookFileMetadata,
 };
 pub use operation_locks::{FileLockIntent, FileWriteGuard, OperationLocks};
 
@@ -70,10 +76,10 @@ pub use file_io::{
 pub use file_management::{
     default_create_folder_for_notebook, rebase_default_create_folder_path, FileManagementPolicy,
 };
+pub use file_rules::EXCLUDED_DIRECTORY_NAMES;
 pub use folder_index::{
     delete_folder_index_for_path, rebase_folder_index_for_move, FolderIndexEntry,
 };
-pub use file_rules::EXCLUDED_DIRECTORY_NAMES;
 pub use frontmatter::{
     extract_body_content, extract_document_metadata, extract_frontmatter_properties,
     merge_frontmatter, normalize_document_tags, normalize_markdown_encoding_boundaries,
@@ -370,7 +376,6 @@ impl MemoFile {
     pub fn get_flowix_dir(&self) -> PathBuf {
         self.get_memo_base().join(".flowix")
     }
-
 }
 
 #[cfg(test)]

@@ -61,6 +61,7 @@ export function BrowserColumnHeader(props: BrowserColumnHeaderProps) {
       : current?.target.kind === 'media' ? 'media' : current?.target.kind === 'plugin-workbench' ? 'plugin-workbench'
         : collectionPath ? 'collection' : 'file-browser';
   const collection = collectionPath ? {
+    isFolder: current?.target.kind === 'folder-collection',
     indexPath: collectionPath,
     notebookId: current?.target.kind === 'folder-collection' ? current.target.notebookId : target?.notebookId,
     notebookPath: current?.target.kind === 'folder-collection' ? current.target.notebookPath : target?.scopePath,

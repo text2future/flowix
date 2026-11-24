@@ -14,7 +14,6 @@ use tokio::time::Duration;
 use crate::agent_wire::AgentUserMessage;
 
 impl PiRpcManager {
-
     pub async fn queue_message(
         &self,
         thread_id: &str,
@@ -92,7 +91,6 @@ impl PiRpcManager {
         }
         Ok(())
     }
-
 
     pub async fn promote_follow_up_to_steer(
         &self,
@@ -177,7 +175,6 @@ impl PiRpcManager {
         Ok(())
     }
 
-
     pub async fn delete_queued_message(
         &self,
         thread_id: &str,
@@ -255,5 +252,4 @@ impl PiRpcManager {
             .remove(client_message_id);
         Ok(())
     }
-
 }

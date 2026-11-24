@@ -141,7 +141,8 @@ mod tests {
     fn cas_accepts_markdown_serialization_noise() {
         let current = "---\nflowix_key: abc123\nkey: legacy-current\n---\r\n\r\n# Title\r\n&nbsp;\r\nBody  \r\n";
         let expected = "---\nflowix_key: abc123\nkey: legacy-current\n---\n\n# Title\n\nBody\n";
-        let incoming = "---\nflowix_key: abc123\nkey: legacy-current\n---\n\n# Title\n&nbsp;\nBody\n";
+        let incoming =
+            "---\nflowix_key: abc123\nkey: legacy-current\n---\n\n# Title\n&nbsp;\nBody\n";
 
         assert!(cas_content_matches(current, expected, incoming));
     }

@@ -932,6 +932,7 @@ export function NotebookFileTree({
                     ),
                   }}
                   files={{
+                    sharePath: notebookPath,
                     notebookName,
                     collapsed: filesCollapsed,
                     onToggleCollapsed: () => setFilesCollapsed((collapsed) => !collapsed),

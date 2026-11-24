@@ -1,4 +1,7 @@
-use flowix_core::{memo_file::{MemoFile, NotebookConfig}, NoteService};
+use flowix_core::{
+    memo_file::{MemoFile, NotebookConfig},
+    NoteService,
+};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
@@ -97,26 +100,72 @@ fn mcp_collection_structured_write_and_retry() {
     let notebook = tmp.path().join("work");
     seed_notebook(&config, &notebook);
     let (mut child, mut stdin, mut stdout) = spawn_mcp(&config);
-    let created = call_structured(&mut stdin, &mut stdout, 1, json!({"action":"collection.create","path":"产品.index.yaml","fieldDefinitions":[{"name":"状态","type":"Select","options":["完成"]}]}));
+    let created = call_structured(
+        &mut stdin,
+        &mut stdout,
+        1,
+        json!({"action":"collection.create","path":"产品.index.yaml","fieldDefinitions":[{"name":"状态","type":"Select","options":["完成"]}]}),
+    );
     let data = &created["result"]["structuredContent"];
     assert_eq!(data["ok"], true, "{created}");
     let id = data["collectionId"].as_str().unwrap();
-    let fields = call_structured(&mut stdin, &mut stdout, 5, json!({"action":"collection.add-fields","collectionId":id,"fieldDefinitions":[{"name":"评分","type":"Number"}]}));
-    assert_eq!(fields["result"]["structuredContent"]["ok"], true, "{fields}");
+    let fields = call_structured(
+        &mut stdin,
+        &mut stdout,
+        5,
+        json!({"action":"collection.add-fields","collectionId":id,"fieldDefinitions":[{"name":"评分","type":"Number"}]}),
+    );
+    assert_eq!(
+        fields["result"]["structuredContent"]["ok"], true,
+        "{fields}"
+    );
     let args = json!({"action":"collection.add","collectionId":id,"requestId":"one","record":{"title":"A","properties":{"状态":"完成","评分":4.5}}});
     let first = call_structured(&mut stdin, &mut stdout, 2, args.clone());
     let retry = call_structured(&mut stdin, &mut stdout, 3, args);
     assert_eq!(first["result"]["structuredContent"]["ok"], true, "{first}");
-    assert_eq!(first["result"]["structuredContent"]["note"]["address"], retry["result"]["structuredContent"]["note"]["address"]);
-    let queried = call_structured(&mut stdin, &mut stdout, 4, json!({"action":"collection.query","collectionId":id,"where":["状态=完成"]}));
-    assert_eq!(queried["result"]["structuredContent"]["page"]["total"], 1, "{queried}");
-    assert_eq!(queried["result"]["structuredContent"]["items"][0]["propertiesByKey"]["状态"], "完成");
-    assert_eq!(queried["result"]["structuredContent"]["items"][0]["propertiesByKey"]["评分"], 4.5);
+    assert_eq!(
+        first["result"]["structuredContent"]["note"]["address"],
+        retry["result"]["structuredContent"]["note"]["address"]
+    );
+    let queried = call_structured(
+        &mut stdin,
+        &mut stdout,
+        4,
+        json!({"action":"collection.query","collectionId":id,"where":["状态=完成"]}),
+    );
+    assert_eq!(
+        queried["result"]["structuredContent"]["page"]["total"], 1,
+        "{queried}"
+    );
+    assert_eq!(
+        queried["result"]["structuredContent"]["items"][0]["propertiesByKey"]["状态"],
+        "完成"
+    );
+    assert_eq!(
+        queried["result"]["structuredContent"]["items"][0]["propertiesByKey"]["评分"],
+        4.5
+    );
     let args = json!({"action":"collection.add-note","collectionId":id,"title":"B","content":"body","requestId":"note-1"});
-    let first = request(&mut stdin, &mut stdout, 6, "tools/call", json!({"name":"flowix_write","arguments":args.clone()}));
-    let retry = request(&mut stdin, &mut stdout, 7, "tools/call", json!({"name":"flowix_write","arguments":args}));
+    let first = request(
+        &mut stdin,
+        &mut stdout,
+        6,
+        "tools/call",
+        json!({"name":"flowix_write","arguments":args.clone()}),
+    );
+    let retry = request(
+        &mut stdin,
+        &mut stdout,
+        7,
+        "tools/call",
+        json!({"name":"flowix_write","arguments":args}),
+    );
     assert_eq!(first["result"]["isError"], false, "{first}");
-    assert_eq!(first["result"]["structuredContent"]["note"]["address"], retry["result"]["structuredContent"]["note"]["address"], "{retry}");
+    assert_eq!(
+        first["result"]["structuredContent"]["note"]["address"],
+        retry["result"]["structuredContent"]["note"]["address"],
+        "{retry}"
+    );
     drop(stdin);
     child.wait().unwrap();
 }
@@ -411,17 +460,45 @@ fn structured_create_version_and_argument_error_contract() {
     seed_notebook(&config, &notebook);
     std::fs::create_dir_all(notebook.join("folder")).unwrap();
     let (mut child, mut stdin, mut stdout) = spawn_mcp(&config);
-    let created = call_structured(&mut stdin, &mut stdout, 1, json!({"action":"create","title":"Named","folder":"folder","content":"original"}));
-    assert_eq!(created["result"]["structuredContent"]["note"]["relativePath"], "folder/Named.md", "{created}");
-    let address = created["result"]["structuredContent"]["note"]["address"].as_str().unwrap();
-    let shown = call_structured(&mut stdin, &mut stdout, 2, json!({"action":"show","address":address}));
-    let version = shown["result"]["structuredContent"]["version"].as_str().unwrap();
+    let created = call_structured(
+        &mut stdin,
+        &mut stdout,
+        1,
+        json!({"action":"create","title":"Named","folder":"folder","content":"original"}),
+    );
+    assert_eq!(
+        created["result"]["structuredContent"]["note"]["relativePath"], "folder/Named.md",
+        "{created}"
+    );
+    let address = created["result"]["structuredContent"]["note"]["address"]
+        .as_str()
+        .unwrap();
+    let shown = call_structured(
+        &mut stdin,
+        &mut stdout,
+        2,
+        json!({"action":"show","address":address}),
+    );
+    let version = shown["result"]["structuredContent"]["version"]
+        .as_str()
+        .unwrap();
     std::fs::write(notebook.join("folder/Named.md"), "external").unwrap();
-    let conflict = call_structured(&mut stdin, &mut stdout, 3, json!({"action":"write","address":address,"content":"replacement","expectedVersion":version}));
-    assert_eq!(conflict["result"]["structuredContent"]["error"]["code"], "VERSION_CONFLICT", "{conflict}");
+    let conflict = call_structured(
+        &mut stdin,
+        &mut stdout,
+        3,
+        json!({"action":"write","address":address,"content":"replacement","expectedVersion":version}),
+    );
+    assert_eq!(
+        conflict["result"]["structuredContent"]["error"]["code"], "VERSION_CONFLICT",
+        "{conflict}"
+    );
     let invalid = call_structured(&mut stdin, &mut stdout, 4, json!({"action":"show"}));
     assert_eq!(invalid["result"]["isError"], true, "{invalid}");
-    assert_eq!(invalid["result"]["structuredContent"]["error"]["code"], "INVALID_COMMAND");
+    assert_eq!(
+        invalid["result"]["structuredContent"]["error"]["code"],
+        "INVALID_COMMAND"
+    );
     drop(stdin);
     assert!(child.wait().unwrap().success());
 }
@@ -433,28 +510,71 @@ fn scoped_tools_enforce_access_and_preconditions() {
     let notebook = tmp.path().join("work");
     seed_notebook(&config, &notebook);
     let mut child = Command::new(env!("CARGO_BIN_EXE_flowix-cli"))
-        .arg("mcp").env("FLOWIX_HOME", &config).env("FLOWIX_MCP_ACCESS", "read")
-        .stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+        .arg("mcp")
+        .env("FLOWIX_HOME", &config)
+        .env("FLOWIX_MCP_ACCESS", "read")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
     let mut stdin = child.stdin.take().unwrap();
     let mut stdout = BufReader::new(child.stdout.take().unwrap());
     let listed = request(&mut stdin, &mut stdout, 1, "tools/list", json!({}));
     assert_eq!(listed["result"]["tools"].as_array().unwrap().len(), 1);
-    for (id, name, action) in [(2, "memo", "create"), (3, "flowix_write", "create"), (4, "flowix_read", "delete")] {
-        let result = request(&mut stdin, &mut stdout, id, "tools/call", json!({"name":name,"arguments":{"action":action,"content":"x","address":"work::x.md"}}));
-        assert_eq!(result["result"]["structuredContent"]["error"]["code"], "PERMISSION_DENIED", "{result}");
+    for (id, name, action) in [
+        (2, "memo", "create"),
+        (3, "flowix_write", "create"),
+        (4, "flowix_read", "delete"),
+    ] {
+        let result = request(
+            &mut stdin,
+            &mut stdout,
+            id,
+            "tools/call",
+            json!({"name":name,"arguments":{"action":action,"content":"x","address":"work::x.md"}}),
+        );
+        assert_eq!(
+            result["result"]["structuredContent"]["error"]["code"], "PERMISSION_DENIED",
+            "{result}"
+        );
     }
     drop(stdin);
     child.wait().unwrap();
 
     let (mut child, mut stdin, mut stdout) = spawn_mcp(&config);
     for (id, name, args) in [
-        (5, "flowix_write", json!({"action":"write","address":"work::x.md","content":"x"})),
-        (6, "flowix_delete", json!({"action":"delete","address":"work::x.md"})),
-        (7, "flowix_write", json!({"action":"collection.add","record":{}})),
-        (8, "flowix_write", json!({"action":"collection.add-note","title":"x","content":"x"})),
+        (
+            5,
+            "flowix_write",
+            json!({"action":"write","address":"work::x.md","content":"x"}),
+        ),
+        (
+            6,
+            "flowix_delete",
+            json!({"action":"delete","address":"work::x.md"}),
+        ),
+        (
+            7,
+            "flowix_write",
+            json!({"action":"collection.add","record":{}}),
+        ),
+        (
+            8,
+            "flowix_write",
+            json!({"action":"collection.add-note","title":"x","content":"x"}),
+        ),
     ] {
-        let result = request(&mut stdin, &mut stdout, id, "tools/call", json!({"name":name,"arguments":args}));
-        assert_eq!(result["result"]["structuredContent"]["error"]["code"], "PRECONDITION_REQUIRED", "{result}");
+        let result = request(
+            &mut stdin,
+            &mut stdout,
+            id,
+            "tools/call",
+            json!({"name":name,"arguments":args}),
+        );
+        assert_eq!(
+            result["result"]["structuredContent"]["error"]["code"], "PRECONDITION_REQUIRED",
+            "{result}"
+        );
     }
     drop(stdin);
     child.wait().unwrap();
@@ -468,17 +588,41 @@ fn create_receipt_survives_restart_and_rejects_key_reuse() {
     seed_notebook(&config, &notebook);
     let args = json!({"action":"create","title":"Stable","content":"body","requestId":"request-1"});
     let (mut child, mut input, mut output) = spawn_mcp(&config);
-    let first = request(&mut input, &mut output, 1, "tools/call", json!({"name":"flowix_write","arguments":args.clone()}));
+    let first = request(
+        &mut input,
+        &mut output,
+        1,
+        "tools/call",
+        json!({"name":"flowix_write","arguments":args.clone()}),
+    );
     assert_eq!(first["result"]["isError"], false, "{first}");
     drop(input);
     child.wait().unwrap();
     let (mut child, mut input, mut output) = spawn_mcp(&config);
-    let retry = request(&mut input, &mut output, 2, "tools/call", json!({"name":"flowix_write","arguments":args.clone()}));
-    assert_eq!(first["result"]["structuredContent"], retry["result"]["structuredContent"]);
+    let retry = request(
+        &mut input,
+        &mut output,
+        2,
+        "tools/call",
+        json!({"name":"flowix_write","arguments":args.clone()}),
+    );
+    assert_eq!(
+        first["result"]["structuredContent"],
+        retry["result"]["structuredContent"]
+    );
     let mut changed = args;
     changed["content"] = json!("different");
-    let conflict = request(&mut input, &mut output, 3, "tools/call", json!({"name":"flowix_write","arguments":changed}));
-    assert_eq!(conflict["result"]["structuredContent"]["error"]["code"], "REQUEST_ID_CONFLICT", "{conflict}");
+    let conflict = request(
+        &mut input,
+        &mut output,
+        3,
+        "tools/call",
+        json!({"name":"flowix_write","arguments":changed}),
+    );
+    assert_eq!(
+        conflict["result"]["structuredContent"]["error"]["code"], "REQUEST_ID_CONFLICT",
+        "{conflict}"
+    );
     assert!(!notebook.join("Stable-1.md").exists());
     drop(input);
     child.wait().unwrap();
@@ -492,16 +636,40 @@ fn create_interrupted_or_failed_request_is_not_reexecuted() {
     seed_notebook(&config, &notebook);
     let (mut child, mut input, mut output) = spawn_mcp(&config);
     let args = json!({"action":"create","folder":"missing","title":"Stable","content":"body","requestId":"unknown"});
-    let first = request(&mut input, &mut output, 1, "tools/call", json!({"name":"flowix_write","arguments":args.clone()}));
+    let first = request(
+        &mut input,
+        &mut output,
+        1,
+        "tools/call",
+        json!({"name":"flowix_write","arguments":args.clone()}),
+    );
     assert_eq!(first["result"]["isError"], true);
-    assert_eq!(first["result"]["structuredContent"]["error"]["code"], "REQUEST_INDETERMINATE");
-    assert!(first["result"]["structuredContent"]["error"]["message"].as_str().unwrap().contains("io error"), "{first}");
+    assert_eq!(
+        first["result"]["structuredContent"]["error"]["code"],
+        "REQUEST_INDETERMINATE"
+    );
+    assert!(
+        first["result"]["structuredContent"]["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("io error"),
+        "{first}"
+    );
     drop(input);
     child.wait().unwrap();
     std::fs::create_dir(notebook.join("missing")).unwrap();
     let (mut child, mut input, mut output) = spawn_mcp(&config);
-    let second = request(&mut input, &mut output, 2, "tools/call", json!({"name":"flowix_write","arguments":args}));
-    assert_eq!(second["result"]["structuredContent"]["error"]["code"], "REQUEST_INDETERMINATE", "{second}");
+    let second = request(
+        &mut input,
+        &mut output,
+        2,
+        "tools/call",
+        json!({"name":"flowix_write","arguments":args}),
+    );
+    assert_eq!(
+        second["result"]["structuredContent"]["error"]["code"], "REQUEST_INDETERMINATE",
+        "{second}"
+    );
     assert!(!notebook.join("missing/Stable.md").exists());
     drop(input);
     child.wait().unwrap();
@@ -528,10 +696,16 @@ fn concurrent_create_with_same_request_id_does_not_duplicate() {
         }));
     }
     let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
-    assert!(results.iter().any(|r| r["result"]["isError"] == false), "{results:?}");
+    assert!(
+        results.iter().any(|r| r["result"]["isError"] == false),
+        "{results:?}"
+    );
     for result in &results {
         if result["result"]["isError"] == true {
-            assert_eq!(result["result"]["structuredContent"]["error"]["code"], "REQUEST_INDETERMINATE", "{result}");
+            assert_eq!(
+                result["result"]["structuredContent"]["error"]["code"], "REQUEST_INDETERMINATE",
+                "{result}"
+            );
         }
     }
     assert!(notebook.join("Race.md").exists());
@@ -556,17 +730,41 @@ fn artifact_request_replays_across_process_restart() {
     }"#).unwrap();
     let args = json!({"action":"artifact.create","pluginId":"plain-report","content":"# Report\nDone","requestId":"artifact-1"});
     let (mut child, mut input, mut output) = spawn_mcp(&config);
-    let first = request(&mut input, &mut output, 1, "tools/call", json!({"name":"flowix_write","arguments":args.clone()}));
+    let first = request(
+        &mut input,
+        &mut output,
+        1,
+        "tools/call",
+        json!({"name":"flowix_write","arguments":args.clone()}),
+    );
     assert_eq!(first["result"]["isError"], false, "{first}");
     drop(input);
     child.wait().unwrap();
     let (mut child, mut input, mut output) = spawn_mcp(&config);
-    let retry = request(&mut input, &mut output, 2, "tools/call", json!({"name":"flowix_write","arguments":args.clone()}));
-    assert_eq!(first["result"]["structuredContent"], retry["result"]["structuredContent"]);
+    let retry = request(
+        &mut input,
+        &mut output,
+        2,
+        "tools/call",
+        json!({"name":"flowix_write","arguments":args.clone()}),
+    );
+    assert_eq!(
+        first["result"]["structuredContent"],
+        retry["result"]["structuredContent"]
+    );
     let mut different = args;
     different["content"] = json!("# Different");
-    let conflict = request(&mut input, &mut output, 3, "tools/call", json!({"name":"flowix_write","arguments":different}));
-    assert_eq!(conflict["result"]["structuredContent"]["error"]["code"], "REQUEST_ID_CONFLICT");
+    let conflict = request(
+        &mut input,
+        &mut output,
+        3,
+        "tools/call",
+        json!({"name":"flowix_write","arguments":different}),
+    );
+    assert_eq!(
+        conflict["result"]["structuredContent"]["error"]["code"],
+        "REQUEST_ID_CONFLICT"
+    );
     drop(input);
     child.wait().unwrap();
 }
@@ -579,31 +777,118 @@ fn request_inspection_and_review_preserve_the_retry_guard() {
     seed_notebook(&config, &notebook);
     let (mut child, mut input, mut output) = spawn_mcp(&config);
     let args = json!({"action":"create","folder":"missing","title":"Stable","content":"body","requestId":"review-1"});
-    let fail = request(&mut input, &mut output, 1, "tools/call", json!({"name":"flowix_write","arguments":args.clone()}));
-    assert_eq!(fail["result"]["structuredContent"]["error"]["code"], "REQUEST_INDETERMINATE");
-    let shown = request(&mut input, &mut output, 2, "tools/call", json!({"name":"flowix_read","arguments":{"action":"request.show","notebook":"work","operation":"create","requestId":"review-1"}}));
+    let fail = request(
+        &mut input,
+        &mut output,
+        1,
+        "tools/call",
+        json!({"name":"flowix_write","arguments":args.clone()}),
+    );
+    assert_eq!(
+        fail["result"]["structuredContent"]["error"]["code"],
+        "REQUEST_INDETERMINATE"
+    );
+    let shown = request(
+        &mut input,
+        &mut output,
+        2,
+        "tools/call",
+        json!({"name":"flowix_read","arguments":{"action":"request.show","notebook":"work","operation":"create","requestId":"review-1"}}),
+    );
     let receipt = &shown["result"]["structuredContent"];
     assert_eq!(receipt["state"], "uncertain", "{shown}");
     assert_eq!(receipt["targetHint"]["title"], "Stable");
     assert!(receipt["createdAt"].is_string());
     assert!(receipt["errorSummary"].is_string());
-    let cli_list = Command::new(env!("CARGO_BIN_EXE_flowix-cli")).env("FLOWIX_HOME", &config).args(["request", "list", "--state", "uncertain", "--json"]).output().unwrap();
-    assert!(cli_list.status.success(), "{}", String::from_utf8_lossy(&cli_list.stderr));
+    let cli_list = Command::new(env!("CARGO_BIN_EXE_flowix-cli"))
+        .env("FLOWIX_HOME", &config)
+        .args(["request", "list", "--state", "uncertain", "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        cli_list.status.success(),
+        "{}",
+        String::from_utf8_lossy(&cli_list.stderr)
+    );
     let cli_list: Value = serde_json::from_slice(&cli_list.stdout).unwrap();
     assert_eq!(cli_list["requests"][0]["requestId"], "review-1");
-    let cli_show = Command::new(env!("CARGO_BIN_EXE_flowix-cli")).env("FLOWIX_HOME", &config).args(["request", "show", "review-1", "--notebook", "work", "--operation", "create", "--json"]).output().unwrap();
-    assert!(cli_show.status.success(), "{}", String::from_utf8_lossy(&cli_show.stderr));
-    assert_eq!(serde_json::from_slice::<Value>(&cli_show.stdout).unwrap()["state"], "uncertain");
-    let listing = request(&mut input, &mut output, 3, "tools/call", json!({"name":"flowix_read","arguments":{"action":"request.list","state":"uncertain"}}));
-    assert_eq!(listing["result"]["structuredContent"]["requests"].as_array().unwrap().len(), 1);
+    let cli_show = Command::new(env!("CARGO_BIN_EXE_flowix-cli"))
+        .env("FLOWIX_HOME", &config)
+        .args([
+            "request",
+            "show",
+            "review-1",
+            "--notebook",
+            "work",
+            "--operation",
+            "create",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        cli_show.status.success(),
+        "{}",
+        String::from_utf8_lossy(&cli_show.stderr)
+    );
+    assert_eq!(
+        serde_json::from_slice::<Value>(&cli_show.stdout).unwrap()["state"],
+        "uncertain"
+    );
+    let listing = request(
+        &mut input,
+        &mut output,
+        3,
+        "tools/call",
+        json!({"name":"flowix_read","arguments":{"action":"request.list","state":"uncertain"}}),
+    );
+    assert_eq!(
+        listing["result"]["structuredContent"]["requests"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
     std::fs::write(notebook.join("Evidence.md"), "evidence").unwrap();
-    let review = Command::new(env!("CARGO_BIN_EXE_flowix-cli")).env("FLOWIX_HOME", &config).args(["request","review","review-1","--notebook","work","--operation","create","--outcome","confirmed","--actor","test","--evidence","work::Evidence.md","--json"]).output().unwrap();
-    assert!(review.status.success(), "{}", String::from_utf8_lossy(&review.stdout));
+    let review = Command::new(env!("CARGO_BIN_EXE_flowix-cli"))
+        .env("FLOWIX_HOME", &config)
+        .args([
+            "request",
+            "review",
+            "review-1",
+            "--notebook",
+            "work",
+            "--operation",
+            "create",
+            "--outcome",
+            "confirmed",
+            "--actor",
+            "test",
+            "--evidence",
+            "work::Evidence.md",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        review.status.success(),
+        "{}",
+        String::from_utf8_lossy(&review.stdout)
+    );
     let reviewed: Value = serde_json::from_slice(&review.stdout).unwrap();
     assert_eq!(reviewed["state"], "uncertain");
     assert_eq!(reviewed["reviews"][0]["outcome"], "confirmed");
-    let retry = request(&mut input, &mut output, 4, "tools/call", json!({"name":"flowix_write","arguments":args}));
-    assert_eq!(retry["result"]["structuredContent"]["error"]["code"], "REQUEST_INDETERMINATE");
+    let retry = request(
+        &mut input,
+        &mut output,
+        4,
+        "tools/call",
+        json!({"name":"flowix_write","arguments":args}),
+    );
+    assert_eq!(
+        retry["result"]["structuredContent"]["error"]["code"],
+        "REQUEST_INDETERMINATE"
+    );
     drop(input);
     child.wait().unwrap();
 }
@@ -618,13 +903,52 @@ fn legacy_receipts_are_readable_and_migrated_without_fabricated_metadata() {
     db.execute_batch("CREATE TABLE requests(notebook_id TEXT NOT NULL, operation TEXT NOT NULL, request_id TEXT NOT NULL, payload_hash TEXT NOT NULL, result TEXT, PRIMARY KEY(notebook_id,operation,request_id)); INSERT INTO requests VALUES('work','create','old','hash',NULL);").unwrap();
     drop(db);
     let (mut child, mut input, mut output) = spawn_mcp(&config);
-    let shown = request(&mut input, &mut output, 1, "tools/call", json!({"name":"flowix_read","arguments":{"action":"request.show","notebook":"work","operation":"create","requestId":"old"}}));
-    assert_eq!(shown["result"]["structuredContent"]["state"], "uncertain", "{shown}");
+    let shown = request(
+        &mut input,
+        &mut output,
+        1,
+        "tools/call",
+        json!({"name":"flowix_read","arguments":{"action":"request.show","notebook":"work","operation":"create","requestId":"old"}}),
+    );
+    assert_eq!(
+        shown["result"]["structuredContent"]["state"], "uncertain",
+        "{shown}"
+    );
     assert!(shown["result"]["structuredContent"]["createdAt"].is_null());
-    let review = Command::new(env!("CARGO_BIN_EXE_flowix-cli")).env("FLOWIX_HOME", &config).args(["request","review","old","--notebook","work","--operation","create","--outcome","unresolved","--actor","test","--json"]).output().unwrap();
-    assert!(review.status.success(), "{}", String::from_utf8_lossy(&review.stdout));
-    let shown = request(&mut input, &mut output, 2, "tools/call", json!({"name":"flowix_read","arguments":{"action":"request.show","notebook":"work","operation":"create","requestId":"old"}}));
-    assert_eq!(shown["result"]["structuredContent"]["reviews"][0]["outcome"], "unresolved");
+    let review = Command::new(env!("CARGO_BIN_EXE_flowix-cli"))
+        .env("FLOWIX_HOME", &config)
+        .args([
+            "request",
+            "review",
+            "old",
+            "--notebook",
+            "work",
+            "--operation",
+            "create",
+            "--outcome",
+            "unresolved",
+            "--actor",
+            "test",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        review.status.success(),
+        "{}",
+        String::from_utf8_lossy(&review.stdout)
+    );
+    let shown = request(
+        &mut input,
+        &mut output,
+        2,
+        "tools/call",
+        json!({"name":"flowix_read","arguments":{"action":"request.show","notebook":"work","operation":"create","requestId":"old"}}),
+    );
+    assert_eq!(
+        shown["result"]["structuredContent"]["reviews"][0]["outcome"],
+        "unresolved"
+    );
     drop(input);
     child.wait().unwrap();
 }
@@ -635,13 +959,28 @@ fn readonly_receipt_queries_do_not_create_a_ledger() {
     let config = tmp.path().join("config");
     let notebook = tmp.path().join("work");
     seed_notebook(&config, &notebook);
-    let mut child = Command::new(env!("CARGO_BIN_EXE_flowix-cli")).arg("mcp")
-        .env("FLOWIX_HOME", &config).env("FLOWIX_MCP_ACCESS", "read")
-        .stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_flowix-cli"))
+        .arg("mcp")
+        .env("FLOWIX_HOME", &config)
+        .env("FLOWIX_MCP_ACCESS", "read")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
     let mut input = child.stdin.take().unwrap();
     let mut output = BufReader::new(child.stdout.take().unwrap());
-    let result = request(&mut input, &mut output, 1, "tools/call", json!({"name":"flowix_read","arguments":{"action":"request.list"}}));
-    assert_eq!(result["result"]["structuredContent"]["requests"], json!([]), "{result}");
+    let result = request(
+        &mut input,
+        &mut output,
+        1,
+        "tools/call",
+        json!({"name":"flowix_read","arguments":{"action":"request.list"}}),
+    );
+    assert_eq!(
+        result["result"]["structuredContent"]["requests"],
+        json!([]),
+        "{result}"
+    );
     assert!(!config.join("agent-requests.sqlite3").exists());
     drop(input);
     child.wait().unwrap();

@@ -40,8 +40,19 @@ fn help_variants() {
 #[test]
 fn plugin_help_explains_discovery_and_creation_contract() {
     let mut command = cli_command();
-    let help = command.find_subcommand_mut("plugin").unwrap().render_long_help().to_string();
-    for expected in ["explicitly requests", "plugin describe", "stdin", "exactly one H1", "notebookId", "notePath"] {
+    let help = command
+        .find_subcommand_mut("plugin")
+        .unwrap()
+        .render_long_help()
+        .to_string();
+    for expected in [
+        "explicitly requests",
+        "plugin describe",
+        "stdin",
+        "exactly one H1",
+        "notebookId",
+        "notePath",
+    ] {
         assert!(help.contains(expected), "missing {expected} in {help}");
     }
 }

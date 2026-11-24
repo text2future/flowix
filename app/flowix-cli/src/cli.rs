@@ -11,9 +11,26 @@ pub(crate) const DISPLAY_BIN: &str = "flowix";
 /// 解析后的 CLI 命令。
 #[derive(Debug)]
 pub enum Cli {
-    RequestList { state: Option<String>, limit: usize, json: bool },
-    RequestShow { notebook: String, operation: String, request_id: String, json: bool },
-    RequestReview { notebook: String, operation: String, request_id: String, outcome: String, actor: String, evidence: Option<String>, json: bool },
+    RequestList {
+        state: Option<String>,
+        limit: usize,
+        json: bool,
+    },
+    RequestShow {
+        notebook: String,
+        operation: String,
+        request_id: String,
+        json: bool,
+    },
+    RequestReview {
+        notebook: String,
+        operation: String,
+        request_id: String,
+        outcome: String,
+        actor: String,
+        evidence: Option<String>,
+        json: bool,
+    },
     Version,
     Notebooks {
         json: bool,
@@ -53,8 +70,22 @@ pub enum Cli {
         fields_file: Option<String>,
         json: bool,
     },
-    CollectionAddFields { notebook: String, collection_id: Option<String>, path: Option<String>, fields_file: String, json: bool },
-    CollectionAdd { notebook: String, collection_id: Option<String>, path: Option<String>, file: Option<String>, stdin: bool, request_id: Option<String>, json: bool },
+    CollectionAddFields {
+        notebook: String,
+        collection_id: Option<String>,
+        path: Option<String>,
+        fields_file: String,
+        json: bool,
+    },
+    CollectionAdd {
+        notebook: String,
+        collection_id: Option<String>,
+        path: Option<String>,
+        file: Option<String>,
+        stdin: bool,
+        request_id: Option<String>,
+        json: bool,
+    },
     CollectionRead {
         notebook: String,
         collection_id: Option<String>,

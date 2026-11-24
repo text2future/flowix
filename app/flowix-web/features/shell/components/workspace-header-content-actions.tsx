@@ -1,7 +1,7 @@
 import type { ComponentProps, ReactNode } from 'react';
 import type { WorkspaceColumnId } from '@features/workspace/public/surface-api';
 import {
-  ExternalDocumentActions, ExternalTitlebarBadge, MediaActions,
+  ExternalDocumentActions, ExternalTitlebarBadge, MediaActions, NoteShareControl,
 } from '@features/document/public/header-api';
 import { CollectionDisplayMenu } from '@features/collection/public/header-api';
 import { WorkspaceAgentHeaderAction } from './workspace-agent-header-action';
@@ -70,6 +70,8 @@ export function WorkspaceHeaderContentActions({ document, media, collection, col
   </>;
   if (collectionContext) return <>
     {headerAgentAction}
+    {collectionContext.isFolder && collectionContext.collectionPath && <NoteShareControl
+      key={collectionContext.collectionPath} filePath={collectionContext.collectionPath} kind="folder" flushDocument={async () => true} iconButtonClass={iconButtonClass} />}
     <CollectionDisplayMenu {...collectionContext} iconButtonClass={iconButtonClass} />
   </>;
   return <>{headerAgentAction}{fallback}</>;

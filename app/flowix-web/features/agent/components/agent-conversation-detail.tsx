@@ -1,5 +1,7 @@
 'use client';
 
+import { CloudAccessBlockedError } from '@features/agent/config/cloud-access';
+
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type UIEventHandler, type WheelEventHandler } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 
@@ -465,6 +467,7 @@ function AgentConversationDetailContent({
         renderCurrentMessages();
       },
       onError: (error) => {
+        if (error instanceof CloudAccessBlockedError) return;
         logger.error('Failed to submit Agent message', { error });
         toast.error(error instanceof Error ? error.message : tRef.current('agent.chat.sendFailed'));
       },

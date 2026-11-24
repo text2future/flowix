@@ -13,7 +13,11 @@ fn emit_runtime_status(app: &tauri::AppHandle, status: &crate::dsh::DshStatus) {
 
 #[tauri::command]
 pub fn dsh_status(state: State<'_, AppState>) -> crate::dsh::DshStatus {
-    let selected = state.user_config.get_preference().dsh_cli_path.map(PathBuf::from);
+    let selected = state
+        .user_config
+        .get_preference()
+        .dsh_cli_path
+        .map(PathBuf::from);
     crate::dsh::set_user_selected_cli(selected);
     crate::dsh::status()
 }

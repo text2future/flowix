@@ -55,34 +55,27 @@ afterEach(() => {
 describe('resolveCloudAccessForSend', () => {
   it('blocks a signed-out account without asking for a balance', async () => {
     setPiAccount({ providerId: 'flowix-cloud-member', authenticated: false });
-    await expect(resolveCloudAccessForSend(THREAD, 'pi')).resolves.toBe('signed_out');
+    expect(resolveCloudAccessForSend(THREAD, 'pi')).toBe('signed_out');
     expect(getAiCreditBalance).not.toHaveBeenCalled();
-    expect(useAgentCloudAccessStore.getState().entries[THREAD]).toBe('signed_out');
+    expect(useAgentCloudAccessStore.getState().entries[THREAD]).toBeUndefined();
   });
 
-  it('blocks a cloud model with an empty balance before the request is made', async () => {
+  it('does not request a balance before sending a Cloud message', () => {
     getAiCreditBalance.mockResolvedValue({ balanceMicrocredits: 0 });
-    await expect(resolveCloudAccessForSend(THREAD, 'pi')).resolves.toBe('no_credits');
-    expect(getAiCreditBalance).toHaveBeenCalledTimes(1);
-    expect(useAgentCloudAccessStore.getState().entries[THREAD]).toBe('no_credits');
+    expect(resolveCloudAccessForSend(THREAD, 'pi')).toBeNull();
+    expect(getAiCreditBalance).not.toHaveBeenCalled();
   });
 
   it('lets a funded account through and clears an earlier notice', async () => {
     useAgentCloudAccessStore.getState().setAccess(THREAD, 'no_credits');
-    await expect(resolveCloudAccessForSend(THREAD, 'pi')).resolves.toBeNull();
-    expect(useAgentCloudAccessStore.getState().entries[THREAD]).toBeUndefined();
-  });
-
-  it('fails open when the balance cannot be read', async () => {
-    getAiCreditBalance.mockRejectedValue(new Error('offline'));
-    await expect(resolveCloudAccessForSend(THREAD, 'pi')).resolves.toBeNull();
+    expect(resolveCloudAccessForSend(THREAD, 'pi')).toBeNull();
     expect(useAgentCloudAccessStore.getState().entries[THREAD]).toBeUndefined();
   });
 
   it('ignores the balance for user-owned providers and other agents', async () => {
     setPiAccount({ providerId: 'custom-provider' });
-    await expect(resolveCloudAccessForSend(THREAD, 'pi')).resolves.toBeNull();
-    await expect(resolveCloudAccessForSend(THREAD, 'codex')).resolves.toBeNull();
+    expect(resolveCloudAccessForSend(THREAD, 'pi')).toBeNull();
+    expect(resolveCloudAccessForSend(THREAD, 'codex')).toBeNull();
     expect(getAiCreditBalance).not.toHaveBeenCalled();
   });
 
@@ -112,6 +105,13 @@ describe('resolveCloudAccessForSend', () => {
     });
     expect(reply).toMatchObject({ kind: 'stream_end', runId: 'run-2', reason: null });
     expect(useAgentCloudAccessStore.getState().entries[THREAD]).toBe('no_credits');
+  });
+
+  it('classifies against the provider used by the run, not a later selection', () => {
+    const error = { kind: 'error' as const, agentType: 'pi' as const, threadId: THREAD,
+      runId: 'run-2', timestamp: Date.now(), message: 'insufficient credits' };
+    expect(cloudAccessReplyForError(THREAD, error, 'custom-provider')).toBeNull();
+    expect(cloudAccessReplyForError(THREAD, error, 'flowix-cloud-member')).toMatchObject({ kind: 'stream_end' });
   });
 
   it('leaves unrelated failures on the ordinary error path', () => {

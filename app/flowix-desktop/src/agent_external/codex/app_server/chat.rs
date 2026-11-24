@@ -5,14 +5,14 @@
 
 use super::*;
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use serde_json::{Value, json};
-use tokio::sync::Mutex;
 use super::super::AGENT_TYPE;
 use crate::agent_external::lifecycle::ExternalLifecycleEmitter;
 use crate::agent_external::USER_STOPPED_REASON;
 use crate::agent_wire::AgentUserMessage;
+use serde_json::{json, Value};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 impl CodexAppServerManager {
     pub async fn chat_stream(
@@ -211,7 +211,6 @@ impl CodexAppServerManager {
         Ok(String::new())
     }
 
-
     pub async fn steer_chat(
         &self,
         flowix_thread_id: &str,
@@ -303,5 +302,4 @@ impl CodexAppServerManager {
         let _ = app_handle;
         Ok(())
     }
-
 }

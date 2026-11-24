@@ -87,7 +87,8 @@ pub async fn list_media_resources_page(
         let folder_scope = folder_relative_path
             .map(|path| {
                 let path = path.replace('\\', "/");
-                if path.starts_with('/') || path.split('/').any(|part| part == ".." || part == ".") {
+                if path.starts_with('/') || path.split('/').any(|part| part == ".." || part == ".")
+                {
                     return Err("INVALID_MEDIA_FOLDER_SCOPE".to_string());
                 }
                 let depth = folder_depth.as_deref().unwrap_or("descendants");
@@ -106,7 +107,8 @@ pub async fn list_media_resources_page(
                 folder_scope,
             )
             .map_err(|error| error.to_string())
-    }).await?
+    })
+    .await?
 }
 
 /// Read or create the notebook-local media index entry for a file.
@@ -132,7 +134,8 @@ pub async fn get_media_resource(
             .ensure_media_resource(&notebook_id, &relative, kind, &file)
             .map_err(|error| error.to_string())?;
         Ok(MediaResourceResponse { resource })
-    }).await?
+    })
+    .await?
 }
 
 /// Save media properties directly in the notebook-local index database.
@@ -180,7 +183,8 @@ pub async fn update_media_resource(
             serde_json::json!({ "notebookId": notebook_id }),
         );
         Ok(MediaResourceResponse { resource: updated })
-    }).await?
+    })
+    .await?
 }
 
 /// Delete a media file and retain its database row as a tombstone so a
@@ -216,7 +220,8 @@ pub async fn delete_media_resource(
             return Err("media resource disappeared after file deletion".to_string());
         }
         Ok(true)
-    }).await?
+    })
+    .await?
 }
 
 /// Pin or unpin an indexed document (html, pdf, docx, xlsx, ...).
@@ -244,8 +249,8 @@ pub async fn set_document_pinned(
         let memo_file = read_lock(&state.memo_file, "memo_file");
         let (notebook_id, root) = registered_notebook_for_path(&memo_file, notebook)?;
         let relative = notebook_relative_path(&root, &file)?;
-        let kind = resource_kind_for_path(&file)
-            .ok_or_else(|| "unsupported document type".to_string())?;
+        let kind =
+            resource_kind_for_path(&file).ok_or_else(|| "unsupported document type".to_string())?;
         // Register first: a document reached from the tree may not have a
         // catalog row yet when it sits in a folder the index has not scanned.
         memo_file

@@ -242,7 +242,7 @@ export function NoteOtherPreferencesTab() {
                   aria-label={t('preferences.noteOther.createLocation.label')}
                   data-state={folderPickerOpen ? 'open' : 'closed'}
                   title={currentFolderLabelText}
-                  className="flex h-8 w-60 min-w-0 shrink-0 items-center justify-between gap-2 rounded-lg bg-[var(--card)] border border-[var(--border)] px-3 text-left text-sm text-[var(--foreground)] focus:outline-none focus:border-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex h-8 w-60 min-w-0 shrink-0 items-center justify-between gap-2 rounded-lg bg-[var(--card)] border border-[var(--border)] px-3 text-left text-sm text-[var(--foreground)] focus:outline-none focus:border-[var(--input-ring)] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <span className="min-w-0 truncate">{currentFolderLabelText}</span>
                   <ChevronDown className={cn('h-4 w-4 shrink-0 text-[var(--muted-foreground)] transition-transform', folderPickerOpen && 'rotate-180')} aria-hidden="true" />

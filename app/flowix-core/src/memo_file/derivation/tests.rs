@@ -20,7 +20,10 @@ fn html_comments_are_removed_before_title_and_preview_extraction() {
         ("<!-- hidden -->\nVisible text", "Visible text"),
         ("<!-- hidden\nmetadata\n-->\nVisible text", "Visible text"),
         ("Before <!-- hidden -->after", "Before after"),
-        ("<!-- first --><!-- second -->\nVisible text", "Visible text"),
+        (
+            "<!-- first --><!-- second -->\nVisible text",
+            "Visible text",
+        ),
         ("&lt;!-- hidden --&gt;\nVisible text", "Visible text"),
         ("&lt;!— hidden —&gt;\nVisible text", "Visible text"),
         ("<!— hidden —>\nVisible text", "Visible text"),
@@ -824,5 +827,8 @@ fn wiki_note_references_do_not_become_derived_titles_or_previews() {
         assert_eq!(title, "实际正文", "{reference}");
         assert_eq!(preview, "实际正文", "{reference}");
     }
-    assert_eq!(extract_title_and_preview("前文 [[./target.md]] 后文").1, "前文 后文");
+    assert_eq!(
+        extract_title_and_preview("前文 [[./target.md]] 后文").1,
+        "前文 后文"
+    );
 }

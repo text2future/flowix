@@ -134,11 +134,12 @@ export interface PiModelEntryConfig {
   name: string;
   subtitle?: string;
   creditMultiplier?: number;
-  providerIconUrl?: string;
+  iconUrl?: string;
   /** Cloud directory rank: larger values are shown first. */
   sortOrder?: number;
   api?: string;
   reasoning: boolean;
+  reasoningConfig?: { levels: string[]; defaultLevel?: string | null };
   vision: boolean;
   contextWindow?: number;
   maxTokens?: number;

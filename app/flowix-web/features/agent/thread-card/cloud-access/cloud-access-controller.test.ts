@@ -2,12 +2,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { I18nKey } from '@/lib/i18n';
 
-const { openPreferences, openPaymentDialog } = vi.hoisted(() => ({
-  openPreferences: vi.fn(async () => undefined),
+const { openCloudLoginDialog, openPaymentDialog } = vi.hoisted(() => ({
+  openCloudLoginDialog: vi.fn(async () => undefined),
   openPaymentDialog: vi.fn(async () => undefined),
 }));
 
-vi.mock('@platform/tauri/client', () => ({ windows: { openPreferences } }));
+vi.mock('@features/preferences/public/cloud-login-dialog', () => ({ openCloudLoginDialog }));
 vi.mock('@features/cloud-billing/public/payment-dialog', () => ({ openPaymentDialog }));
 
 import { useAgentCloudAccessStore } from '@features/agent/store/agent-cloud-access-store';
@@ -116,13 +116,13 @@ describe('CloudAccessController', () => {
     expect(mount.querySelector('.agent-cloud-access')?.getAttribute('data-kind')).toBe('signed_out');
   });
 
-  it('offers sign-in from a blocked send and opens the account tab', () => {
+  it('opens the login dialog from a blocked send and keeps the notice until sign-in', () => {
     const { controller, mount } = mountController({ authenticated: false });
     useAgentCloudAccessStore.getState().setAccess('thread-1', 'signed_out');
     controller.render();
     mount.querySelector<HTMLButtonElement>('.agent-cloud-access__action')!.click();
-    expect(openPreferences).toHaveBeenCalledWith('cloudSync');
-    expect(mount.hidden).toBe(true);
+    expect(openCloudLoginDialog).toHaveBeenCalledTimes(1);
+    expect(mount.hidden).toBe(false);
   });
 
   it('opens the credit tab from the purchase action', () => {

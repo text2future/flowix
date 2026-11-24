@@ -10,6 +10,7 @@ export type AgentModelOption = {
   description?: string;
   subtitle?: string;
   creditMultiplier?: number;
+  reasoningConfig?: { levels: string[]; defaultLevel?: string | null };
   iconUrl?: string;
   reasoningEfforts?: AgentCodexReasoningEffort[];
   /** DeepSeek Harness llm-pi-ai route; absent for legacy/Codex options. */

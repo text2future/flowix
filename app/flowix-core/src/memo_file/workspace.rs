@@ -133,10 +133,7 @@ impl MemoFile {
                 let normalized = normalized_directory(path);
                 let stored_path = normalized.to_string_lossy();
                 let path_key = directory_key(path);
-                let label = normalized
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy();
+                let label = normalized.file_name().unwrap_or_default().to_string_lossy();
                 notebook_imported += tx
                     .execute(
                         "INSERT OR IGNORE INTO notebook_add_dirs \
@@ -188,7 +185,10 @@ impl MemoFile {
         let conn = self.workspace_connection()?;
         let mut notebook_configs = HashMap::new();
         for notebook in &notebooks {
-            notebook_configs.insert(notebook.id.clone(), read_workspace_config(&conn, &notebook.id)?);
+            notebook_configs.insert(
+                notebook.id.clone(),
+                read_workspace_config(&conn, &notebook.id)?,
+            );
         }
         Ok(NotebookWorkspaceSnapshot {
             notebooks,
@@ -821,9 +821,12 @@ mod tests {
         new_notebook.name = "Two".into();
         new_notebook.path = temp.path().join("two").to_string_lossy().into();
         fs::create_dir(&new_notebook.path).unwrap();
-        memo.write_notebook_configs(&[notebook, new_notebook]).unwrap();
+        memo.write_notebook_configs(&[notebook, new_notebook])
+            .unwrap();
         let after_new_notebook = memo.read_notebook_workspace().unwrap();
-        assert!(after_new_notebook.notebook_configs["two"].add_dirs.is_empty());
+        assert!(after_new_notebook.notebook_configs["two"]
+            .add_dirs
+            .is_empty());
         assert!(memo
             .update_notebook_add_dir("one", temp.path().to_str().unwrap(), true)
             .is_err());
@@ -848,7 +851,12 @@ mod tests {
 
         fs::rename(&parked, &notebook.path).unwrap();
         assert_eq!(memo.migrate_legacy_agent_workspace().unwrap(), 1);
-        assert_eq!(memo.read_notebook_workspace().unwrap().notebook_configs["one"].add_dirs.len(), 1);
+        assert_eq!(
+            memo.read_notebook_workspace().unwrap().notebook_configs["one"]
+                .add_dirs
+                .len(),
+            1
+        );
     }
 
     #[test]
@@ -860,7 +868,10 @@ mod tests {
         assert_eq!(memo.migrate_legacy_agent_workspace().unwrap(), 0);
         assert!(!source.exists());
         let backup_dir = temp.path().join("config/rebuild-backups");
-        let backups = fs::read_dir(backup_dir).unwrap().collect::<Result<Vec<_>, _>>().unwrap();
+        let backups = fs::read_dir(backup_dir)
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
         assert_eq!(backups.len(), 1);
         assert!(backups[0].path().join("agent-access.json").is_file());
         assert!(memo.read_notebook_workspace().is_ok());
@@ -950,8 +961,12 @@ mod legacy_global_defaults_tests {
             .unwrap();
         fs::write(config.join("agent-access.json"),serde_json::json!({"entries":[{"id":"old","kind":"notebook"}],"defaults":{"files":{"_global":{"folders":[repo]}}}}).to_string()).unwrap();
         assert_eq!(memo.migrate_legacy_agent_workspace().unwrap(), 1);
-        assert_eq!(memo.read_notebook_workspace().unwrap().notebook_configs["old"]
-            .add_dirs.len(), 1);
+        assert_eq!(
+            memo.read_notebook_workspace().unwrap().notebook_configs["old"]
+                .add_dirs
+                .len(),
+            1
+        );
         let mut new = old.clone();
         new.id = "new".into();
         new.path = temp.path().join("new").to_string_lossy().into();

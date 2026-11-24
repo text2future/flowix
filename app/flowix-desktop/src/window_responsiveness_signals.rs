@@ -144,7 +144,9 @@ impl Tracker {
             became_restored,
             heartbeat_gap: snapshot.heartbeat_gap,
             since_restore: snapshot.since_restore,
-            verdict_age: self.verdict_since.map(|at| now.saturating_duration_since(at)),
+            verdict_age: self
+                .verdict_since
+                .map(|at| now.saturating_duration_since(at)),
         }
     }
 }
@@ -196,7 +198,10 @@ mod tests {
             Verdict::Healthy
         );
         assert_eq!(
-            classify(&snapshot(Some(RENDERER_STALL + Duration::from_millis(1)), None)),
+            classify(&snapshot(
+                Some(RENDERER_STALL + Duration::from_millis(1)),
+                None
+            )),
             Verdict::RendererStalled
         );
     }
@@ -231,8 +236,7 @@ mod tests {
         let suspicious =
             tracker.observe(t0 + Duration::from_secs(607), true, false, true, Some(beat));
         assert_eq!(suspicious.verdict, Verdict::Healthy);
-        let stalled =
-            tracker.observe(t0 + Duration::from_secs(608), true, false, true, Some(beat));
+        let stalled = tracker.observe(t0 + Duration::from_secs(608), true, false, true, Some(beat));
         assert_eq!(stalled.verdict, Verdict::RendererStalled);
         assert_ne!(stalled.previous, stalled.verdict);
     }
@@ -252,8 +256,13 @@ mod tests {
             Some(t0 + Duration::from_secs(31)),
         );
         assert_eq!(resumed.verdict, Verdict::Healthy);
-        let silent_again =
-            tracker.observe(t0 + Duration::from_secs(40), true, false, true, Some(t0 + Duration::from_secs(31)));
+        let silent_again = tracker.observe(
+            t0 + Duration::from_secs(40),
+            true,
+            false,
+            true,
+            Some(t0 + Duration::from_secs(31)),
+        );
         assert_eq!(silent_again.verdict, Verdict::Healthy);
     }
 
@@ -282,7 +291,11 @@ mod tests {
     fn minimize_and_restore_are_reported_once_per_transition() {
         let t0 = Instant::now();
         let mut tracker = Tracker::new(t0);
-        assert!(tracker.observe(t0, true, true, false, None).became_minimized);
+        assert!(
+            tracker
+                .observe(t0, true, true, false, None)
+                .became_minimized
+        );
         assert!(
             !tracker
                 .observe(t0 + Duration::from_secs(1), true, true, false, None)

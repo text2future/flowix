@@ -61,14 +61,18 @@ fn beat_slot() -> &'static Mutex<Option<Beat>> {
 /// Called from the IPC command. `hidden` lets platforms without a native window
 /// probe (macOS, Linux) distinguish "minimized" from "stopped running".
 pub(crate) fn record_heartbeat(hidden: bool) {
-    *beat_slot().lock().unwrap_or_else(|error| error.into_inner()) = Some(Beat {
+    *beat_slot()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner()) = Some(Beat {
         at: Instant::now(),
         hidden,
     });
 }
 
 fn last_beat() -> Option<Beat> {
-    *beat_slot().lock().unwrap_or_else(|error| error.into_inner())
+    *beat_slot()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
 }
 
 /// Start the watchdog once per process. Safe to call before the window is shown.

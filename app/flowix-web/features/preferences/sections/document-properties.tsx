@@ -135,7 +135,7 @@ function OptionTagsInput({
         }}
         onBlur={commitInput}
         placeholder={options.length === 0 ? placeholder : undefined}
-        className="min-w-[8rem] flex-1 bg-transparent px-1 py-0.5 text-sm text-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)]"
+        className="min-w-[8rem] flex-1 bg-transparent px-1 py-0.5 text-sm text-[var(--foreground)] outline-none placeholder:text-[var(--input-placeholder)]"
       />
     </div>
   );

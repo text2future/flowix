@@ -29,6 +29,8 @@
   :root {
     --bg: #fbfaf7; --fg: #24211c; --muted: #8a8177;
     --card: #ffffff; --brand: #c2603a; --border: #e7e1d8;
+    --input-placeholder: color-mix(in oklch, var(--muted) 50%, transparent);
+    --input-ring: color-mix(in oklch, var(--brand) 50%, transparent);
   }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
@@ -77,11 +79,11 @@
   .composer-box { padding: 12px 12px 10px 16px; border: 1px solid var(--border); border-radius: 16px;
                   background: var(--card); box-shadow: 0 2px 24px -3px rgb(0 0 0 / 6%);
                   transition: border-color 150ms, box-shadow 150ms; }
-  .composer-box:focus-within { border-color: var(--muted); box-shadow: 0 2px 24px -3px rgb(0 0 0 / 9%); }
+  .composer-box:focus-within { border-color: var(--input-ring); box-shadow: 0 2px 24px -3px rgb(0 0 0 / 9%); }
   .composer textarea { display: block; width: 100%; min-height: 92px; max-height: 240px; padding: 2px 0;
                        resize: vertical; border: 0; outline: 0; background: transparent; color: var(--fg);
                        font: inherit; line-height: 1.7; }
-  .composer textarea::placeholder { color: var(--muted); opacity: .85; }
+  .composer textarea::placeholder { color: var(--input-placeholder); }
   .image-list { display: flex; gap: 6px; overflow-x: auto; margin-top: 8px; }
   .image-list:empty { display: none; }
   .image-chip { display: flex; align-items: center; gap: 6px; max-width: 180px; padding: 4px 7px; border-radius: 7px; background: var(--bg); color: var(--muted); font-size: 12px; }

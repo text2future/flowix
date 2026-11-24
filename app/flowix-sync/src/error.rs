@@ -19,21 +19,12 @@ pub enum SyncError {
     NotebookDisabled,
     #[error("invalid cloud state: {0}")]
     InvalidState(String),
-    #[error("cloud revision conflict for {notebook_id}/{note_id}")]
-    RevisionConflict {
-        notebook_id: String,
-        note_id: String,
-        operation_id: String,
-        operation_kind: String,
-        current_revision: String,
-    },
-    #[error("cloud move conflict for {notebook_id}: {from_path} -> {to_path}")]
-    MoveConflict {
-        notebook_id: String,
-        operation_id: String,
-        from_path: String,
-        to_path: String,
-    },
+    /// A local file operation failed. The path is part of the error because the
+    /// pass turns it into an [`ApplyFailure`](crate::v4_apply::ApplyFailure) and
+    /// then carries on: without the path the user sees "permission denied" and
+    /// no way to tell which of 300 files it was.
+    #[error("local file error for {path}: {message}")]
+    Local { path: String, message: String },
 }
 
 impl SyncError {

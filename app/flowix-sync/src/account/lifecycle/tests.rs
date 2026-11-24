@@ -1,5 +1,5 @@
 use super::*;
-use crate::{SyncManager, V2EntityType, V2FreezeOperation, V2OperationKind, V2RemoteApply};
+use crate::SyncManager;
 use serde_json::{json, Value};
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -99,9 +99,8 @@ fn session(id: &str) -> Value {
 fn seed_account(manager: &SyncManager, id: &str) {
     manager
         .store()
-        .save_v2_account(&V2CloudAccount {
+        .save_account(&CloudAccount {
             user: serde_json::from_value(user(id)).unwrap(),
-            protocol_epoch: crate::v2::PROTOCOL_EPOCH,
         })
         .unwrap();
 }
@@ -592,7 +591,7 @@ async fn cached_account_write_failure_does_not_discard_rotated_token() {
         SyncManager::new_with_token_store(&server.url, &database, tokens.clone()).unwrap();
     seed_account(&manager, "account");
     let connection = rusqlite::Connection::open(&database).unwrap();
-    connection.execute_batch("CREATE TRIGGER fail_account_update BEFORE UPDATE ON v2_cloud_account BEGIN SELECT RAISE(ABORT, 'database write failed'); END;").unwrap();
+    connection.execute_batch("CREATE TRIGGER fail_account_update BEFORE UPDATE ON cloud_account BEGIN SELECT RAISE(ABORT, 'database write failed'); END;").unwrap();
     assert!(manager
         .account()
         .restore_at_generation("original", 0)
@@ -607,108 +606,6 @@ async fn cached_account_write_failure_does_not_discard_rotated_token() {
     let restarted = SyncManager::new_with_token_store(&server.url, &database, tokens).unwrap();
     restarted.account().restore_saved_session(policy()).await;
     assert!(restarted.state().unwrap().authenticated);
-}
-
-#[tokio::test]
-async fn full_storage_still_pushes_deletes_and_preserves_pending_puts() {
-    let pushes = Arc::new(AtomicUsize::new(0));
-    let counted = pushes.clone();
-    let server = Server::new(move |path| match path {
-        "/v1/auth/login" => (
-            200,
-            json!({"data": {"session": session("full"), "user": user("full")}}),
-        ),
-        "/v2/entitlements/current" => (
-            200,
-            json!({"data": {
-                "membership": {"active": true, "expiresAt": 4_102_444_800_000_i64, "features": {"cloudSync": true}},
-                "usage": {"usedBytes": 100, "quotaBytes": 100, "availableBytes": 0, "noteCount": 1, "readOnly": false}
-            }}),
-        ),
-        "/v2/sync/push" => {
-            counted.fetch_add(1, Ordering::SeqCst);
-            (
-                200,
-                json!({"data": {"protocolEpoch": 3, "headCursor": 2, "results": [{
-                    "operationId": "op_delete_full", "ok": true, "status": 200,
-                    "data": {"entityType": "note", "entityId": "note_delete", "revision": "rev_2",
-                        "syncSeq": 2, "deleted": true, "resolution": "fast_forward"}
-                }]}}),
-            )
-        }
-        path if path.starts_with("/v2/sync/changes?") => (
-            200,
-            json!({"data": {
-                "protocolEpoch": 3, "cursor": 2, "headCursor": 2, "hasMore": false, "changes": []
-            }}),
-        ),
-        _ => panic!("unexpected request (uploads must be deferred): {path}"),
-    });
-    let directory = tempfile::tempdir().unwrap();
-    let manager = SyncManager::new(&server.url, directory.path().join("sync.db")).unwrap();
-    manager
-        .login("full@example.test", "password")
-        .await
-        .unwrap();
-    manager.refresh_membership().await.unwrap();
-    manager.store().set_v2_notebook("nb_full", true).unwrap();
-    manager
-        .store()
-        .commit_v2_sync_report(
-            &[V2RemoteApply::Note {
-                note_id: "note_delete".into(),
-                notebook_id: "nb_full".into(),
-                filename: "delete.md".into(),
-                content_hash: Some("old-hash".into()),
-                content: None,
-                revision: "rev_1".into(),
-                sync_seq: 1,
-                deleted: false,
-                attachments: Vec::new(),
-            }],
-            1,
-            &["nb_full".into()],
-            1,
-        )
-        .unwrap();
-    let deletion = manager
-        .store()
-        .mark_v2_dirty(
-            V2EntityType::Note,
-            "note_delete",
-            Some("nb_full"),
-            V2OperationKind::Delete,
-            "deleted",
-            1,
-        )
-        .unwrap();
-    manager.store().freeze_v2_operation(V2FreezeOperation {
-        operation_id: "op_delete_full", entity_type: V2EntityType::Note, entity_id: "note_delete",
-        generation: deletion.generation, operation_kind: V2OperationKind::Delete,
-        base_revision: None,
-        payload_json: r#"{"type":"note.delete","operationId":"op_delete_full","baseRevision":null,"noteId":"note_delete"}"#,
-    }).unwrap();
-    manager
-        .store()
-        .mark_v2_dirty(
-            V2EntityType::Note,
-            "note_pending",
-            Some("nb_full"),
-            V2OperationKind::Put,
-            "local-edit",
-            1,
-        )
-        .unwrap();
-    let report = manager
-        .sync_v2_account(Vec::new(), Vec::new())
-        .await
-        .unwrap();
-    assert!(report.read_only);
-    assert_eq!(report.deleted, 1);
-    assert_eq!(pushes.load(Ordering::SeqCst), 1);
-    let pending = manager.store().v2_dirty_entities().unwrap();
-    assert_eq!(pending.len(), 1);
-    assert_eq!(pending[0].entity_id, "note_pending");
 }
 
 #[tokio::test]

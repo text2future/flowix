@@ -78,7 +78,7 @@ export function ColorValueInput({
             'flex h-8 w-full items-center justify-between gap-2 rounded-lg px-2 text-left text-sm',
             variant === 'table'
               ? 'border-0 bg-transparent px-0 hover:bg-transparent focus-visible:border-0'
-              : 'border border-input bg-background hover:bg-[var(--muted)]/40 focus-visible:border-[var(--primary)]',
+              : 'border border-input bg-background hover:bg-[var(--muted)]/40 focus-visible:border-[var(--input-ring)]',
             'focus-visible:outline-none',
             disabled && 'cursor-not-allowed opacity-50 disabled:cursor-not-allowed',
           )}
@@ -96,7 +96,7 @@ export function ColorValueInput({
               />
             ))}
             {parseColors(value).length === 0 && variant !== 'table' && (
-              <span className="text-[var(--muted-foreground)]">
+              <span className="text-[var(--input-placeholder)]">
                 {t('document.properties.select.placeholder')}
               </span>
             )}

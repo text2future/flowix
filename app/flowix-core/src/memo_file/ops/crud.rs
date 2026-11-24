@@ -262,7 +262,11 @@ impl MemoFile {
         memo.updated_at = chrono::Utc::now().timestamp_millis();
         apply_derived_memo_fields(&mut memo, &new_content);
         if memo.relative_path != old_relative_path {
-            MemoFile::sync_index_on_delete_for_notebook_id_locked(self, &notebook_id, &old_relative_path)?;
+            MemoFile::sync_index_on_delete_for_notebook_id_locked(
+                self,
+                &notebook_id,
+                &old_relative_path,
+            )?;
         }
         MemoFile::sync_index_on_write_for_notebook_id_locked(self, &notebook_id, &memo)?;
         Ok(memo)
@@ -279,7 +283,10 @@ impl MemoFile {
     /// 抽出供 [`Self::write_memo_renaming_on_title_change`] 单事务合用。
     fn write_memo_inner_locked(&self, relative_path: &str, body: &str) -> std::io::Result<Memo> {
         let mut memo = self.read_current_memo(relative_path).ok_or_else(|| {
-            std::io::Error::new(std::io::ErrorKind::NotFound, format!("note path {relative_path} not found"))
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("note path {relative_path} not found"),
+            )
         })?;
         let merged = body.to_string();
         validate_document_frontmatter(&merged)?;
@@ -403,9 +410,14 @@ impl MemoFile {
     ) -> std::io::Result<Memo> {
         let _guard = self.current_index_io.lock().expect("index_io poisoned");
         let notebook_id = self.current_notebook_id_for_index();
-        let location = self.resolve_note_location_for_notebook_id(&notebook_id, relative_path)?.ok_or_else(|| {
-            std::io::Error::new(std::io::ErrorKind::NotFound, format!("note path {relative_path} not found"))
-        })?;
+        let location = self
+            .resolve_note_location_for_notebook_id(&notebook_id, relative_path)?
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("note path {relative_path} not found"),
+                )
+            })?;
         let base = PathBuf::from(location.notebook.path);
         fs::create_dir_all(&base)?;
         fs::create_dir_all(base.join(".flowix"))?;
@@ -534,7 +546,9 @@ impl MemoFile {
     pub fn delete_memo_result_global(&self, relative_path: &str) -> std::io::Result<bool> {
         let _index_io_guard = self.current_index_io.lock().expect("index_io poisoned");
         let notebook_id = self.current_notebook_id_for_index();
-        let Some(location) = self.resolve_note_location_for_notebook_id(&notebook_id, relative_path)? else {
+        let Some(location) =
+            self.resolve_note_location_for_notebook_id(&notebook_id, relative_path)?
+        else {
             return Ok(false);
         };
 
@@ -550,11 +564,14 @@ impl MemoFile {
             true
         };
         if removed {
-            MemoFile::sync_index_on_delete_for_notebook_id_locked(self, &notebook_id, relative_path)?;
+            MemoFile::sync_index_on_delete_for_notebook_id_locked(
+                self,
+                &notebook_id,
+                relative_path,
+            )?;
         }
         Ok(removed)
     }
-
 
     /// Delete a memo only when it belongs to the requested notebook.
     ///

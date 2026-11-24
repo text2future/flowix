@@ -14,17 +14,11 @@
 
 use std::sync::OnceLock;
 
-use flowix_sync::LocalChangeKind;
 use tauri::AppHandle;
 
 pub(crate) struct HostPorts {
     /// 让同步协调器看一眼这个笔记本。
     pub schedule_cloud_sync: fn(&AppHandle, &str, bool),
-    /// 登记一条本机变更（云端据此决定要不要上传）。
-    pub record_local_change:
-        fn(&AppHandle, &str, &str, LocalChangeKind, &str) -> Result<bool, String>,
-    /// 登记一次已确认的本机移动。
-    pub record_local_move: fn(&AppHandle, &str, &str, &str) -> Result<bool, String>,
     /// 笔记/文件夹移动后，把引用它的 agent 会话跟着改路径。
     pub rebase_agent_paths:
         fn(&AppHandle, &str, &str, &str, &str, &str, &str) -> Result<(), String>,
@@ -57,31 +51,6 @@ pub(crate) fn schedule_cloud_sync(app: &AppHandle, notebook_id: &str, generation
             "watcher host port is not installed; this local change will not be synced"
         ),
     }
-}
-
-pub(crate) fn record_local_change(
-    app: &AppHandle,
-    notebook_id: &str,
-    cloud_id: &str,
-    kind: LocalChangeKind,
-    fingerprint: &str,
-) -> Result<bool, String> {
-    let Some(ports) = ports() else {
-        return Err("watcher host port is not installed".to_string());
-    };
-    (ports.record_local_change)(app, notebook_id, cloud_id, kind, fingerprint)
-}
-
-pub(crate) fn record_local_move(
-    app: &AppHandle,
-    notebook_id: &str,
-    from_path: &str,
-    to_path: &str,
-) -> Result<bool, String> {
-    let Some(ports) = ports() else {
-        return Err("watcher host port is not installed".to_string());
-    };
-    (ports.record_local_move)(app, notebook_id, from_path, to_path)
 }
 
 pub(crate) fn rebase_agent_paths(

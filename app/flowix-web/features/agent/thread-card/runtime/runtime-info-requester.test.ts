@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   getCodexRuntimeInfo: vi.fn(),
   getDeepSeekHarnessSessionId: vi.fn(),
   getPiSessionPage: vi.fn(),
+  getPiSessionStats: vi.fn(),
   getPiSessionId: vi.fn(),
   getOpenCodeSessionId: vi.fn(),
   sessionUsage: vi.fn(),
@@ -17,6 +18,7 @@ vi.mock("@platform/tauri/client", () => ({
     getCodexRuntimeInfo: mocks.getCodexRuntimeInfo,
     getDeepSeekHarnessSessionId: mocks.getDeepSeekHarnessSessionId,
     getPiSessionPage: mocks.getPiSessionPage,
+    getPiSessionStats: mocks.getPiSessionStats,
     getPiSessionId: mocks.getPiSessionId,
     getOpenCodeSessionId: mocks.getOpenCodeSessionId,
   },
@@ -32,19 +34,12 @@ describe("createRuntimeInfoRequester", () => {
     expect(createRuntimeInfoRequester("claudecode", () => "thread-1")).toBeUndefined();
   });
 
-  it("loads persisted Pi session metadata after the conversation is restored", async () => {
-    mocks.getPiSessionPage.mockResolvedValue({
-      messages: [{
-        role: "assistant",
-        provider: "openai",
-        model: "gpt-5",
-        usage: { input: 12, cacheRead: 4, output: 3, totalTokens: 19 },
-      }],
-      revision: { sessionId: "pi-session-1", appendCursor: null, leafId: null },
-      beforeEntryId: null,
-      oldestSequence: null,
-      snapshotSequence: 1,
-      hasMore: false,
+  it("uses cumulative Pi session stats after the conversation is restored", async () => {
+    mocks.getPiSessionStats.mockResolvedValue({
+      sessionId: "pi-session-1",
+      model: "openai/gpt-5",
+      tokens: { input: 120, cacheRead: 40, cacheWrite: 10, output: 30, total: 200 },
+      contextUsage: { tokens: 60, contextWindow: 200, percent: 30 },
     });
     const request = createRuntimeInfoRequester("pi", () => "thread-1");
 
@@ -52,24 +47,20 @@ describe("createRuntimeInfoRequester", () => {
       sessionId: "pi-session-1",
       model: "openai/gpt-5",
       usage: {
-        input_tokens: 12,
-        cached_input_tokens: 4,
-        output_tokens: 3,
-        total_tokens: 19,
+        input_tokens: 170,
+        cached_input_tokens: 40,
+        output_tokens: 30,
+        // Pi reports the session-wide total, and it is the sum of the parts above.
+        total_tokens: 200,
+        context_used_tokens: 60,
+        model_context_window: 200,
       },
     });
-    expect(mocks.getPiSessionPage).toHaveBeenCalledWith("thread-1", null, 1);
+    expect(mocks.getPiSessionStats).toHaveBeenCalledWith("thread-1");
   });
 
   it("does not expose the Flowix thread id as a Pi session id", async () => {
-    mocks.getPiSessionPage.mockResolvedValue({
-      messages: [],
-      revision: { sessionId: "native-pi-session", appendCursor: null, leafId: null },
-      beforeEntryId: null,
-      oldestSequence: null,
-      snapshotSequence: 0,
-      hasMore: false,
-    });
+    mocks.getPiSessionStats.mockResolvedValue({ sessionId: "native-pi-session", tokens: {} });
     const request = createRuntimeInfoRequester(
       "pi",
       () => "thread-1",

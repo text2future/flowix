@@ -1,4 +1,4 @@
-export type CloudStatus = 'unlinked' | 'connected' | 'connecting';
+export type CloudStatus = 'unlinked' | 'connected' | 'upload' | 'download';
 
 interface CloudStatusIconProps {
   status: CloudStatus;
@@ -57,18 +57,8 @@ export function CloudStatusIcon({ status, size = 21, className }: CloudStatusIco
             <path d={CLOUD_CHECK_PATH} />
           </>
         )}
-        {status === 'connecting' && (
-          <>
-            <path
-              className="flowix-cloud-status-icon__sync-arrow flowix-cloud-status-icon__sync-arrow--down"
-              d={CLOUD_ARROW_DOWN_PATH}
-            />
-            <path
-              className="flowix-cloud-status-icon__sync-arrow flowix-cloud-status-icon__sync-arrow--up"
-              d={CLOUD_ARROW_UP_PATH}
-            />
-          </>
-        )}
+        {status === 'download' && <path d={CLOUD_ARROW_DOWN_PATH} />}
+        {status === 'upload' && <path d={CLOUD_ARROW_UP_PATH} />}
       </svg>
     </span>
   );

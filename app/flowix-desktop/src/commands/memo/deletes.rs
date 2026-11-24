@@ -42,19 +42,21 @@ fn delete_note_path_internal(
         return Err("absolute note path required".into());
     }
     let memo_file = read_lock(&state.memo_file, "memo_file");
-    let (notebook_id, relative_path) = super::helpers::notebook_note_address(&memo_file, file_path)?
-        .ok_or_else(|| "note path is outside a notebook or is not Markdown".to_string())?;
-    let artifact_path = match crate::artifact::path_for_note(
-        &notebook_id,
-        &relative_path,
-        &state.memo_file,
-    ) {
-        Ok(path) => path,
-        Err(error) => {
-            tracing::warn!(notebook_id, relative_path, "skip plugin artifact cleanup while deleting pointer note: {error}");
-            None
-        }
-    };
+    let (notebook_id, relative_path) =
+        super::helpers::notebook_note_address(&memo_file, file_path)?
+            .ok_or_else(|| "note path is outside a notebook or is not Markdown".to_string())?;
+    let artifact_path =
+        match crate::artifact::path_for_note(&notebook_id, &relative_path, &state.memo_file) {
+            Ok(path) => path,
+            Err(error) => {
+                tracing::warn!(
+                    notebook_id,
+                    relative_path,
+                    "skip plugin artifact cleanup while deleting pointer note: {error}"
+                );
+                None
+            }
+        };
     let absolute_path = file_path.to_path_buf();
     let deleted = if prune_only {
         if !memo_file

@@ -22,6 +22,7 @@ export const agentClient = {
   listLocalAgentThreads: agent.listLocalAgentThreads,
   listPiThreads: agent.listPiThreads,
   getPiSessionMessages: agent.getPiSessionMessages,
+  getPiSessionStats: agent.getPiSessionStats,
   forkPiThread: agent.forkPiThread,
   getPiSessionSnapshot: agent.getPiSessionSnapshot,
   getPiSessionPage: agent.getPiSessionPage,

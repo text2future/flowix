@@ -618,10 +618,8 @@ mod error_tests {
     fn treats_a_zero_cloud_balance_as_hard_quota_exhaustion() {
         // Flowix Cloud refuses the request itself; Pi must not spend its agent
         // retries on a balance only a top-up can change.
-        let details = classify_agent_error(
-            "Your Flowix credit balance must be greater than zero",
-            "pi",
-        );
+        let details =
+            classify_agent_error("Your Flowix credit balance must be greater than zero", "pi");
         assert_eq!(details.category, "quota_exhausted");
         assert!(!details.retryable);
     }

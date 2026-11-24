@@ -5,15 +5,15 @@
 
 use super::*;
 
+use super::super::command::{build_codex_entrypoint, preflight_codex};
+use crate::agent_session::ThreadManager;
+use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::Mutex;
-use super::super::command::{build_codex_entrypoint, preflight_codex};
-use crate::agent_session::ThreadManager;
 
 impl CodexAppServerManager {
     pub fn new(thread_manager: Arc<ThreadManager>) -> Self {
@@ -36,7 +36,6 @@ impl CodexAppServerManager {
             }),
         }
     }
-
 
     pub(super) async fn ensure_connection(&self) -> Result<(), String> {
         // Hold the startup lock through initialization so other callers never
@@ -116,24 +115,24 @@ impl CodexAppServerManager {
         initialized
     }
 
-
     pub(super) async fn write(&self, message: Value) -> Result<(), String> {
         write_inner(&self.inner, message).await
     }
 
-
     pub(super) async fn request(&self, method: &str, params: Value) -> Result<Value, String> {
         request_inner(&self.inner, method, params).await
     }
-
 
     pub(super) async fn notify(&self, method: &str, params: Value) -> Result<(), String> {
         self.write(json!({ "method": method, "params": params }))
             .await
     }
 
-
-    pub(super) async fn request_all_pages(&self, method: &str, params: Value) -> Result<Value, String> {
+    pub(super) async fn request_all_pages(
+        &self,
+        method: &str,
+        params: Value,
+    ) -> Result<Value, String> {
         let mut cursor: Option<String> = None;
         let mut seen_cursors = HashSet::new();
         let mut data = Vec::new();
@@ -168,5 +167,4 @@ impl CodexAppServerManager {
             "Codex app-server pagination exceeded {MAX_PAGES} pages for {method}"
         ))
     }
-
 }

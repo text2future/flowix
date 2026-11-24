@@ -18,6 +18,7 @@ vi.mock('@features/document/public/shell-api', () => ({
   ExternalDocumentActions: ({ capabilities, collectionDisplay }: { capabilities: { memoColors: boolean; versionHistory: boolean }; collectionDisplay?: { indexPath: string } }) => <div data-document-actions data-history={String(capabilities.versionHistory)} data-collection-index={collectionDisplay?.indexPath}>
     {capabilities.memoColors && <button aria-label="document.color.button" />}
   </div>,
+  NoteShareControl: ({ filePath }: { filePath: string }) => <button data-folder-share={filePath} />,
   AgentThreadCardFullscreenExitButton: () => null,
   AgentThreadCardFullscreenIdentity: () => <span>fullscreen agent</span>,
   AgentThreadCardFullscreenMoreMenu: () => <button data-fullscreen-menu />,
@@ -92,7 +93,7 @@ it('uses the Work collection display menu for folder collections', async () => {
   document.body.append(node);
   const root = createRoot(node);
   const toggleBanner = vi.fn();
-  const dispose = registerCollectionBannerControl('/book/folder/.index.yaml', { visible: true, toggle: toggleBanner });
+  const dispose = registerCollectionBannerControl('/book/folder', { visible: true, toggle: toggleBanner });
   try {
     await act(async () => root.render(<BrowserColumnHeader
       current={{ id: 'folder', title: 'Folder', icon: null, target: {
@@ -100,6 +101,7 @@ it('uses the Work collection display menu for folder collections', async () => {
       } }} activeSurfaceChrome="document" onToggleMemoEditorMode={vi.fn()} onOpenInMainColumn={vi.fn()}
       isFocused canCreate onCreateNote={vi.fn()} onCreateAgentConversation={vi.fn()} />));
     const trigger = node.querySelector<HTMLButtonElement>('[aria-label="collection.display.more"]');
+    expect(node.querySelector('[data-folder-share="/book/folder"]')).not.toBeNull();
     expect(trigger).not.toBeNull();
     await act(async () => trigger!.click());
     const menu = document.querySelector('[data-flowix-surface="popover"]');

@@ -73,7 +73,8 @@ impl ThreadManager {
             // Unsupported versions are not corruption and must not be rebuilt.
             Self::run_migrations(&mut conn).map_err(std::io::Error::other)?;
             Ok(conn)
-        }).map_err(|error| ThreadError::Join(format!("initialize thread database: {error}")))?;
+        })
+        .map_err(|error| ThreadError::Join(format!("initialize thread database: {error}")))?;
         *connection = initialized;
         Ok(())
     }
@@ -311,7 +312,11 @@ mod storage_rebuild_tests {
             .unwrap();
         assert!(!temp.path().join("rebuild-backups").exists());
         let original = Connection::open(path).unwrap();
-        assert!(original.prepare("SELECT id FROM thread_messages LIMIT 0").is_err());
-        assert!(original.prepare("SELECT thread_id FROM threads LIMIT 0").is_ok());
+        assert!(original
+            .prepare("SELECT id FROM thread_messages LIMIT 0")
+            .is_err());
+        assert!(original
+            .prepare("SELECT thread_id FROM threads LIMIT 0")
+            .is_ok());
     }
 }

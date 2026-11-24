@@ -58,7 +58,7 @@ export function IconValueInput({
             'group flex h-8 w-full items-center gap-2 rounded-lg text-left text-sm transition-colors',
             variant === 'table'
               ? 'border-0 bg-transparent px-0 hover:bg-transparent focus-visible:border-0 data-[state=open]:border-0'
-              : 'border border-input bg-background px-2.5 hover:bg-[var(--muted)]/40 focus-visible:border-[var(--primary)] data-[state=open]:border-[var(--primary)]',
+              : 'border border-input bg-background px-2.5 hover:bg-[var(--muted)]/40 focus-visible:border-[var(--input-ring)] data-[state=open]:border-[var(--primary)]',
             'focus-visible:outline-none',
             disabled && 'cursor-not-allowed disabled:opacity-50'
           )}

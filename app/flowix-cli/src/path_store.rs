@@ -103,7 +103,12 @@ pub(crate) fn create_with_title(
     create_in_folder(notebook_key, title, None, content)
 }
 
-pub(crate) fn create_in_folder(notebook_key: &str, title: Option<&str>, folder: Option<&str>, content: &str) -> Result<Value, CliError> {
+pub(crate) fn create_in_folder(
+    notebook_key: &str,
+    title: Option<&str>,
+    folder: Option<&str>,
+    content: &str,
+) -> Result<Value, CliError> {
     let title = match title {
         Some(title) if title.trim().is_empty() => {
             return Err(CliError::Usage("create: --title cannot be empty".into()));
@@ -119,14 +124,12 @@ pub(crate) fn create_in_folder(notebook_key: &str, title: Option<&str>, folder: 
     let parent = match folder {
         Some("") | Some(".") => None,
         Some(folder) => Some(folder.to_owned()),
-        None => flowix_core::memo_file::default_create_folder_for_notebook(Path::new(&notebook.path)).map_err(CliError::Other)?,
+        None => {
+            flowix_core::memo_file::default_create_folder_for_notebook(Path::new(&notebook.path))
+                .map_err(CliError::Other)?
+        }
     };
-    let document = NoteService::new(&mf).create(
-        &notebook.id,
-        parent.as_deref(),
-        title,
-        content,
-    )?;
+    let document = NoteService::new(&mf).create(&notebook.id, parent.as_deref(), title, content)?;
     Ok(json!({"ok": true, "action": "created", "note": document_json(&document)}))
 }
 
@@ -165,7 +168,11 @@ pub(crate) fn edit(
     )
 }
 
-pub(crate) fn write(raw: &str, content: &str, expected_version: Option<&str>) -> Result<Value, CliError> {
+pub(crate) fn write(
+    raw: &str,
+    content: &str,
+    expected_version: Option<&str>,
+) -> Result<Value, CliError> {
     if content.trim().is_empty() {
         return Err(CliError::Usage("write: content is empty".into()));
     }
@@ -186,7 +193,9 @@ pub(crate) fn write(raw: &str, content: &str, expected_version: Option<&str>) ->
 
 fn check_version(body: &str, expected: Option<&str>) -> Result<(), CliError> {
     if expected.is_some_and(|expected| expected != version(body)) {
-        return Err(CliError::VersionConflict("note version changed; operation was not applied".into()));
+        return Err(CliError::VersionConflict(
+            "note version changed; operation was not applied".into(),
+        ));
     }
     Ok(())
 }
@@ -219,8 +228,7 @@ pub(crate) fn search(
         .map(|raw| {
             flowix_core::memo_file::normalize_search_tag_filter(raw).ok_or_else(|| {
                 CliError::Usage(
-                    "search tag filter must be a valid tag path (for example `项目/Flowix`)"
-                        .into(),
+                    "search tag filter must be a valid tag path (for example `项目/Flowix`)".into(),
                 )
             })
         })
@@ -239,7 +247,10 @@ pub(crate) fn search(
         available
     };
     selected.sort_by(|a, b| a.id.cmp(&b.id));
-    let notebook_ids: Vec<_> = selected.iter().map(|notebook| notebook.id.clone()).collect();
+    let notebook_ids: Vec<_> = selected
+        .iter()
+        .map(|notebook| notebook.id.clone())
+        .collect();
     let mut hits = Vec::new();
     for notebook in selected {
         mf.reconcile_note_index_blocking(&notebook.id)?;
@@ -256,15 +267,24 @@ pub(crate) fn search(
             );
         }
     }
-    let token = version(&serde_json::to_string(&json!({"query":query,"tag":normalized_tag,"notebooks":notebook_ids,"matches":hits})).map_err(|e| CliError::Other(e.to_string()))?);
+    let token = version(
+        &serde_json::to_string(
+            &json!({"query":query,"tag":normalized_tag,"notebooks":notebook_ids,"matches":hits}),
+        )
+        .map_err(|e| CliError::Other(e.to_string()))?,
+    );
     if snapshot.is_some_and(|expected| expected != token) {
-        return Err(CliError::DataChanged("search results changed during pagination; restart at offset 0".into()));
+        return Err(CliError::DataChanged(
+            "search results changed during pagination; restart at offset 0".into(),
+        ));
     }
     let total = hits.len();
     let matches: Vec<_> = hits.into_iter().skip(offset).take(limit).collect();
     let next = offset.saturating_add(matches.len());
     let truncated = next < total;
-    Ok(json!({"ok": true, "action": "search", "query": query, "matches": matches, "truncated": truncated, "limit": limit, "offset": offset, "total": total, "next_offset": truncated.then_some(next), "snapshot": token}))
+    Ok(
+        json!({"ok": true, "action": "search", "query": query, "matches": matches, "truncated": truncated, "limit": limit, "offset": offset, "total": total, "next_offset": truncated.then_some(next), "snapshot": token}),
+    )
 }
 
 pub(crate) fn read_input(
@@ -279,7 +299,10 @@ pub(crate) fn read_input(
     }
     if let Some(path) = file {
         let bytes = std::fs::read(path).map_err(|error| {
-            CliError::Io(std::io::Error::new(error.kind(), format!("failed to read input file `{path}`: {error}")))
+            CliError::Io(std::io::Error::new(
+                error.kind(),
+                format!("failed to read input file `{path}`: {error}"),
+            ))
         })?;
         return String::from_utf8(bytes)
             .map_err(|error| CliError::Other(format!("input is not UTF-8: {error}")));
@@ -359,7 +382,10 @@ mod tests {
             assert_eq!(named["note"]["relativePath"], "我的文档.md");
             let duplicate = create_with_title("work", Some("我的文档"), "Second body")?;
             assert_ne!(named["note"]["address"], duplicate["note"]["address"]);
-            assert_eq!(show(named["note"]["address"].as_str().unwrap())?["body"], "# Body");
+            assert_eq!(
+                show(named["note"]["address"].as_str().unwrap())?["body"],
+                "# Body"
+            );
             delete(named["note"]["address"].as_str().unwrap(), None)?;
             delete(duplicate["note"]["address"].as_str().unwrap(), None)?;
             let created = create("work", "# Hello\nBody\n")?;

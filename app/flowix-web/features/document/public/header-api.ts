@@ -1,6 +1,7 @@
 /** Header primitives exclude host adapters so the shared shell cannot import itself through a barrel. */
 export { ExternalTitlebarBadge, SurfaceHeaderIcon, MediaActions } from '../components/document-titlebar-controls';
 export { DocumentTitlebarActions as ExternalDocumentActions } from '../components/document-titlebar-actions';
+export { NoteShareControl } from '../components/note-share-control';
 export {
   AgentThreadCardFullscreenExitButton,
   AgentThreadCardFullscreenIdentity,

@@ -29,6 +29,11 @@ pub enum MemoVersionSource {
     Auto,
     Manual,
     RestoreBackup,
+    /// A local edit kept before a remote version overwrites it.
+    ConflictBackup,
+    /// Bytes kept before applying a remote deletion; these follow the normal cap.
+    RemoteDeletion,
+    /// Legacy source retained for reading existing archive manifests.
     CloudConflict,
 }
 
@@ -64,22 +69,50 @@ pub struct PathArchiveSummary {
 impl MemoFile {
     pub fn list_path_archives(&self) -> Vec<PathArchiveSummary> {
         let mut summaries = Vec::new();
-        let Ok(notebooks) = self.read_notebook_configs() else { return summaries; };
+        let Ok(notebooks) = self.read_notebook_configs() else {
+            return summaries;
+        };
         for notebook in notebooks {
-            let root = PathBuf::from(&notebook.path).join(".flowix").join("archives");
-            if fs::symlink_metadata(&root).is_ok_and(|metadata| metadata.file_type().is_symlink()) { continue; }
-            let Ok(entries) = fs::read_dir(root) else { continue; };
+            let root = PathBuf::from(&notebook.path)
+                .join(".flowix")
+                .join("archives");
+            if fs::symlink_metadata(&root).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+                continue;
+            }
+            let Ok(entries) = fs::read_dir(root) else {
+                continue;
+            };
             for entry in entries.flatten() {
-                if !entry.file_type().is_ok_and(|kind| kind.is_dir()) { continue; }
-                let Ok(json) = fs::read(entry.path().join("manifest.json")) else { continue; };
-                let Ok(manifest) = serde_json::from_slice::<PathVersionManifest>(&json) else { continue; };
-                if manifest.notebook_id != notebook.id || manifest.versions.is_empty() { continue; }
-                let Some(expected) = self.path_archive_location(&notebook.id, &manifest.relative_path) else { continue; };
-                if entry.path().canonicalize().ok().as_deref() != Some(expected.as_path()) { continue; }
+                if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                    continue;
+                }
+                let Ok(json) = fs::read(entry.path().join("manifest.json")) else {
+                    continue;
+                };
+                let Ok(manifest) = serde_json::from_slice::<PathVersionManifest>(&json) else {
+                    continue;
+                };
+                if manifest.notebook_id != notebook.id || manifest.versions.is_empty() {
+                    continue;
+                }
+                let Some(expected) =
+                    self.path_archive_location(&notebook.id, &manifest.relative_path)
+                else {
+                    continue;
+                };
+                if entry.path().canonicalize().ok().as_deref() != Some(expected.as_path()) {
+                    continue;
+                }
                 summaries.push(PathArchiveSummary {
-                    notebook_id: notebook.id.clone(), notebook_name: notebook.name.clone(),
+                    notebook_id: notebook.id.clone(),
+                    notebook_name: notebook.name.clone(),
                     relative_path: manifest.relative_path,
-                    latest_at: manifest.versions.iter().map(|version| version.created_at).max().unwrap_or(0),
+                    latest_at: manifest
+                        .versions
+                        .iter()
+                        .map(|version| version.created_at)
+                        .max()
+                        .unwrap_or(0),
                     version_count: manifest.versions.len(),
                 });
             }
@@ -128,15 +161,14 @@ impl MemoFile {
         )
     }
 
-    fn path_archive_location(
-        &self,
-        notebook_id: &str,
-        relative_path: &str,
-    ) -> Option<PathBuf> {
+    fn path_archive_location(&self, notebook_id: &str, relative_path: &str) -> Option<PathBuf> {
         let relative = Path::new(relative_path);
         if relative.is_absolute()
-            || !(relative.is_md() || relative_path.starts_with("attachments/")
-                || (!relative.starts_with(".flowix") && crate::collection::is_collection_document_path(relative)))
+            || !(super::is_syncable_notebook_file_path(relative)
+                || relative.is_md()
+                || relative_path.starts_with("attachments/")
+                || (!relative.starts_with(".flowix")
+                    && crate::collection::is_collection_document_path(relative)))
             || relative
                 .components()
                 .any(|part| !matches!(part, std::path::Component::Normal(_)))
@@ -158,20 +190,40 @@ impl MemoFile {
         notebook_id: &str,
         relative_path: &str,
     ) -> Option<(PathBuf, PathVersionManifest)> {
-        let archive = self.path_archive_location(notebook_id, relative_path)?;
-        let manifest = fs::read_to_string(archive.join("manifest.json"))
+        self.read_path_manifest_checked(notebook_id, relative_path)
             .ok()
-            .and_then(|json| serde_json::from_str::<PathVersionManifest>(&json).ok())
-            .filter(|manifest| {
-                manifest.notebook_id == notebook_id && manifest.relative_path == relative_path
-            })
-            .unwrap_or_else(|| PathVersionManifest {
+            .flatten()
+    }
+
+    fn read_path_manifest_checked(
+        &self,
+        notebook_id: &str,
+        relative_path: &str,
+    ) -> std::io::Result<Option<(PathBuf, PathVersionManifest)>> {
+        let Some(archive) = self.path_archive_location(notebook_id, relative_path) else {
+            return Ok(None);
+        };
+        let manifest = match fs::read_to_string(archive.join("manifest.json")) {
+            Ok(json) => {
+                let manifest: PathVersionManifest = serde_json::from_str(&json)
+                    .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+                if manifest.notebook_id != notebook_id || manifest.relative_path != relative_path {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "archive identity mismatch",
+                    ));
+                }
+                manifest
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => PathVersionManifest {
                 version: 1,
                 notebook_id: notebook_id.to_string(),
                 relative_path: relative_path.to_string(),
                 versions: Vec::new(),
-            });
-        Some((archive, manifest))
+            },
+            Err(error) => return Err(error),
+        };
+        Ok(Some((archive, manifest)))
     }
 
     pub fn list_path_versions(
@@ -195,8 +247,11 @@ impl MemoFile {
         relative_path: &str,
         version_id: &str,
     ) -> Option<String> {
-        if !Path::new(relative_path).is_md() { return None; }
-        String::from_utf8(self.read_path_version_bytes(notebook_id, relative_path, version_id)?).ok()
+        if !Path::new(relative_path).is_md() {
+            return None;
+        }
+        String::from_utf8(self.read_path_version_bytes(notebook_id, relative_path, version_id)?)
+            .ok()
     }
 
     pub fn read_path_version_bytes(
@@ -205,12 +260,27 @@ impl MemoFile {
         relative_path: &str,
         version_id: &str,
     ) -> Option<Vec<u8>> {
-        if !is_safe_version_id(version_id) { return None; }
+        if !is_safe_version_id(version_id) {
+            return None;
+        }
         let (archive, manifest) = self.read_path_manifest(notebook_id, relative_path)?;
-        let version = manifest.versions.iter().find(|version| version.id == version_id)?;
-        let extension = if Path::new(relative_path).is_md() { "md" } else { "bin" };
+        let version = manifest
+            .versions
+            .iter()
+            .find(|version| version.id == version_id)?;
+        let extension = if Path::new(relative_path).is_md() {
+            "md"
+        } else {
+            "bin"
+        };
         let version_path = archive.join(format!("{version_id}.{extension}"));
-        if fs::symlink_metadata(&version_path).ok()?.file_type().is_symlink() { return None; }
+        if fs::symlink_metadata(&version_path)
+            .ok()?
+            .file_type()
+            .is_symlink()
+        {
+            return None;
+        }
         let bytes = fs::read(version_path).ok()?;
         (format!("{:x}", Sha256::digest(&bytes)) == version.content_hash).then_some(bytes)
     }
@@ -232,8 +302,32 @@ impl MemoFile {
         content: &[u8],
         source: MemoVersionSource,
     ) -> std::io::Result<Option<PathVersionMeta>> {
-        let _manifest_guard = self.operation_locks().version_manifest_write(notebook_id, relative_path)?;
-        self.create_path_version_bytes_locked(notebook_id, relative_path, content, source)
+        let _manifest_guard = self
+            .operation_locks()
+            .version_manifest_write(notebook_id, relative_path)?;
+        self.create_path_version_bytes_locked(notebook_id, relative_path, content, source, false)
+    }
+
+    /// Preserve syncable bytes before an inbound cloud mutation. An existing
+    /// identical version is success, but an unavailable archive is an error.
+    pub fn archive_sync_path_bytes(
+        &self,
+        notebook_id: &str,
+        relative_path: &str,
+        content: &[u8],
+        source: MemoVersionSource,
+    ) -> std::io::Result<()> {
+        if !super::is_syncable_notebook_file_path(Path::new(relative_path)) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "sync archive location unavailable",
+            ));
+        }
+        let _manifest_guard = self
+            .operation_locks()
+            .version_manifest_write(notebook_id, relative_path)?;
+        self.create_path_version_bytes_locked(notebook_id, relative_path, content, source, true)?;
+        Ok(())
     }
 
     fn create_path_version_bytes_locked(
@@ -242,33 +336,60 @@ impl MemoFile {
         relative_path: &str,
         content: &[u8],
         source: MemoVersionSource,
+        require_location: bool,
     ) -> std::io::Result<Option<PathVersionMeta>> {
-        let Some((archive, mut manifest)) = self.read_path_manifest(notebook_id, relative_path)
+        let Some((archive, mut manifest)) =
+            self.read_path_manifest_checked(notebook_id, relative_path)?
         else {
-            return Ok(None);
+            return if require_location {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "sync archive location unavailable",
+                ))
+            } else {
+                Ok(None)
+            };
         };
-        for directory in [archive.parent().and_then(Path::parent), archive.parent(), Some(archive.as_path())]
-            .into_iter().flatten()
+        for directory in [
+            archive.parent().and_then(Path::parent),
+            archive.parent(),
+            Some(archive.as_path()),
+        ]
+        .into_iter()
+        .flatten()
         {
             if let Ok(metadata) = fs::symlink_metadata(directory) {
                 if metadata.file_type().is_symlink() || !metadata.is_dir() {
-                    return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "unsafe version archive directory"));
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "unsafe version archive directory",
+                    ));
                 }
             }
         }
         let content_hash = format!("{:x}", Sha256::digest(content));
-        if let Some(existing) = manifest.versions.iter_mut()
+        if let Some(existing) = manifest
+            .versions
+            .iter_mut()
             .find(|version| version.content_hash == content_hash)
         {
-            let extension = if Path::new(relative_path).is_md() { "md" } else { "bin" };
+            let extension = if Path::new(relative_path).is_md() {
+                "md"
+            } else {
+                "bin"
+            };
             let version_path = archive.join(format!("{}.{extension}", existing.id));
             if fs::read(&version_path).ok().as_deref() != Some(content) {
                 atomic_write_bytes(&version_path, content)?;
             }
-            if source == MemoVersionSource::CloudConflict
-                && existing.source != MemoVersionSource::CloudConflict
-            {
-                existing.source = MemoVersionSource::CloudConflict;
+            if matches!(
+                source,
+                MemoVersionSource::CloudConflict | MemoVersionSource::ConflictBackup
+            ) && !matches!(
+                existing.source,
+                MemoVersionSource::CloudConflict | MemoVersionSource::ConflictBackup
+            ) {
+                existing.source = source;
                 let promoted = existing.clone();
                 atomic_write_bytes(
                     &archive.join("manifest.json"),
@@ -292,7 +413,11 @@ impl MemoFile {
             content_hash,
         };
         fs::create_dir_all(&archive)?;
-        let extension = if Path::new(relative_path).is_md() { "md" } else { "bin" };
+        let extension = if Path::new(relative_path).is_md() {
+            "md"
+        } else {
+            "bin"
+        };
         atomic_write_bytes(&archive.join(format!("{id}.{extension}")), content)?;
         manifest.versions.push(meta.clone());
         manifest
@@ -300,10 +425,17 @@ impl MemoFile {
             .sort_by_key(|version| std::cmp::Reverse(version.created_at));
         let mut ordinary_kept = 0;
         manifest.versions.retain(|version| {
-            if version.source == MemoVersionSource::CloudConflict { return true; }
+            if matches!(
+                version.source,
+                MemoVersionSource::CloudConflict | MemoVersionSource::ConflictBackup
+            ) {
+                return true;
+            }
             ordinary_kept += 1;
             let keep = ordinary_kept <= MEMO_VERSION_LIMIT;
-            if !keep { let _ = fs::remove_file(archive.join(format!("{}.{extension}", version.id))); }
+            if !keep {
+                let _ = fs::remove_file(archive.join(format!("{}.{extension}", version.id)));
+            }
             keep
         });
         atomic_write_bytes(
@@ -319,8 +451,11 @@ impl MemoFile {
         relative_path: &str,
         content: &str,
     ) -> std::io::Result<Option<PathVersionMeta>> {
-        let _manifest_guard = self.operation_locks().version_manifest_write(notebook_id, relative_path)?;
-        let Some((_, manifest)) = self.read_path_manifest(notebook_id, relative_path) else {
+        let _manifest_guard = self
+            .operation_locks()
+            .version_manifest_write(notebook_id, relative_path)?;
+        let Some((_, manifest)) = self.read_path_manifest_checked(notebook_id, relative_path)?
+        else {
             return Ok(None);
         };
         let now = chrono::Utc::now().timestamp_millis();
@@ -332,7 +467,13 @@ impl MemoFile {
         {
             return Ok(None);
         }
-        self.create_path_version_bytes_locked(notebook_id, relative_path, content.as_bytes(), MemoVersionSource::Auto)
+        self.create_path_version_bytes_locked(
+            notebook_id,
+            relative_path,
+            content.as_bytes(),
+            MemoVersionSource::Auto,
+            false,
+        )
     }
 }
 
@@ -340,6 +481,59 @@ impl MemoFile {
 mod path_version_tests {
     use super::*;
     use crate::memo_file::NotebookConfig;
+
+    #[test]
+    fn sync_archive_accepts_user_files_and_rejects_corrupt_manifest() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("notebook");
+        fs::create_dir_all(&root).unwrap();
+        let store = MemoFile::new(temp.path().join("config"));
+        store
+            .write_notebook_configs(&[NotebookConfig {
+                id: "work".into(),
+                name: "Work".into(),
+                icon: None,
+                path: root.to_string_lossy().to_string(),
+                is_default: true,
+                sort: 0,
+                created_at: 1,
+                updated_at: 1,
+            }])
+            .unwrap();
+        for path in ["assets/image.png", ".flowix/database/record.md"] {
+            store
+                .archive_sync_path_bytes("work", path, b"old", MemoVersionSource::RemoteDeletion)
+                .unwrap();
+            store
+                .archive_sync_path_bytes("work", path, b"old", MemoVersionSource::RemoteDeletion)
+                .unwrap();
+            assert_eq!(store.list_path_versions("work", path).len(), 1);
+        }
+        assert!(store
+            .archive_sync_path_bytes(
+                "missing",
+                "note.md",
+                b"old",
+                MemoVersionSource::RemoteDeletion
+            )
+            .is_err());
+        let archive = store
+            .path_archive_location("work", "assets/image.png")
+            .unwrap();
+        fs::write(archive.join("manifest.json"), b"invalid json").unwrap();
+        assert!(store
+            .archive_sync_path_bytes(
+                "work",
+                "assets/image.png",
+                b"new",
+                MemoVersionSource::RemoteDeletion
+            )
+            .is_err());
+        assert_eq!(
+            fs::read(archive.join("manifest.json")).unwrap(),
+            b"invalid json"
+        );
+    }
 
     #[test]
     fn cloud_conflict_versions_use_path_history_and_survive_ordinary_pruning() {
@@ -350,59 +544,164 @@ mod path_version_tests {
         fs::write(root.join("Extra.MARKDOWN"), "current").unwrap();
         fs::write(root.join("attachments/image.png"), [0, 1, 2]).unwrap();
         let store = MemoFile::new(temp.path().join("config"));
-        store.write_notebook_configs(&[NotebookConfig {
-            id: "work".into(), name: "Work".into(), icon: None,
-            path: root.to_string_lossy().to_string(), is_default: true,
-            sort: 0, created_at: 1, updated_at: 1,
-        }]).unwrap();
+        store
+            .write_notebook_configs(&[NotebookConfig {
+                id: "work".into(),
+                name: "Work".into(),
+                icon: None,
+                path: root.to_string_lossy().to_string(),
+                is_default: true,
+                sort: 0,
+                created_at: 1,
+                updated_at: 1,
+            }])
+            .unwrap();
         for relative in ["Tasks.table.yaml", "Projects/.index.yaml"] {
-            let version = store.create_path_version_bytes(
-                "work", relative, b"offline collection", MemoVersionSource::CloudConflict,
-            ).unwrap().unwrap();
-            assert_eq!(store.read_path_version_bytes("work", relative, &version.id).as_deref(), Some(b"offline collection".as_slice()));
-            assert!(store.list_path_archives().iter().any(|entry| entry.relative_path == relative));
+            let version = store
+                .create_path_version_bytes(
+                    "work",
+                    relative,
+                    b"offline collection",
+                    MemoVersionSource::CloudConflict,
+                )
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                store
+                    .read_path_version_bytes("work", relative, &version.id)
+                    .as_deref(),
+                Some(b"offline collection".as_slice())
+            );
+            assert!(store
+                .list_path_archives()
+                .iter()
+                .any(|entry| entry.relative_path == relative));
         }
-        assert!(store.create_path_version_bytes("work", ".flowix/private.table.yaml", b"private", MemoVersionSource::CloudConflict).unwrap().is_none());
-        assert!(store.create_path_version_bytes("work", "../escape.table.yaml", b"bad", MemoVersionSource::CloudConflict).unwrap().is_none());
-        let rejected = store.create_path_version_bytes(
-            "work", "Note.md", b"offline edit", MemoVersionSource::CloudConflict,
-        ).unwrap().unwrap();
-        let manual = store.create_path_version(
-            "work", "Note.md", "shared", MemoVersionSource::Manual,
-        ).unwrap().unwrap();
-        let promoted = store.create_path_version_bytes(
-            "work", "Note.md", b"shared", MemoVersionSource::CloudConflict,
-        ).unwrap().unwrap();
+        assert!(store
+            .create_path_version_bytes(
+                "work",
+                ".flowix/private.table.yaml",
+                b"private",
+                MemoVersionSource::CloudConflict
+            )
+            .unwrap()
+            .is_none());
+        assert!(store
+            .create_path_version_bytes(
+                "work",
+                "../escape.table.yaml",
+                b"bad",
+                MemoVersionSource::CloudConflict
+            )
+            .unwrap()
+            .is_none());
+        let rejected = store
+            .create_path_version_bytes(
+                "work",
+                "Note.md",
+                b"offline edit",
+                MemoVersionSource::CloudConflict,
+            )
+            .unwrap()
+            .unwrap();
+        let manual = store
+            .create_path_version("work", "Note.md", "shared", MemoVersionSource::Manual)
+            .unwrap()
+            .unwrap();
+        let promoted = store
+            .create_path_version_bytes(
+                "work",
+                "Note.md",
+                b"shared",
+                MemoVersionSource::CloudConflict,
+            )
+            .unwrap()
+            .unwrap();
         assert_eq!(promoted.id, manual.id);
         assert_eq!(promoted.source, MemoVersionSource::CloudConflict);
-        let repeated = store.create_path_version_bytes(
-            "work", "Note.md", b"offline edit", MemoVersionSource::CloudConflict,
-        ).unwrap();
+        let repeated = store
+            .create_path_version_bytes(
+                "work",
+                "Note.md",
+                b"offline edit",
+                MemoVersionSource::CloudConflict,
+            )
+            .unwrap();
         assert!(repeated.is_none());
-        assert_eq!(store.read_path_version("work", "Note.md", &rejected.id).as_deref(), Some("offline edit"));
-        let markdown = store.create_path_version_bytes(
-            "work", "Extra.MARKDOWN", b"offline markdown", MemoVersionSource::CloudConflict,
-        ).unwrap().unwrap();
-        assert_eq!(store.read_path_version("work", "Extra.MARKDOWN", &markdown.id).as_deref(), Some("offline markdown"));
-        let attachment = store.create_path_version_bytes(
-            "work", "attachments/image.png", &[3, 4, 5], MemoVersionSource::CloudConflict,
-        ).unwrap().unwrap();
-        assert!(store.list_path_versions("work", "attachments/image.png")
-            .iter().any(|version| version.id == attachment.id));
-        assert_eq!(store.read_path_version_bytes("work", "attachments/image.png", &attachment.id), Some(vec![3, 4, 5]));
-        let attachment_archive = store.path_archive_location("work", "attachments/image.png").unwrap();
-        fs::write(attachment_archive.join(format!("{}.bin", attachment.id)), b"corrupt").unwrap();
-        assert!(store.read_path_version_bytes("work", "attachments/image.png", &attachment.id).is_none());
+        assert_eq!(
+            store
+                .read_path_version("work", "Note.md", &rejected.id)
+                .as_deref(),
+            Some("offline edit")
+        );
+        let markdown = store
+            .create_path_version_bytes(
+                "work",
+                "Extra.MARKDOWN",
+                b"offline markdown",
+                MemoVersionSource::CloudConflict,
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            store
+                .read_path_version("work", "Extra.MARKDOWN", &markdown.id)
+                .as_deref(),
+            Some("offline markdown")
+        );
+        let attachment = store
+            .create_path_version_bytes(
+                "work",
+                "attachments/image.png",
+                &[3, 4, 5],
+                MemoVersionSource::CloudConflict,
+            )
+            .unwrap()
+            .unwrap();
+        assert!(store
+            .list_path_versions("work", "attachments/image.png")
+            .iter()
+            .any(|version| version.id == attachment.id));
+        assert_eq!(
+            store.read_path_version_bytes("work", "attachments/image.png", &attachment.id),
+            Some(vec![3, 4, 5])
+        );
+        let attachment_archive = store
+            .path_archive_location("work", "attachments/image.png")
+            .unwrap();
+        fs::write(
+            attachment_archive.join(format!("{}.bin", attachment.id)),
+            b"corrupt",
+        )
+        .unwrap();
+        assert!(store
+            .read_path_version_bytes("work", "attachments/image.png", &attachment.id)
+            .is_none());
         for index in 0..=MEMO_VERSION_LIMIT {
-            store.create_path_version(
-                "work", "Note.md", &format!("ordinary {index}"), MemoVersionSource::Manual,
-            ).unwrap();
+            store
+                .create_path_version(
+                    "work",
+                    "Note.md",
+                    &format!("ordinary {index}"),
+                    MemoVersionSource::Manual,
+                )
+                .unwrap();
         }
-        assert!(store.list_path_versions("work", "Note.md")
-            .iter().any(|version| version.id == rejected.id));
+        assert!(store
+            .list_path_versions("work", "Note.md")
+            .iter()
+            .any(|version| version.id == rejected.id));
         fs::remove_file(root.join("Note.md")).unwrap();
-        assert_eq!(store.read_path_version("work", "Note.md", &rejected.id).as_deref(), Some("offline edit"));
-        assert!(store.list_path_archives().iter().any(|entry| entry.relative_path == "Note.md"));
+        assert_eq!(
+            store
+                .read_path_version("work", "Note.md", &rejected.id)
+                .as_deref(),
+            Some("offline edit")
+        );
+        assert!(store
+            .list_path_archives()
+            .iter()
+            .any(|entry| entry.relative_path == "Note.md"));
     }
 
     #[test]

@@ -66,7 +66,9 @@ fn table_exists(conn: &Connection, name: &str) -> rusqlite::Result<bool> {
 }
 
 fn parse_cursor(cursor: Option<&str>) -> std::io::Result<Option<PinnedCursor>> {
-    let Some(cursor) = cursor else { return Ok(None) };
+    let Some(cursor) = cursor else {
+        return Ok(None);
+    };
     serde_json::from_str::<PinnedCursor>(cursor)
         .map(Some)
         .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error.to_string()))
@@ -107,7 +109,10 @@ impl MemoFile {
         }
         let map = properties.as_object_mut().expect("object");
         if favorited {
-            map.insert(PINNED_PROPERTY_KEY.to_string(), serde_json::Value::Bool(true));
+            map.insert(
+                PINNED_PROPERTY_KEY.to_string(),
+                serde_json::Value::Bool(true),
+            );
             map.insert(
                 PINNED_AT_PROPERTY_KEY.to_string(),
                 serde_json::json!(super::media_resource::now_ms()),
@@ -162,7 +167,8 @@ impl MemoFile {
                 row.get::<_, String>(0)
             })
             .map_err(sqlite_to_io)?;
-        rows.collect::<Result<HashSet<_>, _>>().map_err(sqlite_to_io)
+        rows.collect::<Result<HashSet<_>, _>>()
+            .map_err(sqlite_to_io)
     }
 
     /// Page pinned notes, documents, and collections together, newest first.
@@ -324,7 +330,9 @@ mod tests {
             .expect("catalog row exists");
         assert_eq!(pinned.relative_path, "spec.html");
 
-        let page = memo_file.list_pinned_entries(NOTEBOOK_ID, None, 10).unwrap();
+        let page = memo_file
+            .list_pinned_entries(NOTEBOOK_ID, None, 10)
+            .unwrap();
         assert_eq!(page.entries.len(), 1);
         assert_eq!(page.entries[0].entry_kind, "document");
         assert_eq!(page.entries[0].relative_path, "spec.html");
@@ -333,10 +341,10 @@ mod tests {
 
         // An in-app rename updates the catalog row in place, so the flag stays.
         let renamed = root.join("spec-renamed.html");
-        memo_file
-            .rename_indexed_path(&document, &renamed)
+        memo_file.rename_indexed_path(&document, &renamed).unwrap();
+        let page = memo_file
+            .list_pinned_entries(NOTEBOOK_ID, None, 10)
             .unwrap();
-        let page = memo_file.list_pinned_entries(NOTEBOOK_ID, None, 10).unwrap();
         assert_eq!(page.entries.len(), 1);
         assert_eq!(page.entries[0].relative_path, "spec-renamed.html");
     }
@@ -381,13 +389,11 @@ mod tests {
             serde_json::from_str::<serde_json::Value>(&properties).unwrap(),
             serde_json::json!({ "owner": "design" })
         );
-        assert!(
-            memo_file
-                .list_pinned_entries(NOTEBOOK_ID, None, 10)
-                .unwrap()
-                .entries
-                .is_empty()
-        );
+        assert!(memo_file
+            .list_pinned_entries(NOTEBOOK_ID, None, 10)
+            .unwrap()
+            .entries
+            .is_empty());
     }
 
     #[test]

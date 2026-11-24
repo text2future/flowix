@@ -103,18 +103,10 @@ fn missing_notebook_directories_are_filtered_from_global_reads() {
     let explicit_file_list = run(&config, &outside, &["list", "File", "--json"]);
     assert_eq!(json(&explicit_file_list)["error"]["code"], "NOT_FOUND");
 
-    let explicit_missing_show = run(
-        &config,
-        &outside,
-        &["show", "missing::match.md", "--json"],
-    );
+    let explicit_missing_show = run(&config, &outside, &["show", "missing::match.md", "--json"]);
     assert_eq!(json(&explicit_missing_show)["error"]["code"], "NOT_FOUND");
 
-    let explicit_file_show = run(
-        &config,
-        &outside,
-        &["show", "file::match.md", "--json"],
-    );
+    let explicit_file_show = run(&config, &outside, &["show", "file::match.md", "--json"]);
     assert_eq!(json(&explicit_file_show)["error"]["code"], "NOT_FOUND");
 
     let absent_note_show = run(

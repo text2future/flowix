@@ -790,6 +790,25 @@ export interface PiSessionSnapshot {
   revision: PiHistoryRevision;
 }
 
+/** Session-wide totals and current context estimate reported by Pi RPC. */
+export interface PiSessionStats {
+  sessionId?: string | null;
+  model?: string | null;
+  tokens?: {
+    input?: number | null;
+    output?: number | null;
+    cacheRead?: number | null;
+    cacheWrite?: number | null;
+    total?: number | null;
+  } | null;
+  cost?: number | null;
+  contextUsage?: {
+    tokens?: number | null;
+    contextWindow?: number | null;
+    percent?: number | null;
+  } | null;
+}
+
 export interface PiHistoryPage extends PiSessionSnapshot {
   beforeEntryId: string | null;
   oldestSequence: number | null;

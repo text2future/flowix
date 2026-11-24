@@ -5,9 +5,8 @@
 
 use super::{
     attach_pi_session_message_ids, pi_active_branch_entries, pi_rpc_message_id,
-    pi_tools_for_permission_mode, receive_rpc_response,
-    run_startup_cloud_credential_refresh_once, run_startup_cloud_refresh_once,
-    CloudRefreshResults,
+    pi_tools_for_permission_mode, receive_rpc_response, run_startup_cloud_credential_refresh_once,
+    run_startup_cloud_refresh_once, CloudRefreshResults,
 };
 use crate::agent_external::pi::shell::{PiCapabilities, ShellKind};
 use serde_json::json;
@@ -31,18 +30,15 @@ fn full_access_asks_for_the_platform_shell_tool() {
     assert!(powershell.split(',').any(|tool| tool == "powershell"));
     assert!(!powershell.split(',').any(|tool| tool == "bash"));
 
-    let shellless =
-        pi_tools_for_permission_mode(None, capabilities(ShellKind::None, false, false));
+    let shellless = pi_tools_for_permission_mode(None, capabilities(ShellKind::None, false, false));
     assert!(!shellless.split(',').any(|tool| tool == "bash"));
     assert!(!shellless.split(',').any(|tool| tool == "powershell"));
 }
 
 #[test]
 fn read_only_mode_stays_useful_without_a_shell() {
-    let tools = pi_tools_for_permission_mode(
-        Some("read-only"),
-        capabilities(ShellKind::Bash, true, true),
-    );
+    let tools =
+        pi_tools_for_permission_mode(Some("read-only"), capabilities(ShellKind::Bash, true, true));
     let parsed: Vec<&str> = tools.split(',').collect();
     assert_eq!(parsed, vec!["read", "ls", "grep", "find"]);
 }
@@ -70,8 +66,7 @@ fn write_modes_keep_the_edit_tools_and_drop_the_shell_when_unavailable() {
         capabilities(ShellKind::Bash, false, false),
     );
     assert_eq!(write, "read,ls,edit,write");
-    let legacy =
-        pi_tools_for_permission_mode(None, capabilities(ShellKind::None, false, false));
+    let legacy = pi_tools_for_permission_mode(None, capabilities(ShellKind::None, false, false));
     assert_eq!(legacy, "read,ls,edit,write");
 }
 
@@ -109,8 +104,7 @@ async fn startup_cloud_refresh_coalesces_failures_and_allows_retry() {
     let retried = run_startup_cloud_refresh_once(&results, 7, || async { Ok(true) }).await;
     assert_eq!(retried, Ok(true));
 
-    let next_generation =
-        run_startup_cloud_refresh_once(&results, 8, || async { Ok(true) }).await;
+    let next_generation = run_startup_cloud_refresh_once(&results, 8, || async { Ok(true) }).await;
     assert_eq!(next_generation, Ok(true));
 }
 
@@ -291,8 +285,7 @@ fn pi_backend_pages_complete_turns_using_native_entry_cursors() {
     assert_eq!(latest.before_entry_id.as_deref(), Some("u2"));
     assert_eq!(latest.oldest_sequence, Some(3));
     assert!(latest.has_more);
-    let older =
-        super::page_pi_snapshot(&snapshot, latest.before_entry_id.as_deref(), 1).unwrap();
+    let older = super::page_pi_snapshot(&snapshot, latest.before_entry_id.as_deref(), 1).unwrap();
     assert_eq!(older.messages.len(), 3);
     assert_eq!(older.messages[1]["content"].as_array().unwrap().len(), 3);
     assert_eq!(older.messages[2]["toolCallId"], "call");

@@ -394,6 +394,8 @@ export const agent = {
     invoke<import("@/types/agent").PiHistoryPage>('pi_thread_get_page', { threadId, beforeEntryId, limit, revision: revision ?? null }),
   getPiSessionSnapshot: (threadId: string) =>
     invoke<import("@/types/agent").PiSessionSnapshot>('pi_thread_get_snapshot', { threadId }),
+  getPiSessionStats: (threadId: string) =>
+    invoke<import("@/types/agent").PiSessionStats>('pi_thread_session_stats', { threadId }),
   getPiSessionMessages: (threadId: string) =>
     invoke<Array<Record<string, unknown>>>('pi_thread_get_messages', { threadId }),
   getPiSessionId: (threadId: string) =>

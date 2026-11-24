@@ -750,10 +750,7 @@ mod tests {
         overrides.insert("key".to_string(), "abc123".to_string());
         let input = "---\r\nname: imported\r\n---\r\nbody\r\n";
         let out = merge_frontmatter(input, &overrides);
-        assert_eq!(
-            out,
-            "---\nname: imported\nkey: abc123\n---\nbody\r\n"
-        );
+        assert_eq!(out, "---\nname: imported\nkey: abc123\n---\nbody\r\n");
     }
 
     #[test]
@@ -789,10 +786,7 @@ mod tests {
         overrides.insert("extra".to_string(), "x".to_string());
         let input = "---\nstatus: draft\ntags: [a]\n---\nbody\n";
         let out = merge_frontmatter(input, &overrides);
-        assert_eq!(
-            out,
-            "---\nstatus: draft\ntags: [a]\nextra: x\n---\nbody\n"
-        );
+        assert_eq!(out, "---\nstatus: draft\ntags: [a]\nextra: x\n---\nbody\n");
     }
 
     #[test]
@@ -802,10 +796,7 @@ mod tests {
         overrides.insert("extra".to_string(), "y".to_string());
         let input = "---\ntags: [a]\n---\nbody\n";
         let out = merge_frontmatter(input, &overrides);
-        assert_eq!(
-            out,
-            "---\ntags: [a]\nextra: y\nkey: abc123\n---\nbody\n"
-        );
+        assert_eq!(out, "---\ntags: [a]\nextra: y\nkey: abc123\n---\nbody\n");
     }
 
     // ============== merge_frontmatter: edge cases ==============
@@ -846,10 +837,7 @@ mod tests {
         let legacy = "---\nstatus: draft\n---\n\u{FEFF}body \u{FEFF} text\n";
         let normalized = normalize_markdown_encoding_boundaries(legacy);
 
-        assert_eq!(
-            normalized,
-            "---\nstatus: draft\n---\nbody \u{FEFF} text\n"
-        );
+        assert_eq!(normalized, "---\nstatus: draft\n---\nbody \u{FEFF} text\n");
         assert!(matches!(
             normalize_markdown_encoding_boundaries(normalized.as_ref()),
             Cow::Borrowed(_)
@@ -951,8 +939,7 @@ mod tests {
 
     #[test]
     fn document_metadata_does_not_classify_body_tags() {
-        let metadata =
-            extract_document_metadata("---\nstatus: draft\n---\n# body-only\n").unwrap();
+        let metadata = extract_document_metadata("---\nstatus: draft\n---\n# body-only\n").unwrap();
         assert!(metadata.tags.is_empty());
     }
 
@@ -996,7 +983,6 @@ mod tests {
             assert_eq!(metadata.properties["test"], "hhhhh");
         }
     }
-
 
     #[test]
     fn replace_tags_preserves_unrelated_yaml_and_body() {

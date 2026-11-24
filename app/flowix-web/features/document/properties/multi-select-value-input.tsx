@@ -82,7 +82,7 @@ export function MultiSelectValueInput({
               'flex min-h-8 w-full items-center justify-between gap-2 rounded-lg px-1 text-left text-sm',
               variant === 'table'
                 ? 'multidimensional-table__select-trigger h-auto flex-wrap border-0 bg-transparent px-0 text-left shadow-none hover:bg-transparent focus-visible:border-0'
-                : 'border border-input bg-background hover:bg-[var(--muted)]/40 focus-visible:border-[var(--primary)]',
+                : 'border border-input bg-background hover:bg-[var(--muted)]/40 focus-visible:border-[var(--input-ring)]',
               'focus-visible:outline-none',
               disabled && 'cursor-not-allowed disabled:opacity-50 disabled:cursor-not-allowed',
             )}
@@ -101,7 +101,7 @@ export function MultiSelectValueInput({
                     </span>
                   ))
                   : tags.map((tag) => normalizedOptions.find((option) => option.value === tag)?.label ?? tag).join(', ')
-                : variant === 'table' ? null : <span className="text-[var(--muted-foreground)]">{t('document.properties.select.placeholder')}</span>}
+                : variant === 'table' ? null : <span className="text-[var(--input-placeholder)]">{t('document.properties.select.placeholder')}</span>}
             </span>
             <ChevronDown className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)]" />
           </button>
@@ -147,7 +147,7 @@ export function MultiSelectValueInput({
                   setDraft('');
                 }
               }}
-              className="h-7 min-w-[6rem] flex-1 rounded-md border-0 bg-transparent px-1 text-sm outline-none multidimensional-table__option-input placeholder:text-[var(--muted-foreground)] placeholder:opacity-85 focus:placeholder:opacity-60"
+              className="h-7 min-w-[6rem] flex-1 rounded-md border-0 bg-transparent px-1 text-sm outline-none multidimensional-table__option-input placeholder:text-[var(--input-placeholder)]"
             />
           </div>}
           {normalizedOptions.length === 0 ? (
@@ -232,7 +232,7 @@ export function MultiSelectValueInput({
           }
         }}
         className={cn(
-          'min-w-[88px] flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed',
+          'min-w-[88px] flex-1 bg-transparent text-sm outline-none placeholder:text-[var(--input-placeholder)] disabled:cursor-not-allowed',
         )}
       />
     </div>

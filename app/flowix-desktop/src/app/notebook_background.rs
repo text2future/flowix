@@ -193,7 +193,6 @@ impl NotebookBackground {
         Some(status)
     }
 
-
     pub fn media_statuses(&self) -> Vec<NotebookMediaMaintenanceStatus> {
         self.queue
             .lock()
@@ -204,7 +203,9 @@ impl NotebookBackground {
             .collect()
     }
 
-    pub fn request_links(&self, id: &str) { self.links.request(id); }
+    pub fn request_links(&self, id: &str) {
+        self.links.request(id);
+    }
 
     pub fn pause(&self) {
         self.links.pause(true);
@@ -337,7 +338,11 @@ impl NotebookBackground {
                     memo.initialize_resource_catalog_schema(&id)?;
                     memo.reconcile_resources_background_with_changes(&id, &keep_running)
                 }))
-                .unwrap_or_else(|_| Err(std::io::Error::other("resource catalog maintenance panicked")));
+                .unwrap_or_else(|_| {
+                    Err(std::io::Error::other(
+                        "resource catalog maintenance panicked",
+                    ))
+                });
                 let mut queue = self.queue.lock().unwrap_or_else(|p| p.into_inner());
                 queue.active = None;
                 queue.active_media = false;
@@ -428,10 +433,14 @@ impl NotebookBackground {
             }
             queue.finished.insert(id.clone(), Instant::now());
             let status = queue.statuses.get(&id).cloned();
-            if status.as_ref().is_some_and(|s| s.state == "ready") { self.links.request(&id); }
+            if status.as_ref().is_some_and(|s| s.state == "ready") {
+                self.links.request(&id);
+            }
             let media_status = if status.as_ref().is_some_and(|s| s.state == "ready") {
                 Some(queue.enqueue_media(id.clone(), false))
-            } else { None };
+            } else {
+                None
+            };
             if rerun {
                 queue.enqueue(id.clone(), false, true);
             }

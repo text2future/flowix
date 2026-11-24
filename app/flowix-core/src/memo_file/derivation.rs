@@ -153,8 +153,7 @@ pub fn strip_markdown(text: &str) -> String {
 
     static NOTE_LINK_RE: Lazy<Regex> =
         Lazy::new(|| Regex::new(r"(?is)<note\b[^>]*>.*?</note>").unwrap());
-    static WIKI_LINK_RE: Lazy<Regex> =
-        Lazy::new(|| Regex::new(r"!?\[\[[^\]\r\n]*\]\]").unwrap());
+    static WIKI_LINK_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"!?\[\[[^\]\r\n]*\]\]").unwrap());
     static MARKDOWN_IMAGE_RE: Lazy<Regex> =
         Lazy::new(|| Regex::new(r"!\[[^\]]*\]\([^)]+\)(?:\{[^}\n]*\})?").unwrap());
     static MARKDOWN_LINK_RE: Lazy<Regex> =
@@ -337,9 +336,8 @@ pub fn extract_title_and_preview(content: &str) -> (String, String) {
 fn extract_title_and_preview_from_body(body: &str) -> (String, String) {
     // Strip comments before splitting lines so multiline metadata cannot become
     // the first visible line. Accept escaped delimiters and pasted em dashes too.
-    static HTML_COMMENT_RE: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r"(?s)(?:<|&lt;)!(?:--|—).*?(?:(?:--|—)(?:>|&gt;)|$)").unwrap()
-    });
+    static HTML_COMMENT_RE: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r"(?s)(?:<|&lt;)!(?:--|—).*?(?:(?:--|—)(?:>|&gt;)|$)").unwrap());
     let body = HTML_COMMENT_RE.replace_all(body, "");
     let mut iter = body
         .lines()

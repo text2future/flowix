@@ -7,7 +7,8 @@
 //! - **其它平台 / Keychain 不可用**: `<config_dir>/db/default.db` 的
 //!   `secret_kv` 表，Unix 下 0o600。Keychain 打不开（企业策略、访问被拒）
 //!   不能让登录挂掉，所以迁移失败时整体退回 db 后端，行为与旧版一致。
-//!   另有 `FLOWIX_SECRET_FORCE_DB=1` 环境变量可强制 db 后端（CI / 排障用）。
+//!   开发版可显式使用隔离的 SQLite 凭据库；`FLOWIX_SECRET_FORCE_DB=1`
+//!   仍可供 CI / 排障时覆盖默认后端。
 //!
 //! ## 为什么不是全平台 Keychain
 //!
@@ -144,12 +145,23 @@ pub trait SecretBackend: Send + Sync {
 /// 写读遇锁自动等待而非立即 SQLITE_BUSY (实测 8 线程并发 0 busy)。
 pub struct DbBackend {
     db_path: PathBuf,
+    rebuild_on_error: bool,
 }
 
 impl DbBackend {
     pub fn new(db_path: impl AsRef<Path>) -> Self {
         Self {
             db_path: db_path.as_ref().to_path_buf(),
+            rebuild_on_error: true,
+        }
+    }
+
+    /// Open a SQLite secret table inside an authoritative database.
+    /// Initialization errors are returned without replacing the database file.
+    pub fn new_shared_database(db_path: impl AsRef<Path>) -> Self {
+        Self {
+            db_path: db_path.as_ref().to_path_buf(),
+            rebuild_on_error: false,
         }
     }
 
@@ -175,14 +187,26 @@ impl DbBackend {
         if self.db_path.exists() {
             set_file_owner_only_perms(&self.db_path)?;
         }
-        let conn = crate::memo_file::with_database_rebuild(&self.db_path, || {
+        let initialize = || {
             let conn = Connection::open(&self.db_path).map_err(std::io::Error::other)?;
-            conn.execute_batch("PRAGMA secure_delete = ON;
-                CREATE TABLE IF NOT EXISTS secret_kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-                SELECT key, value FROM secret_kv LIMIT 0;")
+            conn.busy_timeout(std::time::Duration::from_secs(10))
                 .map_err(std::io::Error::other)?;
+            conn.execute_batch(
+                "PRAGMA secure_delete = ON;
+                CREATE TABLE IF NOT EXISTS secret_kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                SELECT key, value FROM secret_kv LIMIT 0;",
+            )
+            .map_err(std::io::Error::other)?;
             Ok(conn)
-        }).map_err(|error| SecretStoreError::Platform(format!("initialize secret database: {error}")))?;
+        };
+        let conn = if self.rebuild_on_error {
+            crate::memo_file::with_database_rebuild(&self.db_path, initialize)
+        } else {
+            initialize()
+        }
+        .map_err(|error| {
+            SecretStoreError::Platform(format!("initialize secret database: {error}"))
+        })?;
         set_file_owner_only_perms(&self.db_path)?;
         Ok(conn)
     }
@@ -287,9 +311,7 @@ impl SecretStore {
     /// 枚举全表（几十行以内）的成本可忽略，换来"没有第二处需要记得迁移"。
     pub fn new(db_path: impl AsRef<Path>) -> Self {
         if std::env::var("FLOWIX_SECRET_FORCE_DB").as_deref() == Ok("1") {
-            return Self {
-                backend: Box::new(DbBackend::new(db_path)),
-            };
+            return Self::new_database(db_path);
         }
         #[cfg(target_os = "macos")]
         {
@@ -310,8 +332,23 @@ impl SecretStore {
                 }
             }
         }
+        Self::new_database(db_path)
+    }
+
+    /// Construct an SQLite-backed store without consulting platform defaults.
+    /// This store treats the database as a dedicated secret store.
+    pub fn new_database(db_path: impl AsRef<Path>) -> Self {
         Self {
             backend: Box::new(DbBackend::new(db_path)),
+        }
+    }
+
+    /// Construct an SQLite-backed store inside an existing authoritative
+    /// database. Unlike `new_database`, an initialization error never triggers
+    /// a whole-file rebuild.
+    pub fn new_shared_database(db_path: impl AsRef<Path>) -> Self {
+        Self {
+            backend: Box::new(DbBackend::new_shared_database(db_path)),
         }
     }
 

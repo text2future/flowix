@@ -5,8 +5,15 @@ use serde_json::Value;
 
 #[derive(Debug, Clone)]
 pub(crate) enum FlowixOperation {
-    RequestList { state: Option<String>, limit: usize },
-    RequestShow { notebook: String, operation: String, request_id: String },
+    RequestList {
+        state: Option<String>,
+        limit: usize,
+    },
+    RequestShow {
+        notebook: String,
+        operation: String,
+        request_id: String,
+    },
     Notebooks,
     List {
         notebook: Option<String>,
@@ -55,9 +62,24 @@ pub(crate) enum FlowixOperation {
         collection_id: Option<String>,
         path: Option<String>,
     },
-    CollectionCreate { notebook: String, path: String, fields: Option<String> },
-    CollectionAddFields { notebook: String, collection_id: Option<String>, path: Option<String>, fields: String },
-    CollectionAdd { notebook: String, collection_id: Option<String>, path: Option<String>, record: String, request_id: Option<String> },
+    CollectionCreate {
+        notebook: String,
+        path: String,
+        fields: Option<String>,
+    },
+    CollectionAddFields {
+        notebook: String,
+        collection_id: Option<String>,
+        path: Option<String>,
+        fields: String,
+    },
+    CollectionAdd {
+        notebook: String,
+        collection_id: Option<String>,
+        path: Option<String>,
+        record: String,
+        request_id: Option<String>,
+    },
     CollectionAddNote {
         notebook: String,
         collection_id: Option<String>,
@@ -110,8 +132,14 @@ pub(crate) enum FlowixOperation {
 
 pub(crate) fn execute(operation: FlowixOperation) -> Result<Value, CliError> {
     match operation {
-        FlowixOperation::RequestList { state, limit } => crate::idempotency::list(state.as_deref(), limit),
-        FlowixOperation::RequestShow { notebook, operation, request_id } => crate::idempotency::show(&notebook, &operation, &request_id),
+        FlowixOperation::RequestList { state, limit } => {
+            crate::idempotency::list(state.as_deref(), limit)
+        }
+        FlowixOperation::RequestShow {
+            notebook,
+            operation,
+            request_id,
+        } => crate::idempotency::show(&notebook, &operation, &request_id),
         FlowixOperation::Notebooks => {
             let (configs, selected) = store::notebooks_list_data()?;
             let counts = store::notebook_note_counts(&configs)?;
@@ -129,16 +157,26 @@ pub(crate) fn execute(operation: FlowixOperation) -> Result<Value, CliError> {
             offset,
             snapshot,
         } => {
-            if limit == 0 || limit > 200 { return Err(CliError::Usage("list limit must be between 1 and 200".into())); }
+            if limit == 0 || limit > 200 {
+                return Err(CliError::Usage(
+                    "list limit must be between 1 and 200".into(),
+                ));
+            }
             let notebook = store::resolve_notebook_key(notebook.as_deref())?;
             let data = path_store::list(&notebook)?;
-            let notebook_id = data["notebookId"].as_str().ok_or_else(|| CliError::Other("missing notebook ID".into()))?;
-            let entries = data["notes"]
-                .as_array()
-                .cloned()
-                .unwrap_or_default();
-            let token = path_store::version(&serde_json::to_string(&(notebook_id, &entries)).map_err(|e| CliError::Other(e.to_string()))?);
-            if snapshot.as_deref().is_some_and(|value| value != token) { return Err(CliError::DataChanged("notes changed during pagination; restart at offset 0".into())); }
+            let notebook_id = data["notebookId"]
+                .as_str()
+                .ok_or_else(|| CliError::Other("missing notebook ID".into()))?;
+            let entries = data["notes"].as_array().cloned().unwrap_or_default();
+            let token = path_store::version(
+                &serde_json::to_string(&(notebook_id, &entries))
+                    .map_err(|e| CliError::Other(e.to_string()))?,
+            );
+            if snapshot.as_deref().is_some_and(|value| value != token) {
+                return Err(CliError::DataChanged(
+                    "notes changed during pagination; restart at offset 0".into(),
+                ));
+            }
             let total = entries.len();
             let notes = entries
                 .into_iter()
@@ -173,16 +211,39 @@ pub(crate) fn execute(operation: FlowixOperation) -> Result<Value, CliError> {
             limit,
             offset,
             snapshot,
-        } => path_store::search(&query, notebook.as_deref(), tag.as_deref(), limit, offset, snapshot.as_deref()),
-        FlowixOperation::Create { notebook, folder, title, content, request_id } => {
+        } => path_store::search(
+            &query,
+            notebook.as_deref(),
+            tag.as_deref(),
+            limit,
+            offset,
+            snapshot.as_deref(),
+        ),
+        FlowixOperation::Create {
+            notebook,
+            folder,
+            title,
+            content,
+            request_id,
+        } => {
             let notebook = store::resolve_notebook_key(notebook.as_deref())?;
             let mf = store::open()?;
             let notebook = store::resolve_notebook_config(&mf, &notebook)?.id;
-            let run = || path_store::create_in_folder(&notebook, title.as_deref(), folder.as_deref(), &content);
+            let run = || {
+                path_store::create_in_folder(
+                    &notebook,
+                    title.as_deref(),
+                    folder.as_deref(),
+                    &content,
+                )
+            };
             if let Some(id) = request_id.as_deref() {
-                let payload = serde_json::json!({"folder":folder, "title":title, "content":content});
+                let payload =
+                    serde_json::json!({"folder":folder, "title":title, "content":content});
                 crate::idempotency::execute(&notebook, "create", id, &payload, run)
-            } else { run() }
+            } else {
+                run()
+            }
         }
         FlowixOperation::Edit {
             address,
@@ -190,16 +251,49 @@ pub(crate) fn execute(operation: FlowixOperation) -> Result<Value, CliError> {
             replacement,
             dry_run,
         } => path_store::edit(&address, &old, &replacement, dry_run),
-        FlowixOperation::Write { address, content, expected_version } => path_store::write(&address, &content, expected_version.as_deref()),
-        FlowixOperation::Delete { address, expected_version } => path_store::delete(&address, expected_version.as_deref()),
+        FlowixOperation::Write {
+            address,
+            content,
+            expected_version,
+        } => path_store::write(&address, &content, expected_version.as_deref()),
+        FlowixOperation::Delete {
+            address,
+            expected_version,
+        } => path_store::delete(&address, expected_version.as_deref()),
         FlowixOperation::CollectionRead {
             notebook,
             collection_id,
             path,
         } => collection_store::read(&notebook, collection_id.as_deref(), path.as_deref()),
-        FlowixOperation::CollectionCreate { notebook, path, fields } => collection_store::create_with_fields(&notebook, &path, fields.as_deref()),
-        FlowixOperation::CollectionAddFields { notebook, collection_id, path, fields } => collection_store::add_fields_with_json(&notebook, collection_id.as_deref(), path.as_deref(), &fields),
-        FlowixOperation::CollectionAdd { notebook, collection_id, path, record, request_id } => collection_store::add_record(&notebook, collection_id.as_deref(), path.as_deref(), &record, request_id.as_deref()),
+        FlowixOperation::CollectionCreate {
+            notebook,
+            path,
+            fields,
+        } => collection_store::create_with_fields(&notebook, &path, fields.as_deref()),
+        FlowixOperation::CollectionAddFields {
+            notebook,
+            collection_id,
+            path,
+            fields,
+        } => collection_store::add_fields_with_json(
+            &notebook,
+            collection_id.as_deref(),
+            path.as_deref(),
+            &fields,
+        ),
+        FlowixOperation::CollectionAdd {
+            notebook,
+            collection_id,
+            path,
+            record,
+            request_id,
+        } => collection_store::add_record(
+            &notebook,
+            collection_id.as_deref(),
+            path.as_deref(),
+            &record,
+            request_id.as_deref(),
+        ),
         FlowixOperation::CollectionAddNote {
             notebook,
             collection_id,
@@ -297,17 +391,21 @@ pub(crate) fn execute(operation: FlowixOperation) -> Result<Value, CliError> {
             let notebook = store::resolve_notebook_key(notebook.as_deref())?;
             let mf = store::open()?;
             let notebook = store::resolve_notebook_config(&mf, &notebook)?.id;
-            let run = || output::to_json_value(&plugin::create_data(
-                &plugin_id,
-                &notebook,
-                source_note.as_deref(),
-                &producer,
-                &content,
-            )?);
+            let run = || {
+                output::to_json_value(&plugin::create_data(
+                    &plugin_id,
+                    &notebook,
+                    source_note.as_deref(),
+                    &producer,
+                    &content,
+                )?)
+            };
             if let Some(id) = request_id.as_deref() {
                 let payload = serde_json::json!({"pluginId":plugin_id,"sourceNote":source_note,"producer":producer,"content":content});
                 crate::idempotency::execute(&notebook, "artifact.create", id, &payload, run)
-            } else { run() }
+            } else {
+                run()
+            }
         }
     }
 }

@@ -15,6 +15,9 @@ import { NoteColorPicker } from './document-titlebar-controls';
 import { VersionHistorySubmenu, formatVersionTime } from './document-version-history-menu';
 import { DocumentExportSubmenu } from './document-export-submenu';
 import { useDocumentTitlebarActions } from './use-document-titlebar-actions';
+import { NoteShareControl } from './note-share-control';
+import { documentIdentityFromFile } from '../store/document-identity';
+import { saveDocumentPath } from '../store/document-session-service';
 import type { DocumentTitlebarProps, DocumentTitlebarTarget } from './document-titlebar-model';
 import type { DocumentEditorMode } from '@features/document/store/document-editor-view-store';
 
@@ -74,6 +77,14 @@ export function DocumentTitlebarActions({
       <NoteColorPicker colors={colors} iconButtonClass={iconButtonClass}
         onChange={changeColors} />
     )}
+    <NoteShareControl
+      key={filePath}
+      filePath={filePath}
+      iconButtonClass={iconButtonClass}
+      flushDocument={() => saveDocumentPath(
+        documentIdentityFromFile(target.fileIdentity), filePath, target.scopePath,
+      )}
+    />
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button

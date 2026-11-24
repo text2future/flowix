@@ -110,6 +110,7 @@ describe("Pi composer model dropdown Cloud session updates", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
     useAgentDataStore.setState(useAgentDataStore.getInitialState(), true);
     document.body.replaceChildren();
     loadAgentModelCatalog.mockImplementation(async (agentType: AgentTypeKey) =>
@@ -248,6 +249,18 @@ describe("Pi composer model dropdown Cloud session updates", () => {
     expect(refreshPiModelProviderAtStartup).not.toHaveBeenCalled();
   });
 
+  it("removes stale guest models when the server returns an empty directory", async () => {
+    const { cloud } = await import("@platform/tauri/client");
+    const { writePiPublicCatalogCache, readPiPublicCatalogCache } = await import("@features/agent/services/pi-public-catalog");
+    writePiPublicCatalogCache("unknown", [{ id: "old-model" }]);
+    vi.mocked(cloud.piModelCatalog).mockResolvedValueOnce({ data: { models: [] } });
+    getCloudState.mockResolvedValueOnce({ revision: 50, authenticated: false } as CloudState);
+    const { loadPiCloudModelCatalog } = await import("@features/agent/services/pi-cloud-model-service");
+    const catalog = await loadPiCloudModelCatalog({ force: true });
+    expect(catalog.items.some((item) => item.id === "old-model")).toBe(false);
+    expect(readPiPublicCatalogCache("unknown")?.models).toEqual([]);
+  });
+
   it("drops the guest catalog when the account signs in while it loads", async () => {
     getCloudState.mockResolvedValueOnce({ revision: 50, authenticated: false } as CloudState);
     // Simulate the sign-in arriving inside the rebuild the guest sync awaits.
@@ -348,6 +361,22 @@ describe("Pi composer model dropdown Cloud session updates", () => {
     expect(useAgentDataStore.getState().piCloudAccountId).toBe("user-1");
     expect(useAgentDataStore.getState().agents.pi.catalog.models.items.some(item => item.id === "member-model"))
       .toBe(true);
+  });
+
+  it("refreshes the catalog when the same account changes region", async () => {
+    const state = await getCloudState();
+    await syncPiCloudModelCatalog(state);
+    const previousEpoch = useAgentDataStore.getState().piCloudCatalogEpoch;
+    refreshPiModelProvider.mockClear();
+    refreshPiModelProvider.mockResolvedValueOnce(true);
+    await syncPiCloudModelCatalog({
+      ...state, revision: state.revision + 1,
+      account: { ...state.account!, user: { ...state.account!.user, region: "non_mainland" } },
+    });
+    expect(useAgentDataStore.getState().piCloudCatalogEpoch).toBe(previousEpoch + 1);
+    expect(useAgentDataStore.getState().piCloudRegion).toBe("non_mainland");
+    expect(refreshPiModelProvider).toHaveBeenCalledOnce();
+    expect(refreshAgentModelCatalog).toHaveBeenCalled();
   });
 
   it("shares one provider refresh across simultaneous picker opens", async () => {

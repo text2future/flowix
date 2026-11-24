@@ -4,9 +4,12 @@ mod runtime;
 mod shell;
 mod skill_resources;
 
-pub(crate) use runtime::resolve_pi_binary;
 pub use cloud_context::PiCloudContext;
-pub use runtime::{PiHistoryPage, PiHistoryRevision, PiRpcManager, PiSessionSnapshot};
+pub(crate) use runtime::resolve_pi_binary;
+pub use runtime::{
+    PiHistoryPage, PiHistoryRevision, PiRpcManager, PiSessionContextUsage, PiSessionSnapshot,
+    PiSessionStats, PiSessionTokenStats,
+};
 pub mod config;
 
 pub const AGENT_TYPE: &str = "pi";

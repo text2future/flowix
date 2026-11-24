@@ -123,6 +123,7 @@ export interface DocumentTitlebarProps {
    * 文件夹入口没有其它操作菜单时，标题栏单独渲染集合菜单。
    */
   collectionDisplay?: {
+    isFolder?: boolean;
     indexPath: string;
     notebookPath?: string | null;
     notebookId?: string | null;

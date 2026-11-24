@@ -17,8 +17,8 @@ use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
 use super::{
-    notebook_path_from_relative, notebook_relative_path, AgentThreadItem, MemoFile,
-    NoteColor, TodoItem,
+    notebook_path_from_relative, notebook_relative_path, AgentThreadItem, MemoFile, NoteColor,
+    TodoItem,
 };
 
 // Keep list and single-entry reads on the same projection decoder.
@@ -43,24 +43,43 @@ impl NoteTitleFilter {
         matches!(self.match_mode.as_str(), "all" | "any")
             && !self.conditions.is_empty()
             && self.conditions.len() <= 8
-            && self.conditions.iter().all(|rule| matches!(rule.op.as_str(), "eq" | "contains"))
+            && self
+                .conditions
+                .iter()
+                .all(|rule| matches!(rule.op.as_str(), "eq" | "contains"))
             && serde_json::to_string(self).is_ok_and(|value| value.len() <= 2048)
     }
 }
 
 fn note_entry_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<NoteEntry> {
-    fn json<T: serde::de::DeserializeOwned>(row: &rusqlite::Row<'_>, column: usize) -> rusqlite::Result<T> {
+    fn json<T: serde::de::DeserializeOwned>(
+        row: &rusqlite::Row<'_>,
+        column: usize,
+    ) -> rusqlite::Result<T> {
         let value: String = row.get(column)?;
-        serde_json::from_str(&value).map_err(|error| rusqlite::Error::FromSqlConversionFailure(
-            column, rusqlite::types::Type::Text, Box::new(error),
-        ))
+        serde_json::from_str(&value).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(
+                column,
+                rusqlite::types::Type::Text,
+                Box::new(error),
+            )
+        })
     }
     Ok(NoteEntry {
-        relative_path: row.get(0)?, title: row.get(1)?, preview: row.get(2)?,
-        thumbnail: row.get(3)?, created_at: row.get(4)?, updated_at: row.get(5)?,
-        favorited: row.get::<_, i64>(6)? != 0, icon: row.get(7)?,
-        colors: json(row, 8)?, properties: json(row, 9)?, size_bytes: row.get(10)?,
-        tags: json(row, 11)?, todos: json(row, 12)?, agents: json(row, 13)?,
+        relative_path: row.get(0)?,
+        title: row.get(1)?,
+        preview: row.get(2)?,
+        thumbnail: row.get(3)?,
+        created_at: row.get(4)?,
+        updated_at: row.get(5)?,
+        favorited: row.get::<_, i64>(6)? != 0,
+        icon: row.get(7)?,
+        colors: json(row, 8)?,
+        properties: json(row, 9)?,
+        size_bytes: row.get(10)?,
+        tags: json(row, 11)?,
+        todos: json(row, 12)?,
+        agents: json(row, 13)?,
     })
 }
 
@@ -96,7 +115,11 @@ fn mark_note_index_refresh_pending(root: &Path) -> io::Result<()> {
 
 fn mark_note_index_refresh_pending_logged(root: &Path, notebook_id: &str, relative_path: &str) {
     if let Err(error) = mark_note_index_refresh_pending(root) {
-        tracing::warn!(notebook_id, relative_path, "note index refresh marker failed: {error}");
+        tracing::warn!(
+            notebook_id,
+            relative_path,
+            "note index refresh marker failed: {error}"
+        );
     }
 }
 
@@ -229,6 +252,25 @@ pub(crate) enum NoteWriteResult {
     },
 }
 
+/// Whether the target must already be on disk.
+///
+/// An editor save must refuse to recreate a file the user deleted; a cloud
+/// download is exactly the opposite — the whole point is to materialize a path
+/// that does not exist here yet. Everything else (locking, path validation,
+/// index registration) is identical, so the mode only relaxes existence.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum NoteWriteMode {
+    Existing,
+    CreateIfMissing,
+}
+
+fn note_write_outcome(result: NoteWriteResult) -> NoteWriteOutcome {
+    match result {
+        NoteWriteResult::Saved { content, .. } => NoteWriteOutcome::Saved { content },
+        NoteWriteResult::Conflict { disk_content } => NoteWriteOutcome::Conflict { disk_content },
+    }
+}
+
 fn note_entry_from_derived_fields(
     relative_path: &str,
     size_bytes: u64,
@@ -280,7 +322,10 @@ pub struct NoteSearchHit {
 }
 
 impl MemoFile {
-    pub(crate) fn mark_note_index_refresh_pending_for_notebook(&self, notebook_id: &str) -> io::Result<()> {
+    pub(crate) fn mark_note_index_refresh_pending_for_notebook(
+        &self,
+        notebook_id: &str,
+    ) -> io::Result<()> {
         let root = self.notebook_root_for_note(notebook_id)?;
         mark_note_index_refresh_pending(&root)
     }
@@ -288,10 +333,20 @@ impl MemoFile {
     /// A completed file create remains successful when its rebuildable index lags.
     pub fn refresh_note_path_after_write(&self, notebook_id: &str, relative_path: &str) {
         if let Err(error) = self.refresh_note_path(notebook_id, relative_path) {
-            if let Err(marker_error) = self.mark_note_index_refresh_pending_for_notebook(notebook_id) {
-                tracing::warn!(notebook_id, relative_path, "note index refresh marker failed: {marker_error}");
+            if let Err(marker_error) =
+                self.mark_note_index_refresh_pending_for_notebook(notebook_id)
+            {
+                tracing::warn!(
+                    notebook_id,
+                    relative_path,
+                    "note index refresh marker failed: {marker_error}"
+                );
             }
-            tracing::warn!(notebook_id, relative_path, "note saved but index refresh failed: {error}");
+            tracing::warn!(
+                notebook_id,
+                relative_path,
+                "note saved but index refresh failed: {error}"
+            );
         }
     }
 
@@ -311,23 +366,35 @@ impl MemoFile {
             let relative = Path::new(&parent_relative);
             if relative.starts_with(".flowix/database") {
                 let components: Vec<_> = relative.components().collect();
-                let valid = components.len() == 3 && components[2].as_os_str().to_str().is_some_and(|id| {
-                    id.strip_prefix("col_").is_some_and(|suffix| !suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-'))
-                });
+                let valid = components.len() == 3
+                    && components[2].as_os_str().to_str().is_some_and(|id| {
+                        id.strip_prefix("col_").is_some_and(|suffix| {
+                            !suffix.is_empty()
+                                && suffix
+                                    .bytes()
+                                    .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+                        })
+                    });
                 if !valid {
-                    return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid table note directory"));
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "invalid table note directory",
+                    ));
                 }
                 let mut dir = root.clone();
                 for component in components {
                     dir.push(component.as_os_str());
                     match fs::create_dir(&dir) {
-                        Ok(()) => {},
-                        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {},
+                        Ok(()) => {}
+                        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
                         Err(error) => return Err(error),
                     }
                     let metadata = fs::symlink_metadata(&dir)?;
                     if !metadata.is_dir() || metadata.file_type().is_symlink() {
-                        return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid table note directory"));
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            "invalid table note directory",
+                        ));
                     }
                 }
             }
@@ -393,18 +460,36 @@ impl MemoFile {
         content: &str,
         expected_content: Option<&str>,
     ) -> io::Result<NoteWriteOutcome> {
-        self.write_note_by_path_with_result(
+        self.write_note_by_path_result(
             notebook_id,
             relative_path,
             content,
             expected_content,
+            NoteWriteMode::Existing,
         )
-        .map(|result| match result {
-            NoteWriteResult::Saved { content, .. } => NoteWriteOutcome::Saved { content },
-            NoteWriteResult::Conflict { disk_content } => {
-                NoteWriteOutcome::Conflict { disk_content }
-            }
-        })
+        .map(note_write_outcome)
+    }
+
+    /// Materialize a note that may not be on disk yet, for callers bringing in
+    /// bytes from elsewhere (cloud download, restore).
+    ///
+    /// Same lock, path validation and index registration as `write_note_by_path`.
+    /// It exists so such a caller does not have to write the file and then poke
+    /// the index separately, which would skip the notebook file lock.
+    pub fn write_note_by_path_creating(
+        &self,
+        notebook_id: &str,
+        relative_path: &str,
+        content: &str,
+    ) -> io::Result<NoteWriteOutcome> {
+        self.write_note_by_path_result(
+            notebook_id,
+            relative_path,
+            content,
+            None,
+            NoteWriteMode::CreateIfMissing,
+        )
+        .map(note_write_outcome)
     }
 
     pub(crate) fn write_note_by_path_with_result(
@@ -414,22 +499,45 @@ impl MemoFile {
         content: &str,
         expected_content: Option<&str>,
     ) -> io::Result<NoteWriteResult> {
+        self.write_note_by_path_result(
+            notebook_id,
+            relative_path,
+            content,
+            expected_content,
+            NoteWriteMode::Existing,
+        )
+    }
+
+    fn write_note_by_path_result(
+        &self,
+        notebook_id: &str,
+        relative_path: &str,
+        content: &str,
+        expected_content: Option<&str>,
+        mode: NoteWriteMode,
+    ) -> io::Result<NoteWriteResult> {
         // Stage timings feed the slow-save log line; sampling only, no logic.
         let profile_started = Instant::now();
         let root = self.notebook_root_for_note(notebook_id)?;
         let _link_admission = super::note_links::foreground_save(&root);
-        let path = self.validate_note_path(&root, relative_path, true)?;
+        let path =
+            self.validate_note_path(&root, relative_path, mode == NoteWriteMode::Existing)?;
         super::frontmatter::extract_document_metadata_tolerant(content)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?;
         let prepare = profile_started.elapsed();
 
         let file_write_started = Instant::now();
-        let outcome = self.write_file_if_matches_for_notebook(
-            notebook_id,
-            &path,
-            content,
-            expected_content,
-        )?;
+        let outcome = match mode {
+            NoteWriteMode::Existing => self.write_file_if_matches_for_notebook(
+                notebook_id,
+                &path,
+                content,
+                expected_content,
+            )?,
+            NoteWriteMode::CreateIfMissing => {
+                self.write_file_if_matches_for_notebook_creating(notebook_id, &path, content)?
+            }
+        };
         let file_write = file_write_started.elapsed();
 
         match outcome {
@@ -438,11 +546,8 @@ impl MemoFile {
             }
             super::FileWriteOutcome::Saved => {
                 let index_started = Instant::now();
-                let refresh_result = self.refresh_note_path_with_content(
-                    notebook_id,
-                    relative_path,
-                    content,
-                );
+                let refresh_result =
+                    self.refresh_note_path_with_content(notebook_id, relative_path, content);
                 let index_refresh = index_started.elapsed();
 
                 let read_back_started = Instant::now();
@@ -489,7 +594,9 @@ impl MemoFile {
         new_title: &str,
         expected_content: Option<&str>,
     ) -> io::Result<String> {
-        let change_guard = self.operation_locks().notebook_change(&[notebook_id], "rename_note_by_path")?;
+        let change_guard = self
+            .operation_locks()
+            .notebook_change(&[notebook_id], "rename_note_by_path")?;
         let root = self.notebook_root_for_note(notebook_id)?;
         let old_path = self.validate_note_path(&root, relative_path, true)?;
         if let Some(expected) = expected_content {
@@ -560,7 +667,9 @@ impl MemoFile {
                 "note renamed but archive move failed: {error}"
             );
         }
-        if let Err(error) = self.rekey_note_content_revision(notebook_id, relative_path, &new_relative) {
+        if let Err(error) =
+            self.rekey_note_content_revision(notebook_id, relative_path, &new_relative)
+        {
             tracing::warn!(
                 notebook_id,
                 relative_path,
@@ -606,7 +715,9 @@ impl MemoFile {
         relative_path: &str,
         parent_relative_path: &str,
     ) -> io::Result<String> {
-        let change_guard = self.operation_locks().notebook_change(&[notebook_id], "move_note_by_path")?;
+        let change_guard = self
+            .operation_locks()
+            .notebook_change(&[notebook_id], "move_note_by_path")?;
         let root = self.notebook_root_for_note(notebook_id)?;
         let old_path = self.validate_note_path(&root, relative_path, true)?;
         let parent_relative = parent_relative_path.replace('\\', "/");
@@ -663,7 +774,9 @@ impl MemoFile {
                 "note moved but archive move failed: {error}"
             );
         }
-        if let Err(error) = self.rekey_note_content_revision(notebook_id, relative_path, &new_relative) {
+        if let Err(error) =
+            self.rekey_note_content_revision(notebook_id, relative_path, &new_relative)
+        {
             tracing::warn!(
                 notebook_id,
                 relative_path,
@@ -708,7 +821,12 @@ impl MemoFile {
     }
 
     /// The expected body is compared while holding the target file lock.
-    pub fn delete_note_by_path_checked(&self, notebook_id: &str, relative_path: &str, expected_content: Option<&str>) -> io::Result<bool> {
+    pub fn delete_note_by_path_checked(
+        &self,
+        notebook_id: &str,
+        relative_path: &str,
+        expected_content: Option<&str>,
+    ) -> io::Result<bool> {
         let root = self.notebook_root_for_note(notebook_id)?;
         let path = self.validate_note_path(&root, relative_path, false)?;
         match self.with_file_write(
@@ -719,7 +837,10 @@ impl MemoFile {
             |path| {
                 if let Some(expected) = expected_content {
                     if fs::read_to_string(path)? != expected {
-                        return Err(io::Error::new(io::ErrorKind::WouldBlock, "note changed before delete"));
+                        return Err(io::Error::new(
+                            io::ErrorKind::WouldBlock,
+                            "note changed before delete",
+                        ));
                     }
                 }
                 fs::remove_file(path)
@@ -757,7 +878,9 @@ impl MemoFile {
         notebook_id: &str,
         relative_path: &str,
     ) -> io::Result<bool> {
-        let _write_guard = self.operation_locks().notebook_read(notebook_id, "prune_missing_note_index")?;
+        let _write_guard = self
+            .operation_locks()
+            .notebook_read(notebook_id, "prune_missing_note_index")?;
         let root = self.notebook_root_for_note(notebook_id)?;
         let path = self.validate_note_path(&root, relative_path, false)?;
         match fs::symlink_metadata(&path) {
@@ -830,14 +953,9 @@ impl MemoFile {
         Ok(path)
     }
 
-
     /// Return distinct note relative paths carrying `tag` or a subtree tag
     /// (`tag/<...>` at any depth), ordered for deterministic iteration.
-    pub fn note_paths_with_tag(
-        &self,
-        notebook_id: &str,
-        tag: &str,
-    ) -> io::Result<Vec<String>> {
+    pub fn note_paths_with_tag(&self, notebook_id: &str, tag: &str) -> io::Result<Vec<String>> {
         let conn = self.open_note_index_connection(notebook_id)?;
         let mut stmt = conn
             .prepare(
@@ -848,7 +966,8 @@ impl MemoFile {
         let rows = stmt
             .query_map(params![tag], |row| row.get(0))
             .map_err(io::Error::other)?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(io::Error::other)
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(io::Error::other)
     }
 
     /// Read one note's projection by path. This also repairs a missing or
@@ -894,7 +1013,9 @@ impl MemoFile {
             &format!("SELECT {NOTE_ENTRY_COLUMNS} FROM notes WHERE relative_path=?1"),
             params![relative_path],
             note_entry_from_row,
-        ).optional().map_err(io::Error::other)
+        )
+        .optional()
+        .map_err(io::Error::other)
     }
 
     /// Derive an entry from the Markdown file when the SQLite projection is
@@ -941,9 +1062,11 @@ impl MemoFile {
                 "Note index is not ready",
             ));
         }
-        let mut statement = conn.prepare(&format!(
-            "SELECT {NOTE_ENTRY_COLUMNS} FROM notes ORDER BY created_at ASC, relative_path ASC"
-        )).map_err(io::Error::other)?;
+        let mut statement = conn
+            .prepare(&format!(
+                "SELECT {NOTE_ENTRY_COLUMNS} FROM notes ORDER BY created_at ASC, relative_path ASC"
+            ))
+            .map_err(io::Error::other)?;
         let entries = statement
             .query_map([], note_entry_from_row)
             .map_err(io::Error::other)?
@@ -963,9 +1086,9 @@ impl MemoFile {
                 "Note index is not ready",
             ));
         }
-        let mut statement = conn.prepare(
-            "SELECT relative_path, title, updated_at FROM notes ORDER BY updated_at DESC",
-        ).map_err(io::Error::other)?;
+        let mut statement = conn
+            .prepare("SELECT relative_path, title, updated_at FROM notes ORDER BY updated_at DESC")
+            .map_err(io::Error::other)?;
         let summaries = statement
             .query_map([], |row| {
                 Ok(NoteSummary {
@@ -987,33 +1110,48 @@ impl MemoFile {
         notebook_id: &str,
         relative_paths: &[String],
     ) -> io::Result<Vec<NoteTreeMetadata>> {
-        if relative_paths.is_empty() { return Ok(Vec::new()); }
+        if relative_paths.is_empty() {
+            return Ok(Vec::new());
+        }
         let conn = self.open_note_index_connection(notebook_id)?;
         if !Self::note_index_is_ready_on_connection(&conn)? {
-            return Err(io::Error::new(io::ErrorKind::WouldBlock, "Note index is not ready"));
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "Note index is not ready",
+            ));
         }
         let mut entries = Vec::with_capacity(relative_paths.len());
         // Stay below SQLite's variable limit, including older builds (999).
         for paths in relative_paths.chunks(300) {
             let placeholders = vec!["?"; paths.len()].join(",");
-            let mut statement = conn.prepare(&format!(
-                "SELECT relative_path, created_at, favorited, icon, colors_json \
+            let mut statement = conn
+                .prepare(&format!(
+                    "SELECT relative_path, created_at, favorited, icon, colors_json \
                  FROM notes WHERE relative_path IN ({placeholders})"
-            )).map_err(io::Error::other)?;
-            let rows = statement.query_map(rusqlite::params_from_iter(paths), |row| {
-                let colors: String = row.get(4)?;
-                Ok(NoteTreeMetadata {
-                    relative_path: row.get(0)?,
-                    created_at: row.get(1)?,
-                    favorited: row.get::<_, i64>(2)? != 0,
-                    icon: row.get(3)?,
-                    colors: serde_json::from_str(&colors).map_err(|error|
-                        rusqlite::Error::FromSqlConversionFailure(
-                            4, rusqlite::types::Type::Text, Box::new(error),
-                        ))?,
+                ))
+                .map_err(io::Error::other)?;
+            let rows = statement
+                .query_map(rusqlite::params_from_iter(paths), |row| {
+                    let colors: String = row.get(4)?;
+                    Ok(NoteTreeMetadata {
+                        relative_path: row.get(0)?,
+                        created_at: row.get(1)?,
+                        favorited: row.get::<_, i64>(2)? != 0,
+                        icon: row.get(3)?,
+                        colors: serde_json::from_str(&colors).map_err(|error| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                4,
+                                rusqlite::types::Type::Text,
+                                Box::new(error),
+                            )
+                        })?,
+                    })
                 })
-            }).map_err(io::Error::other)?;
-            entries.extend(rows.collect::<Result<Vec<_>, _>>().map_err(io::Error::other)?);
+                .map_err(io::Error::other)?;
+            entries.extend(
+                rows.collect::<Result<Vec<_>, _>>()
+                    .map_err(io::Error::other)?,
+            );
         }
         Ok(entries)
     }
@@ -1240,8 +1378,19 @@ impl MemoFile {
         cursor: Option<(bool, i64, Option<&str>, Option<&str>, &str)>,
         limit: usize,
     ) -> io::Result<Vec<NoteEntry>> {
-        self.read_note_page_with_title_filter(notebook_id, filter, tag_id, color, sort,
-            now, week_start, month_start, cursor, limit, None)
+        self.read_note_page_with_title_filter(
+            notebook_id,
+            filter,
+            tag_id,
+            color,
+            sort,
+            now,
+            week_start,
+            month_start,
+            cursor,
+            limit,
+            None,
+        )
     }
 
     pub fn read_note_page_with_title_filter(
@@ -1259,7 +1408,10 @@ impl MemoFile {
         title_filter: Option<&NoteTitleFilter>,
     ) -> io::Result<Vec<NoteEntry>> {
         if title_filter.is_some_and(|filter| !filter.is_valid()) {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid note title filter"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid note title filter",
+            ));
         }
         let conn = self.open_note_index_connection(notebook_id)?;
         if !Self::note_index_is_ready_on_connection(&conn)? {
@@ -1315,11 +1467,23 @@ impl MemoFile {
             None => {}
         }
         if let Some(title_filter) = title_filter {
-            let join = if title_filter.match_mode == "all" { " AND " } else { " OR " };
-            let predicates: Vec<&str> = title_filter.conditions.iter().map(|rule| {
-                args.push(rule.value.clone().into());
-                if rule.op == "eq" { "n.title = ? COLLATE BINARY" } else { "instr(n.title, ?) > 0" }
-            }).collect();
+            let join = if title_filter.match_mode == "all" {
+                " AND "
+            } else {
+                " OR "
+            };
+            let predicates: Vec<&str> = title_filter
+                .conditions
+                .iter()
+                .map(|rule| {
+                    args.push(rule.value.clone().into());
+                    if rule.op == "eq" {
+                        "n.title = ? COLLATE BINARY"
+                    } else {
+                        "instr(n.title, ?) > 0"
+                    }
+                })
+                .collect();
             sql.push_str(&format!(" AND ({})", predicates.join(join)));
         }
         let filename_sort = matches!(sort, "filenameAsc" | "filenameDesc");
@@ -1394,25 +1558,34 @@ impl MemoFile {
     /// Read a completed projection without creating directories, tables or scans.
     /// Absence, an unfinished build, and an obsolete parser return unknown.
     pub fn cached_note_count(&self, notebook_id: &str) -> io::Result<Option<usize>> {
-        let notebook = self.get_notebook_config_by_id(notebook_id)
+        let notebook = self
+            .get_notebook_config_by_id(notebook_id)
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "notebook not found"))?;
         let path = Path::new(&notebook.path).join(".flowix/notebook.db");
-        if !path.is_file() { return Ok(None); }
+        if !path.is_file() {
+            return Ok(None);
+        }
         let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
             .map_err(io::Error::other)?;
-        conn.busy_timeout(Duration::from_millis(50)).map_err(io::Error::other)?;
+        conn.busy_timeout(Duration::from_millis(50))
+            .map_err(io::Error::other)?;
         let has_projection: bool = conn.query_row(
             "SELECT COUNT(*)=2 FROM sqlite_master WHERE type='table' AND name IN ('note_index_meta', 'notes')",
             [], |row| row.get(0),
         ).map_err(io::Error::other)?;
-        if !has_projection { return Ok(None); }
+        if !has_projection {
+            return Ok(None);
+        }
         let ready: bool = conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM note_index_meta WHERE key='build_state' AND value='ready')
              AND EXISTS(SELECT 1 FROM note_index_meta WHERE key='parser_version' AND value=?1)",
             [PARSER_VERSION.to_string()], |row| row.get(0),
         ).map_err(io::Error::other)?;
-        if !ready { return Ok(None); }
-        let count: i64 = conn.query_row("SELECT COUNT(*) FROM notes", [], |row| row.get(0))
+        if !ready {
+            return Ok(None);
+        }
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM notes", [], |row| row.get(0))
             .map_err(io::Error::other)?;
         Ok(Some(usize::try_from(count).unwrap_or(0)))
     }
@@ -1563,7 +1736,12 @@ impl MemoFile {
     /// already reconciling the same notebook, so a background refresh never
     /// turns into a spurious 5s timeout error. The next read pass retries.
     pub fn reconcile_note_index(&self, notebook_id: &str) -> io::Result<NoteIndexReconcileReport> {
-        self.reconcile_note_index_inner(notebook_id, false, MaintenanceAdmission::SkipIfBusy, &|| true)
+        self.reconcile_note_index_inner(
+            notebook_id,
+            false,
+            MaintenanceAdmission::SkipIfBusy,
+            &|| true,
+        )
     }
 
     /// Hash every file, including entries whose size and mtime are unchanged.
@@ -1604,7 +1782,13 @@ impl MemoFile {
                     || entry
                         .path()
                         .strip_prefix(&root)
-                        .map(|relative| if entry.file_type().is_dir() { policy.can_traverse_index_directory(relative) } else { !policy.is_index_hidden_at(&root, relative) })
+                        .map(|relative| {
+                            if entry.file_type().is_dir() {
+                                policy.can_traverse_index_directory(relative)
+                            } else {
+                                !policy.is_index_hidden_at(&root, relative)
+                            }
+                        })
                         .unwrap_or(false)
             })
         {
@@ -1687,8 +1871,14 @@ impl MemoFile {
     /// Upgrade only the rebuildable projection in place. Never replace the
     /// shared notebook database, which also owns media properties/revisions.
     pub fn prepare_background_note_projection(&self, notebook_id: &str) -> io::Result<()> {
-        let Some(_guard) = self.operation_locks().try_notebook_maintenance(notebook_id, "prepare_note_projection")? else {
-            return Err(io::Error::new(io::ErrorKind::WouldBlock, "notebook maintenance is busy"));
+        let Some(_guard) = self
+            .operation_locks()
+            .try_notebook_maintenance(notebook_id, "prepare_note_projection")?
+        else {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "notebook maintenance is busy",
+            ));
         };
         self.open_note_index_connection_unchecked(notebook_id, true)?;
         Ok(())
@@ -1697,9 +1887,16 @@ impl MemoFile {
     /// Cooperative desktop maintenance. Locks and transactions remain per file;
     /// cancellation leaves an incomplete cold index explicitly unavailable.
     pub fn reconcile_note_index_background(
-        &self, notebook_id: &str, keep_running: &dyn Fn() -> bool,
+        &self,
+        notebook_id: &str,
+        keep_running: &dyn Fn() -> bool,
     ) -> io::Result<NoteIndexReconcileReport> {
-        self.reconcile_note_index_inner(notebook_id, false, MaintenanceAdmission::FailIfBusy, keep_running)
+        self.reconcile_note_index_inner(
+            notebook_id,
+            false,
+            MaintenanceAdmission::FailIfBusy,
+            keep_running,
+        )
     }
 
     fn reconcile_note_index_inner(
@@ -1719,7 +1916,10 @@ impl MemoFile {
                     "note index reconcile skipped: another maintenance pass is in progress"
                 );
                 if matches!(admission, MaintenanceAdmission::FailIfBusy) {
-                    return Err(io::Error::new(io::ErrorKind::WouldBlock, "notebook maintenance is busy"));
+                    return Err(io::Error::new(
+                        io::ErrorKind::WouldBlock,
+                        "notebook maintenance is busy",
+                    ));
                 }
                 return Ok(NoteIndexReconcileReport::default());
             };
@@ -1754,8 +1954,10 @@ impl MemoFile {
         if reparse_all || !self.note_index_is_ready(notebook_id)? {
             conn.execute(
                 "INSERT INTO note_index_meta (key, value) VALUES ('build_state', 'building') \
-                 ON CONFLICT(key) DO UPDATE SET value='building'", [],
-            ).map_err(io::Error::other)?;
+                 ON CONFLICT(key) DO UPDATE SET value='building'",
+                [],
+            )
+            .map_err(io::Error::other)?;
         }
         let mut seen = HashSet::new();
         let mut report = NoteIndexReconcileReport::default();
@@ -1769,14 +1971,20 @@ impl MemoFile {
                         .path()
                         .strip_prefix(&root)
                         .map(|relative| {
-                            if entry.file_type().is_dir() { policy.can_traverse_index_directory(relative) }
-                            else { !policy.is_index_hidden_at(&root, relative) }
+                            if entry.file_type().is_dir() {
+                                policy.can_traverse_index_directory(relative)
+                            } else {
+                                !policy.is_index_hidden_at(&root, relative)
+                            }
                         })
                         .unwrap_or(false)
             })
         {
             if !keep_running() {
-                return Err(io::Error::new(io::ErrorKind::Interrupted, "index maintenance cancelled"));
+                return Err(io::Error::new(
+                    io::ErrorKind::Interrupted,
+                    "index maintenance cancelled",
+                ));
             }
             let entry = entry.map_err(io::Error::other)?;
             if !entry.file_type().is_file() || !is_markdown_note_path(entry.path()) {
@@ -1806,15 +2014,26 @@ impl MemoFile {
         drop(stmt);
         for relative in indexed {
             if !keep_running() {
-                return Err(io::Error::new(io::ErrorKind::Interrupted, "index maintenance cancelled"));
+                return Err(io::Error::new(
+                    io::ErrorKind::Interrupted,
+                    "index maintenance cancelled",
+                ));
             }
             if !seen.contains(&relative) {
-                let candidate = notebook_path_from_relative(&root, &relative).map_err(io::Error::other)?;
+                let candidate =
+                    notebook_path_from_relative(&root, &relative).map_err(io::Error::other)?;
                 // The scan only nominates stale rows. A file may have appeared
                 // after its directory was visited, so inspect it again under
                 // the notebook lock and SQLite transaction.
                 self.refresh_note_index_path_with_retry(
-                    notebook_id, &mut conn, &root, &candidate, true, false, None, &mut report,
+                    notebook_id,
+                    &mut conn,
+                    &root,
+                    &candidate,
+                    true,
+                    false,
+                    None,
+                    &mut report,
                 )?;
             }
         }
@@ -1856,10 +2075,13 @@ impl MemoFile {
         content_snapshot: Option<&str>,
         report: &mut NoteIndexReconcileReport,
     ) -> io::Result<()> {
-        conn.busy_timeout(Duration::ZERO).map_err(io::Error::other)?;
+        conn.busy_timeout(Duration::ZERO)
+            .map_err(io::Error::other)?;
         let started = Instant::now();
         loop {
-            let guard = self.operation_locks().notebook_read(notebook_id, "refresh_note_index_path")?;
+            let guard = self
+                .operation_locks()
+                .notebook_read(notebook_id, "refresh_note_index_path")?;
             let mut attempt = NoteIndexReconcileReport::default();
             let result = Self::refresh_note_index_path(
                 conn,
@@ -1908,7 +2130,10 @@ impl MemoFile {
         };
         if missing || policy.is_index_hidden_at(root, Path::new(&relative)) {
             if !root.is_dir() {
-                return Err(io::Error::new(io::ErrorKind::NotFound, "notebook directory unavailable"));
+                return Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "notebook directory unavailable",
+                ));
             }
             tx.execute(
                 "DELETE FROM note_search_fts WHERE relative_path = ?1",
@@ -2151,17 +2376,17 @@ impl MemoFile {
                     "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)",
                     [name],
                     |row| row.get(0),
-                ).map_err(io::Error::other)
+                )
+                .map_err(io::Error::other)
             };
             let has_legacy_derived_tables = ["note_tags", "note_todos", "note_agents"]
                 .into_iter()
-                .try_fold(false, |found, table| Ok::<_, io::Error>(found || has_table(table)?))?;
+                .try_fold(false, |found, table| {
+                    Ok::<_, io::Error>(found || has_table(table)?)
+                })?;
             if has_legacy_derived_tables {
-                conn.execute(
-                    "DELETE FROM note_index_meta WHERE key='parser_version'",
-                    [],
-                )
-                .map_err(io::Error::other)?;
+                conn.execute("DELETE FROM note_index_meta WHERE key='parser_version'", [])
+                    .map_err(io::Error::other)?;
             }
             conn.execute_batch("DROP TABLE IF EXISTS note_tags; DROP TABLE IF EXISTS note_todos; DROP TABLE IF EXISTS note_agents;")
                 .map_err(io::Error::other)?;
@@ -2232,7 +2457,9 @@ fn note_schema_is_current(conn: &Connection, notebook_id: &str) -> io::Result<bo
          OR (type='trigger' AND name IN ('note_links_insert','note_links_content','note_links_move'))",
         [], |row| row.get(0),
     ).map_err(io::Error::other)?;
-    if objects != 15 { return Ok(false); }
+    if objects != 15 {
+        return Ok(false);
+    }
     #[cfg(windows)]
     if !conn.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='index' AND name='idx_notes_link_path_nocase')", [], |r| r.get::<_, bool>(0)).map_err(io::Error::other)? {
         return Ok(false);
@@ -2240,22 +2467,35 @@ fn note_schema_is_current(conn: &Connection, notebook_id: &str) -> io::Result<bo
     let mut statement = conn.prepare(
         "SELECT key, value FROM note_index_meta WHERE key IN ('schema_version', 'notebook_id', 'links_schema_version', 'links_parser_version')"
     ).map_err(io::Error::other)?;
-    let values = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+    let values = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
         .map_err(io::Error::other)?
-        .collect::<Result<HashMap<_, _>, _>>().map_err(io::Error::other)?;
-    let Some(version) = values.get("schema_version") else { return Ok(false); };
+        .collect::<Result<HashMap<_, _>, _>>()
+        .map_err(io::Error::other)?;
+    let Some(version) = values.get("schema_version") else {
+        return Ok(false);
+    };
     if version != &SCHEMA_VERSION.to_string() {
-        return Err(io::Error::new(io::ErrorKind::InvalidData,
-            format!("unsupported Note index schema version: {version}")));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("unsupported Note index schema version: {version}"),
+        ));
     }
-    if values.get("links_schema_version").map(String::as_str) != Some(super::note_links::SCHEMA_VERSION)
-        || values.get("links_parser_version") != Some(&super::note_links::PARSER_VERSION.to_string()) {
+    if values.get("links_schema_version").map(String::as_str)
+        != Some(super::note_links::SCHEMA_VERSION)
+        || values.get("links_parser_version")
+            != Some(&super::note_links::PARSER_VERSION.to_string())
+    {
         return Ok(false);
     }
     match values.get("notebook_id") {
         Some(stored) if stored == notebook_id => Ok(true),
-        Some(_) => Err(io::Error::new(io::ErrorKind::InvalidData,
-            "Note index belongs to a different notebook")),
+        Some(_) => Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Note index belongs to a different notebook",
+        )),
         None => Ok(false),
     }
 }

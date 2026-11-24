@@ -25,9 +25,7 @@ pub(crate) fn notebooks_list_data() -> Result<(Vec<NotebookConfig>, Option<Strin
     Ok((notebooks, selected))
 }
 
-pub(crate) fn notebook_directory_available(
-    notebook: &NotebookConfig,
-) -> Result<bool, CliError> {
+pub(crate) fn notebook_directory_available(notebook: &NotebookConfig) -> Result<bool, CliError> {
     match std::fs::metadata(&notebook.path) {
         Ok(metadata) => Ok(metadata.is_dir()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
@@ -39,7 +37,11 @@ pub(crate) fn resolve_notebook_config(
     mf: &MemoFile,
     key: &str,
 ) -> Result<NotebookConfig, CliError> {
-    let resolved = if key.trim().is_empty() { Some(resolve_notebook_key(None)?) } else { None };
+    let resolved = if key.trim().is_empty() {
+        Some(resolve_notebook_key(None)?)
+    } else {
+        None
+    };
     let key = resolved.as_deref().unwrap_or(key);
     let configs = mf.read_notebook_configs()?;
     let notebook = find_notebook(&configs, key)?.clone();
@@ -88,14 +90,21 @@ pub(crate) fn notebook_tag_counts(
         .collect())
 }
 
-pub fn find_notebook<'a>(configs: &'a [NotebookConfig], key: &str) -> Result<&'a NotebookConfig, CliError> {
+pub fn find_notebook<'a>(
+    configs: &'a [NotebookConfig],
+    key: &str,
+) -> Result<&'a NotebookConfig, CliError> {
     if let Some(config) = configs.iter().find(|config| config.id == key) {
         return Ok(config);
     }
     let mut matches = configs.iter().filter(|config| config.name == key);
-    let first = matches.next().ok_or_else(|| CliError::NotFound(format!("notebook not found: {key}")))?;
+    let first = matches
+        .next()
+        .ok_or_else(|| CliError::NotFound(format!("notebook not found: {key}")))?;
     if matches.next().is_some() {
-        return Err(CliError::Conflict(format!("ambiguous notebook name `{key}`; use notebook ID")));
+        return Err(CliError::Conflict(format!(
+            "ambiguous notebook name `{key}`; use notebook ID"
+        )));
     }
     Ok(first)
 }
@@ -107,7 +116,17 @@ pub(crate) fn resolve_notebook_key(notebook: Option<&str>) -> Result<String, Cli
     let mf = open()?;
     let configs = mf.read_notebook_configs()?;
     if let Ok(cwd) = std::env::current_dir().and_then(std::fs::canonicalize) {
-        if let Some(config) = configs.iter().filter_map(|config| std::fs::canonicalize(&config.path).ok().filter(|root| cwd.starts_with(root)).map(|root| (root, config))).max_by_key(|(root, _)| root.components().count()).map(|(_, config)| config) {
+        if let Some(config) = configs
+            .iter()
+            .filter_map(|config| {
+                std::fs::canonicalize(&config.path)
+                    .ok()
+                    .filter(|root| cwd.starts_with(root))
+                    .map(|root| (root, config))
+            })
+            .max_by_key(|(root, _)| root.components().count())
+            .map(|(_, config)| config)
+        {
             return Ok(config.id.clone());
         }
     }

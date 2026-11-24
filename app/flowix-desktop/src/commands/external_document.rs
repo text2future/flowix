@@ -5,12 +5,12 @@ use std::path::{Path, PathBuf};
 use tauri::{Manager, State};
 
 use crate::app::state::AppState;
-use crate::external_watch::ExternalDocumentWatchState;
 use crate::commands::helpers::{
     can_access_document_path, can_access_scoped_file, is_attached_notebook_directory,
     is_registered_notebook_path, notebook_note_address,
 };
 use crate::events::path_change::NotebookPathUpdated;
+use crate::external_watch::ExternalDocumentWatchState;
 use crate::lock_utils::read_lock;
 use flowix_core::memo_file::{FileWriteOutcome, MemoFile, MergedFileWriteOutcome};
 
@@ -24,11 +24,18 @@ fn refresh_saved_notebook_note(
     let Some((notebook_id, relative_path)) = notebook_note_address(memo_file, path)? else {
         return Ok(None);
     };
-    let entry = memo_file.read_note_entry_by_path(&notebook_id, &relative_path)
+    let entry = memo_file
+        .read_note_entry_by_path(&notebook_id, &relative_path)
         .map_err(|error| error.to_string())?;
-    Ok(entry.map(|entry| NotebookPathUpdated::from_window(
-        notebook_id, relative_path, entry, window_label.to_owned(), previous_favorited,
-    )))
+    Ok(entry.map(|entry| {
+        NotebookPathUpdated::from_window(
+            notebook_id,
+            relative_path,
+            entry,
+            window_label.to_owned(),
+            previous_favorited,
+        )
+    }))
 }
 
 #[tauri::command]
@@ -89,7 +96,8 @@ fn supported_text_extension(path: &Path) -> bool {
         .is_some_and(|extension| {
             matches!(
                 extension.to_ascii_lowercase().as_str(),
-                "md" | "markdown" | "csv"
+                "md" | "markdown"
+                    | "csv"
                     | "txt"
                     | "text"
                     | "log"
@@ -223,8 +231,7 @@ pub(crate) fn exact_existing_external_path(
     let (primary_allowed, mut access_timings) =
         crate::commands::helpers::can_access_document_path_timed(&requested, window, state);
     let scoped_started = std::time::Instant::now();
-    let allowed =
-        primary_allowed || can_access_scoped_file(&requested, scope_path, state);
+    let allowed = primary_allowed || can_access_scoped_file(&requested, scope_path, state);
     access_timings.scoped_fallback_ms = scoped_started.elapsed().as_millis();
     if !allowed {
         return Err("external document is outside its authorized scope".to_string());
@@ -277,25 +284,29 @@ pub async fn read_external_document(
         let path =
             exact_existing_external_path(&file_path, scopePath.as_deref(), window.label(), &state)?;
         let content = if let Some(max_bytes) = maxBytes {
-            let file = fs::File::open(&path)
-                .map_err(|error| document_read_error(&path, error))?;
-            let size = file.metadata()
+            let file = fs::File::open(&path).map_err(|error| document_read_error(&path, error))?;
+            let size = file
+                .metadata()
                 .map_err(|error| format!("failed to inspect {}: {error}", path.display()))?
                 .len();
             if size > max_bytes {
-                return Err(format!("DOCUMENT_TOO_LARGE: file is {size} bytes; limit is {max_bytes} bytes"));
+                return Err(format!(
+                    "DOCUMENT_TOO_LARGE: file is {size} bytes; limit is {max_bytes} bytes"
+                ));
             }
             let mut bytes = Vec::with_capacity(size as usize);
-            file.take(max_bytes.saturating_add(1)).read_to_end(&mut bytes)
+            file.take(max_bytes.saturating_add(1))
+                .read_to_end(&mut bytes)
                 .map_err(|error| document_read_error(&path, error))?;
             if bytes.len() as u64 > max_bytes {
-                return Err(format!("DOCUMENT_TOO_LARGE: file exceeds {max_bytes} bytes"));
+                return Err(format!(
+                    "DOCUMENT_TOO_LARGE: file exceeds {max_bytes} bytes"
+                ));
             }
             String::from_utf8(bytes)
                 .map_err(|_| format!("external document is not valid UTF-8: {}", path.display()))
         } else {
-            fs::read_to_string(&path)
-                .map_err(|error| document_read_error(&path, error))
+            fs::read_to_string(&path).map_err(|error| document_read_error(&path, error))
         }?;
         // A restored tab must retain the same exact-file access as its original
         // authorized open. Persist only successfully read external Markdown;
@@ -305,9 +316,13 @@ pub async fn read_external_document(
             && !is_attached_notebook_directory(&path, &state)
             && !state.document_access.has_retained_file_reference(&path)
         {
-            state.security_bookmarks.record_file(&path)
+            state
+                .security_bookmarks
+                .record_file(&path)
                 .map_err(|error| format!("failed to retain external document bookmark: {error}"))?;
-            state.document_access.retain_file_reference(&path)
+            state
+                .document_access
+                .retain_file_reference(&path)
                 .map_err(|error| format!("failed to retain external document access: {error}"))?;
         }
         Ok(content)
@@ -473,14 +488,22 @@ mod tests {
         let memo = MemoFile::new(temp.path().join("config"));
         memo.initialize_current_registry_storage().unwrap();
         memo.write_notebook_configs(&[flowix_core::memo_file::NotebookConfig {
-            id: "book".into(), name: "Book".into(), icon: None,
-            path: root.to_string_lossy().into_owned(), is_default: true,
-            sort: 0, created_at: 0, updated_at: 0,
-        }]).unwrap();
+            id: "book".into(),
+            name: "Book".into(),
+            icon: None,
+            path: root.to_string_lossy().into_owned(),
+            is_default: true,
+            sort: 0,
+            created_at: 0,
+            updated_at: 0,
+        }])
+        .unwrap();
         for relative in ["note.md", "a/b/note.md"] {
             let path = root.join(relative);
             fs::write(&path, "---\nflowix_icon: flashlight\nflowix_colors: [blue]\nflowix_favorited: true\n---\nBody\n").unwrap();
-            let change = refresh_saved_notebook_note(&memo, &path, "main", Some(false)).unwrap().unwrap();
+            let change = refresh_saved_notebook_note(&memo, &path, "main", Some(false))
+                .unwrap()
+                .unwrap();
             let payload = serde_json::to_value(&change).unwrap();
             assert_eq!(payload["notebookId"], "book");
             assert_eq!(payload["relativePath"], relative);
@@ -492,7 +515,9 @@ mod tests {
             assert!(!change.change_id.is_empty());
 
             fs::write(&path, "Body\n").unwrap();
-            let cleared = refresh_saved_notebook_note(&memo, &path, "main", Some(false)).unwrap().unwrap();
+            let cleared = refresh_saved_notebook_note(&memo, &path, "main", Some(false))
+                .unwrap()
+                .unwrap();
             assert!(cleared.entry.icon.is_none());
             assert!(cleared.entry.colors.is_empty());
             assert!(!cleared.entry.favorited);
@@ -500,10 +525,14 @@ mod tests {
         }
         let outside = temp.path().join("outside.md");
         fs::write(&outside, "Body\n").unwrap();
-        assert!(refresh_saved_notebook_note(&memo, &outside, "main", None).unwrap().is_none());
+        assert!(refresh_saved_notebook_note(&memo, &outside, "main", None)
+            .unwrap()
+            .is_none());
         let text = root.join("note.txt");
         fs::write(&text, "Body\n").unwrap();
-        assert!(refresh_saved_notebook_note(&memo, &text, "main", None).unwrap().is_none());
+        assert!(refresh_saved_notebook_note(&memo, &text, "main", None)
+            .unwrap()
+            .is_none());
     }
 
     #[test]

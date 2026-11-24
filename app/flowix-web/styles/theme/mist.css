@@ -30,6 +30,7 @@
 	--muted: oklch(0.292 0.016 var(--neutral-hue));
 	--hover-bg: oklch(0.380 0.016 var(--neutral-hue));
 	--muted-foreground: oklch(0.716 0.015 var(--neutral-hue) / 0.58);
+	--input-placeholder: color-mix(in oklch, var(--muted-foreground) 50%, transparent);
 	--accent: oklch(0.310 0.022 var(--neutral-hue));
 
 	--border: oklch(0.300 0.014 var(--neutral-hue));
@@ -39,6 +40,7 @@
 	--divider: oklch(0.250 0.014 var(--neutral-hue));
 	/* Keyboard focus ring follows the theme primary color. */
 	--ring: var(--primary);
+	--input-ring: color-mix(in oklch, var(--primary) 50%, transparent);
 
 	/* 代理面板: 沿用 titlebar 同值, 解耦后改这里 */
 	--agent-bg: oklch(0.200 0.013 265);

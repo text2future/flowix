@@ -2,8 +2,8 @@
 // 因此这几个模块对外可见。app crate 无外部消费者, 可见性放宽无成本。
 pub mod agent_external;
 mod agent_external_config;
-pub mod agent_image_cache;
 mod agent_history;
+pub mod agent_image_cache;
 pub mod agent_lifecycle;
 pub mod agent_session;
 mod agent_types;
@@ -18,18 +18,19 @@ pub mod config;
 mod connection_probe;
 mod daily_activity;
 mod device_registration;
-mod document_mutation;
 mod document_io;
+mod document_mutation;
 mod dsh;
 mod events;
 mod external_watch;
 mod file_watch;
-mod frame_scrollbar;
 mod frame_interaction;
+mod frame_scrollbar;
 mod local_html_preview;
 mod lock_utils;
 mod maintenance;
 mod memo_events;
+mod native_close_region;
 mod notebook_scope;
 mod notebook_transition;
 mod plugin;
@@ -38,8 +39,8 @@ mod runtime_log;
 #[cfg(windows)]
 mod runtime_state;
 mod skill_market_ui;
-mod system_data;
 mod storage_initialization;
+mod system_data;
 mod template_store;
 mod update_security;
 mod watcher;
@@ -47,7 +48,6 @@ mod window_chrome;
 mod window_material;
 mod window_responsiveness;
 mod window_shutdown;
-mod native_close_region;
 
 pub use app::{get_app_data_path, get_user_config_dir, APP_DATA_DIR_NAME, USER_CONFIG_DIR_NAME};
 

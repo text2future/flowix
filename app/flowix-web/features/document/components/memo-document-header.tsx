@@ -119,7 +119,7 @@ export function MemoDocumentHeader({
   ) : null;
   const dateLine = (
     <div className="memo-date-line">
-      {updatedAt ? formatDocumentDateTime(updatedAt, language) : null}
+      <span>{updatedAt ? formatDocumentDateTime(updatedAt, language) : null}</span>
     </div>
   );
   const titleEditor = (

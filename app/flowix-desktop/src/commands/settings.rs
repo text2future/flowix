@@ -41,7 +41,11 @@ pub fn patch_preference(
 
 #[tauri::command]
 pub fn get_property_presets(state: State<AppState>) -> Result<PropertyPresetCatalog, String> {
-    state.user_config.get_property_presets().map(Into::into).map_err(|error| error.to_string())
+    state
+        .user_config
+        .get_property_presets()
+        .map(Into::into)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -51,8 +55,13 @@ pub fn patch_property_presets(
     app: AppHandle,
 ) -> Result<PropertyPresetCatalog, String> {
     let changes: Vec<PropertyPresetChange> = changes.into_iter().map(Into::into).collect();
-    state.user_config.patch_property_presets(&changes)
-        .map(|registry| { let _ = app.emit(USER_CONFIG_CHANGED_EVENT, "property_presets"); registry.into() })
+    state
+        .user_config
+        .patch_property_presets(&changes)
+        .map(|registry| {
+            let _ = app.emit(USER_CONFIG_CHANGED_EVENT, "property_presets");
+            registry.into()
+        })
         .map_err(|error| error.to_string())
 }
 
@@ -211,7 +220,9 @@ pub fn get_pi_features() -> Result<crate::agent_external::pi::config::PiFeatures
 }
 
 #[tauri::command]
-pub fn save_pi_features(features: crate::agent_external::pi::config::PiFeatures) -> Result<(), String> {
+pub fn save_pi_features(
+    features: crate::agent_external::pi::config::PiFeatures,
+) -> Result<(), String> {
     pi_model_config::save_features(features)
 }
 

@@ -109,7 +109,7 @@ export function ExternalPathRow({
             'min-w-0 flex-1',
             FIELD_INPUT_CLASS,
             pathInvalid &&
-              'border-[var(--destructive)] text-[var(--destructive)] placeholder:text-[var(--destructive)]',
+              'border-[var(--destructive)] text-[var(--destructive)]',
           )}
         />
         <div className="flex shrink-0 items-center gap-2">

@@ -11,6 +11,7 @@ export interface WorkspaceHeaderCollectionContext {
   collectionId?: string | null;
   name?: string | null;
   supportsNotes?: boolean;
+  isFolder?: boolean;
 }
 
 export interface WorkspaceHeaderAgentReferenceInput {

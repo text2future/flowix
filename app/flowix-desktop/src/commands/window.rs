@@ -163,29 +163,41 @@ pub async fn apply_window_theme(
     state: tauri::State<'_, AppState>,
 ) -> Result<&'static str, String> {
     let theme = if theme == Theme::Mist {
-        let cloud = state.cloud_sync.account().state().map_err(|error| error.to_string())?;
+        let cloud = state
+            .cloud_sync
+            .account()
+            .state()
+            .map_err(|error| error.to_string())?;
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|error| error.to_string())?.as_millis() as i64;
+            .map_err(|error| error.to_string())?
+            .as_millis() as i64;
         let has_membership = cloud.authenticated
-            && cloud.membership.as_ref().is_some_and(|membership| {
-                membership.is_active_at(now_ms)
-            });
-        if has_membership { Theme::Mist } else { Theme::Rock }
+            && cloud
+                .membership
+                .as_ref()
+                .is_some_and(|membership| membership.is_active_at(now_ms));
+        if has_membership {
+            Theme::Mist
+        } else {
+            Theme::Rock
+        }
     } else {
         theme
     };
     let (sender, receiver) = tokio::sync::oneshot::channel();
     let target = window.clone();
-    window.run_on_main_thread(move || {
-        crate::window_chrome::apply_window_chrome_theme_on_main_thread(&target, theme);
-        let material = if target.label() == "main" {
-            crate::window_material::active_material()
-        } else {
-            "none"
-        };
-        let _ = sender.send(material);
-    }).map_err(|error| error.to_string())?;
+    window
+        .run_on_main_thread(move || {
+            crate::window_chrome::apply_window_chrome_theme_on_main_thread(&target, theme);
+            let material = if target.label() == "main" {
+                crate::window_material::active_material()
+            } else {
+                "none"
+            };
+            let _ = sender.send(material);
+        })
+        .map_err(|error| error.to_string())?;
     receiver.await.map_err(|error| error.to_string())
 }
 

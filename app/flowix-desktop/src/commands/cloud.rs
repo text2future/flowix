@@ -1,28 +1,31 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 mod coordinator;
-mod deletion;
 mod google_login;
 mod local_adapter;
+mod path_sync_runner;
+mod v4_adapter;
 pub(crate) use coordinator::{
-    schedule_notebook_sync, schedule_notebook_sync_observation, start_cloud_sync_polling,
+    invalidate_notebook_selection, notebook_selection_changed, schedule_notebook_sync,
+    schedule_notebook_sync_observation, schedule_pending_notebook_deletions,
+    start_cloud_sync_polling,
 };
 pub(crate) use google_login::GoogleCallback;
 use google_login::PendingGoogleLogin;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use chrono::Utc;
-use flowix_core::memo_file::{notebook_path_from_relative, IsMd};
+use flowix_core::memo_file::IsMd;
 use flowix_sync::{
-    v2_content_hash, v2_local_content_diverged, AccountDeletionOutcome, AccountDeletionState,
-    CloudAiCreditBalance, CloudCheckout, CloudMembership, CloudNotebook, CloudOrder,
-    CloudOrderCheck, CloudProduct, CloudState, CloudSubscription, SyncError, V2AccountSyncReport,
-    V2LocalNote, V2LocalNotebook, V2RemoteApply, V2SyncedNotebook,
+    AccountDeletionOutcome, AccountDeletionState, CloudAiCreditBalance, CloudCheckout,
+    CloudMembership, CloudNoteShareLink, CloudNotebook, CloudOrder, CloudOrderCheck, CloudProduct,
+    CloudState, CloudSubscription, PasswordResetCodeRequest, PathNotebookLink,
+    PathNotebookMetadata, RegistrationCodeRequest, RegistrationCodeResend, SyncError,
 };
 use once_cell::sync::Lazy;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
@@ -41,6 +44,22 @@ pub struct CloudSyncResult {
     pub downloaded: usize,
 }
 
+/// The active sync backend's capabilities. This is deliberately separate from
+/// account state: a local S3 remote can sync without an account session.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudStorageAccess {
+    /// `official` or `customS3`.
+    pub target: &'static str,
+    /// Identity of the S3 Remote selected when this process started.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile_id: Option<String>,
+    pub configured: bool,
+    pub can_read: bool,
+    pub can_upload: bool,
+    pub can_delete: bool,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CloudSyncStatus {
@@ -51,9 +70,21 @@ pub struct CloudSyncStatus {
     pub uploaded: usize,
     pub deleted: usize,
     pub downloaded: usize,
+    pub progress_completed: Option<usize>,
+    pub progress_total: Option<usize>,
     pub started_at: i64,
     pub finished_at: Option<i64>,
     pub last_error: Option<String>,
+    /// The engine that produced these numbers, currently `path`.
+    pub engine: Option<String>,
+    /// The path engine accepted writes. False means the account is over quota
+    /// or its membership lapsed: downloads still happen, publishes wait.
+    pub writable: Option<bool>,
+    /// The path engine was allowed to delete. False during the window after a
+    /// fresh bind, after a bucket change, or when the server's clock is
+    /// untrusted — a deletion needs all three to be trustworthy.
+    pub allows_deletes: Option<bool>,
+    pub deletion_deferred: Option<bool>,
 }
 
 impl CloudSyncStatus {
@@ -66,9 +97,15 @@ impl CloudSyncStatus {
             uploaded: 0,
             deleted: 0,
             downloaded: 0,
+            progress_completed: None,
+            progress_total: None,
             started_at,
             finished_at: None,
             last_error: None,
+            engine: None,
+            writable: None,
+            allows_deletes: None,
+            deletion_deferred: None,
         }
     }
 }
@@ -79,6 +116,7 @@ fn sync_error(error: impl std::fmt::Display) -> String {
 
 fn cloud_error(error: SyncError) -> String {
     match error {
+        SyncError::Api { code, .. } if code == "NOTE_NOT_SYNCED" => code,
         SyncError::Api { code, details, .. }
             if code == "MEMBERSHIP_REQUIRED"
                 || code == "STORAGE_QUOTA_EXCEEDED"
@@ -107,19 +145,244 @@ pub fn cloud_get_state(state: State<AppState>) -> Result<CloudState, String> {
 }
 
 #[tauri::command]
-pub async fn cloud_register(
-    email: String,
-    password: String,
-    display_name: String,
+pub fn cloud_get_storage_access(state: State<AppState>) -> CloudStorageAccess {
+    match state.cloud_sync.remote_kind() {
+        flowix_sync::remote::RemoteKind::S3Compatible => {
+            let configured = state.cloud_sync.remote_is_configured();
+            let profile_id = state.cloud_sync.remote_profile_id();
+            CloudStorageAccess {
+                target: "customS3",
+                profile_id,
+                configured,
+                can_read: configured,
+                can_upload: configured,
+                can_delete: configured,
+            }
+        }
+        flowix_sync::remote::RemoteKind::OfficialCloud => {
+            let access = state.cloud_sync.account().sync_access();
+            CloudStorageAccess {
+                target: "official",
+                profile_id: None,
+                configured: true,
+                can_read: access.can_read,
+                can_upload: access.can_upload,
+                can_delete: access.can_delete,
+            }
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CustomS3Input {
+    remote: flowix_sync::remote::S3Remote,
+    #[serde(default)]
+    profile_id: Option<String>,
+    access_key_id: String,
+    secret_access_key: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CustomS3ProfileInput {
+    profile: crate::config::user::CloudStorageProfile,
+    access_key_id: String,
+    secret_access_key: String,
+}
+
+#[tauri::command]
+pub fn cloud_get_storage_config(
+    state: State<AppState>,
+) -> Result<crate::config::user::CloudStorageSettings, String> {
+    state
+        .user_config
+        .get_cloud_storage_settings()
+        .map_err(sync_error)
+}
+
+#[tauri::command]
+pub fn cloud_select_storage_target(
+    target: crate::config::user::CloudStorageTarget,
+    state: State<'_, AppState>,
+) -> Result<crate::config::user::CloudStorageSettings, String> {
+    state
+        .user_config
+        .select_cloud_storage_target(target)
+        .map_err(sync_error)
+}
+
+#[tauri::command]
+pub fn cloud_delete_custom_s3_profile(
+    profile_id: String,
+    state: State<'_, AppState>,
+) -> Result<crate::config::user::CloudStorageSettings, String> {
+    state
+        .user_config
+        .delete_custom_s3_profile(&profile_id)
+        .map_err(sync_error)
+}
+
+#[tauri::command]
+pub async fn cloud_check_custom_s3(
+    input: CustomS3Input,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let (access_key_id, secret_access_key) = if input.access_key_id.trim().is_empty()
+        && input.secret_access_key.is_empty()
+    {
+        let profile_id = input
+            .profile_id
+            .as_deref()
+            .ok_or_else(|| "S3 credentials are required".to_string())?;
+        let credentials = state
+            .user_config
+            .load_custom_s3_profile_credentials(profile_id)
+            .map_err(sync_error)?
+            .ok_or_else(|| "saved S3 credentials are unavailable".to_string())?;
+        let candidate = input
+            .remote
+            .open(&credentials.access_key_id, &credentials.secret_access_key)
+            .map_err(sync_error)?;
+        if candidate.backend_id != credentials.backend_id
+            || candidate.bucket != credentials.bucket
+            || candidate.region != credentials.region
+            || candidate.prefix != credentials.prefix
+        {
+            return Err(
+                "re-enter the S3 credentials after changing the endpoint or storage scope".into(),
+            );
+        }
+        (credentials.access_key_id, credentials.secret_access_key)
+    } else if input.access_key_id.trim().is_empty() || input.secret_access_key.is_empty() {
+        return Err("both S3 credentials must be provided together".into());
+    } else {
+        (input.access_key_id, input.secret_access_key)
+    };
+
+    input
+        .remote
+        .check_read_access(&reqwest::Client::new(), &access_key_id, &secret_access_key)
+        .await
+        .map_err(sync_error)
+}
+
+#[tauri::command]
+pub async fn cloud_save_custom_s3_profile(
+    input: CustomS3ProfileInput,
+    state: State<'_, AppState>,
+) -> Result<crate::config::user::CloudStorageSettings, String> {
+    if !input.access_key_id.trim().is_empty() || !input.secret_access_key.is_empty() {
+        input
+            .profile
+            .remote
+            .check_read_access(
+                &reqwest::Client::new(),
+                &input.access_key_id,
+                &input.secret_access_key,
+            )
+            .await
+            .map_err(sync_error)?;
+    }
+    state
+        .user_config
+        .save_custom_s3_profile(
+            input.profile,
+            &input.access_key_id,
+            &input.secret_access_key,
+        )
+        .map_err(sync_error)
+}
+
+#[tauri::command]
+pub async fn cloud_update_account_region(
+    region: String,
     state: State<'_, AppState>,
 ) -> Result<CloudState, String> {
     state
-        .cloud_sync.account()
-        .register(email.trim(), &password, display_name.trim())
+        .cloud_sync
+        .account()
+        .update_account_region(&region)
         .await
-        .map_err(sync_error)?;
-    let next_state = state.cloud_sync.account().state().map_err(sync_error)?;
-    Ok(next_state)
+        .map_err(sync_error)
+}
+
+#[tauri::command]
+pub async fn cloud_request_password_reset_code(
+    email: String,
+    email_language: String,
+    state: State<'_, AppState>,
+) -> Result<PasswordResetCodeRequest, String> {
+    state
+        .cloud_sync
+        .account()
+        .request_password_reset_code(email.trim(), &email_language)
+        .await
+        .map_err(sync_error)
+}
+
+#[tauri::command]
+pub async fn cloud_confirm_password_reset_code(
+    email: String,
+    code: String,
+    new_password: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state
+        .cloud_sync
+        .account()
+        .confirm_password_reset_code(email.trim(), code.trim(), &new_password)
+        .await
+        .map_err(sync_error)
+}
+
+#[tauri::command]
+pub async fn cloud_request_registration_code(
+    email: String,
+    password: String,
+    display_name: String,
+    email_language: String,
+    state: State<'_, AppState>,
+) -> Result<RegistrationCodeRequest, String> {
+    state
+        .cloud_sync
+        .account()
+        .request_registration_code(
+            email.trim(),
+            &password,
+            display_name.trim(),
+            &email_language,
+        )
+        .await
+        .map_err(sync_error)
+}
+
+#[tauri::command]
+pub async fn cloud_resend_registration_code(
+    email: String,
+    state: State<'_, AppState>,
+) -> Result<RegistrationCodeResend, String> {
+    state
+        .cloud_sync
+        .account()
+        .resend_registration_code(email.trim())
+        .await
+        .map_err(sync_error)
+}
+
+#[tauri::command]
+pub async fn cloud_confirm_registration(
+    email: String,
+    code: String,
+    password: String,
+    state: State<'_, AppState>,
+) -> Result<CloudState, String> {
+    state
+        .cloud_sync
+        .account()
+        .confirm_registration(email.trim(), code.trim(), &password)
+        .await
+        .map_err(sync_error)
 }
 
 #[tauri::command]
@@ -130,7 +393,8 @@ pub async fn cloud_login(
     state: State<'_, AppState>,
 ) -> Result<CloudState, String> {
     state
-        .cloud_sync.account()
+        .cloud_sync
+        .account()
         .login_with_restore(email.trim(), &password, restore_deleted.unwrap_or(false))
         .await
         .map_err(cloud_error)?;
@@ -146,7 +410,8 @@ pub async fn cloud_account_deletion(
     state: State<'_, AppState>,
 ) -> Result<AccountDeletionState, String> {
     state
-        .cloud_sync.account()
+        .cloud_sync
+        .account()
         .deletion_state()
         .await
         .map_err(sync_error)
@@ -155,11 +420,10 @@ pub async fn cloud_account_deletion(
 /// The account export document, untyped: it is a snapshot meant to be written
 /// to disk, not a contract this client renders field by field.
 #[tauri::command]
-pub async fn cloud_export_account(
-    state: State<'_, AppState>,
-) -> Result<serde_json::Value, String> {
+pub async fn cloud_export_account(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     state
-        .cloud_sync.account()
+        .cloud_sync
+        .account()
         .export_account()
         .await
         .map_err(sync_error)
@@ -179,9 +443,13 @@ pub async fn cloud_delete_account(
 ) -> Result<AccountDeletionOutcome, String> {
     let pi = state.pi.clone();
     let api_base = state.cloud_environment.api_base().to_string();
-    let credential_generation = state.cloud_sync.account().ai_credential_session_generation();
+    let credential_generation = state
+        .cloud_sync
+        .account()
+        .ai_credential_session_generation();
     let outcome = state
-        .cloud_sync.account()
+        .cloud_sync
+        .account()
         .delete_account(confirm_email.trim())
         .await
         .map_err(sync_error)?;
@@ -202,17 +470,20 @@ pub async fn cloud_delete_account(
 #[tauri::command]
 pub async fn cloud_sign_in_with_apple(
     window: WebviewWindow,
+    account_region: String,
     state: State<'_, AppState>,
 ) -> Result<CloudState, String> {
     let challenge = state
-        .cloud_sync.account()
+        .cloud_sync
+        .account()
         .apple_challenge()
         .await
         .map_err(sync_error)?;
     let authorization = crate::apple_sign_in::authorize(window, challenge).await?;
     state
-        .cloud_sync.account()
-        .sign_in_with_apple(&authorization)
+        .cloud_sync
+        .account()
+        .sign_in_with_apple(&authorization, &account_region)
         .await
         .map_err(sync_error)?;
     let next_state = state.cloud_sync.account().state().map_err(sync_error)?;
@@ -220,7 +491,10 @@ pub async fn cloud_sign_in_with_apple(
 }
 
 #[tauri::command]
-pub async fn cloud_start_google_sign_in(app: AppHandle) -> Result<(), String> {
+pub async fn cloud_start_google_sign_in(
+    app: AppHandle,
+    account_region: String,
+) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
 
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -259,7 +533,8 @@ pub async fn cloud_start_google_sign_in(app: AppHandle) -> Result<(), String> {
             },
         )
         .append_pair("state", &state)
-        .append_pair("code_challenge", &code_challenge);
+        .append_pair("code_challenge", &code_challenge)
+        .append_pair("accountRegion", &account_region);
     let client_platform = match std::env::consts::OS {
         "macos" => Some("macos"),
         "windows" => Some("windows"),
@@ -296,7 +571,8 @@ pub(crate) async fn complete_google_deep_link(
             };
             let app_state = app.state::<AppState>();
             app_state
-                .cloud_sync.account()
+                .cloud_sync
+                .account()
                 .sign_in_with_google_desktop(&code, &oauth_state, &code_verifier, generation)
                 .await
                 .map_err(sync_error)?;
@@ -338,13 +614,15 @@ pub async fn cloud_link_apple(
     state: State<'_, AppState>,
 ) -> Result<CloudState, String> {
     let challenge = state
-        .cloud_sync.account()
+        .cloud_sync
+        .account()
         .apple_challenge()
         .await
         .map_err(sync_error)?;
     let authorization = crate::apple_sign_in::authorize(window, challenge).await?;
     let next_state = state
-        .cloud_sync.account()
+        .cloud_sync
+        .account()
         .link_apple(&authorization)
         .await
         .map_err(sync_error)?;
@@ -359,7 +637,10 @@ pub async fn cloud_logout(
     let pi = state.pi.clone();
     let api_base = state.cloud_environment.api_base().to_string();
     let pending_logout = state.cloud_sync.account().begin_logout();
-    let logout_generation = state.cloud_sync.account().ai_credential_session_generation();
+    let logout_generation = state
+        .cloud_sync
+        .account()
+        .ai_credential_session_generation();
     let next_state = state.cloud_sync.account().state().map_err(sync_error);
     let pi_cleanup = async {
         match &next_state {
@@ -382,25 +663,18 @@ pub async fn cloud_logout(
 pub fn cloud_get_notebook_state(
     notebook_id: String,
     state: State<AppState>,
-) -> Result<Option<V2SyncedNotebook>, String> {
+) -> Result<Option<PathNotebookLink>, String> {
     state
         .cloud_sync
-        .v2_notebook(&notebook_id)
+        .path_notebook(&notebook_id)
         .map_err(sync_error)
 }
 
 #[tauri::command]
-pub fn cloud_list_notebook_states(state: State<AppState>) -> Result<Vec<V2SyncedNotebook>, String> {
-    state.cloud_sync.v2_enabled_notebooks().map_err(sync_error)
-}
-
-#[tauri::command]
-pub fn cloud_list_pending_file_operation_counts(
-    state: State<AppState>,
-) -> Result<HashMap<String, i64>, String> {
+pub fn cloud_list_notebook_states(state: State<AppState>) -> Result<Vec<PathNotebookLink>, String> {
     state
         .cloud_sync
-        .v2_pending_file_operation_counts()
+        .path_enabled_notebooks()
         .map_err(sync_error)
 }
 
@@ -408,7 +682,7 @@ pub fn cloud_list_pending_file_operation_counts(
 pub async fn cloud_list_notebooks(
     state: State<'_, AppState>,
 ) -> Result<Vec<CloudNotebook>, String> {
-    let notebooks_result = state.cloud_sync.v2_remote_notebooks().await;
+    let notebooks_result = state.cloud_sync.v4_remote_notebooks().await;
     notebooks_result.map_err(sync_error)
 }
 
@@ -418,16 +692,19 @@ pub async fn cloud_link_notebook(
     cloud_notebook_id: String,
     state: State<'_, AppState>,
     app: AppHandle,
-) -> Result<V2SyncedNotebook, String> {
-    state.cloud_sync.account().require_sync_access().map_err(cloud_error)?;
+) -> Result<PathNotebookLink, String> {
+    state
+        .cloud_sync
+        .require_remote_access()
+        .map_err(cloud_error)?;
     if notebook_id != cloud_notebook_id {
         return Err("CLOUD_NOTEBOOK_ID_MISMATCH".to_string());
     }
     let config = read_lock(&state.memo_file, "memo_file")
         .get_notebook_config_by_id(&notebook_id)
         .ok_or_else(|| "NOTEBOOK_NOT_FOUND".to_string())?;
-    let link_result = state.cloud_sync.set_v2_notebook_enabled(
-        &V2LocalNotebook {
+    let link_result = state.cloud_sync.set_path_notebook_enabled(
+        &PathNotebookMetadata {
             id: config.id,
             name: config.name,
             icon: config.icon,
@@ -448,13 +725,18 @@ pub async fn cloud_set_notebook_enabled(
     enabled: bool,
     state: State<'_, AppState>,
     app: AppHandle,
-) -> Result<V2SyncedNotebook, String> {
-    if enabled { state.cloud_sync.account().require_sync_access().map_err(cloud_error)?; }
+) -> Result<PathNotebookLink, String> {
+    if enabled {
+        state
+            .cloud_sync
+            .require_remote_access()
+            .map_err(cloud_error)?;
+    }
     let config = read_lock(&state.memo_file, "memo_file")
         .get_notebook_config_by_id(&notebook_id)
         .ok_or_else(|| "NOTEBOOK_NOT_FOUND".to_string())?;
-    let link_result = state.cloud_sync.set_v2_notebook_enabled(
-        &V2LocalNotebook {
+    let link_result = state.cloud_sync.set_path_notebook_enabled(
+        &PathNotebookMetadata {
             id: config.id,
             name: config.name,
             icon: config.icon,
@@ -482,7 +764,8 @@ pub async fn cloud_ai_credit_balance(
     state: State<'_, AppState>,
 ) -> Result<CloudAiCreditBalance, String> {
     state
-        .cloud_sync.account()
+        .cloud_sync
+        .account()
         .ai_credit_balance()
         .await
         .map_err(sync_error)
@@ -492,21 +775,28 @@ pub async fn cloud_ai_credit_balance(
 pub async fn cloud_pi_model_catalog(
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    let url = format!("{}/v1/ai/model-catalog", state.cloud_environment.api_base().trim_end_matches('/'));
+    let url = format!(
+        "{}/v1/ai/model-catalog",
+        state.cloud_environment.api_base().trim_end_matches('/')
+    );
     reqwest::Client::new()
         .get(url)
         .timeout(std::time::Duration::from_secs(15))
-        .send().await.map_err(|error| error.to_string())?
-        .error_for_status().map_err(|error| error.to_string())?
-        .json().await.map_err(|error| error.to_string())
+        .send()
+        .await
+        .map_err(|error| error.to_string())?
+        .error_for_status()
+        .map_err(|error| error.to_string())?
+        .json()
+        .await
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub async fn cloud_pi_model_availability(
-    state: State<'_, AppState>,
-) -> Result<bool, String> {
+pub async fn cloud_pi_model_availability(state: State<'_, AppState>) -> Result<bool, String> {
     state
-        .cloud_sync.account()
+        .cloud_sync
+        .account()
         .ai_model_availability()
         .await
         .map(|availability| availability.enabled)
@@ -543,14 +833,24 @@ pub async fn cloud_list_products(
         Some("mainland") => "mainland",
         _ => "non_mainland",
     };
-    state.cloud_sync.account().products(region).await.map_err(sync_error)
+    state
+        .cloud_sync
+        .account()
+        .products(region)
+        .await
+        .map_err(sync_error)
 }
 
 #[tauri::command]
 pub async fn cloud_list_billing_orders(
     state: State<'_, AppState>,
 ) -> Result<Vec<CloudOrder>, String> {
-    state.cloud_sync.account().billing_orders().await.map_err(sync_error)
+    state
+        .cloud_sync
+        .account()
+        .billing_orders()
+        .await
+        .map_err(sync_error)
 }
 
 #[tauri::command]
@@ -559,7 +859,8 @@ pub async fn cloud_check_billing_order(
     state: State<'_, AppState>,
 ) -> Result<CloudOrderCheck, String> {
     state
-        .cloud_sync.account()
+        .cloud_sync
+        .account()
         .check_billing_order(&order_id)
         .await
         .map_err(sync_error)
@@ -569,7 +870,12 @@ pub async fn cloud_check_billing_order(
 pub async fn cloud_list_subscriptions(
     state: State<'_, AppState>,
 ) -> Result<Vec<CloudSubscription>, String> {
-    state.cloud_sync.account().subscriptions().await.map_err(sync_error)
+    state
+        .cloud_sync
+        .account()
+        .subscriptions()
+        .await
+        .map_err(sync_error)
 }
 
 #[tauri::command]
@@ -578,7 +884,8 @@ pub async fn cloud_cancel_subscription(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     state
-        .cloud_sync.account()
+        .cloud_sync
+        .account()
         .cancel_subscription(&subscription_id)
         .await
         .map_err(sync_error)
@@ -591,7 +898,8 @@ pub async fn cloud_create_checkout(
 ) -> Result<CloudCheckout, String> {
     let idempotency_key = format!("desktop-{}", uuid::Uuid::new_v4());
     let checkout_result = state
-        .cloud_sync.account()
+        .cloud_sync
+        .account()
         .create_checkout(&product_id, &idempotency_key)
         .await;
     checkout_result.map_err(sync_error)
@@ -608,7 +916,8 @@ pub async fn cloud_submit_feedback(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     state
-        .cloud_sync.account()
+        .cloud_sync
+        .account()
         .submit_feedback(
             &device_id,
             &kind,
@@ -627,6 +936,103 @@ pub async fn cloud_sync_now(
     app: AppHandle,
 ) -> Result<CloudSyncResult, String> {
     coordinator::sync_now(notebook_id, app).await
+}
+
+#[tauri::command]
+pub async fn cloud_create_folder_share_link(
+    notebook_id: String,
+    relative_path: String,
+    state: State<'_, AppState>,
+) -> Result<CloudNoteShareLink, String> {
+    if state.cloud_sync.remote_kind() != flowix_sync::remote::RemoteKind::OfficialCloud {
+        return Err("CLOUD_SHARE_OFFICIAL_REQUIRED".into());
+    }
+    state
+        .cloud_sync
+        .path_notebook(&notebook_id)
+        .map_err(sync_error)?
+        .filter(|link| link.enabled)
+        .ok_or_else(|| "CLOUD_SHARE_SYNC_REQUIRED".to_string())?;
+    state
+        .cloud_sync
+        .require_remote_access()
+        .map_err(cloud_error)?;
+    if !relative_path.is_empty()
+        && !flowix_core::memo_file::is_syncable_notebook_directory_path(Path::new(&relative_path))
+    {
+        return Err("CLOUD_SHARE_INVALID_FOLDER".into());
+    }
+    let notebook = read_lock(&state.memo_file, "memo_file")
+        .get_notebook_config_by_id(&notebook_id)
+        .ok_or_else(|| "NOTEBOOK_NOT_FOUND".to_string())?;
+    let mut folder = Path::new(&notebook.path).to_path_buf();
+    for component in Path::new(&relative_path).components() {
+        let std::path::Component::Normal(name) = component else {
+            return Err("CLOUD_SHARE_INVALID_FOLDER".into());
+        };
+        folder.push(name);
+        if std::fs::symlink_metadata(&folder)
+            .map_err(sync_error)?
+            .file_type()
+            .is_symlink()
+        {
+            return Err("CLOUD_SHARE_INVALID_FOLDER".into());
+        }
+    }
+    if !folder.is_dir() {
+        return Err("CLOUD_SHARE_INVALID_FOLDER".into());
+    }
+    state
+        .cloud_sync
+        .account()
+        .create_folder_share_link(&notebook_id, &relative_path)
+        .await
+        .map_err(cloud_error)
+}
+
+#[tauri::command]
+pub async fn cloud_create_note_share_link(
+    notebook_id: String,
+    relative_path: String,
+    state: State<'_, AppState>,
+) -> Result<CloudNoteShareLink, String> {
+    if state.cloud_sync.remote_kind() != flowix_sync::remote::RemoteKind::OfficialCloud {
+        return Err("CLOUD_SHARE_OFFICIAL_REQUIRED".into());
+    }
+    state
+        .cloud_sync
+        .path_notebook(&notebook_id)
+        .map_err(sync_error)?
+        .filter(|link| link.enabled)
+        .ok_or_else(|| "CLOUD_SHARE_SYNC_REQUIRED".to_string())?;
+    state
+        .cloud_sync
+        .require_remote_access()
+        .map_err(cloud_error)?;
+
+    let relative = Path::new(&relative_path);
+    if !relative.is_md() || !flowix_core::memo_file::is_syncable_notebook_file_path(relative) {
+        return Err("CLOUD_SHARE_INVALID_NOTE".into());
+    }
+    let notebook = read_lock(&state.memo_file, "memo_file")
+        .get_notebook_config_by_id(&notebook_id)
+        .ok_or_else(|| "NOTEBOOK_NOT_FOUND".to_string())?;
+    let note_path = local_adapter::safe_cloud_note_path(Path::new(&notebook.path), &relative_path)?;
+    let metadata = std::fs::metadata(&note_path).map_err(sync_error)?;
+    if !metadata.is_file() {
+        return Err("CLOUD_SHARE_INVALID_NOTE".into());
+    }
+    if metadata.len() > 5 * 1024 * 1024 {
+        return Err("CLOUD_SHARE_NOTE_TOO_LARGE".into());
+    }
+    let bytes = std::fs::read(note_path).map_err(sync_error)?;
+    let content_hash = flowix_sync::v4_apply::content_hash(&bytes);
+    state
+        .cloud_sync
+        .account()
+        .create_note_share_link(&notebook_id, &relative_path, &content_hash)
+        .await
+        .map_err(cloud_error)
 }
 
 #[tauri::command]
@@ -654,7 +1060,8 @@ pub fn restore_local_path_version(
         .ok_or_else(|| "NOTEBOOK_NOT_FOUND".to_string())?;
     let root = Path::new(&notebook.path);
     let attachment = relative_path.starts_with("attachments/");
-    let collection = !attachment && flowix_core::collection::is_collection_document_path(Path::new(&relative_path));
+    let collection = !attachment
+        && flowix_core::collection::is_collection_document_path(Path::new(&relative_path));
     if !attachment && !collection && !Path::new(&relative_path).is_md() {
         return Err("CLOUD_HISTORY_INVALID_PATH".into());
     }
@@ -717,19 +1124,16 @@ pub fn restore_local_path_version(
         }
     }
     crate::watcher::runtime::mark_self_write_content_for(&app, &path, &target);
-    if collection {
-        let id = flowix_sync::v2_path_note_id(&notebook_id, &relative_path);
-        if let Err(error) = state.cloud_sync.record_v2_local_change(&notebook_id, &id, flowix_sync::LocalChangeKind::Put, &flowix_sync::v2_content_hash(&target)) {
-            tracing::warn!("failed to record restored collection for cloud sync: {error}");
-        }
-    }
     // The disk write has committed. Ensure sync observes it even if an index
     // or media refresh below fails after the watcher self-write marker.
     schedule_notebook_sync_observation(app.clone(), notebook_id.clone(), true);
     if collection {
         drop(_guard);
         flowix_core::collection_store::refresh_path(&memo_file, &path);
-        let _ = app.emit("file-management-changed", serde_json::json!({"notebookId": notebook_id, "notebookPath": notebook.path}));
+        let _ = app.emit(
+            "file-management-changed",
+            serde_json::json!({"notebookId": notebook_id, "notebookPath": notebook.path}),
+        );
         let _ = app.emit("collection-changed", serde_json::json!({"notebookId": notebook_id, "notebookPath": notebook.path, "relativePath": relative_path}));
     } else if attachment {
         memo_file
@@ -749,428 +1153,5 @@ pub fn restore_local_path_version(
         )
         .emit(&app);
     }
-    Ok(())
-}
-
-#[tauri::command]
-pub fn cloud_list_conflicts(
-    notebook_id: String,
-    state: State<'_, AppState>,
-) -> Result<Vec<String>, String> {
-    let memo_file = read_lock(&state.memo_file, "memo_file");
-    let notebook = memo_file
-        .get_notebook_config_by_id(&notebook_id)
-        .ok_or_else(|| "NOTEBOOK_NOT_FOUND".to_string())?;
-    let notes = match memo_file.read_note_entries(&notebook_id) {
-        Ok(notes) => notes,
-        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-            memo_file
-                .reconcile_note_index_blocking(&notebook_id)
-                .map_err(|error| error.to_string())?;
-            memo_file
-                .read_note_entries(&notebook_id)
-                .map_err(|error| error.to_string())?
-        }
-        Err(error) => return Err(error.to_string()),
-    };
-    let mut paths: Vec<String> = notes
-        .into_iter()
-        .filter(|note| note.relative_path.contains("(Flowix conflict "))
-        .map(|note| note.relative_path)
-        .collect();
-    let mut attachments = Vec::new();
-    let root = Path::new(&notebook.path);
-    local_adapter::scan_cloud_attachments(root, &root.join("attachments"), &mut attachments)?;
-    for path in attachments {
-        let relative = flowix_core::memo_file::notebook_relative_path(root, &path)?;
-        if relative.contains("(Flowix conflict ") {
-            paths.push(relative);
-        }
-    }
-    paths.sort();
-    paths.dedup();
-    Ok(paths)
-}
-
-#[tauri::command]
-pub fn cloud_resolve_markdown_conflict(
-    notebook_id: String,
-    relative_path: String,
-    conflict_path: String,
-    use_local: bool,
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
-    let memo_file = read_lock(&state.memo_file, "memo_file");
-    let _guard = memo_file
-        .operation_locks()
-        .notebook_change(&[&notebook_id], "resolve_markdown_conflict")
-        .map_err(sync_error)?;
-    let notebook = memo_file
-        .get_notebook_config_by_id(&notebook_id)
-        .ok_or_else(|| "NOTEBOOK_NOT_FOUND".to_string())?;
-    let root = Path::new(&notebook.path);
-    let original = local_adapter::safe_cloud_note_path(root, &relative_path)?;
-    let copy = local_adapter::safe_cloud_note_path(root, &conflict_path)?;
-    let note_id = flowix_sync::v2_path_note_id(&notebook_id, &relative_path);
-    if !conflict_path.contains("(Flowix conflict ")
-        || original.parent() != copy.parent()
-        || original == copy
-    {
-        return Err("CLOUD_INVALID_CONFLICT_COPY".into());
-    }
-    if !copy.is_file() {
-        return Err("CLOUD_CONFLICT_COPY_MISSING".to_string());
-    }
-    let copy_bytes = std::fs::read(&copy).map_err(sync_error)?;
-    local_adapter::record_rejected_cloud_version(
-        &memo_file,
-        &notebook_id,
-        root,
-        &original,
-        &copy_bytes,
-    )?;
-    if use_local {
-        let current = match std::fs::read(&original) {
-            Ok(bytes) => Some(bytes),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-            Err(error) => return Err(sync_error(error)),
-        };
-        let chosen = copy_bytes.clone();
-        let baseline = state
-            .cloud_sync
-            .v2_note_state(&note_id)
-            .map_err(sync_error)?
-            .ok_or_else(|| "CLOUD_CONFLICT_ORIGINAL_NOT_SYNCED".to_string())?;
-        let current_hash = current.as_ref().map(|bytes| v2_content_hash(bytes));
-        if baseline.deleted != current.is_none()
-            || baseline.content_hash.as_deref() != current_hash.as_deref()
-            || state
-                .cloud_sync
-                .has_pending_v2_note_change(&note_id)
-                .map_err(sync_error)?
-        {
-            return Err("CLOUD_CONFLICT_ORIGINAL_CHANGED".into());
-        }
-        if let Some(current) = current.as_ref() {
-            let stem = original
-                .file_stem()
-                .and_then(|value| value.to_str())
-                .unwrap_or("Note");
-            let backup = original.with_file_name(format!(
-                "{stem} (Flowix before conflict resolve {}).md",
-                baseline.revision
-            ));
-            if !backup.exists() {
-                flowix_core::memo_file::atomic_create_bytes(&backup, &current)
-                    .map_err(sync_error)?;
-                let backup_relative =
-                    flowix_core::memo_file::notebook_relative_path(root, &backup)?;
-                memo_file
-                    .refresh_note_path(&notebook_id, &backup_relative)
-                    .map_err(sync_error)?;
-                state
-                    .cloud_sync
-                    .record_v2_local_change(
-                        &notebook_id,
-                        &flowix_sync::v2_path_note_id(&notebook_id, &backup_relative),
-                        flowix_sync::LocalChangeKind::Put,
-                        &v2_content_hash(&current),
-                    )
-                    .map_err(sync_error)?;
-            } else if std::fs::read(&backup).map_err(sync_error)? != *current {
-                return Err("CLOUD_CONFLICT_BACKUP_COLLISION".into());
-            }
-        }
-        if let Some(parent) = original.parent() {
-            std::fs::create_dir_all(parent).map_err(sync_error)?;
-        }
-        crate::watcher::runtime::mark_self_write_for(&app, &original);
-        let preserved_path =
-            local_adapter::cloud_conflict_copy_path(&original, &format!("resolve-{note_id}"));
-        match local_adapter::safely_replace_cloud_file(
-            &original,
-            current.as_deref(),
-            &chosen,
-            &format!("resolve-{note_id}"),
-            &preserved_path,
-        )? {
-            local_adapter::ConflictFileOutcome::Applied { preserved: None } => {}
-            outcome => {
-                let preserved = match outcome {
-                    local_adapter::ConflictFileOutcome::Applied { preserved }
-                    | local_adapter::ConflictFileOutcome::Interrupted { preserved } => preserved,
-                };
-                if let Some(preserved) = preserved {
-                    local_adapter::register_preserved_conflict_copy(
-                        &memo_file,
-                        &notebook_id,
-                        root,
-                        &preserved,
-                        false,
-                    )?;
-                }
-                return Err("CLOUD_CONFLICT_ORIGINAL_CHANGED".into());
-            }
-        }
-        memo_file
-            .refresh_note_path(&notebook_id, &relative_path)
-            .map_err(sync_error)?;
-        crate::events::path_change::NotebookPathInvalidated::new(
-            notebook_id.clone(),
-            relative_path.clone(),
-        )
-        .emit(&app);
-        state
-            .cloud_sync
-            .record_v2_local_change(
-                &notebook_id,
-                &note_id,
-                flowix_sync::LocalChangeKind::Put,
-                &v2_content_hash(&chosen),
-            )
-            .map_err(sync_error)?;
-    }
-    crate::watcher::runtime::mark_self_write_for(&app, &copy);
-    let copy_note_id = flowix_sync::v2_path_note_id(&notebook_id, &conflict_path);
-    let preserved_path =
-        local_adapter::cloud_conflict_copy_path(&copy, &format!("remove-{copy_note_id}"));
-    match local_adapter::safely_remove_conflict_file(
-        &copy,
-        &copy_bytes,
-        &format!("remove-{copy_note_id}"),
-        &preserved_path,
-    )? {
-        local_adapter::ConflictFileOutcome::Applied { preserved: None } => {}
-        outcome => {
-            let preserved = match outcome {
-                local_adapter::ConflictFileOutcome::Applied { preserved }
-                | local_adapter::ConflictFileOutcome::Interrupted { preserved } => preserved,
-            };
-            if let Some(preserved) = preserved {
-                local_adapter::register_preserved_conflict_copy(
-                    &memo_file,
-                    &notebook_id,
-                    root,
-                    &preserved,
-                    false,
-                )?;
-            }
-            return Err("CLOUD_CONFLICT_COPY_CHANGED".into());
-        }
-    }
-    if copy.exists() {
-        return Err("CLOUD_CONFLICT_COPY_CHANGED".into());
-    }
-    memo_file
-        .refresh_note_path(&notebook_id, &conflict_path)
-        .map_err(sync_error)?;
-    state
-        .cloud_sync
-        .record_v2_local_change(
-            &notebook_id,
-            &copy_note_id,
-            flowix_sync::LocalChangeKind::Delete,
-            "deleted",
-        )
-        .map_err(sync_error)?;
-    drop(_guard);
-    drop(memo_file);
-    schedule_notebook_sync_observation(app, notebook_id, true);
-    Ok(())
-}
-
-#[tauri::command]
-pub fn cloud_resolve_attachment_conflict(
-    notebook_id: String,
-    relative_path: String,
-    conflict_path: String,
-    use_local: bool,
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
-    let memo_file = read_lock(&state.memo_file, "memo_file");
-    let _guard = memo_file
-        .operation_locks()
-        .notebook_change(&[&notebook_id], "resolve_attachment_conflict")
-        .map_err(sync_error)?;
-    let notebook = memo_file
-        .get_notebook_config_by_id(&notebook_id)
-        .ok_or_else(|| "NOTEBOOK_NOT_FOUND".to_string())?;
-    let root = Path::new(&notebook.path);
-    let original = local_adapter::safe_cloud_file_path(root, &relative_path, true)?;
-    let copy = local_adapter::safe_cloud_file_path(root, &conflict_path, true)?;
-    if !conflict_path.contains("(Flowix conflict ")
-        || original.parent() != copy.parent()
-        || original == copy
-    {
-        return Err("CLOUD_INVALID_CONFLICT_COPY".into());
-    }
-    let chosen = std::fs::read(&copy).map_err(sync_error)?;
-    local_adapter::record_rejected_cloud_version(
-        &memo_file,
-        &notebook_id,
-        root,
-        &original,
-        &chosen,
-    )?;
-    if use_local {
-        let note_id = flowix_sync::v2_path_note_id(&notebook_id, &relative_path);
-        let current = match std::fs::read(&original) {
-            Ok(bytes) => Some(bytes),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-            Err(error) => return Err(sync_error(error)),
-        };
-        let baseline = state
-            .cloud_sync
-            .v2_note_state(&note_id)
-            .map_err(sync_error)?
-            .ok_or_else(|| "CLOUD_CONFLICT_ORIGINAL_NOT_SYNCED".to_string())?;
-        let current_hash = current.as_ref().map(|bytes| v2_content_hash(bytes));
-        if baseline.deleted != current.is_none()
-            || baseline.content_hash.as_deref() != current_hash.as_deref()
-            || state
-                .cloud_sync
-                .has_pending_v2_note_change(&note_id)
-                .map_err(sync_error)?
-        {
-            return Err("CLOUD_CONFLICT_ORIGINAL_CHANGED".into());
-        }
-        if let Some(current) = current.as_ref() {
-            let stem = original
-                .file_stem()
-                .and_then(|value| value.to_str())
-                .unwrap_or("attachment");
-            let extension = original
-                .extension()
-                .and_then(|value| value.to_str())
-                .unwrap_or("");
-            let backup_name = if extension.is_empty() {
-                format!(
-                    "{stem} (Flowix before conflict resolve {})",
-                    baseline.revision
-                )
-            } else {
-                format!(
-                    "{stem} (Flowix before conflict resolve {}).{extension}",
-                    baseline.revision
-                )
-            };
-            let backup = original.with_file_name(backup_name);
-            if !backup.exists() {
-                flowix_core::memo_file::atomic_create_bytes(&backup, &current)
-                    .map_err(sync_error)?;
-                let backup_relative =
-                    flowix_core::memo_file::notebook_relative_path(root, &backup)?;
-                if flowix_core::memo_file::resource_kind_for_path(&backup).is_some() {
-                    memo_file
-                        .refresh_indexed_resource_path(&notebook_id, &backup_relative)
-                        .map_err(sync_error)?;
-                }
-                state
-                    .cloud_sync
-                    .record_v2_local_change(
-                        &notebook_id,
-                        &flowix_sync::v2_path_note_id(&notebook_id, &backup_relative),
-                        flowix_sync::LocalChangeKind::Put,
-                        &v2_content_hash(&current),
-                    )
-                    .map_err(sync_error)?;
-            } else if std::fs::read(&backup).map_err(sync_error)? != *current {
-                return Err("CLOUD_CONFLICT_BACKUP_COLLISION".into());
-            }
-        }
-        crate::watcher::runtime::mark_self_write_for(&app, &original);
-        let preserved_path =
-            local_adapter::cloud_conflict_copy_path(&original, &format!("resolve-{note_id}"));
-        match local_adapter::safely_replace_cloud_file(
-            &original,
-            current.as_deref(),
-            &chosen,
-            &format!("resolve-{note_id}"),
-            &preserved_path,
-        )? {
-            local_adapter::ConflictFileOutcome::Applied { preserved: None } => {}
-            outcome => {
-                let preserved = match outcome {
-                    local_adapter::ConflictFileOutcome::Applied { preserved }
-                    | local_adapter::ConflictFileOutcome::Interrupted { preserved } => preserved,
-                };
-                if let Some(preserved) = preserved {
-                    local_adapter::register_preserved_conflict_copy(
-                        &memo_file,
-                        &notebook_id,
-                        root,
-                        &preserved,
-                        true,
-                    )?;
-                }
-                return Err("CLOUD_CONFLICT_ORIGINAL_CHANGED".into());
-            }
-        }
-        crate::watcher::runtime::mark_self_write_for(&app, &original);
-        if flowix_core::memo_file::resource_kind_for_path(&original).is_some() {
-            memo_file
-                .refresh_indexed_resource_path(&notebook_id, &relative_path)
-                .map_err(sync_error)?;
-        }
-        state
-            .cloud_sync
-            .record_v2_local_change(
-                &notebook_id,
-                &note_id,
-                flowix_sync::LocalChangeKind::Put,
-                &v2_content_hash(&chosen),
-            )
-            .map_err(sync_error)?;
-    }
-    crate::watcher::runtime::mark_self_write_for(&app, &copy);
-    let preserved_path =
-        local_adapter::cloud_conflict_copy_path(&copy, &format!("remove-{conflict_path}"));
-    match local_adapter::safely_remove_conflict_file(
-        &copy,
-        &chosen,
-        &format!("remove-{conflict_path}"),
-        &preserved_path,
-    )? {
-        local_adapter::ConflictFileOutcome::Applied { preserved: None } => {}
-        outcome => {
-            let preserved = match outcome {
-                local_adapter::ConflictFileOutcome::Applied { preserved }
-                | local_adapter::ConflictFileOutcome::Interrupted { preserved } => preserved,
-            };
-            if let Some(preserved) = preserved {
-                local_adapter::register_preserved_conflict_copy(
-                    &memo_file,
-                    &notebook_id,
-                    root,
-                    &preserved,
-                    true,
-                )?;
-            }
-            return Err("CLOUD_CONFLICT_COPY_CHANGED".into());
-        }
-    }
-    if flowix_core::memo_file::resource_kind_for_path(&copy).is_some() {
-        memo_file
-            .refresh_indexed_resource_path(&notebook_id, &conflict_path)
-            .map_err(sync_error)?;
-    }
-    state
-        .cloud_sync
-        .record_v2_local_change(
-            &notebook_id,
-            &flowix_sync::v2_path_note_id(&notebook_id, &conflict_path),
-            flowix_sync::LocalChangeKind::Delete,
-            "deleted",
-        )
-        .map_err(sync_error)?;
-    drop(_guard);
-    drop(memo_file);
-    let _ = app.emit(
-        "media-properties-changed",
-        serde_json::json!({ "notebookId": notebook_id }),
-    );
-    schedule_notebook_sync_observation(app, notebook_id, true);
     Ok(())
 }

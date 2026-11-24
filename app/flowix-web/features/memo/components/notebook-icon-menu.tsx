@@ -292,7 +292,7 @@ export function NotebookIconMenu({
               </div>
               <label className="block space-y-1.5 text-sm">
                 <span>{t('memo.list.notebookMenu.feedback.content')}<span className="ml-1 rounded-md bg-[color-mix(in_oklch,var(--success)_15%,transparent)] px-1.5 py-0.5 text-xs text-[var(--success)]">{t('memo.list.notebookMenu.feedback.required')}</span></span>
-                <textarea required maxLength={2000} disabled={feedbackBusy} value={feedbackText} onChange={(event) => setFeedbackText(event.target.value)} rows={6} className="w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm outline-none focus:border-[var(--brand)] disabled:opacity-50" placeholder={t('memo.list.notebookMenu.feedback.placeholder')} />
+                <textarea required maxLength={2000} disabled={feedbackBusy} value={feedbackText} onChange={(event) => setFeedbackText(event.target.value)} rows={6} className="w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm outline-none placeholder:text-[var(--input-placeholder)] focus:border-[var(--input-ring)] disabled:opacity-50" placeholder={t('memo.list.notebookMenu.feedback.placeholder')} />
               </label>
               <div className="block space-y-1.5 text-sm">
                 <div className="flex items-center gap-2">

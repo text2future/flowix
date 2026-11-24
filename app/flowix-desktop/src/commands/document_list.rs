@@ -70,10 +70,9 @@ fn remove_table_document_note_records(source: &str, note_path: &str) -> Option<S
         .ok()?;
     let normalized_note_path = note_path.replace('\\', "/");
     let records = match document.collection.kind {
-        flowix_core::collection::CollectionType::Table => document
-            .payload
-            .get_mut("dataset")?
-            .get_mut("records")?,
+        flowix_core::collection::CollectionType::Table => {
+            document.payload.get_mut("dataset")?.get_mut("records")?
+        }
         // Hybrid collections keep their note records in the notes domain.
         flowix_core::collection::CollectionType::Hybrid => document
             .payload
@@ -121,7 +120,8 @@ pub(crate) fn remove_table_note_records(memo_file: &MemoFile, notebook_id: &str,
     let Ok(root) = dunce::canonicalize(&notebook.path) else {
         return;
     };
-    let Ok(documents) = flowix_core::collection_store::list_for_rebase(memo_file, notebook_id) else {
+    let Ok(documents) = flowix_core::collection_store::list_for_rebase(memo_file, notebook_id)
+    else {
         return;
     };
 
@@ -206,7 +206,11 @@ fn retain_folder_page_entries(
     (entries, has_more)
 }
 
-fn push_folder_page_candidate(entries: &mut Vec<FolderFileEntry>, entry: FolderFileEntry, limit: usize) {
+fn push_folder_page_candidate(
+    entries: &mut Vec<FolderFileEntry>,
+    entry: FolderFileEntry,
+    limit: usize,
+) {
     let candidate_count = limit.saturating_add(1);
     entries.push(entry);
     if entries.len() > candidate_count.saturating_mul(2) {
@@ -559,8 +563,14 @@ mod tests {
         let (actual, actual_has_more) = retain_folder_page_entries(bounded, 5);
         assert_eq!(actual_has_more, expected_has_more);
         assert_eq!(
-            actual.iter().map(|item| &item.relative_path).collect::<Vec<_>>(),
-            expected.iter().map(|item| &item.relative_path).collect::<Vec<_>>(),
+            actual
+                .iter()
+                .map(|item| &item.relative_path)
+                .collect::<Vec<_>>(),
+            expected
+                .iter()
+                .map(|item| &item.relative_path)
+                .collect::<Vec<_>>(),
         );
     }
 }

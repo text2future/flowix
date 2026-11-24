@@ -53,11 +53,7 @@ impl NotebookRegistry {
         // 热路径快开：进程内已通过一次完整校验/迁移，跳过全部 stat 与
         // schema/migration 检查。只保留一次 DB 存在性 stat（防 DB 被删后
         // Connection::open 静默建空库），其余防护属于启动期职责。
-        if self
-            .validated
-            .load(std::sync::atomic::Ordering::Relaxed)
-            && !run_legacy_migrations
-        {
+        if self.validated.load(std::sync::atomic::Ordering::Relaxed) && !run_legacy_migrations {
             let path = self.db_path();
             if !path.try_exists()? {
                 return Err(std::io::Error::new(

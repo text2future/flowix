@@ -780,7 +780,7 @@ export function TagTree({
                       }
                     }}
                     onBlur={() => void commitRename(tag, editingTagName)}
-                    className="min-w-0 flex-1 rounded-md bg-[var(--background)] px-0 text-sm outline-none ring-1 ring-[var(--primary)]"
+                    className="min-w-0 flex-1 rounded-md bg-[var(--background)] px-0 text-sm outline-none ring-1 ring-[var(--input-ring)]"
                   />
                 ) : (
                   <span

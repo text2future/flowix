@@ -1720,7 +1720,7 @@ function TableDocumentViewSession({
           actions={calendarCreateFields.length > 0 ? <div className="calendar-note-create-fields border-t border-[var(--border)]">
             {calendarCreateFields.map((field) => {
               const value = calendarCreatePropertyValues[field.id];
-              const inputClass = 'h-8 w-full rounded-md border-0 bg-transparent px-0 text-sm outline-none placeholder:text-[var(--muted-foreground)] placeholder:opacity-80 focus:border-0 focus:bg-transparent focus:ring-0 disabled:cursor-not-allowed disabled:opacity-50';
+              const inputClass = 'h-8 w-full rounded-md border-0 bg-transparent px-0 text-sm outline-none placeholder:text-[var(--input-placeholder)] focus:border-0 focus:bg-transparent focus:ring-0 disabled:cursor-not-allowed disabled:opacity-50';
               const setValue = (nextValue: unknown) => setCalendarCreatePropertyValues((current) => ({ ...current, [field.id]: nextValue }));
               const options = field.options?.map((option) => ({ value: option.id, label: option.label })) ?? [];
               const control = field.type === 'Boolean'

@@ -111,7 +111,7 @@ export function TableFieldEditorForm({
       }}
       aria-label={namePlaceholder}
       placeholder={namePlaceholder}
-      className="h-8 w-full rounded-lg border border-[var(--border)] bg-transparent px-3 text-sm outline-none placeholder:text-[var(--muted-foreground)] placeholder:opacity-85 focus:placeholder:opacity-60 disabled:opacity-50"
+      className="h-8 w-full rounded-lg border border-[var(--border)] bg-transparent px-3 text-sm outline-none placeholder:text-[var(--input-placeholder)] focus-visible:border-[var(--input-ring)] disabled:opacity-50"
     />
     <Popover open={typeMenuOpen} onOpenChange={onTypeMenuOpenChange}>
       <PopoverTrigger asChild>

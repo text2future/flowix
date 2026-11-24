@@ -111,10 +111,16 @@ mod tests {
 
     #[test]
     fn switches_only_affect_directories() {
-        let hidden_off = TreeVisibility { show_hidden: false, show_system: true };
+        let hidden_off = TreeVisibility {
+            show_hidden: false,
+            show_system: true,
+        };
         assert!(hidden_off.hides_entry(".trash", true));
         assert!(!hidden_off.hides_entry("node_modules", true));
-        let system_off = TreeVisibility { show_hidden: true, show_system: false };
+        let system_off = TreeVisibility {
+            show_hidden: true,
+            show_system: false,
+        };
         assert!(system_off.hides_entry("node_modules", true));
         assert!(!system_off.hides_entry(".trash", true));
         // 文件没有开关：点文件永远不展示。

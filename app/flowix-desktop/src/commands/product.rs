@@ -5,9 +5,7 @@ use tauri::{AppHandle, State, WebviewWindow};
 use tauri_plugin_opener::OpenerExt;
 
 use crate::app::state::AppState;
-use crate::commands::helpers::{
-    can_access_document_path, can_access_scoped_file,
-};
+use crate::commands::helpers::{can_access_document_path, can_access_scoped_file};
 use crate::runtime_log;
 
 #[derive(Debug, Clone, Serialize)]
@@ -48,25 +46,24 @@ pub fn get_product_info(state: State<AppState>) -> ProductInfo {
 }
 
 #[tauri::command]
-pub fn set_cloud_environment(
-    environment: String,
-    state: State<AppState>,
-) -> Result<(), String> {
+pub fn set_cloud_environment(environment: String, state: State<AppState>) -> Result<(), String> {
     if !is_dev_build() {
         return Err("Cloud environment can only be changed in a development build".to_string());
     }
     let Some(target) = flowix_sync::CloudEnvironment::parse(&environment) else {
         return Err(format!("unsupported Cloud environment: {environment}"));
     };
+    let target = crate::config::DevCloudEnvironment::try_from(target)
+        .map_err(|_| "Production Cloud is unavailable in the development build".to_string())?;
 
-    let saved_environment = state.user_config.get_preference().cloud_environment;
-    if saved_environment == target.name() {
+    let saved_environment = state.user_config.get_dev_cloud_environment();
+    if saved_environment == Some(target) {
         return Ok(());
     }
 
     state
         .user_config
-        .patch_preference(serde_json::json!({ "cloudEnvironment": target.name() }))
+        .set_dev_cloud_environment(target)
         .map_err(|error| error.to_string())
 }
 

@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::memo_file::{
-    notebook_path_from_relative, MemoFile, NoteEntry, NoteSearchHit, NoteSummary, NoteWriteResult,
-    NotebookConfig, NoteTitleFilter,
+    notebook_path_from_relative, MemoFile, NoteEntry, NoteSearchHit, NoteSummary, NoteTitleFilter,
+    NoteWriteResult, NotebookConfig,
 };
 
 const DEFAULT_LIST_PAGE_SIZE: usize = 50;
@@ -162,11 +162,19 @@ impl NoteService<'_> {
         cursor: Option<&str>,
         requested_limit: Option<usize>,
     ) -> Result<NotePage, FlowixError> {
-        self.query_note_page(notebook_key, NotePageQuery {
-            filter, sort, tag_id, color, cursor,
-            limit: requested_limit,
-            title_filter: None,
-        }, true)
+        self.query_note_page(
+            notebook_key,
+            NotePageQuery {
+                filter,
+                sort,
+                tag_id,
+                color,
+                cursor,
+                limit: requested_limit,
+                title_filter: None,
+            },
+            true,
+        )
     }
 
     /// Desktop reads must never turn an unavailable index into synchronous
@@ -181,11 +189,18 @@ impl NoteService<'_> {
         cursor: Option<&str>,
         requested_limit: Option<usize>,
     ) -> Result<NotePage, FlowixError> {
-        self.list_indexed_page_query(notebook_key, NotePageQuery {
-            filter, sort, tag_id, color, cursor,
-            limit: requested_limit,
-            title_filter: None,
-        })
+        self.list_indexed_page_query(
+            notebook_key,
+            NotePageQuery {
+                filter,
+                sort,
+                tag_id,
+                color,
+                cursor,
+                limit: requested_limit,
+                title_filter: None,
+            },
+        )
     }
 
     pub fn list_indexed_page_query(
@@ -203,11 +218,18 @@ impl NoteService<'_> {
         prepare_index: bool,
     ) -> Result<NotePage, FlowixError> {
         let NotePageQuery {
-            filter, sort, tag_id, color, cursor,
-            limit: requested_limit, title_filter,
+            filter,
+            sort,
+            tag_id,
+            color,
+            cursor,
+            limit: requested_limit,
+            title_filter,
         } = query;
         if title_filter.is_some_and(|filter| !filter.is_valid()) {
-            return Err(FlowixError::InvalidInput("invalid note title filter".into()));
+            return Err(FlowixError::InvalidInput(
+                "invalid note title filter".into(),
+            ));
         }
         let notebook = self.resolve_notebook(notebook_key)?;
         let limit = requested_limit
@@ -504,7 +526,6 @@ impl<'a> NoteService<'a> {
         }
     }
 
-
     pub fn search(
         &mut self,
         notebook: &str,
@@ -578,9 +599,18 @@ impl<'a> NoteService<'a> {
         self.delete_note_by_path(notebook, relative_path)
     }
 
-    pub fn delete_checked(&mut self, notebook: &str, relative_path: &str, expected_content: &str) -> Result<bool, FlowixError> {
+    pub fn delete_checked(
+        &mut self,
+        notebook: &str,
+        relative_path: &str,
+        expected_content: &str,
+    ) -> Result<bool, FlowixError> {
         let notebook = self.resolve_notebook(notebook)?;
-        match self.memo_file.delete_note_by_path_checked(&notebook.id, relative_path, Some(expected_content)) {
+        match self.memo_file.delete_note_by_path_checked(
+            &notebook.id,
+            relative_path,
+            Some(expected_content),
+        ) {
             Ok(removed) => Ok(removed),
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                 Err(FlowixError::Conflict("note changed before delete".into()))
@@ -662,12 +692,26 @@ mod tests {
         let (temp, store) = service_fixture();
         std::fs::write(temp.path().join("notes/unindexed.md"), "# Not scanned").unwrap();
         let mut service = NoteService::new(&store);
-        let error = service.list_indexed_page("work", "all", "createdAt", None, None, None, Some(50)).unwrap_err();
-        assert!(matches!(error, FlowixError::Io(ref error) if error.kind() == std::io::ErrorKind::WouldBlock));
+        let error = service
+            .list_indexed_page("work", "all", "createdAt", None, None, None, Some(50))
+            .unwrap_err();
+        assert!(
+            matches!(error, FlowixError::Io(ref error) if error.kind() == std::io::ErrorKind::WouldBlock)
+        );
         assert!(!store.note_index_is_ready("work").unwrap());
-        assert!(store.read_indexed_note_entry_by_path("work", "unindexed.md").unwrap().is_none());
+        assert!(store
+            .read_indexed_note_entry_by_path("work", "unindexed.md")
+            .unwrap()
+            .is_none());
         store.reconcile_note_index("work").unwrap();
-        assert_eq!(service.list_indexed_page("work", "all", "createdAt", None, None, None, Some(50)).unwrap().notes.len(), 1);
+        assert_eq!(
+            service
+                .list_indexed_page("work", "all", "createdAt", None, None, None, Some(50))
+                .unwrap()
+                .notes
+                .len(),
+            1
+        );
     }
 
     #[test]
@@ -675,28 +719,56 @@ mod tests {
         let (_temp, store) = service_fixture();
         let mut service = NoteService::new(&store);
         for title in ["Other", "发布%_一", "发布%_二"] {
-            service.create_note_by_path("work", None, title, "body").unwrap();
+            service
+                .create_note_by_path("work", None, title, "body")
+                .unwrap();
         }
         store.reconcile_note_index("work").unwrap();
         let filter = NoteTitleFilter {
             match_mode: "all".into(),
-            conditions: vec![crate::memo_file::NoteTitleCondition { op: "contains".into(), value: "%_".into() }],
+            conditions: vec![crate::memo_file::NoteTitleCondition {
+                op: "contains".into(),
+                value: "%_".into(),
+            }],
         };
         let query = NotePageQuery {
-            filter: "all", sort: "filenameAsc", tag_id: None, color: None,
-            cursor: None, limit: Some(1), title_filter: Some(&filter),
+            filter: "all",
+            sort: "filenameAsc",
+            tag_id: None,
+            color: None,
+            cursor: None,
+            limit: Some(1),
+            title_filter: Some(&filter),
         };
-        let first = service.list_indexed_page_query("work", query.clone()).unwrap();
+        let first = service
+            .list_indexed_page_query("work", query.clone())
+            .unwrap();
         assert_eq!(first.notes.len(), 1);
         assert!(first.notes[0].title.contains("%_"));
         assert!(first.has_more);
-        let second = service.list_indexed_page_query("work", NotePageQuery {
-            cursor: first.next_cursor.as_deref(), ..query
-        }).unwrap();
+        let second = service
+            .list_indexed_page_query(
+                "work",
+                NotePageQuery {
+                    cursor: first.next_cursor.as_deref(),
+                    ..query
+                },
+            )
+            .unwrap();
         assert_eq!(second.notes.len(), 1);
         assert_ne!(first.notes[0].relative_path, second.notes[0].relative_path);
         assert!(!second.has_more);
-        assert!(service.list_indexed_page("work", "all", "filenameAsc", None, None, first.next_cursor.as_deref(), Some(1)).is_err());
+        assert!(service
+            .list_indexed_page(
+                "work",
+                "all",
+                "filenameAsc",
+                None,
+                None,
+                first.next_cursor.as_deref(),
+                Some(1)
+            )
+            .is_err());
     }
 
     #[test]
@@ -816,13 +888,18 @@ mod tests {
     fn checked_path_delete_rejects_content_changed_since_read() {
         let (_temp, store) = service_fixture();
         let mut service = NoteService::new(&store);
-        let created = service.create("work", None, "Delete conflict", "original").unwrap();
+        let created = service
+            .create("work", None, "Delete conflict", "original")
+            .unwrap();
         std::fs::write(&created.path, "concurrent edit").unwrap();
         assert!(matches!(
             service.delete_checked("work", &created.entry.relative_path, "original"),
             Err(FlowixError::Conflict(_))
         ));
-        assert_eq!(std::fs::read_to_string(&created.path).unwrap(), "concurrent edit");
+        assert_eq!(
+            std::fs::read_to_string(&created.path).unwrap(),
+            "concurrent edit"
+        );
     }
 
     #[test]
@@ -861,6 +938,4 @@ mod tests {
         paths.sort();
         assert_eq!(paths, ["Alpha.md", "Beta.md", "Gamma.md"]);
     }
-
-
 }

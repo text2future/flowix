@@ -28,9 +28,17 @@ fn notebook_folder_target_preserves_paths_and_rejects_traversal() {
         root.join(".hidden/Project"),
     );
     for invalid in [
-        "../outside", "a/../../outside", "a/./b", "/outside", "a\\b", "a\0b",
+        "../outside",
+        "a/../../outside",
+        "a/./b",
+        "/outside",
+        "a\\b",
+        "a\0b",
     ] {
-        assert!(notebook_folder_target(root, invalid).is_err(), "{invalid:?}");
+        assert!(
+            notebook_folder_target(root, invalid).is_err(),
+            "{invalid:?}"
+        );
     }
 }
 
@@ -64,7 +72,10 @@ fn import_paths_reuse_the_same_file_through_a_symlinked_notebook_root() {
     let outside = directory.path().join("outside.pdf");
     fs::write(&outside, b"outside").unwrap();
     let (_, target) = resolve_import_file_paths(&outside, &alias).unwrap();
-    assert_eq!(target.parent().unwrap(), dunce::canonicalize(&root).unwrap());
+    assert_eq!(
+        target.parent().unwrap(),
+        dunce::canonicalize(&root).unwrap()
+    );
 }
 
 #[test]
@@ -176,28 +187,45 @@ fn tree_metadata_is_hydrated_for_the_listed_directory_only() {
     let memo = MemoFile::new(temp.path().join("config"));
     memo.initialize_current_registry_storage().unwrap();
     memo.write_notebook_configs(&[flowix_core::memo_file::NotebookConfig {
-        id: "tree".into(), name: "Tree".into(), icon: None,
-        path: root.to_string_lossy().into_owned(), is_default: true,
-        sort: 0, created_at: 0, updated_at: 0,
-    }]).unwrap();
+        id: "tree".into(),
+        name: "Tree".into(),
+        icon: None,
+        path: root.to_string_lossy().into_owned(),
+        is_default: true,
+        sort: 0,
+        created_at: 0,
+        updated_at: 0,
+    }])
+    .unwrap();
     memo.reconcile_note_index("tree").unwrap();
     let memo = Arc::new(RwLock::new(memo));
     let background = Arc::new(crate::app::notebook_background::NotebookBackground::default());
     for directory in [&root, &root.join("projects")] {
         let mut items = read_dir_single_level(directory, None);
         populate_memo_tree_metadata(directory, &mut items, &memo, &background);
-        let hydrated: Vec<_> = items.iter().filter(|item| item.memo_meta.is_some()).collect();
+        let hydrated: Vec<_> = items
+            .iter()
+            .filter(|item| item.memo_meta.is_some())
+            .collect();
         assert_eq!(hydrated.len(), 1);
         assert_eq!(hydrated[0].name, "note.md");
         assert!(hydrated[0].memo_created_ms.is_some());
-        assert!(items.iter().filter(|item| item.item_type == "folder").all(|item| item.memo_meta.is_none()));
+        assert!(items
+            .iter()
+            .filter(|item| item.item_type == "folder")
+            .all(|item| item.memo_meta.is_none()));
     }
     #[cfg(unix)]
     {
         std::os::unix::fs::symlink(root.join("note.md"), root.join("alias.md")).unwrap();
         let mut items = read_dir_single_level(&root, None);
         populate_memo_tree_metadata(&root, &mut items, &memo, &background);
-        assert!(items.iter().find(|item| item.name == "alias.md").unwrap().memo_meta.is_some());
+        assert!(items
+            .iter()
+            .find(|item| item.name == "alias.md")
+            .unwrap()
+            .memo_meta
+            .is_some());
     }
 }
 
@@ -230,25 +258,31 @@ fn notebook_policy_lists_every_dot_directory_but_keeps_dot_files_out() {
     names.sort_unstable();
     // Every folder on disk is browsable; only file noise stays hidden —
     // including a folder collection's own `.index.yaml`.
-    assert_eq!(names, vec![".agent", ".cache", ".codex", ".unrelated", "notes"]);
+    assert_eq!(
+        names,
+        vec![".agent", ".cache", ".codex", ".unrelated", "notes"]
+    );
     // 隐藏只发生在展示口径：集合文件的访问、重命名与恢复仍走这条路径。
     assert!(!policy.is_tree_hidden_at(directory.path(), Path::new(".index.yaml")));
     assert!(!policy.is_tree_hidden_at(directory.path(), Path::new("notes/.index.yaml")));
     // The row flag mirrors the index rule, so the row menu can refuse to
     // create notes where they would never show up.
     let excluded = |name: &str| {
-        items.iter().find(|item| item.name == name).unwrap().index_excluded
+        items
+            .iter()
+            .find(|item| item.name == name)
+            .unwrap()
+            .index_excluded
     };
     assert!(excluded(".codex"));
     assert!(excluded(".agent"));
     assert!(!excluded("notes"));
-    let hidden_children =
-        read_dir_single_level_with_policy(
-            &hidden,
-            None,
-            Some((directory.path(), &policy)),
-            TreeVisibility::default(),
-        );
+    let hidden_children = read_dir_single_level_with_policy(
+        &hidden,
+        None,
+        Some((directory.path(), &policy)),
+        TreeVisibility::default(),
+    );
     assert_eq!(hidden_children[0].name, "skill.md");
     assert!(hidden_children[0].index_excluded);
 }
@@ -267,15 +301,11 @@ fn tree_visibility_switches_drop_hidden_and_system_folders() {
 
     let policy = FileManagementPolicy::default();
     let list = |visibility: TreeVisibility| -> Vec<String> {
-        let mut names: Vec<String> = read_dir_single_level_with_policy(
-            root,
-            None,
-            Some((root, &policy)),
-            visibility,
-        )
-        .into_iter()
-        .map(|item| item.name)
-        .collect();
+        let mut names: Vec<String> =
+            read_dir_single_level_with_policy(root, None, Some((root, &policy)), visibility)
+                .into_iter()
+                .map(|item| item.name)
+                .collect();
         names.sort_unstable();
         names
     };
@@ -287,17 +317,26 @@ fn tree_visibility_switches_drop_hidden_and_system_folders() {
     );
     // 关掉「隐藏文件夹」：点目录消失。
     assert_eq!(
-        list(TreeVisibility { show_hidden: false, show_system: true }),
+        list(TreeVisibility {
+            show_hidden: false,
+            show_system: true
+        }),
         vec!["attachments", "node_modules", "notes"],
     );
     // 关掉「系统文件夹」：黑名单目录消失，点目录保留。
     assert_eq!(
-        list(TreeVisibility { show_hidden: true, show_system: false }),
+        list(TreeVisibility {
+            show_hidden: true,
+            show_system: false
+        }),
         vec![".trash", "notes"],
     );
     // 两个都关。
     assert_eq!(
-        list(TreeVisibility { show_hidden: false, show_system: false }),
+        list(TreeVisibility {
+            show_hidden: false,
+            show_system: false
+        }),
         vec!["notes"],
     );
 }

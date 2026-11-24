@@ -3,7 +3,6 @@ use super::*;
 type TagUsageSummary = (Vec<String>, Vec<(String, usize)>, usize, usize, usize);
 
 impl MemoFile {
-
     pub fn read_notebook_tag_paths(
         &self,
         notebook_id: Option<&str>,
@@ -42,11 +41,13 @@ impl MemoFile {
     ) -> std::io::Result<TagUsageSummary> {
         let notebook_id = self.notebook_id_for_index(notebook_id);
         if !self.note_index_is_ready(&notebook_id)? {
-            return Err(std::io::Error::new(std::io::ErrorKind::WouldBlock, "Note index is not ready"));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                "Note index is not ready",
+            ));
         }
         self.note_tag_usage_summary(&notebook_id)
     }
-
 
     /// 路径式 tag 的 prefix → 去重笔记数。每个真实 tag `T` 拆出
     /// 所有前缀 (`T` 自身 + `T` 的每级祖先 fullPath), 然后每个 prefix
@@ -69,7 +70,10 @@ impl MemoFile {
 
         let notebook_id = self.notebook_id_for_index(notebook_id);
         if !self.note_index_is_ready(&notebook_id)? {
-            return Err(std::io::Error::new(std::io::ErrorKind::WouldBlock, "Note index is not ready"));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                "Note index is not ready",
+            ));
         }
         let pairs = self.note_tag_path_pairs(&notebook_id)?;
 

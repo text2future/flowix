@@ -10,8 +10,8 @@ use tauri::State;
 
 use crate::app::state::AppState;
 use crate::system_data::{
-    NotebookCustomViewsData, NotebookFeaturedNotesData,
-    NotebookFileTreePreferences, NotebookTagSystemData, SystemFile, TagLayoutItem,
+    NotebookCustomViewsData, NotebookFeaturedNotesData, NotebookFileTreePreferences,
+    NotebookTagSystemData, SystemFile, TagLayoutItem,
 };
 
 const FEATURED_NOTES_ALLOWED_OPERATORS: [&str; 3] = ["equals", "contains", "excludes"];
@@ -120,7 +120,10 @@ pub fn set_custom_views(
 ) -> Result<(), String> {
     for filter in &views.filters {
         if !CUSTOM_VIEW_ALLOWED_OPERATORS.contains(&filter.operator.as_str()) {
-            return Err(format!("unsupported custom view operator: {}", filter.operator));
+            return Err(format!(
+                "unsupported custom view operator: {}",
+                filter.operator
+            ));
         }
     }
     let mut file = load_notebook_system(&notebook_id, &state)?;
@@ -152,27 +155,43 @@ pub fn set_notebook_file_tree_section_order(
     state: State<AppState>,
 ) -> Result<(), String> {
     if section_order.len() != FILE_TREE_SECTIONS.len()
-        || section_order.iter().any(|section| !FILE_TREE_SECTIONS.contains(&section.as_str()))
-        || FILE_TREE_SECTIONS
+        || section_order
             .iter()
-            .any(|section| section_order.iter().filter(|item| item.as_str() == *section).count() != 1)
+            .any(|section| !FILE_TREE_SECTIONS.contains(&section.as_str()))
+        || FILE_TREE_SECTIONS.iter().any(|section| {
+            section_order
+                .iter()
+                .filter(|item| item.as_str() == *section)
+                .count()
+                != 1
+        })
     {
         return Err("file tree section order must contain agents, pinned, files, repositories, and more once each".to_string());
     }
     if let Some(hidden) = &hidden_sections {
         if hidden.iter().any(|section| {
             !FILE_TREE_SECTIONS.contains(&section.as_str()) && section.as_str() != "skillMarket"
-        })
-            || FILE_TREE_SECTIONS
+        }) || FILE_TREE_SECTIONS.iter().any(|section| {
+            hidden
                 .iter()
-                .any(|section| hidden.iter().filter(|item| item.as_str() == *section).count() > 1)
-            || hidden.iter().filter(|section| section.as_str() == "skillMarket").count() > 1
+                .filter(|item| item.as_str() == *section)
+                .count()
+                > 1
+        }) || hidden
+            .iter()
+            .filter(|section| section.as_str() == "skillMarket")
+            .count()
+            > 1
         {
             return Err("invalid file tree hidden sections".to_string());
         }
     }
     let mut file = load_notebook_system(&notebook_id, &state)?;
-    let preferences = file.file_tree.notebooks.entry(notebook_id.clone()).or_default();
+    let preferences = file
+        .file_tree
+        .notebooks
+        .entry(notebook_id.clone())
+        .or_default();
     preferences.section_order = section_order;
     if let Some(hidden_sections) = hidden_sections {
         preferences.hidden_sections = hidden_sections;

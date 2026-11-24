@@ -3,6 +3,18 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BadgeHoverCard } from "./badge-hover-card";
 
+const cloudMocks = vi.hoisted(() => ({
+  getState: vi.fn(),
+  getAiCreditBalance: vi.fn(),
+}));
+vi.mock("@platform/tauri/client", () => ({ cloud: cloudMocks }));
+
+vi.mock("@features/agent/store/agent-data-store", () => ({
+  useAgentDataStore: (selector: (state: unknown) => unknown) => selector({ agents: { pi: { catalog: { models: { items: [
+    { id: "flowix-cn-1/gpt-6.1-terra", providerId: "flowix-cloud-member", source: "flowix-cloud", label: "GPT-6.1 Terra" },
+  ] } } } } }),
+}));
+
 vi.mock("@shared/ui/hover-card", () => ({
   HoverCard: ({
     children,
@@ -48,6 +60,36 @@ vi.mock("@/lib/i18n", () => ({
 describe("BadgeHoverCard", () => {
   afterEach(() => {
     document.body.innerHTML = "";
+  });
+
+  it("displays the Cloud catalog title instead of the internal upstream route", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(createElement(BadgeHoverCard, {
+      agentType: "pi", model: "flowix-cloud-member/flowix-cn-1/gpt-6.1-terra",
+    })));
+    expect(host.textContent).toContain("GPT-6.1 Terra");
+    expect(host.textContent).not.toContain("flowix-cn-1");
+    await act(async () => root.unmount());
+  });
+
+  it("loads and refreshes Pi member credits", async () => {
+    cloudMocks.getState.mockResolvedValue({ authenticated: true });
+    cloudMocks.getAiCreditBalance.mockResolvedValueOnce({ balanceMicrocredits: 1_250_000 })
+      .mockResolvedValueOnce({ balanceMicrocredits: 2_500_000 });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => { root.render(createElement(BadgeHoverCard, { agentType: "pi" })); });
+    await act(async () => { host.querySelector<HTMLButtonElement>("[data-open]")!.click(); });
+    expect(host.textContent).toContain("1.25");
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('[aria-label="preferences.pi.cloudCreditsRefresh"]')!.click();
+    });
+    expect(host.textContent).toContain("2.50");
+    expect(cloudMocks.getAiCreditBalance).toHaveBeenCalledTimes(2);
+    await act(async () => root.unmount());
   });
 
   it("renders the persisted session id and usage synchronously", async () => {

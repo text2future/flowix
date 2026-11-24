@@ -37,10 +37,7 @@ pub(crate) fn agent_image_cache_root() -> Result<PathBuf, String> {
         .ok_or_else(|| "Home directory is unavailable".to_string())
 }
 
-pub(crate) fn ensure_path_within_image_cache(
-    root: &Path,
-    candidate: &Path,
-) -> Result<(), String> {
+pub(crate) fn ensure_path_within_image_cache(root: &Path, candidate: &Path) -> Result<(), String> {
     // 先 canonicalize 再比：符号链接指到缓存目录外的文件同样要拒绝。
     if !candidate.starts_with(root) || !candidate.is_file() {
         return Err("Cached image path is outside the image cache".to_string());

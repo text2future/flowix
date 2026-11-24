@@ -1,7 +1,7 @@
 'use client';
 
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
-import { Info, ListTodo } from 'lucide-react';
+import { AlertTriangle, Info, ListTodo } from 'lucide-react';
 import type { CSSProperties } from 'react';
 import mcpPluginIcon from '@/assets/mcp-plugin.svg';
 import { Tooltip } from '@shared/ui/tooltip';
@@ -9,14 +9,15 @@ import type { Notebook } from '@features/memo/store/note-store';
 import { NotebookSelectorPopup } from '@features/shell/components/status-bar/notebook-selector-popup';
 import { ProductUpdatePill } from '@features/shell/components/status-bar/product-update-pill';
 import { ProductIntroDialog } from '@features/product-intro';
+import { degradedSyncState, selectedNotebookSyncStatuses, stabilizeTransferPhase, updateNotebookSyncFailures } from '@features/shell/components/status-bar/sync-degradation';
 import { useI18n } from '@/lib/i18n';
-import { getCloudSyncAccess } from '@/lib/cloud-account';
 import { useDocumentMetricsStore } from '@features/document/store/document-metrics-store';
 import { useNoteStore } from '@features/memo/store/note-store';
 import { CloudStatusIcon } from '@shared/icons/cloud-status-icon';
 import {
   cloud,
   listenToCloudStateChanges,
+  listenToCloudStorageAccessChanges,
   listenToCloudSyncStatusChanges,
   type CloudSyncStatus,
 } from '@platform/tauri/client';
@@ -75,12 +76,14 @@ export function StatusBar({
   const [cloudSyncStatuses, setCloudSyncStatuses] = useState<Map<string, CloudSyncStatus>>(
     () => new Map(),
   );
+  const [cloudSyncFailures, setCloudSyncFailures] = useState<ReadonlyMap<string, CloudSyncStatus>>(
+    () => new Map(),
+  );
   const cloudStateRequestRef = useRef(0);
   const [cloudSyncedNotebookIds, setCloudSyncedNotebookIds] = useState<Set<string>>(
     () => new Set(),
   );
   const [cloudSyncAvailable, setCloudSyncAvailable] = useState(false);
-  const [cloudPendingOperationCount, setCloudPendingOperationCount] = useState(0);
   const notebooks = useNoteStore((state) => state.notebooks);
   const selectedNotebook = useNoteStore((state) => state.selectedNotebook);
   const setNotebooks = useNoteStore((state) => state.setNotebooks);
@@ -89,10 +92,10 @@ export function StatusBar({
   useEffect(() => {
     const refreshCloudSyncedNotebookIds = () => {
       const requestId = ++cloudStateRequestRef.current;
-      void Promise.all([cloud.getState(), cloud.listNotebookStates()])
-        .then(([cloudState, links]) => {
+      void Promise.all([cloud.getStorageAccess(), cloud.listNotebookStates()])
+        .then(([storageAccess, links]) => {
           if (requestId !== cloudStateRequestRef.current) return;
-          setCloudSyncAvailable(getCloudSyncAccess(cloudState).canRead);
+          setCloudSyncAvailable(storageAccess.canRead);
           setCloudSyncedNotebookIds(
             new Set(links.filter((link) => link.enabled).map((link) => link.notebookId)),
           );
@@ -104,10 +107,16 @@ export function StatusBar({
         });
     };
     refreshCloudSyncedNotebookIds();
-    return listenToCloudStateChanges((cloudState) => {
-      setCloudSyncAvailable(getCloudSyncAccess(cloudState).canRead);
+    const unlistenState = listenToCloudStateChanges(() => {
       refreshCloudSyncedNotebookIds();
     });
+    const unlistenStorage = listenToCloudStorageAccessChanges(() => {
+      refreshCloudSyncedNotebookIds();
+    });
+    return () => {
+      unlistenState();
+      unlistenStorage();
+    };
   }, []);
 
   useEffect(() => {
@@ -118,56 +127,28 @@ export function StatusBar({
 
   useEffect(() => {
     return listenToCloudSyncStatusChanges((status) => {
+      setCloudSyncFailures((previous) => updateNotebookSyncFailures(previous, status));
       setCloudSyncStatuses((previous) => {
         const current = previous.get(status.notebookId);
         if (current && status.startedAt < current.startedAt) return previous;
         const next = new Map(previous);
-        next.set(status.notebookId, status);
+        next.set(status.notebookId, stabilizeTransferPhase(current, status));
         return next;
       });
     });
   }, []);
 
-  const cloudSyncInProgress = Array.from(cloudSyncStatuses.values()).some((status) =>
-    status.state === 'queued'
-    || status.state === 'checking'
-    || status.state === 'syncing'
-    || status.state === 'finalizing',
-  );
+  const currentSyncStatuses = selectedNotebookSyncStatuses(cloudSyncStatuses, selectedNotebook?.id);
+  const transferDirection = currentSyncStatuses.find((status) =>
+    status.state === 'syncing' && (status.phase === 'upload' || status.phase === 'download'),
+  )?.phase as 'upload' | 'download' | undefined;
 
-  useEffect(() => {
-    if (!cloudSyncInProgress) {
-      setCloudPendingOperationCount(0);
-      return;
-    }
-
-    let cancelled = false;
-    let requestInFlight = false;
-    const refreshPendingOperationCount = () => {
-      if (requestInFlight) return;
-      requestInFlight = true;
-      void cloud.listPendingFileOperationCounts()
-        .then((counts) => {
-          if (cancelled) return;
-          setCloudPendingOperationCount(
-            Object.values(counts).reduce((total, count) => total + count, 0),
-          );
-        })
-        .catch(() => {
-          // Keep the last known count through a transient IPC/database error.
-        })
-        .finally(() => {
-          requestInFlight = false;
-        });
-    };
-
-    refreshPendingOperationCount();
-    const interval = window.setInterval(refreshPendingOperationCount, 1000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, [cloudSyncInProgress]);
+  // A pass that could not publish still finishes successfully — its counters are
+  // zero because nothing was attempted, not because there was nothing to do, so
+  // the outcome has to be read off the engine's own flags. Shown alongside the
+  // transfer indicator: "local only" is the standing conclusion.
+  const degradedSync = degradedSyncState(currentSyncStatuses);
+  const failedSync = selectedNotebook?.id ? cloudSyncFailures.get(selectedNotebook.id) : undefined;
 
   return (
     <div className="flex h-[26px] shrink-0 select-none items-stretch text-xs text-[var(--muted-foreground)]">
@@ -202,28 +183,74 @@ export function StatusBar({
         </Suspense>
         <div className="flex-1" />
         <ProductUpdatePill updater={updater} anchor={statusBarRightEdgeRef} />
-        {cloudSyncInProgress && (
+        {transferDirection && (
           <div
             className="inline-flex h-[22px] items-center gap-1 px-1.5 text-xs leading-none text-[var(--muted-foreground)]"
             role="status"
             aria-live="polite"
-            aria-label={
-              cloudPendingOperationCount > 0
-                ? `${t('shell.statusBar.syncing')} ${cloudPendingOperationCount}`
-                : t('shell.statusBar.syncing')
-            }
+            aria-label={t(transferDirection === 'upload' ? 'shell.statusBar.uploading' : 'shell.statusBar.downloading')}
           >
             <CloudStatusIcon
-              status="connecting"
+              status={transferDirection}
               size={14}
               className="!opacity-100"
             />
-            {cloudPendingOperationCount > 0 && (
-              <span className="font-mono tabular-nums">
-                {cloudPendingOperationCount}
+          </div>
+        )}
+        {failedSync && (
+          <Tooltip
+            side="top"
+            content={(
+              <span className="block max-w-[24rem] space-y-1">
+                <span className="block font-medium">{t('cloudSync.failed.title')}</span>
+                <span className="block">{t('cloudSync.failed.body')}</span>
+                <code className="block whitespace-pre-wrap break-words text-[11px]">
+                  {failedSync.lastError}
+                </code>
               </span>
             )}
-          </div>
+          >
+            <div
+              className="inline-flex h-[22px] items-center gap-1 px-1.5 text-xs leading-none text-[var(--destructive)]"
+              role="status"
+              aria-live="polite"
+              aria-label={t('cloudSync.failed.title')}
+            >
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            </div>
+          </Tooltip>
+        )}
+        {degradedSync && (
+          <Tooltip
+            side="top"
+            content={
+              <span className="block max-w-[15rem] space-y-0.5">
+                <span className="block font-medium">
+                  {degradedSync === 'readOnly'
+                    ? t('cloudSync.readOnly.title')
+                    : t('cloudSync.deletesPaused.title')}
+                </span>
+                <span className="block">
+                  {degradedSync === 'readOnly'
+                    ? t('cloudSync.readOnly.body')
+                    : t('cloudSync.deletesPaused.body')}
+                </span>
+              </span>
+            }
+          >
+            <div
+              className="inline-flex h-[22px] items-center gap-1 px-1.5 text-xs leading-none text-[var(--warning)]"
+              role="status"
+              aria-live="polite"
+              aria-label={
+                degradedSync === 'readOnly'
+                  ? t('cloudSync.readOnly.title')
+                  : t('cloudSync.deletesPaused.title')
+              }
+            >
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            </div>
+          </Tooltip>
         )}
         {charCount > 0 && (
           <span className="h-full inline-flex items-center gap-0.5 px-1.5 text-[var(--muted-foreground)] hover:bg-[var(--muted)]">

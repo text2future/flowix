@@ -6,17 +6,20 @@
 
 use super::*;
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use serde_json::{Value, json};
-use tokio::sync::Mutex;
 use super::super::AGENT_TYPE;
 use crate::agent_external::lifecycle::ExternalLifecycleEmitter;
 use crate::agent_external::select_external_session_for_runtime;
 use crate::agent_wire::AgentUserMessage;
+use serde_json::{json, Value};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 impl CodexAppServerManager {
-    pub(super) async fn resolve_queue_thread_id(&self, flowix_thread_id: &str) -> Result<String, String> {
+    pub(super) async fn resolve_queue_thread_id(
+        &self,
+        flowix_thread_id: &str,
+    ) -> Result<String, String> {
         self.ensure_connection().await?;
         let stored = self
             .inner
@@ -30,7 +33,6 @@ impl CodexAppServerManager {
             .await?;
         Ok(codex_thread_id)
     }
-
 
     /// Add a Follow-up to Codex's persistent app-server queue.
     pub async fn queue_follow_up(
@@ -191,7 +193,6 @@ impl CodexAppServerManager {
         }
     }
 
-
     pub(super) async fn list_queued_follow_ups_unlocked(
         &self,
         flowix_thread_id: &str,
@@ -204,7 +205,6 @@ impl CodexAppServerManager {
         Ok(result)
     }
 
-
     /// Read Codex's persistent queue so UI state can be restored after reload.
     pub async fn list_queued_follow_ups(&self, flowix_thread_id: &str) -> Result<Value, String> {
         let codex_thread_id = self.resolve_queue_thread_id(flowix_thread_id).await?;
@@ -215,8 +215,11 @@ impl CodexAppServerManager {
         Ok(self.with_pending_steers(flowix_thread_id, result).await)
     }
 
-
-    pub(super) async fn with_pending_steers(&self, flowix_thread_id: &str, mut result: Value) -> Value {
+    pub(super) async fn with_pending_steers(
+        &self,
+        flowix_thread_id: &str,
+        mut result: Value,
+    ) -> Value {
         let turns = self.inner.active_turns.lock().await;
         result["pendingDeliveries"] = json!(turns
             .get(flowix_thread_id)
@@ -225,7 +228,6 @@ impl CodexAppServerManager {
             .unwrap_or_default());
         result
     }
-
 
     /// Restore an idle provider queue into the normal run lifecycle. This is
     /// separate from `list_queued_follow_ups`, which is also used for
@@ -278,7 +280,6 @@ impl CodexAppServerManager {
         Ok(self.with_pending_steers(flowix_thread_id, result).await)
     }
 
-
     pub async fn delete_queued_follow_up(
         &self,
         flowix_thread_id: &str,
@@ -294,7 +295,6 @@ impl CodexAppServerManager {
         .await?;
         Ok(json!({ "deleted": true }))
     }
-
 
     pub(super) async fn delete_queue_entry(
         &self,
@@ -321,7 +321,6 @@ impl CodexAppServerManager {
         }
         Ok(result)
     }
-
 
     pub(super) async fn delete_queue_entry_with_retry(
         &self,
@@ -366,7 +365,6 @@ impl CodexAppServerManager {
             Err(_) => Err(first_error),
         }
     }
-
 
     /// Explicitly start one queued message while the thread is idle, such as
     /// when restoring a persisted queue into a new Flowix session.
@@ -600,7 +598,6 @@ impl CodexAppServerManager {
         }
     }
 
-
     /// Deliver a selected Follow-up immediately. Runtime state is authoritative:
     /// steer an active chat, or start the queued submission when idle.
     pub async fn deliver_queued_follow_up_now(
@@ -670,5 +667,4 @@ impl CodexAppServerManager {
             )),
         }
     }
-
 }

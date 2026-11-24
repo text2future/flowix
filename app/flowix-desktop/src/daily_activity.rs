@@ -148,7 +148,9 @@ mod tests {
     use chrono::TimeZone;
 
     fn local_at(hour: u32, minute: u32) -> DateTime<Local> {
-        Local.with_ymd_and_hms(2026, 11, 7, hour, minute, 0).unwrap()
+        Local
+            .with_ymd_and_hms(2026, 11, 7, hour, minute, 0)
+            .unwrap()
     }
 
     #[test]

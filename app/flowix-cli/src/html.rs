@@ -166,8 +166,14 @@ fn render(catalog: &Catalog) -> String {
     );
 
     let _ = writeln!(out);
-    let _ = writeln!(out, "打开页面即授权当前笔记本内的读写能力；请只打开信任的页面。");
-    let _ = writeln!(out, "此目录来自本地 CLI；用 request('capabilities') 查询运行中宿主的实际能力。");
+    let _ = writeln!(
+        out,
+        "打开页面即授权当前笔记本内的读写能力；请只打开信任的页面。"
+    );
+    let _ = writeln!(
+        out,
+        "此目录来自本地 CLI；用 request('capabilities') 查询运行中宿主的实际能力。"
+    );
     let _ = writeln!(out, "能力（按搭页面的顺序）：");
     for (index, kind) in catalog.kinds.iter().enumerate() {
         let _ = writeln!(out);
@@ -300,9 +306,7 @@ mod tests {
             text.contains("view-data") && text.contains("relativePath"),
             "the params line is what tells an agent what to pass"
         );
-        assert!(
-            text.contains(&format!("--template {}", TEMPLATES[0].0))
-        );
+        assert!(text.contains(&format!("--template {}", TEMPLATES[0].0)));
     }
 
     #[test]

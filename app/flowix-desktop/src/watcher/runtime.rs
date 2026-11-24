@@ -70,7 +70,6 @@ pub(crate) fn mark_self_create_dir_for(app: &AppHandle, dir: &Path) {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -78,9 +77,14 @@ mod tests {
 
     fn notebook(root: &Path) -> NotebookConfig {
         NotebookConfig {
-            id: "notebook".into(), name: "Notebook".into(), icon: None,
-            path: root.to_string_lossy().into_owned(), is_default: false,
-            sort: 0, created_at: 1, updated_at: 1,
+            id: "notebook".into(),
+            name: "Notebook".into(),
+            icon: None,
+            path: root.to_string_lossy().into_owned(),
+            is_default: false,
+            sort: 0,
+            created_at: 1,
+            updated_at: 1,
         }
     }
 
@@ -90,10 +94,16 @@ mod tests {
         let memo = MemoFile::new(temp.path().to_path_buf());
         let mut config = notebook(&temp.path().join("book"));
         memo.write_notebook_configs(&[config.clone()]).unwrap();
-        assert_eq!(read_registered_notebooks(temp.path()).unwrap()[0].name, "Notebook");
+        assert_eq!(
+            read_registered_notebooks(temp.path()).unwrap()[0].name,
+            "Notebook"
+        );
         config.name = "Renamed".into();
         memo.write_notebook_configs(&[config]).unwrap();
-        assert_eq!(read_registered_notebooks(temp.path()).unwrap()[0].name, "Renamed");
+        assert_eq!(
+            read_registered_notebooks(temp.path()).unwrap()[0].name,
+            "Renamed"
+        );
         memo.write_notebook_configs(&[]).unwrap();
         assert!(read_registered_notebooks(temp.path()).unwrap().is_empty());
     }
@@ -102,14 +112,18 @@ mod tests {
     fn registry_snapshot_under_watcher_lock_does_not_wait_for_global_memo_lock() {
         let temp = tempfile::tempdir().unwrap();
         let memo = Arc::new(RwLock::new(MemoFile::new(temp.path().to_path_buf())));
-        memo.read().unwrap().write_notebook_configs(&[notebook(&temp.path().join("book"))]).unwrap();
+        memo.read()
+            .unwrap()
+            .write_notebook_configs(&[notebook(&temp.path().join("book"))])
+            .unwrap();
         let watcher = Arc::new(RwLock::new(MemoWatcher::new(memo.clone())));
         let held_memo = memo.write().unwrap();
         let config_dir = temp.path().to_path_buf();
         let (tx, rx) = std::sync::mpsc::channel();
         let worker = std::thread::spawn(move || {
             let _binding = watcher.write().unwrap();
-            tx.send(read_registered_notebooks(&config_dir).map(|configs| configs.len())).unwrap();
+            tx.send(read_registered_notebooks(&config_dir).map(|configs| configs.len()))
+                .unwrap();
         });
         let snapshot = rx.recv_timeout(std::time::Duration::from_secs(3));
         // Release before asserting/joining so a regression cannot strand a thread.

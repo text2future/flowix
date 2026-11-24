@@ -96,6 +96,9 @@ mod tests {
             available_bytes: 90,
             note_count: 1,
             read_only: false,
+            usage_observed_at: Some(50),
+            usage_read_status: Some("ok".to_string()),
+            usage_source: Some("object_store".to_string()),
         }
     }
     #[test]

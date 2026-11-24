@@ -64,10 +64,7 @@ pub async fn mutate_collection(
             let _watch_move = memo
                 .get_notebook_config_by_id(&request.notebook_id)
                 .and_then(|notebook| {
-                    crate::external_watch::begin_path_move(
-                        &app,
-                        Path::new(&notebook.path),
-                    )
+                    crate::external_watch::begin_path_move(&app, Path::new(&notebook.path))
                 });
             let result = mutate_with_completion(&memo, &request, &|result| {
                 emit_mutation_result(&app, &request.notebook_id, result)
@@ -186,8 +183,7 @@ pub(crate) fn rename_folder_collection_at_path(
         target_relative_path: None,
         properties: None,
     };
-    let _watch_move =
-        crate::external_watch::begin_path_move(app, Path::new(&notebook.path));
+    let _watch_move = crate::external_watch::begin_path_move(app, Path::new(&notebook.path));
     let result = mutate_with_completion(memo, &request, &|result| {
         emit_mutation_result(app, &request.notebook_id, result)
     })?;
@@ -201,13 +197,18 @@ pub async fn set_collection_display_state(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let memo = state.memo_file.clone();
-    tauri::async_runtime::spawn_blocking(move||{
-        let memo=read_lock(&memo,"memo_file");
-        let _guard = memo.operation_locks().notebook_read(&notebook_id, "set_collection_display_state")
+    tauri::async_runtime::spawn_blocking(move || {
+        let memo = read_lock(&memo, "memo_file");
+        let _guard = memo
+            .operation_locks()
+            .notebook_read(&notebook_id, "set_collection_display_state")
             .map_err(|error| error.to_string())?;
-        with_catalog(&memo,&notebook_id,|catalog|{
-        catalog.set_display_state(&collection_id, in_views)
-    })}).await.map_err(|e|e.to_string())?
+        with_catalog(&memo, &notebook_id, |catalog| {
+            catalog.set_display_state(&collection_id, in_views)
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 #[tauri::command]
 pub async fn set_collection_pinned(

@@ -1067,5 +1067,4 @@ mod tests {
         let interrupt = app_turn_interrupt_request(4, "thread-1");
         assert_eq!(interrupt["method"], "turn/interrupt");
     }
-
 }

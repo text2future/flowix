@@ -815,22 +815,52 @@ pub fn add_note(
     title: &str,
     content: &str,
 ) -> Result<CollectionNoteResult, String> {
-    add_note_with_request(memo, notebook_id, collection_id, relative_path, title, content, None)
+    add_note_with_request(
+        memo,
+        notebook_id,
+        collection_id,
+        relative_path,
+        title,
+        content,
+        None,
+    )
 }
 
 pub fn add_note_with_request(
-    memo: &MemoFile, notebook_id: &str, collection_id: Option<&str>, relative_path: Option<&str>,
-    title: &str, content: &str, request_id: Option<&str>,
+    memo: &MemoFile,
+    notebook_id: &str,
+    collection_id: Option<&str>,
+    relative_path: Option<&str>,
+    title: &str,
+    content: &str,
+    request_id: Option<&str>,
 ) -> Result<CollectionNoteResult, String> {
-    add_note_with_request_schema(memo, notebook_id, collection_id, relative_path, title, content, request_id, None)
+    add_note_with_request_schema(
+        memo,
+        notebook_id,
+        collection_id,
+        relative_path,
+        title,
+        content,
+        request_id,
+        None,
+    )
 }
 
 pub fn add_note_with_request_schema(
-    memo: &MemoFile, notebook_id: &str, collection_id: Option<&str>, relative_path: Option<&str>,
-    title: &str, content: &str, request_id: Option<&str>, expected_schema: Option<&Value>,
+    memo: &MemoFile,
+    notebook_id: &str,
+    collection_id: Option<&str>,
+    relative_path: Option<&str>,
+    title: &str,
+    content: &str,
+    request_id: Option<&str>,
+    expected_schema: Option<&Value>,
 ) -> Result<CollectionNoteResult, String> {
     if collection_id.is_some() == relative_path.is_some() {
-        return Err("COLLECTION_SELECTOR_REQUIRED: provide exactly one collection id or path".into());
+        return Err(
+            "COLLECTION_SELECTOR_REQUIRED: provide exactly one collection id or path".into(),
+        );
     }
     let title = title.trim();
     if title.is_empty() {
@@ -839,7 +869,9 @@ pub fn add_note_with_request_schema(
     if content.trim().is_empty() {
         return Err("NOTE_CONTENT_REQUIRED".into());
     }
-    if request_id.is_some_and(|id| id.is_empty() || id.len() > 256 || id.chars().any(char::is_control)) {
+    if request_id
+        .is_some_and(|id| id.is_empty() || id.len() > 256 || id.chars().any(char::is_control))
+    {
         return Err("INVALID_REQUEST_ID".into());
     }
 
@@ -869,15 +901,33 @@ pub fn add_note_with_request_schema(
     // The cache is deliberately process-local. Holding the guard through the
     // write also serializes concurrent requests with the same key.
     let mut requests = if request_id.is_some() {
-        Some(COLLECTION_REQUESTS.get_or_init(Default::default).lock().map_err(|_| "COLLECTION_REQUEST_LOCK_FAILED")?)
+        Some(
+            COLLECTION_REQUESTS
+                .get_or_init(Default::default)
+                .lock()
+                .map_err(|_| "COLLECTION_REQUEST_LOCK_FAILED")?,
+        )
     } else {
         None
     };
-    let request_key = request_id.map(|id| (collection_path.to_string_lossy().into_owned(), notebook_id.to_owned(), id.to_owned()));
-    let payload_hash = format!("{:x}", Sha256::digest(format!("{}\0{}", title, content).as_bytes()));
+    let request_key = request_id.map(|id| {
+        (
+            collection_path.to_string_lossy().into_owned(),
+            notebook_id.to_owned(),
+            id.to_owned(),
+        )
+    });
+    let payload_hash = format!(
+        "{:x}",
+        Sha256::digest(format!("{}\0{}", title, content).as_bytes())
+    );
     if let (Some(cache), Some(key)) = (requests.as_ref(), request_key.as_ref()) {
         if let Some((previous, result)) = cache.get(key) {
-            return if previous == &payload_hash { Ok(result.clone()) } else { Err("REQUEST_ID_CONFLICT".into()) };
+            return if previous == &payload_hash {
+                Ok(result.clone())
+            } else {
+                Err("REQUEST_ID_CONFLICT".into())
+            };
         }
     }
 
@@ -1020,13 +1070,15 @@ pub fn add_note_with_request_schema(
                 cache.insert(key, (payload_hash, result.clone()));
             }
             Ok(result)
-        },
+        }
         Err(error) => {
             if !collection_committed {
                 if let Some(note_path) = created_note_path {
                     if let Err(cleanup_error) = memo.delete_note_by_path(notebook_id, &note_path) {
                         tracing::warn!(notebook_id, %note_path, %cleanup_error, "failed to remove unlinked note after collection add failed");
-                        return Err(format!("{error}; orphan note cleanup failed for {note_path}: {cleanup_error}"));
+                        return Err(format!(
+                            "{error}; orphan note cleanup failed for {note_path}: {cleanup_error}"
+                        ));
                     }
                 }
             }
@@ -1043,40 +1095,71 @@ fn validate_note_field_values(dataset: &Value, content: &str) -> Result<(), Stri
     let type_declarations = match properties.get("flowix_property_types") {
         None | Some(Value::Null) => None,
         Some(Value::Object(types)) => Some(types),
-        Some(_) => return Err("INVALID_FIELD_TYPE_DECLARATIONS: flowix_property_types must be a mapping".into()),
+        Some(_) => {
+            return Err(
+                "INVALID_FIELD_TYPE_DECLARATIONS: flowix_property_types must be a mapping".into(),
+            )
+        }
     };
-    let fields = dataset.pointer("/schema/fields").and_then(Value::as_array).ok_or("INVALID_COLLECTION_SCHEMA")?;
+    let fields = dataset
+        .pointer("/schema/fields")
+        .and_then(Value::as_array)
+        .ok_or("INVALID_COLLECTION_SCHEMA")?;
     for field in fields {
         let kind = field["type"].as_str().unwrap_or("");
-        if kind == "primary" { continue; }
+        if kind == "primary" {
+            continue;
+        }
         let key = field["property_key"].as_str().unwrap_or("");
         if let Some(declared) = type_declarations.and_then(|types| types.get(key)) {
-            if declared.as_str() != Some(kind) { return Err(format!("FIELD_TYPE_MISMATCH: {key} expects {kind}")); }
+            if declared.as_str() != Some(kind) {
+                return Err(format!("FIELD_TYPE_MISMATCH: {key} expects {kind}"));
+            }
         }
-        let Some(value) = properties.get(key) else { continue; };
-        if value.is_null() || value.as_str() == Some("") { continue; }
+        let Some(value) = properties.get(key) else {
+            continue;
+        };
+        if value.is_null() || value.as_str() == Some("") {
+            continue;
+        }
         let options = field["options"].as_array();
-        let valid_option = |v: &Value| v.as_str().is_some_and(|s| options.is_some_and(|options| options.iter().any(|o| o["id"] == s || o["label"] == s)));
-        let strings = |v: &Value| v.as_array().is_some_and(|values| values.iter().all(Value::is_string));
+        let valid_option = |v: &Value| {
+            v.as_str().is_some_and(|s| {
+                options
+                    .is_some_and(|options| options.iter().any(|o| o["id"] == s || o["label"] == s))
+            })
+        };
+        let strings = |v: &Value| {
+            v.as_array()
+                .is_some_and(|values| values.iter().all(Value::is_string))
+        };
         let valid = match kind {
             "Text" | "Icon" => value.is_string(),
             "URL" => value.as_str().is_some_and(|s| {
                 let lower = s.to_ascii_lowercase();
                 !s.chars().any(char::is_whitespace)
-                    && (lower.strip_prefix("http://").or_else(|| lower.strip_prefix("https://")))
-                        .is_some_and(|rest| !rest.is_empty())
+                    && (lower
+                        .strip_prefix("http://")
+                        .or_else(|| lower.strip_prefix("https://")))
+                    .is_some_and(|rest| !rest.is_empty())
             }),
             "Boolean" => value.is_boolean(),
             "Number" => value.as_f64().is_some_and(f64::is_finite),
-            "Date" => value.as_str().is_some_and(|s| s.len() == 10 && chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").is_ok()),
+            "Date" => value.as_str().is_some_and(|s| {
+                s.len() == 10 && chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").is_ok()
+            }),
             "Select" => valid_option(value),
-            "MultiSelect" => value.as_array().is_some_and(|values| values.iter().all(valid_option)),
+            "MultiSelect" => value
+                .as_array()
+                .is_some_and(|values| values.iter().all(valid_option)),
             "Tag" | "Color" => strings(value),
             "Image" => value.is_string() || strings(value),
             // Legacy types have their own persistence rules.
             _ => true,
         };
-        if !valid { return Err(format!("INVALID_FIELD_VALUE: {key} expects {kind}")); }
+        if !valid {
+            return Err(format!("INVALID_FIELD_VALUE: {key} expects {kind}"));
+        }
     }
     Ok(())
 }
@@ -1122,10 +1205,7 @@ pub fn refresh_path(memo: &MemoFile, path: &Path) {
         }
     }
 }
-pub fn list_for_rebase(
-    memo: &MemoFile,
-    id: &str,
-) -> Result<Vec<CollectionIndexItem>, String> {
+pub fn list_for_rebase(memo: &MemoFile, id: &str) -> Result<Vec<CollectionIndexItem>, String> {
     with_catalog(memo, id, |catalog| catalog.list(None))
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1716,8 +1796,7 @@ mod tests {
     fn folder_document(kind: CollectionType) -> CollectionDocument {
         let mut value = document(kind).normalized_v2().unwrap();
         value.collection.placement = CollectionPlacement::Folder;
-        value.payload["dataset"]["source"] =
-            serde_json::json!({"scope":"containing_folder"});
+        value.payload["dataset"]["source"] = serde_json::json!({"scope":"containing_folder"});
         value
     }
 

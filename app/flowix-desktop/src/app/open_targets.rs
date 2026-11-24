@@ -146,11 +146,15 @@ fn enqueue_targets(
         match authorize_file(requested, access) {
             Ok(path) => {
                 let path = path.to_string_lossy().into_owned();
-                if !files.contains(&path) { files.push(path); }
+                if !files.contains(&path) {
+                    files.push(path);
+                }
             }
             Err(error) => {
                 tracing::warn!(source, path = %raw, %error, "OS file-open authorization failed");
-                pending.push(OpenTarget::Error { message: format!("{error}: {raw}") });
+                pending.push(OpenTarget::Error {
+                    message: format!("{error}: {raw}"),
+                });
             }
         }
         changed = true;
@@ -256,18 +260,38 @@ mod tests {
         ];
         let pending = PendingOpenTargets::default();
         let access = DocumentAccess::default();
-        assert!(enqueue_targets(&pending, command_line_targets(argv), &access, "test"));
+        assert!(enqueue_targets(
+            &pending,
+            command_line_targets(argv),
+            &access,
+            "test"
+        ));
         assert!(!access.contains("main", &executable));
         assert!(access.contains("main", &document));
         let documents = pending.snapshot(OpenTargetConsumer::ExternalDocuments);
         assert_eq!(documents.len(), 1);
-        let OpenTarget::ExternalDocuments { file_paths } = &documents[0].target else { panic!("expected file batch"); };
-        assert_eq!(file_paths, &vec![dunce::canonicalize(&document).unwrap().to_string_lossy().into_owned()]);
+        let OpenTarget::ExternalDocuments { file_paths } = &documents[0].target else {
+            panic!("expected file batch");
+        };
+        assert_eq!(
+            file_paths,
+            &vec![dunce::canonicalize(&document)
+                .unwrap()
+                .to_string_lossy()
+                .into_owned()]
+        );
         assert_eq!(pending.snapshot(OpenTargetConsumer::Path).len(), 1);
 
         let pending = PendingOpenTargets::default();
-        assert!(!enqueue_targets(&pending, command_line_targets(vec![executable.to_string_lossy().into_owned()]), &access, "test"));
-        assert!(pending.snapshot(OpenTargetConsumer::ExternalDocuments).is_empty());
+        assert!(!enqueue_targets(
+            &pending,
+            command_line_targets(vec![executable.to_string_lossy().into_owned()]),
+            &access,
+            "test"
+        ));
+        assert!(pending
+            .snapshot(OpenTargetConsumer::ExternalDocuments)
+            .is_empty());
         assert!(command_line_targets(Vec::<String>::new()).is_empty());
     }
 
@@ -276,11 +300,20 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let notebook = directory.path().join("notebook");
         std::fs::create_dir(&notebook).unwrap();
-        let paths = [notebook.join("note.md"), directory.path().join("document.pdf"), directory.path().join("no-extension")];
-        for path in &paths { std::fs::write(path, [0_u8, 255, 1]).unwrap(); }
+        let paths = [
+            notebook.join("note.md"),
+            directory.path().join("document.pdf"),
+            directory.path().join("no-extension"),
+        ];
+        for path in &paths {
+            std::fs::write(path, [0_u8, 255, 1]).unwrap();
+        }
         let access = DocumentAccess::default();
         let pending = PendingOpenTargets::default();
-        let mut targets: Vec<String> = paths.iter().map(|path| path.to_string_lossy().into_owned()).collect();
+        let mut targets: Vec<String> = paths
+            .iter()
+            .map(|path| path.to_string_lossy().into_owned())
+            .collect();
         targets.push(targets[0].clone());
         targets.push("--flag".into());
         targets.push("https://example.com/document.md".into());
@@ -288,10 +321,15 @@ mod tests {
         assert!(pending.snapshot(OpenTargetConsumer::Path).is_empty());
         let batches = pending.snapshot(OpenTargetConsumer::ExternalDocuments);
         assert_eq!(batches.len(), 1);
-        let OpenTarget::ExternalDocuments { file_paths } = &batches[0].target else { panic!("expected file batch"); };
+        let OpenTarget::ExternalDocuments { file_paths } = &batches[0].target else {
+            panic!("expected file batch");
+        };
         assert_eq!(file_paths.len(), 3);
         for (path, result) in paths.iter().zip(file_paths) {
-            assert_eq!(dunce::canonicalize(path).unwrap().to_string_lossy(), result.as_str());
+            assert_eq!(
+                dunce::canonicalize(path).unwrap().to_string_lossy(),
+                result.as_str()
+            );
             assert!(access.contains("main", path));
         }
         assert!(!access.contains("other-window", &paths[0]));

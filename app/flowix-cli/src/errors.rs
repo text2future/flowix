@@ -27,7 +27,11 @@ pub enum CliError {
     CollectionSchemaChanged,
 
     #[error("invalid value for `{field}`: expected {expected}")]
-    InvalidField { field: String, expected: String, allowed: Option<Vec<String>> },
+    InvalidField {
+        field: String,
+        expected: String,
+        allowed: Option<Vec<String>>,
+    },
 
     #[error("request ID already belongs to a different or unavailable record")]
     RequestIdConflict,
@@ -118,22 +122,42 @@ impl CliError {
     }
 
     pub fn details(&self) -> serde_json::Value {
-        match self { Self::InvalidField { field, expected, allowed } => {
-            let mut result = serde_json::json!({"field":field,"expected":expected});
-            if let Some(allowed) = allowed { result["allowed"] = serde_json::json!(allowed); }
-            result
-        }, _ => serde_json::Value::Null }
+        match self {
+            Self::InvalidField {
+                field,
+                expected,
+                allowed,
+            } => {
+                let mut result = serde_json::json!({"field":field,"expected":expected});
+                if let Some(allowed) = allowed {
+                    result["allowed"] = serde_json::json!(allowed);
+                }
+                result
+            }
+            _ => serde_json::Value::Null,
+        }
     }
 
     pub(crate) fn collection_error(message: String) -> Self {
         if let Some(rest) = message.strip_prefix("INVALID_FIELD_VALUE: ") {
             if let Some((field, expected)) = rest.rsplit_once(" expects ") {
-                return Self::InvalidField { field: field.into(), expected: expected.into(), allowed: None };
+                return Self::InvalidField {
+                    field: field.into(),
+                    expected: expected.into(),
+                    allowed: None,
+                };
             }
         }
-        if message.contains("REQUEST_ID_CONFLICT") || message.contains("REQUEST_ID_RECORD_MISSING") { return Self::RequestIdConflict; }
-        if message == "COLLECTION_SCHEMA_CHANGED" { return Self::CollectionSchemaChanged; }
-        if message.contains("COLLECTION_CONTENT_CONFLICT") { return Self::Conflict(message); }
+        if message.contains("REQUEST_ID_CONFLICT") || message.contains("REQUEST_ID_RECORD_MISSING")
+        {
+            return Self::RequestIdConflict;
+        }
+        if message == "COLLECTION_SCHEMA_CHANGED" {
+            return Self::CollectionSchemaChanged;
+        }
+        if message.contains("COLLECTION_CONTENT_CONFLICT") {
+            return Self::Conflict(message);
+        }
         Self::Other(message)
     }
 }

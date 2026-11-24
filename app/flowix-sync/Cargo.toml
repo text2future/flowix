@@ -11,16 +11,21 @@ name = "flowix_sync"
 path = "src/lib.rs"
 
 [dependencies]
+async-trait = "0.1"
+bytes = "1"
 chrono = { workspace = true }
 flowix-core = { workspace = true }
+futures-util = "0.3"
 reqwest = { workspace = true }
 rusqlite = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
+sha1 = "0.10"
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }
 tracing = { workspace = true }
+unicode-normalization = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]

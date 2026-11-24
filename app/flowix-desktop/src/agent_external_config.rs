@@ -5,6 +5,7 @@
 //!   命中即用, 不再每条消息跑探测链�?//! - `source = "user"` 的条�?��动探测跳�? 尊重用户在偏好�?�?��手改的路径�?//! - path 失效 (文件�?��) 不自�?fallback ── �?`executable_available` �?false
 //!   标红, 用户在偏好�?�?��"重新探测" (`redetect`) 触发重探�?//!
 //! 结构�?`system_data::SystemData` 对齐: `RwLock` 内存镜像 + tmp+rename 原子�?//! + 0o600 权限�?
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
@@ -13,7 +14,6 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     RwLock, RwLockReadGuard, RwLockWriteGuard,
 };
-use serde::{Deserialize, Serialize};
 use tokio::sync::Notify;
 
 use crate::agent_external::cli_resolver::{
@@ -35,7 +35,11 @@ fn canonical_external_agent_key(agent_key: &str) -> Option<&'static str> {
 }
 
 fn external_binary_name(agent_key: &str) -> &str {
-    if agent_key == "claudecode" { "claude" } else { agent_key }
+    if agent_key == "claudecode" {
+        "claude"
+    } else {
+        agent_key
+    }
 }
 
 fn is_supported_external_agent_key(agent_key: &str) -> bool {
@@ -105,7 +109,8 @@ impl AgentExternalConfig {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        let mut data = flowix_core::memo_file::read_or_create_json(&path, AgentExternalConfigFile::default)?;
+        let mut data =
+            flowix_core::memo_file::read_or_create_json(&path, AgentExternalConfigFile::default)?;
         // Canonicalize the one renamed external Agent ID on first load. If a
         // canonical entry already exists, it wins; otherwise carry the user's
         // existing path/source/detection state across unchanged.
@@ -131,7 +136,8 @@ impl AgentExternalConfig {
         let original_entry_count = data.agents.len();
         data.agents
             .retain(|key, _| is_supported_external_agent_key(key));
-        let removed_unsupported_entries = migrated_legacy_key || data.agents.len() != original_entry_count;
+        let removed_unsupported_entries =
+            migrated_legacy_key || data.agents.len() != original_entry_count;
         let config = Self {
             path,
             data: RwLock::new(data),
@@ -199,7 +205,9 @@ impl AgentExternalConfig {
         let Some(agent_key) = canonical_external_agent_key(agent_key) else {
             return AgentExternalEntry::default();
         };
-        self.read_data().agents.get(agent_key)
+        self.read_data()
+            .agents
+            .get(agent_key)
             .cloned()
             .unwrap_or_default()
     }

@@ -35,6 +35,7 @@ export function createAgentClientMock(
     getPiSessionPage: vi.fn<AgentClient["getPiSessionPage"]>().mockResolvedValue({ messages: [], revision: { sessionId: "", appendCursor: null, leafId: null }, beforeEntryId: null, oldestSequence: null, snapshotSequence: 0, hasMore: false }),
     getPiSessionSnapshot: vi.fn<AgentClient["getPiSessionSnapshot"]>().mockResolvedValue({ messages: [], revision: { sessionId: "", appendCursor: null, leafId: null } }),
     getPiSessionMessages: vi.fn<AgentClient["getPiSessionMessages"]>().mockResolvedValue([]),
+    getPiSessionStats: vi.fn<AgentClient["getPiSessionStats"]>().mockResolvedValue({ tokens: {} }),
     forkPiThread: vi.fn<AgentClient["forkPiThread"]>().mockResolvedValue({
       thread: { threadId: "pi-fork", title: "fork", createdAt: 0, updatedAt: 0 },
       piSessionId: "pi-session-fork",

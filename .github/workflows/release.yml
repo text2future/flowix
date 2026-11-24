@@ -32,8 +32,62 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  release-gate:
+    name: cloud sync release gate
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/target -> release-gate
+
+      - name: Linux system deps (Tauri)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev \
+            librsvg2-dev patchelf libssl-dev
+
+      - name: Use pinned npm
+        run: npm install --global npm@10.8.2 --no-audit --no-fund
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Frontend verification
+        run: npm run verify
+
+      - name: Browser smoke tests
+        run: npm run smoke
+
+      - name: Rust workspace tests
+        working-directory: app
+        run: cargo test --workspace --lib -- --test-threads=1
+
+      - name: Flowix sync suite stability reruns
+        working-directory: app
+        run: |
+          for attempt in 1 2 3
+          do
+            echo "flowix-sync stability run ${attempt}/3"
+            cargo test -p flowix-sync -- --test-threads=1
+          done
+
   release:
     name: build (${{ matrix.platform }})
+    needs: release-gate
     strategy:
       fail-fast: false
       matrix:

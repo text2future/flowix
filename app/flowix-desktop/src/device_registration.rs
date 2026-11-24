@@ -78,8 +78,6 @@ pub struct UserInfo {
     #[serde(default)]
     pub registered_at: Option<DateTime<Utc>>,
     #[serde(default)]
-    pub supabase_row_id: Option<String>,
-    #[serde(default)]
     pub last_attempt_at: Option<DateTime<Utc>>,
     #[serde(default)]
     pub last_attempt_error: Option<String>,
@@ -134,6 +132,15 @@ impl DeviceRegistry {
     /// Missing `experimental` in an existing v2 boot.json deserializes as false.
     pub fn experimental(&self) -> bool {
         self.read().experimental
+    }
+
+    /// The installation-scoped identifier.
+    ///
+    /// Used where a stable but non-identifying label is needed — cloud sync
+    /// stamps and conflict-copy names — not for anything the server
+    /// authorises on.
+    pub fn device_id(&self) -> Uuid {
+        self.read().user_info.device_id
     }
 
     /// App version whose one-time version initialization most recently completed.
@@ -223,7 +230,7 @@ impl DeviceRegistry {
         };
 
         match post_registration(&client, &endpoint, &payload).await {
-            Ok(resp) => {
+            Ok(()) => {
                 let snapshot = {
                     let mut boot = self.write();
                     let info = &mut boot.user_info;
@@ -232,7 +239,6 @@ impl DeviceRegistry {
                     if info.registered_at.is_none() {
                         info.registered_at = Some(now);
                     }
-                    info.supabase_row_id = resp.row_id.clone();
                     info.last_attempt_at = Some(now);
                     info.last_attempt_error = None;
                     info.attempts = info.attempts.saturating_add(1);
@@ -243,21 +249,17 @@ impl DeviceRegistry {
                             "[device-reg] succeeded but failed to persist boot.json: {e}"
                         );
                     }
-                    (device_id, attempts, resp.first_seen.unwrap_or(false))
+                    (device_id, attempts)
                 };
                 tracing::info!(
-                    "[device-reg] registered device {} (firstSeen={}, attempts={})",
+                    "[device-reg] registered device {} (attempts={})",
                     snapshot.0,
-                    snapshot.2,
                     snapshot.1
                 );
                 crate::runtime_log::record_event(
                     "info",
                     "device.registered",
-                    format!(
-                        "device {} registered (firstSeen={}, attempts={})",
-                        snapshot.0, snapshot.2, snapshot.1
-                    ),
+                    format!("device {} registered (attempts={})", snapshot.0, snapshot.1),
                 );
                 Ok(())
             }
@@ -351,7 +353,6 @@ impl DeviceRegistry {
                 installed_at: Utc::now(),
                 registered: false,
                 registered_at: None,
-                supabase_row_id: None,
                 last_attempt_at: None,
                 last_attempt_error: None,
                 attempts: 0,
@@ -387,14 +388,6 @@ pub(crate) struct ActivityPayload {
     /// `launch`（启动那次）/ `rollover`（运行中跨日）。
     /// 两个字面量的唯一来源是 `daily_activity::DayState::trigger`。
     pub trigger: &'static str,
-}
-
-#[derive(Debug, Deserialize)]
-struct RegistrationResponse {
-    #[serde(default)]
-    row_id: Option<String>,
-    #[serde(default)]
-    first_seen: Option<bool>,
 }
 
 fn collect_payload(
@@ -445,7 +438,7 @@ async fn post_registration(
     client: &reqwest::Client,
     endpoint: &str,
     payload: &DevicePayload,
-) -> Result<RegistrationResponse, String> {
+) -> Result<(), String> {
     let mut request = client
         .post(endpoint)
         .header(reqwest::header::ACCEPT, "application/json")
@@ -459,21 +452,17 @@ async fn post_registration(
         .await
         .map_err(|e| format!("network: {e}"))?;
     let status = response.status();
-    if !status.is_success() {
-        let body = response.text().await.unwrap_or_default();
-        // 409 代表 device_id 重�?, 等同成功�?
-        if status.as_u16() == 409 {
-            return Ok(RegistrationResponse {
-                row_id: None,
-                first_seen: Some(false),
-            });
-        }
-        return Err(format!("http {status}: {body}"));
+    if status.is_success() {
+        // The registration endpoint returns only a fixed acknowledgement; its
+        // success body intentionally contains no row data.
+        return Ok(());
     }
-    response
-        .json::<RegistrationResponse>()
-        .await
-        .map_err(|e| format!("parse: {e}"))
+    // 409 is idempotent when talking to an older server implementation.
+    if status.as_u16() == 409 {
+        return Ok(());
+    }
+    let body = response.text().await.unwrap_or_default();
+    Err(format!("http {status}: {body}"))
 }
 
 #[cfg(unix)]

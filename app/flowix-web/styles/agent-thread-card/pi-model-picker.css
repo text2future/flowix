@@ -43,9 +43,48 @@
   min-width: 0;
 }
 
+.agent-pi-model-picker__item-wrapper {
+  min-width: 0;
+}
+
 .agent-pi-model-picker__item {
   min-height: 32px;
   padding-inline: 10px;
+}
+
+.agent-pi-model-picker__details {
+  position: fixed;
+  z-index: 10000;
+  animation: none !important;
+  transition: none !important;
+  display: grid;
+  width: 240px;
+  max-width: calc(100vw - 16px);
+  box-sizing: border-box;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--background);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+  color: var(--foreground);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.agent-pi-model-picker__details label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.agent-pi-model-picker__details select {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
 }
 
 .agent-pi-model-picker__checkmark-placeholder {

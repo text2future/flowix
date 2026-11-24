@@ -146,7 +146,10 @@ impl ExternalRunRegistry {
         let starting = self.starting.lock().await;
         let stopping = self.stopping.lock().await;
         let mut children = self.children.lock().await;
-        if starting.contains_key(&thread_id) || stopping.contains_key(&thread_id) || children.contains_key(&thread_id) {
+        if starting.contains_key(&thread_id)
+            || stopping.contains_key(&thread_id)
+            || children.contains_key(&thread_id)
+        {
             return Err(child);
         }
         let now = chrono::Utc::now().timestamp_millis();
@@ -175,7 +178,10 @@ impl ExternalRunRegistry {
         let mut stopping = self.stopping.lock().await;
         let mut children = self.children.lock().await;
         if stopping.contains_key(thread_id) {
-            if children.get_mut(thread_id).is_some_and(|run| matches!(run.child.try_wait(), Ok(Some(_)))) {
+            if children
+                .get_mut(thread_id)
+                .is_some_and(|run| matches!(run.child.try_wait(), Ok(Some(_))))
+            {
                 children.remove(thread_id);
                 stopping.remove(thread_id);
             } else {
@@ -183,21 +189,39 @@ impl ExternalRunRegistry {
             }
         }
         if starting.contains_key(thread_id) {
-            return Err(format!("{} is already starting for this thread", self.current_tool));
+            return Err(format!(
+                "{} is already starting for this thread",
+                self.current_tool
+            ));
         }
         if let Some(running) = children.get_mut(thread_id) {
             match running.child.try_wait() {
-                Ok(Some(_)) => { children.remove(thread_id); }
-                Ok(None) => return Err(format!("{} is already running for this thread", self.current_tool)),
-                Err(_) => return Err(format!("{} child state unknown; refusing to overlap", self.current_tool)),
+                Ok(Some(_)) => {
+                    children.remove(thread_id);
+                }
+                Ok(None) => {
+                    return Err(format!(
+                        "{} is already running for this thread",
+                        self.current_tool
+                    ))
+                }
+                Err(_) => {
+                    return Err(format!(
+                        "{} child state unknown; refusing to overlap",
+                        self.current_tool
+                    ))
+                }
             }
         }
         let run_id = resolve_run_id(thread_id, provided_run_id);
-        starting.insert(thread_id.to_string(), ExternalStartingRun {
-            run_id: run_id.clone(),
-            started_at: chrono::Utc::now().timestamp_millis(),
-            cancelled: false,
-        });
+        starting.insert(
+            thread_id.to_string(),
+            ExternalStartingRun {
+                run_id: run_id.clone(),
+                started_at: chrono::Utc::now().timestamp_millis(),
+                cancelled: false,
+            },
+        );
         Ok(ExternalRunStart {
             run_id,
             stream_end_emitted: Arc::new(AtomicBool::new(false)),
@@ -206,7 +230,9 @@ impl ExternalRunRegistry {
 
     pub async fn cancel_start(&self, thread_id: &str, expected_run_id: Option<&str>) -> bool {
         let mut starting = self.starting.lock().await;
-        let Some(start) = starting.get_mut(thread_id) else { return false; };
+        let Some(start) = starting.get_mut(thread_id) else {
+            return false;
+        };
         if expected_run_id.is_some() && expected_run_id != Some(start.run_id.as_str()) {
             return false;
         }
@@ -216,12 +242,17 @@ impl ExternalRunRegistry {
 
     pub async fn start_cancelled(&self, thread_id: &str, run_id: &str) -> bool {
         let starting = self.starting.lock().await;
-        starting.get(thread_id).is_some_and(|start| start.run_id == run_id && start.cancelled)
+        starting
+            .get(thread_id)
+            .is_some_and(|start| start.run_id == run_id && start.cancelled)
     }
 
     pub async fn release_start(&self, thread_id: &str, run_id: &str) {
         let mut starting = self.starting.lock().await;
-        if starting.get(thread_id).is_some_and(|start| start.run_id == run_id) {
+        if starting
+            .get(thread_id)
+            .is_some_and(|start| start.run_id == run_id)
+        {
             starting.remove(thread_id);
         }
     }
@@ -238,17 +269,27 @@ impl ExternalRunRegistry {
         let mut starting = self.starting.lock().await;
         let stopping = self.stopping.lock().await;
         let mut children = self.children.lock().await;
-        if !starting.get(&thread_id).is_some_and(|start| start.run_id == run_id && !start.cancelled)
-            || stopping.contains_key(&thread_id) || children.contains_key(&thread_id)
+        if !starting
+            .get(&thread_id)
+            .is_some_and(|start| start.run_id == run_id && !start.cancelled)
+            || stopping.contains_key(&thread_id)
+            || children.contains_key(&thread_id)
         {
             return Err(child);
         }
         starting.remove(&thread_id);
         let now = chrono::Utc::now().timestamp_millis();
-        children.insert(thread_id, ExternalRunningChild {
-            child, started_at: now, last_event_at: now,
-            run_id: Some(run_id.to_string()), session_id: None, stream_end_emitted,
-        });
+        children.insert(
+            thread_id,
+            ExternalRunningChild {
+                child,
+                started_at: now,
+                last_event_at: now,
+                run_id: Some(run_id.to_string()),
+                session_id: None,
+                stream_end_emitted,
+            },
+        );
         Ok(())
     }
 
@@ -282,7 +323,9 @@ impl ExternalRunRegistry {
 
     pub async fn remove(&self, thread_id: &str) -> Option<ExternalRunningChild> {
         let stopping = self.stopping.lock().await;
-        if stopping.contains_key(thread_id) { return None; }
+        if stopping.contains_key(thread_id) {
+            return None;
+        }
         let mut children = self.children.lock().await;
         children.remove(thread_id)
     }
@@ -334,7 +377,10 @@ impl ExternalRunRegistry {
         let mut stopping = self.stopping.lock().await;
         let mut children = self.children.lock().await;
         if stopping.contains_key(thread_id) {
-            if children.get_mut(thread_id).is_some_and(|run| matches!(run.child.try_wait(), Ok(Some(_)))) {
+            if children
+                .get_mut(thread_id)
+                .is_some_and(|run| matches!(run.child.try_wait(), Ok(Some(_))))
+            {
                 children.remove(thread_id);
                 stopping.remove(thread_id);
                 return None;
@@ -384,10 +430,16 @@ impl ExternalRunRegistry {
     ) -> Result<Option<std::process::ExitStatus>, String> {
         loop {
             let stopping = self.stopping.lock().await;
-            if stopping.contains_key(thread_id) { return Ok(None); }
+            if stopping.contains_key(thread_id) {
+                return Ok(None);
+            }
             let mut children = self.children.lock().await;
-            let Some(child) = children.get_mut(thread_id) else { return Ok(None); };
-            if child.run_id.as_deref() != Some(run_id) { return Ok(None); }
+            let Some(child) = children.get_mut(thread_id) else {
+                return Ok(None);
+            };
+            if child.run_id.as_deref() != Some(run_id) {
+                return Ok(None);
+            }
             match child.child.try_wait() {
                 Ok(Some(status)) => {
                     children.remove(thread_id);
@@ -422,18 +474,29 @@ impl ExternalRunRegistry {
         let mut children = self.children.lock().await;
         let Some(running) = children.get(lookup_thread_id) else {
             return match stopping.get(lookup_thread_id) {
-                Some(stop) => Err(StopUnconfirmed { run_id: stop.run_id.clone() }),
+                Some(stop) => Err(StopUnconfirmed {
+                    run_id: stop.run_id.clone(),
+                }),
                 None => Ok(None),
             };
         };
         if expected_run_id.is_some() && running.run_id.as_deref() != expected_run_id {
             return Ok(None);
         }
-        let mut running = children.remove(lookup_thread_id).expect("child was just checked");
-        let run_id = running.run_id.clone().unwrap_or_else(|| event_thread_id.to_string());
-        stopping.insert(lookup_thread_id.to_string(), ExternalStoppingRun {
-            run_id: run_id.clone(), started_at: running.started_at,
-        });
+        let mut running = children
+            .remove(lookup_thread_id)
+            .expect("child was just checked");
+        let run_id = running
+            .run_id
+            .clone()
+            .unwrap_or_else(|| event_thread_id.to_string());
+        stopping.insert(
+            lookup_thread_id.to_string(),
+            ExternalStoppingRun {
+                run_id: run_id.clone(),
+                started_at: running.started_at,
+            },
+        );
         drop(children);
         drop(stopping);
         let termination = async {
@@ -441,10 +504,17 @@ impl ExternalRunRegistry {
             running.child.wait().await
         };
         match tokio::time::timeout(std::time::Duration::from_secs(5), termination).await {
-            Ok(Ok(_)) => { self.stopping.lock().await.remove(lookup_thread_id); }
+            Ok(Ok(_)) => {
+                self.stopping.lock().await.remove(lookup_thread_id);
+            }
             outcome => {
-                tracing::warn!("[{process_label}] stop unconfirmed for {event_thread_id}: {outcome:?}");
-                self.children.lock().await.insert(lookup_thread_id.to_string(), running);
+                tracing::warn!(
+                    "[{process_label}] stop unconfirmed for {event_thread_id}: {outcome:?}"
+                );
+                self.children
+                    .lock()
+                    .await
+                    .insert(lookup_thread_id.to_string(), running);
                 return Err(StopUnconfirmed { run_id });
             }
         }
@@ -457,16 +527,28 @@ impl ExternalRunRegistry {
     pub async fn kill_all(&self, process_label: &str) -> usize {
         {
             let mut starting = self.starting.lock().await;
-            for start in starting.values_mut() { start.cancelled = true; }
+            for start in starting.values_mut() {
+                start.cancelled = true;
+            }
         }
-        let targets = self.children.lock().await.iter()
+        let targets = self
+            .children
+            .lock()
+            .await
+            .iter()
             .map(|(thread_id, run)| (thread_id.clone(), run.run_id.clone()))
             .collect::<Vec<_>>();
         let mut confirmed = 0;
         for (thread_id, run_id) in targets {
-            match self.stop_run(&thread_id, &thread_id, run_id.as_deref(), process_label).await {
+            match self
+                .stop_run(&thread_id, &thread_id, run_id.as_deref(), process_label)
+                .await
+            {
                 Ok(Some(_)) => confirmed += 1,
-                Err(unconfirmed) => tracing::warn!("[{process_label}] shutdown stop unconfirmed for run {}", unconfirmed.run_id),
+                Err(unconfirmed) => tracing::warn!(
+                    "[{process_label}] shutdown stop unconfirmed for run {}",
+                    unconfirmed.run_id
+                ),
                 _ => {}
             }
         }
@@ -489,18 +571,35 @@ impl ExternalRunRegistry {
     ) -> (usize, Vec<ExternalWatchdogFinalizedRun>) {
         {
             let mut starting = self.starting.lock().await;
-            for start in starting.values_mut() { start.cancelled = true; }
+            for start in starting.values_mut() {
+                start.cancelled = true;
+            }
         }
-        let targets = self.children.lock().await.iter()
-            .map(|(thread_id, run)| (
-                thread_id.clone(), run.run_id.clone(),
-                run.session_id.clone().unwrap_or_else(|| thread_id.clone()),
-            ))
+        let targets = self
+            .children
+            .lock()
+            .await
+            .iter()
+            .map(|(thread_id, run)| {
+                (
+                    thread_id.clone(),
+                    run.run_id.clone(),
+                    run.session_id.clone().unwrap_or_else(|| thread_id.clone()),
+                )
+            })
             .collect::<Vec<_>>();
         let mut confirmed = 0;
         let mut finalized = Vec::with_capacity(targets.len());
         for (thread_id, run_id, event_thread_id) in targets {
-            match self.stop_run(&thread_id, &event_thread_id, run_id.as_deref(), process_label).await {
+            match self
+                .stop_run(
+                    &thread_id,
+                    &event_thread_id,
+                    run_id.as_deref(),
+                    process_label,
+                )
+                .await
+            {
                 Ok(Some(stopped)) => {
                     confirmed += 1;
                     if claim_stream_end_once(&stopped.stream_end_emitted) {
@@ -511,7 +610,10 @@ impl ExternalRunRegistry {
                         });
                     }
                 }
-                Err(unconfirmed) => tracing::warn!("[{process_label}] shutdown stop unconfirmed for run {}", unconfirmed.run_id),
+                Err(unconfirmed) => tracing::warn!(
+                    "[{process_label}] shutdown stop unconfirmed for run {}",
+                    unconfirmed.run_id
+                ),
                 _ => {}
             }
         }
@@ -532,7 +634,9 @@ impl ExternalRunRegistry {
             let mut children = self.children.lock().await;
             let thread_ids = children.keys().cloned().collect::<Vec<_>>();
             for thread_id in thread_ids {
-                if stopping.contains_key(&thread_id) { continue; }
+                if stopping.contains_key(&thread_id) {
+                    continue;
+                }
                 enum Decision {
                     Keep,
                     Exited(bool, String),
@@ -580,17 +684,25 @@ impl ExternalRunRegistry {
                         }
                     }
                     Decision::InspectFailed(err) => {
-                        tracing::warn!("[{process_label}] watchdog cannot inspect {thread_id}: {err}");
+                        tracing::warn!(
+                            "[{process_label}] watchdog cannot inspect {thread_id}: {err}"
+                        );
                     }
                     Decision::Idle => {
-                        idle_children.push((thread_id.clone(), children.get(&thread_id).and_then(|run| run.run_id.clone())));
+                        idle_children.push((
+                            thread_id.clone(),
+                            children.get(&thread_id).and_then(|run| run.run_id.clone()),
+                        ));
                     }
                 }
             }
         }
 
         for (thread_id, run_id) in idle_children {
-            match self.stop_run(&thread_id, &thread_id, run_id.as_deref(), process_label).await {
+            match self
+                .stop_run(&thread_id, &thread_id, run_id.as_deref(), process_label)
+                .await
+            {
                 Ok(Some(stopped)) if claim_stream_end_once(&stopped.stream_end_emitted) => {
                     finalized.push(ExternalWatchdogFinalizedRun {
                         thread_id,
@@ -599,7 +711,10 @@ impl ExternalRunRegistry {
                     });
                 }
                 Err(unconfirmed) => {
-                    tracing::warn!("[{process_label}] watchdog stop unconfirmed for run {}", unconfirmed.run_id);
+                    tracing::warn!(
+                        "[{process_label}] watchdog stop unconfirmed for run {}",
+                        unconfirmed.run_id
+                    );
                 }
                 _ => {}
             }
@@ -612,40 +727,59 @@ impl ExternalRunRegistry {
         let starting = self.starting.lock().await;
         let stopping = self.stopping.lock().await;
         let children = self.children.lock().await;
-        let mut result: HashMap<String, RunInfo> = starting.iter().map(|(thread_id, start)| {
+        let mut result: HashMap<String, RunInfo> = starting
+            .iter()
+            .map(|(thread_id, start)| {
+                let mut info = RunInfo::active(
+                    start.started_at,
+                    Some(self.current_tool),
+                    Some(self.agent_type),
+                    Some(start.run_id.clone()),
+                    Some(thread_id.clone()),
+                    None,
+                );
+                info.phase = Some(
+                    if start.cancelled {
+                        "stopping"
+                    } else {
+                        "starting"
+                    }
+                    .to_string(),
+                );
+                (thread_id.clone(), info)
+            })
+            .collect();
+        result.extend(
+            children
+                .iter()
+                .map(|(thread_id, running)| {
+                    let canonical_thread_id = running
+                        .session_id
+                        .clone()
+                        .unwrap_or_else(|| thread_id.clone());
+                    (
+                        canonical_thread_id,
+                        RunInfo::active(
+                            running.started_at,
+                            Some(self.current_tool),
+                            Some(self.agent_type),
+                            running.run_id.clone(),
+                            Some(thread_id.clone()),
+                            running.session_id.clone(),
+                        ),
+                    )
+                })
+                .collect::<HashMap<_, _>>(),
+        );
+        for (thread_id, stop) in stopping.iter() {
             let mut info = RunInfo::active(
-                start.started_at,
+                stop.started_at,
                 Some(self.current_tool),
                 Some(self.agent_type),
-                Some(start.run_id.clone()),
+                Some(stop.run_id.clone()),
                 Some(thread_id.clone()),
                 None,
             );
-            info.phase = Some(if start.cancelled { "stopping" } else { "starting" }.to_string());
-            (thread_id.clone(), info)
-        }).collect();
-        result.extend(children
-            .iter()
-            .map(|(thread_id, running)| {
-                let canonical_thread_id = running
-                    .session_id
-                    .clone()
-                    .unwrap_or_else(|| thread_id.clone());
-                (
-                    canonical_thread_id,
-                    RunInfo::active(
-                        running.started_at,
-                        Some(self.current_tool),
-                        Some(self.agent_type),
-                        running.run_id.clone(),
-                        Some(thread_id.clone()),
-                        running.session_id.clone(),
-                    ),
-                )
-            })
-            .collect::<HashMap<_, _>>());
-        for (thread_id, stop) in stopping.iter() {
-            let mut info = RunInfo::active(stop.started_at, Some(self.current_tool), Some(self.agent_type), Some(stop.run_id.clone()), Some(thread_id.clone()), None);
             info.phase = Some("stopping".to_string());
             result.insert(thread_id.clone(), info);
         }

@@ -28,6 +28,7 @@ export interface ModelSettingsListContext {
   onAddCustomModel: () => void;
   createModelItem: (option: AgentModelOption) => HTMLElement;
   onSelectModel: (option: AgentModelOption) => void;
+  onSelectReasoning: (option: AgentModelOption, level: string) => void;
   createSpeedToggle: () => HTMLElement;
   createReasoningSlider: () => HTMLElement;
   renderReasoningOptions: (
@@ -102,6 +103,7 @@ function renderPiModels(list: HTMLElement, ctx: ModelSettingsListContext): void 
       personalEmptyLabel: ctx.t("agent.pi.modelSection.mineEmpty"),
       onAddCustomModel: ctx.onAddCustomModel,
       createModelItem: (option) => ctx.createModelItem(option),
+      onSelectReasoning: ctx.onSelectReasoning,
     }),
   );
 }

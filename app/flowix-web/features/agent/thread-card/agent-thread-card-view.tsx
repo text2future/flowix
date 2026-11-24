@@ -1,3 +1,4 @@
+import { CloudAccessBlockedError } from "@features/agent/config/cloud-access";
 import { reportWorkspaceHeaderFullscreen, clearWorkspaceHeaderFullscreen } from '@features/workspace/public/header-api';
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { GapCursor } from "@tiptap/pm/gapcursor";
@@ -1848,6 +1849,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
         this.renderThreadState();
       },
       onError: (error) => {
+        if (error instanceof CloudAccessBlockedError) return;
         toast.error(errorMessage(error).trim() || this.t("editor.threadCard.sendFailed"));
       },
     });

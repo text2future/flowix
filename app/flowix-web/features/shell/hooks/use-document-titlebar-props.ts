@@ -239,6 +239,7 @@ export function useDocumentTitlebarProps(input: UseDocumentTitlebarPropsInput): 
     },
     mediaActions,
     collectionDisplay: collectionPath ? {
+      isFolder: source?.kind === 'folder-collection',
       indexPath: collectionPath,
       notebookId: source?.kind === 'table-file' ? source.props.notebookId
         : source && 'notebookId' in source ? source.notebookId : null,

@@ -12,7 +12,7 @@ use super::derivation::{extract_agent_threads_from_body, extract_thumbnail};
 use super::frontmatter::extract_frontmatter_properties;
 use super::notebook::sqlite_to_io;
 use super::types::{
-    AgentThreadItem, Memo, NoteColor, MemoIndexEntry, MemoIndexFile, MemoLocation, NotebookConfig,
+    AgentThreadItem, Memo, MemoIndexEntry, MemoIndexFile, MemoLocation, NoteColor, NotebookConfig,
 };
 use super::MemoFile;
 

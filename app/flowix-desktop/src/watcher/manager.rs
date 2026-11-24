@@ -15,8 +15,8 @@ use crate::watcher::directory_coalesce::DirectoryCoalescer;
 use crate::watcher::filter::{FileRevision, SelfWriteMap, SelfWriteMark, SELF_WRITE_TTL};
 use crate::watcher::tombstone::RemoveCoalescer;
 use crate::watcher::{
-    filter::PathFilter, normalize_for_compare, FsEventKind, PathNoteEventProcessor,
-    NotebookWatchContext, RawFsEvent, WhitelistConfig,
+    filter::PathFilter, normalize_for_compare, FsEventKind, NotebookWatchContext,
+    PathNoteEventProcessor, RawFsEvent, WhitelistConfig,
 };
 use flowix_core::memo_file::{
     resource_kind_for_path, FileManagementPolicy, MemoFile, NotebookConfig,
@@ -157,7 +157,9 @@ impl MemoWatcher {
     pub fn is_watching(&self, notebook_id: &str) -> bool {
         self._watcher.is_some()
             && self.watched_roots.read().is_ok_and(|roots| {
-                roots.iter().any(|context| context.notebook_id == notebook_id)
+                roots
+                    .iter()
+                    .any(|context| context.notebook_id == notebook_id)
             })
     }
 
@@ -245,17 +247,15 @@ impl MemoWatcher {
             });
         let unchanged = self.active_notebook_id == active_notebook_id
             && self._watcher.is_some()
-            && self
-                .watched_roots
-                .read()
-                .is_ok_and(|roots| match (desired_root.as_ref(), roots.as_slice()) {
+            && self.watched_roots.read().is_ok_and(|roots| {
+                match (desired_root.as_ref(), roots.as_slice()) {
                     (None, []) => true,
                     (Some(desired), [current]) => {
-                        desired.notebook_id == current.notebook_id
-                            && desired.root == current.root
+                        desired.notebook_id == current.notebook_id && desired.root == current.root
                     }
                     _ => false,
-                });
+                }
+            });
         self.active_notebook_id = active_notebook_id;
         if unchanged {
             return;
@@ -275,7 +275,9 @@ impl MemoWatcher {
         let _ = self.worker_tx.take();
         let _ = self._worker.take();
 
-        if let Ok(mut watched) = self.watched_roots.write() { watched.clear(); }
+        if let Ok(mut watched) = self.watched_roots.write() {
+            watched.clear();
+        }
         let remove_coalescer =
             RemoveCoalescer::new(app.clone(), self.memo_file.clone(), REMOVE_TOMBSTONE_DELAY);
         let remove_coalescer_for_callback = remove_coalescer.clone();
@@ -311,7 +313,9 @@ impl MemoWatcher {
                     let mut rename_tracker = rename_tracker_for_callback
                         .lock()
                         .unwrap_or_else(|p| p.into_inner());
-                    let removed_known_directories: std::collections::HashSet<PathBuf> = event.paths.iter()
+                    let removed_known_directories: std::collections::HashSet<PathBuf> = event
+                        .paths
+                        .iter()
                         .filter(|path| rename_tracker.was_directory(path))
                         .cloned()
                         .collect();
@@ -651,7 +655,10 @@ fn handle_notify_event(
             }
             for (path, context) in [(old, old_context), (new, new_context)] {
                 if let Some(ctx) = context {
-                    let _ = worker_tx.send((RawFsEvent::new(FsEventKind::DirectoryChange, path.clone()), ctx));
+                    let _ = worker_tx.send((
+                        RawFsEvent::new(FsEventKind::DirectoryChange, path.clone()),
+                        ctx,
+                    ));
                 }
             }
             return;
@@ -662,12 +669,16 @@ fn handle_notify_event(
         ) {
             if old_ctx.notebook_id == ctx.notebook_id {
                 let new_allowed = path_allowed_for_watch(&ctx.root, new, new.is_dir());
-                let old_allowed = path_allowed_for_watch(&ctx.root, old, new.is_dir() || old.is_dir());
+                let old_allowed =
+                    path_allowed_for_watch(&ctx.root, old, new.is_dir() || old.is_dir());
                 let new_markdown = new.extension().is_some_and(|extension| {
-                    extension.eq_ignore_ascii_case("md") || extension.eq_ignore_ascii_case("markdown")
+                    extension.eq_ignore_ascii_case("md")
+                        || extension.eq_ignore_ascii_case("markdown")
                 });
-                if !new.is_dir() && ((old_allowed && resource_kind_for_path(old).is_some())
-                    || (new_allowed && resource_kind_for_path(new).is_some())) {
+                if !new.is_dir()
+                    && ((old_allowed && resource_kind_for_path(old).is_some())
+                        || (new_allowed && resource_kind_for_path(new).is_some()))
+                {
                     remove_coalescer.cancel_path(old);
                     let mut raw = RawFsEvent::new(FsEventKind::Modify, new.clone());
                     raw.rename_from = Some(old.clone());
@@ -675,7 +686,10 @@ fn handle_notify_event(
                     return;
                 }
                 if old_allowed && !new_markdown && !new.is_dir() {
-                    let _ = worker_tx.send((RawFsEvent::new(FsEventKind::DirectoryChange, old.clone()), ctx));
+                    let _ = worker_tx.send((
+                        RawFsEvent::new(FsEventKind::DirectoryChange, old.clone()),
+                        ctx,
+                    ));
                     return;
                 }
                 if new_allowed || old_allowed {
@@ -689,7 +703,8 @@ fn handle_notify_event(
                         new.clone(),
                     );
                     raw.rename_from = Some(old.clone());
-                    if new.is_dir() || !new_allowed
+                    if new.is_dir()
+                        || !new_allowed
                         || flowix_core::collection_store::is_table_document_path(old)
                         || flowix_core::collection_store::is_table_document_path(new)
                         || matches!(
@@ -713,10 +728,14 @@ fn handle_notify_event(
             continue;
         }
         let mut fs_kind = FsEventKind::from_notify(&event.kind);
-        let removed_directory = matches!(event.kind, notify::EventKind::Remove(notify::event::RemoveKind::Folder));
+        let removed_directory = matches!(
+            event.kind,
+            notify::EventKind::Remove(notify::event::RemoveKind::Folder)
+        );
         let directory_event = path.is_dir()
             || removed_directory
-            || (removed_known_directories.contains(&path) && matches!(fs_kind, FsEventKind::Remove));
+            || (removed_known_directories.contains(&path)
+                && matches!(fs_kind, FsEventKind::Remove));
         if directory_event {
             fs_kind = FsEventKind::DirectoryChange;
         }
@@ -739,8 +758,13 @@ fn handle_notify_event(
         }
         // Split directory From/To events must be paired before reconciliation
         // can prune the old subtree. An unmatched From still reconciles later.
-        if matches!(event.kind, notify::EventKind::Modify(notify::event::ModifyKind::Name(notify::event::RenameMode::From)))
-            && matches!(fs_kind, FsEventKind::DirectoryChange) {
+        if matches!(
+            event.kind,
+            notify::EventKind::Modify(notify::event::ModifyKind::Name(
+                notify::event::RenameMode::From
+            ))
+        ) && matches!(fs_kind, FsEventKind::DirectoryChange)
+        {
             let tx = worker_tx.clone();
             std::thread::spawn(move || {
                 std::thread::sleep(REMOVE_TOMBSTONE_DELAY);
@@ -761,7 +785,8 @@ fn handle_notify_event(
         }
         match if matches!(fs_kind, FsEventKind::DirectoryChange)
             || resource_kind_for_path(&path).is_some()
-            || flowix_core::collection_store::is_table_document_path(&path) {
+            || flowix_core::collection_store::is_table_document_path(&path)
+        {
             crate::watcher::event::FilterDecision::Pass
         } else {
             crate::watcher::filter::run_pipeline(&raw, &path_filter)
@@ -801,12 +826,18 @@ fn self_create_window_covers(
     dirs: &Arc<Mutex<HashMap<PathBuf, (Instant, u8)>>>,
     path: &Path,
 ) -> bool {
-    let Some(parent) = path.parent() else { return false };
-    let Ok(mut map) = dirs.lock() else { return false };
+    let Some(parent) = path.parent() else {
+        return false;
+    };
+    let Ok(mut map) = dirs.lock() else {
+        return false;
+    };
     let now = Instant::now();
     map.retain(|_, (at, _)| now.duration_since(*at) < SELF_CREATE_WINDOW);
     let key = normalize_for_compare(parent);
-    let Some((_, budget)) = map.get_mut(&key) else { return false };
+    let Some((_, budget)) = map.get_mut(&key) else {
+        return false;
+    };
     if *budget == 0 {
         return false;
     }
@@ -822,7 +853,9 @@ fn self_create_window_covers(
 /// notify. Directory events use the directory form because the path may
 /// already be gone from disk.
 fn path_allowed_for_watch(root: &Path, path: &Path, directory_event: bool) -> bool {
-    let Ok(relative) = path.strip_prefix(root) else { return false; };
+    let Ok(relative) = path.strip_prefix(root) else {
+        return false;
+    };
     let policy = FileManagementPolicy::from_notebook_root(root);
     if directory_event {
         !policy.is_index_hidden_directory(relative)
@@ -878,11 +911,13 @@ fn stabilize_event(
             let Some(revision) = revision else {
                 return StableEventDecision::Process { content: None };
             };
-            if !indexed_resource && crate::watcher::filter::self_write::is_exact_self_write(
-                &event.path,
-                &revision,
-                recent_self_writes,
-            ) {
+            if !indexed_resource
+                && crate::watcher::filter::self_write::is_exact_self_write(
+                    &event.path,
+                    &revision,
+                    recent_self_writes,
+                )
+            {
                 // Advance the observed baseline even though the originating
                 // window already owns this content. A later external revert
                 // to an older hash must then be treated as a new revision.
@@ -911,7 +946,9 @@ fn stabilize_event(
 fn is_markdown_note_path(path: &Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| matches!(extension.to_ascii_lowercase().as_str(), "md" | "markdown"))
+        .is_some_and(|extension| {
+            matches!(extension.to_ascii_lowercase().as_str(), "md" | "markdown")
+        })
 }
 
 fn collect_queued_events(
@@ -1017,18 +1054,30 @@ mod tests {
     #[test]
     fn recovered_binding_reconciles_only_the_selected_attached_root() {
         let temp = tempfile::tempdir().unwrap();
-        let memo = Arc::new(std::sync::RwLock::new(MemoFile::new(temp.path().join("config"))));
+        let memo = Arc::new(std::sync::RwLock::new(MemoFile::new(
+            temp.path().join("config"),
+        )));
         let mut manager = MemoWatcher::new(memo);
-        manager._watcher = Some(notify::recommended_watcher(|_: notify::Result<Event>| {}).unwrap());
-        let configs: Vec<_> = (0..3).map(|index| {
-            let path = temp.path().join(format!("book-{index}"));
-            if index != 1 { std::fs::create_dir_all(&path).unwrap(); }
-            NotebookConfig {
-                id: format!("nb_{index}"), name: format!("Book {index}"),
-                path: path.to_string_lossy().into_owned(), icon: None,
-                is_default: false, sort: 0, created_at: 1, updated_at: 1,
-            }
-        }).collect();
+        manager._watcher =
+            Some(notify::recommended_watcher(|_: notify::Result<Event>| {}).unwrap());
+        let configs: Vec<_> = (0..3)
+            .map(|index| {
+                let path = temp.path().join(format!("book-{index}"));
+                if index != 1 {
+                    std::fs::create_dir_all(&path).unwrap();
+                }
+                NotebookConfig {
+                    id: format!("nb_{index}"),
+                    name: format!("Book {index}"),
+                    path: path.to_string_lossy().into_owned(),
+                    icon: None,
+                    is_default: false,
+                    sort: 0,
+                    created_at: 1,
+                    updated_at: 1,
+                }
+            })
+            .collect();
         manager.active_notebook_id = Some(configs[0].id.clone());
         manager.set_notebook_suspended(&configs[2].id, true);
         assert!(manager.add_notebook_root(&configs[0]));
@@ -1188,7 +1237,8 @@ mod tests {
     }
 
     #[test]
-    fn worker_keeps_the_stable_markdown_snapshot_for_indexing() {        let dir = tempfile::tempdir().unwrap();
+    fn worker_keeps_the_stable_markdown_snapshot_for_indexing() {
+        let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("memo.md");
         let content = "# Stable snapshot\nbody";
         std::fs::write(&path, content).unwrap();
@@ -1197,7 +1247,11 @@ mod tests {
 
         let StableEventDecision::Process {
             content: Some(snapshot),
-        } = stabilize_event(&event, &Arc::new(Mutex::new(SelfWriteMap::new())), &mut processed)
+        } = stabilize_event(
+            &event,
+            &Arc::new(Mutex::new(SelfWriteMap::new())),
+            &mut processed,
+        )
         else {
             panic!("stable Markdown event should carry its content snapshot");
         };
@@ -1213,9 +1267,18 @@ mod tests {
             root: root.clone(),
         };
         let mut batch = vec![
-            (RawFsEvent::new(FsEventKind::Create, root.join("a.md")), context()),
-            (RawFsEvent::new(FsEventKind::Modify, root.join("b.md")), context()),
-            (RawFsEvent::new(FsEventKind::Modify, root.join("a.md")), context()),
+            (
+                RawFsEvent::new(FsEventKind::Create, root.join("a.md")),
+                context(),
+            ),
+            (
+                RawFsEvent::new(FsEventKind::Modify, root.join("b.md")),
+                context(),
+            ),
+            (
+                RawFsEvent::new(FsEventKind::Modify, root.join("a.md")),
+                context(),
+            ),
         ];
 
         let merged = coalesce_queued_events(std::mem::take(&mut batch));
@@ -1300,11 +1363,31 @@ mod tests {
     #[test]
     fn table_database_watch_scope_is_root_relative() {
         let root = Path::new("/notebook");
-        assert!(path_allowed_for_watch(root, &root.join(".flowix/database/col_1/note.md"), false));
-        assert!(path_allowed_for_watch(root, &root.join(".flowix/database/col_1"), true));
-        assert!(!path_allowed_for_watch(root, &root.join(".flowix/versions/note.md"), false));
-        assert!(!path_allowed_for_watch(root, &root.join("nested/.flowix/database/col_1/note.md"), false));
-        assert!(!path_allowed_for_watch(root, &root.join(".flowix/database2/note.md"), false));
+        assert!(path_allowed_for_watch(
+            root,
+            &root.join(".flowix/database/col_1/note.md"),
+            false
+        ));
+        assert!(path_allowed_for_watch(
+            root,
+            &root.join(".flowix/database/col_1"),
+            true
+        ));
+        assert!(!path_allowed_for_watch(
+            root,
+            &root.join(".flowix/versions/note.md"),
+            false
+        ));
+        assert!(!path_allowed_for_watch(
+            root,
+            &root.join("nested/.flowix/database/col_1/note.md"),
+            false
+        ));
+        assert!(!path_allowed_for_watch(
+            root,
+            &root.join(".flowix/database2/note.md"),
+            false
+        ));
     }
 
     #[test]
@@ -1317,9 +1400,15 @@ mod tests {
         let mut rename = RawFsEvent::new(FsEventKind::Create, root.join("a.md"));
         rename.rename_from = Some(root.join("old.md"));
         let events = vec![
-            (RawFsEvent::new(FsEventKind::Modify, root.join("a.md")), context()),
+            (
+                RawFsEvent::new(FsEventKind::Modify, root.join("a.md")),
+                context(),
+            ),
             (rename, context()),
-            (RawFsEvent::new(FsEventKind::Modify, root.join("a.md")), context()),
+            (
+                RawFsEvent::new(FsEventKind::Modify, root.join("a.md")),
+                context(),
+            ),
         ];
 
         assert_eq!(coalesce_queued_events(events).len(), 3);
@@ -1444,7 +1533,11 @@ mod tests {
         std::fs::remove_dir_all(&tmp).ok();
     }
 
-    fn window_with(dir: &Path, budget: u8, age: Duration) -> Arc<Mutex<HashMap<PathBuf, (Instant, u8)>>> {
+    fn window_with(
+        dir: &Path,
+        budget: u8,
+        age: Duration,
+    ) -> Arc<Mutex<HashMap<PathBuf, (Instant, u8)>>> {
         let dirs = Arc::new(Mutex::new(HashMap::new()));
         dirs.lock().unwrap().insert(
             crate::watcher::path::normalize_for_compare(dir),
@@ -1458,11 +1551,23 @@ mod tests {
         let folder = PathBuf::from("/notes/inbox");
         let dirs = window_with(&folder, SELF_CREATE_BUDGET, Duration::ZERO);
 
-        assert!(self_create_window_covers(&dirs, Path::new("/notes/inbox/New.md")));
+        assert!(self_create_window_covers(
+            &dirs,
+            Path::new("/notes/inbox/New.md")
+        ));
         // The budget is spent, so a second create in the same folder notifies.
-        assert!(!self_create_window_covers(&dirs, Path::new("/notes/inbox/Second.md")));
-        assert!(!self_create_window_covers(&dirs, Path::new("/notes/other/New.md")));
-        assert!(!self_create_window_covers(&dirs, Path::new("/notes/inbox/sub/New.md")));
+        assert!(!self_create_window_covers(
+            &dirs,
+            Path::new("/notes/inbox/Second.md")
+        ));
+        assert!(!self_create_window_covers(
+            &dirs,
+            Path::new("/notes/other/New.md")
+        ));
+        assert!(!self_create_window_covers(
+            &dirs,
+            Path::new("/notes/inbox/sub/New.md")
+        ));
     }
 
     #[test]
@@ -1474,7 +1579,10 @@ mod tests {
             SELF_CREATE_WINDOW + Duration::from_millis(1),
         );
 
-        assert!(!self_create_window_covers(&dirs, Path::new("/notes/inbox/Later.md")));
+        assert!(!self_create_window_covers(
+            &dirs,
+            Path::new("/notes/inbox/Later.md")
+        ));
     }
 
     #[test]
@@ -1482,7 +1590,10 @@ mod tests {
         let folder = PathBuf::from("/notes/inbox");
         let dirs = window_with(&folder, SELF_CREATE_BUDGET, Duration::ZERO);
 
-        assert!(self_create_window_covers(&dirs, Path::new("/notes/inbox/New.md")));
+        assert!(self_create_window_covers(
+            &dirs,
+            Path::new("/notes/inbox/New.md")
+        ));
         assert!(dirs.lock().unwrap().is_empty());
     }
 }

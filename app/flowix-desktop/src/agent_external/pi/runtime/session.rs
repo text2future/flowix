@@ -23,7 +23,6 @@ use super::super::skill_resources;
 use super::super::AGENT_TYPE;
 
 impl PiRpcManager {
-
     pub async fn delete_session(&self, thread_id: &str) -> Result<bool, String> {
         self.history_snapshots
             .lock()
@@ -43,7 +42,6 @@ impl PiRpcManager {
         }
         Ok(deleted)
     }
-
 
     pub(super) async fn ensure_session(
         &self,
@@ -312,8 +310,11 @@ impl PiRpcManager {
         Ok(session)
     }
 
-
-    pub(super) async fn remove_starting_session_if_same(&self, thread_id: &str, session: &Arc<PiSession>) {
+    pub(super) async fn remove_starting_session_if_same(
+        &self,
+        thread_id: &str,
+        session: &Arc<PiSession>,
+    ) {
         let mut starting = self.starting_sessions.lock().await;
         if starting
             .get(thread_id)
@@ -322,7 +323,6 @@ impl PiRpcManager {
             starting.remove(thread_id);
         }
     }
-
 
     pub(super) async fn remove_session_if_same(&self, thread_id: &str, session: &Arc<PiSession>) {
         let removed = {
@@ -341,8 +341,11 @@ impl PiRpcManager {
         }
     }
 
-
-    pub(super) async fn shutdown_and_remove_session_if_same(&self, thread_id: &str, session: &Arc<PiSession>) {
+    pub(super) async fn shutdown_and_remove_session_if_same(
+        &self,
+        thread_id: &str,
+        session: &Arc<PiSession>,
+    ) {
         // Mark it unusable before releasing the operation guard. A concurrent
         // prompt will wait for that guard, then fail validation instead of
         // writing to a process whose abort did not settle.
@@ -357,8 +360,11 @@ impl PiRpcManager {
         }
     }
 
-
-    pub(super) async fn remove_idle_session_if_same(&self, thread_id: &str, session: &Arc<PiSession>) {
+    pub(super) async fn remove_idle_session_if_same(
+        &self,
+        thread_id: &str,
+        session: &Arc<PiSession>,
+    ) {
         let mut sessions = self.sessions.lock().await;
         let Some(current) = sessions.get(thread_id) else {
             return;
@@ -390,7 +396,6 @@ impl PiRpcManager {
         }
     }
 
-
     pub(super) async fn lock_session_operation(
         &self,
         thread_id: &str,
@@ -410,7 +415,6 @@ impl PiRpcManager {
         drop(sessions);
         Ok(operation)
     }
-
 
     pub async fn fork_session(
         &self,
@@ -488,7 +492,6 @@ impl PiRpcManager {
         Ok(fork.session_id)
     }
 
-
     /// Read history and native identities through Pi RPC. Flowix never opens
     /// or parses Pi's session JSONL files.
     pub async fn get_session_page(
@@ -538,7 +541,6 @@ impl PiRpcManager {
         page_pi_snapshot(&snapshot, before, limit)
     }
 
-
     pub async fn get_session_messages(
         &self,
         app: &tauri::AppHandle,
@@ -547,6 +549,41 @@ impl PiRpcManager {
         Ok(self.get_session_snapshot(app, thread_id).await?.messages)
     }
 
+    /// Read Pi's own session-wide token totals and current context estimate.
+    pub async fn get_session_stats(
+        &self,
+        app: &tauri::AppHandle,
+        thread_id: &str,
+    ) -> Result<super::PiSessionStats, String> {
+        let snapshot = self.get_session_snapshot(app, thread_id).await?;
+        if snapshot.revision.session_id.is_empty() {
+            return Ok(super::PiSessionStats::default());
+        }
+        let session = self
+            .sessions
+            .lock()
+            .await
+            .get(thread_id)
+            .cloned()
+            .ok_or_else(|| "Pi session ended while reading session stats".to_string())?;
+        let mut stats = session.session_stats().await?;
+        if stats.session_id.as_deref().unwrap_or_default().is_empty() {
+            stats.session_id = Some(snapshot.revision.session_id);
+        }
+        stats.model = snapshot
+            .messages
+            .iter()
+            .rev()
+            .find(|message| message.get("role").and_then(Value::as_str) == Some("assistant"))
+            .and_then(|message| {
+                let model = message.get("model")?.as_str()?;
+                Some(match message.get("provider").and_then(Value::as_str) {
+                    Some(provider) => format!("{provider}/{model}"),
+                    None => model.to_string(),
+                })
+            });
+        Ok(stats)
+    }
 
     pub async fn get_session_snapshot(
         &self,
@@ -692,5 +729,4 @@ impl PiRpcManager {
             },
         })
     }
-
 }

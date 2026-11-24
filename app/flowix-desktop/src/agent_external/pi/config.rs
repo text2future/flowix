@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value, json};
+use serde_json::{json, Map, Value};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::Path;
@@ -18,7 +18,7 @@ pub struct PiModelEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub credit_multiplier: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_icon_url: Option<String>,
+    pub icon_url: Option<String>,
     /// Cloud directory rank: larger values are shown first in the picker.
     #[serde(default)]
     pub sort_order: i64,
@@ -26,6 +26,8 @@ pub struct PiModelEntry {
     pub api: Option<String>,
     #[serde(default)]
     pub reasoning: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_config: Option<Value>,
     #[serde(default)]
     pub vision: bool,
     #[serde(default)]
@@ -417,54 +419,57 @@ pub fn list() -> Result<Vec<PiProviderConfig>, String> {
             let model_metadata = provider_metadata
                 .and_then(|metadata| metadata.get("models"))
                 .and_then(Value::as_object);
-            let entries: Vec<PiModelEntry> =
-                models
-                    .iter()
-                    .filter_map(|entry| {
-                        let id = entry.get("id")?.as_str()?.to_string();
-                        let metadata = model_metadata.and_then(|catalog| catalog.get(&id));
-                        Some(PiModelEntry {
-                            id,
-                            name: entry
-                                .get("name")
-                                .and_then(Value::as_str)
-                                .unwrap_or_default()
-                                .to_string(),
-                            subtitle: metadata
-                                .and_then(|item| item.get("subtitle"))
-                                .and_then(Value::as_str)
-                                .map(str::to_string),
-                            credit_multiplier: metadata
-                                .and_then(|item| item.get("creditMultiplier"))
-                                .and_then(Value::as_f64)
-                                .filter(|value| value.is_finite() && (0.01..=10.0).contains(value)),
-                            provider_icon_url: metadata
-                                .and_then(|item| item.get("providerIconUrl"))
-                                .and_then(Value::as_str)
-                                .map(str::to_string),
-                            sort_order: metadata
-                                .and_then(|item| item.get("sortOrder"))
-                                .and_then(Value::as_i64)
-                                .unwrap_or(0),
-                            api: entry.get("api").and_then(Value::as_str).map(str::to_string),
-                            reasoning: entry
-                                .get("reasoning")
-                                .and_then(Value::as_bool)
-                                .unwrap_or(false),
-                            vision: entry.get("input").and_then(Value::as_array).is_some_and(
-                                |input| input.iter().any(|item| item.as_str() == Some("image")),
-                            ),
-                            context_window: entry
-                                .get("contextWindow")
-                                .and_then(Value::as_u64)
-                                .map(|value| value as u32),
-                            max_tokens: entry
-                                .get("maxTokens")
-                                .and_then(Value::as_u64)
-                                .map(|value| value as u32),
-                        })
+            let entries: Vec<PiModelEntry> = models
+                .iter()
+                .filter_map(|entry| {
+                    let id = entry.get("id")?.as_str()?.to_string();
+                    let metadata = model_metadata.and_then(|catalog| catalog.get(&id));
+                    Some(PiModelEntry {
+                        id,
+                        name: entry
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string(),
+                        subtitle: metadata
+                            .and_then(|item| item.get("subtitle"))
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                        credit_multiplier: metadata
+                            .and_then(|item| item.get("creditMultiplier"))
+                            .and_then(Value::as_f64)
+                            .filter(|value| value.is_finite() && (0.01..=10.0).contains(value)),
+                        icon_url: metadata
+                            .and_then(|item| item.get("iconUrl"))
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                        sort_order: metadata
+                            .and_then(|item| item.get("sortOrder"))
+                            .and_then(Value::as_i64)
+                            .unwrap_or(0),
+                        api: entry.get("api").and_then(Value::as_str).map(str::to_string),
+                        reasoning: entry
+                            .get("reasoning")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
+                        reasoning_config: metadata.and_then(|item| item.get("reasoning")).cloned(),
+                        vision: entry
+                            .get("input")
+                            .and_then(Value::as_array)
+                            .is_some_and(|input| {
+                                input.iter().any(|item| item.as_str() == Some("image"))
+                            }),
+                        context_window: entry
+                            .get("contextWindow")
+                            .and_then(Value::as_u64)
+                            .map(|value| value as u32),
+                        max_tokens: entry
+                            .get("maxTokens")
+                            .and_then(Value::as_u64)
+                            .map(|value| value as u32),
                     })
-                    .collect();
+                })
+                .collect();
             Some(PiProviderConfig {
                 id: id.clone(),
                 display_name: provider
@@ -503,6 +508,14 @@ pub fn list() -> Result<Vec<PiProviderConfig>, String> {
         .collect())
 }
 
+fn valid_model_ids(config: &PiProviderConfig) -> bool {
+    (!config.models.is_empty() || config.source.as_deref() == Some("flowix-cloud"))
+        && config
+            .models
+            .iter()
+            .all(|model| !model.id.trim().is_empty())
+}
+
 pub fn save(mut config: PiProviderConfig, app: &AppHandle) -> Result<(), String> {
     let id = config.id.trim().to_ascii_lowercase();
     if id.is_empty()
@@ -538,7 +551,7 @@ pub fn save(mut config: PiProviderConfig, app: &AppHandle) -> Result<(), String>
     {
         return Err("Unsupported Pi model API".into());
     }
-    if config.models.is_empty() || config.models.iter().any(|model| model.id.trim().is_empty()) {
+    if !valid_model_ids(&config) {
         return Err("At least one model ID is required".into());
     }
     let mut seen = std::collections::HashSet::new();
@@ -564,6 +577,15 @@ pub fn save(mut config: PiProviderConfig, app: &AppHandle) -> Result<(), String>
         });
         value.as_object_mut().map(|object| {
             if let Some(api) = model.api.as_deref() { object.insert("api".into(), json!(api)); }
+            // Send a stable Flowix intent independently of Pi's provider-specific
+            // reasoning_effort behavior (notably, Pi omits effort for `off`).
+            if let Some(levels) = model.reasoning_config.as_ref().and_then(|config| config.get("levels")).and_then(Value::as_array) {
+                let sampling: serde_json::Map<String, Value> = levels.iter().filter_map(|level| {
+                    let level = level.as_str()?;
+                    Some((level.to_string(), json!({"flowix_reasoning_level": level})))
+                }).collect();
+                object.insert("samplingParamsByThinkingLevel".into(), Value::Object(sampling));
+            }
             if model.context_window.is_none() { object.remove("contextWindow"); }
             if model.max_tokens.is_none() { object.remove("maxTokens"); }
         });
@@ -620,16 +642,19 @@ pub fn save(mut config: PiProviderConfig, app: &AppHandle) -> Result<(), String>
             metadata.insert("creditMultiplier".into(), json!(multiplier));
         }
         if let Some(icon_url) = model
-            .provider_icon_url
+            .icon_url
             .as_deref()
             .filter(|value| !value.trim().is_empty())
         {
-            metadata.insert("providerIconUrl".into(), json!(icon_url.trim()));
+            metadata.insert("iconUrl".into(), json!(icon_url.trim()));
         }
         // Zero is the default, so omitting it keeps the metadata compact while
         // still letting a rank be cleared on the next credential refresh.
         if model.sort_order != 0 {
             metadata.insert("sortOrder".into(), json!(model.sort_order));
+        }
+        if let Some(reasoning) = &model.reasoning_config {
+            metadata.insert("reasoning".into(), reasoning.clone());
         }
         if !metadata.is_empty() {
             model_metadata.insert(model.id.clone(), Value::Object(metadata));
@@ -870,9 +895,16 @@ pub fn save_cloud_credential(
     let saved_default = current_cloud
         .and_then(|provider| provider.default_model_id.clone())
         .filter(|id| model_ids.iter().any(|model_id| model_id == id));
-    // A newly discovered member catalog is visible immediately, but should
-    // not silently become the active model before the user selects it.
-    let default_model_id = saved_default;
+    // Use Cloud's selected default only when the user has no Pi default yet.
+    // Existing explicit selections, including personal providers, take precedence.
+    let default_model_id = saved_default.or_else(|| {
+        (settings
+            .get("defaultProvider")
+            .and_then(Value::as_str)
+            .is_none())
+        .then(|| credential.model.id.clone())
+        .filter(|id| model_ids.iter().any(|model_id| model_id == id))
+    });
     let provider_id = current_cloud
         .map(|provider| provider.id.clone())
         .unwrap_or_else(|| {
@@ -894,6 +926,10 @@ pub fn save_cloud_credential(
             }
         });
     let default_model_id = if current_cloud.is_some()
+        && settings
+            .get("defaultProvider")
+            .and_then(Value::as_str)
+            .is_some()
         && settings.get("defaultProvider").and_then(Value::as_str) != Some(provider_id.as_str())
     {
         None
@@ -901,17 +937,13 @@ pub fn save_cloud_credential(
         default_model_id
     };
     let cloud_base = format!("{api_base}/v1/ai");
-    let model_base = match credential.model_base_url.as_deref() {
-        Some("https://ai-cn.flowix.cc/v1/ai") if api_base == "https://cloud.flowix.cc" => "https://ai-cn.flowix.cc/v1/ai".to_string(),
-        _ => cloud_base,
-    };
     save(
         PiProviderConfig {
             id: provider_id,
             display_name: "Flowix Cloud".into(),
             icon_url: provider_icon_url,
             api: "openai-completions".into(),
-            base_url: model_base,
+            base_url: cloud_base,
             source: Some("flowix-cloud".into()),
             api_key: Some(credential.api_key),
             credential_configured: true,
@@ -933,12 +965,16 @@ pub fn save_cloud_credential(
                         credit_multiplier: model
                             .credit_multiplier
                             .filter(|value| value.is_finite() && (0.01..=10.0).contains(value)),
-                        provider_icon_url: model
-                            .provider_icon_url
-                            .filter(|url| !url.trim().is_empty()),
+                        icon_url: model.icon_url.filter(|url| !url.trim().is_empty()),
                         sort_order: model.sort_order.unwrap_or(0),
                         api: None,
-                        reasoning: false,
+                        reasoning: model
+                            .reasoning
+                            .as_ref()
+                            .and_then(|r| r.get("levels"))
+                            .and_then(Value::as_array)
+                            .is_some_and(|levels| !levels.is_empty()),
+                        reasoning_config: model.reasoning,
                         vision: false,
                         context_window: None,
                         max_tokens: None,
@@ -1075,12 +1111,10 @@ pub async fn discover_models(config: PiProviderConfig) -> Result<Vec<PiModelEntr
                 id,
                 subtitle: None,
                 credit_multiplier: None,
-                provider_icon_url: None,
-                sort_order: entry
-                    .get("sort_order")
-                    .and_then(Value::as_i64)
-                    .unwrap_or(0),
+                icon_url: None,
+                sort_order: entry.get("sort_order").and_then(Value::as_i64).unwrap_or(0),
                 reasoning: false,
+                reasoning_config: None,
                 vision: false,
                 api: None,
                 context_window: None,
@@ -1092,7 +1126,19 @@ pub async fn discover_models(config: PiProviderConfig) -> Result<Vec<PiModelEntr
 
 #[cfg(test)]
 mod tests {
-    use super::collect_cloud_provider_ids;
+    use super::{collect_cloud_provider_ids, valid_model_ids, PiProviderConfig};
+
+    #[test]
+    fn only_cloud_providers_can_have_an_empty_catalog() {
+        let mut config: PiProviderConfig = serde_json::from_value(serde_json::json!({
+            "id": "provider", "displayName": "Provider", "api": "openai-completions",
+            "baseUrl": "https://example.com", "models": []
+        }))
+        .expect("provider fixture");
+        assert!(!valid_model_ids(&config));
+        config.source = Some("flowix-cloud".into());
+        assert!(valid_model_ids(&config));
+    }
 
     #[test]
     fn cloud_provider_cleanup_includes_marked_and_legacy_ids_without_duplicates() {

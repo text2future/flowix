@@ -122,15 +122,17 @@ impl HermesCliManager {
             manager.runs.release_start(&thread_id, &run_id).await;
             let reason = if cancelled {
                 Some(USER_STOPPED_REASON.to_string())
-            } else { match result {
-                Ok(()) => None,
-                Err(err) => {
-                    manager
-                        .emit_run_error(&app_handle, &thread_id, err.clone(), &run_id)
-                        .await;
-                    Some(err)
+            } else {
+                match result {
+                    Ok(()) => None,
+                    Err(err) => {
+                        manager
+                            .emit_run_error(&app_handle, &thread_id, err.clone(), &run_id)
+                            .await;
+                        Some(err)
+                    }
                 }
-            }};
+            };
 
             manager
                 .emit_stream_end(
@@ -159,14 +161,23 @@ impl HermesCliManager {
         {
             Ok(Some(stopped)) => stopped,
             Ok(None) => {
-                if self.runs.cancel_start(thread_id, run_id).await { return true; }
-                match self.runs.stop_run(thread_id, thread_id, run_id, DISPLAY_NAME).await {
+                if self.runs.cancel_start(thread_id, run_id).await {
+                    return true;
+                }
+                match self
+                    .runs
+                    .stop_run(thread_id, thread_id, run_id, DISPLAY_NAME)
+                    .await
+                {
                     Ok(Some(stopped)) => stopped,
                     _ => return false,
                 }
             }
             Err(unconfirmed) => {
-                tracing::warn!("[HermesCli] stop still unconfirmed for run {}", unconfirmed.run_id);
+                tracing::warn!(
+                    "[HermesCli] stop still unconfirmed for run {}",
+                    unconfirmed.run_id
+                );
                 return false;
             }
         };
@@ -299,12 +310,7 @@ impl HermesCliManager {
 
             if let Err(mut duplicate_child) = self
                 .runs
-                .insert_reserved(
-                    thread_id.to_string(),
-                    child,
-                    run_id,
-                    stream_end_emitted,
-                )
+                .insert_reserved(thread_id.to_string(), child, run_id, stream_end_emitted)
                 .await
             {
                 let _ = duplicate_child.kill().await;
@@ -319,7 +325,11 @@ impl HermesCliManager {
             let stderr_task = read_to_string(BufReader::new(stderr));
             let (stdout_result, stderr_text) = tokio::join!(stdout_task, stderr_task);
 
-            let status = if let Some(status) = self.runs.wait_for_exit_and_remove_if_run_id(thread_id, run_id).await? {
+            let status = if let Some(status) = self
+                .runs
+                .wait_for_exit_and_remove_if_run_id(thread_id, run_id)
+                .await?
+            {
                 status
             } else {
                 runtime_log::record_agent_event(

@@ -410,10 +410,25 @@ fn is_document_preview_path(path: &Path) -> bool {
     };
     matches!(
         extension.to_ascii_lowercase().as_str(),
-        "pdf" | "html" | "htm" | "rtf" | "epub"
-            | "doc" | "docx" | "ppt" | "pptx" | "pps" | "ppsx"
-            | "xls" | "xlsx" | "key" | "pages" | "numbers"
-            | "odt" | "ods" | "odp"
+        "pdf"
+            | "html"
+            | "htm"
+            | "rtf"
+            | "epub"
+            | "doc"
+            | "docx"
+            | "ppt"
+            | "pptx"
+            | "pps"
+            | "ppsx"
+            | "xls"
+            | "xlsx"
+            | "key"
+            | "pages"
+            | "numbers"
+            | "odt"
+            | "ods"
+            | "odp"
     )
 }
 

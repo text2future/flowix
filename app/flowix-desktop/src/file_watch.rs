@@ -122,11 +122,7 @@ impl FileBrowserWatchState {
         }
     }
 
-    pub fn watch(
-        &self,
-        window_label: &str,
-        root_path: PathBuf,
-    ) -> Result<String, String> {
+    pub fn watch(&self, window_label: &str, root_path: PathBuf) -> Result<String, String> {
         let lease_id = format!(
             "file-browser-watch:{}:{}",
             window_label,
@@ -225,7 +221,10 @@ fn schedule_directory_changes(
         return;
     };
     let directory_event = event.paths.iter().any(|path| path.is_dir())
-        || matches!(event.kind, EventKind::Remove(notify::event::RemoveKind::Folder));
+        || matches!(
+            event.kind,
+            EventKind::Remove(notify::event::RemoveKind::Folder)
+        );
     for (lease_id, lease) in &registry.leases {
         let mut directories = HashSet::new();
         let mut paths = HashSet::new();
@@ -360,7 +359,12 @@ fn dispatch_directory_changes(
         let changes = std::mem::take(&mut pending);
         for (lease_id, changes) in changes {
             emit_directory_changes(
-                &app, &registry, &root_guard, &lease_id, changes.directories, changes.paths,
+                &app,
+                &registry,
+                &root_guard,
+                &lease_id,
+                changes.directories,
+                changes.paths,
             );
         }
     }

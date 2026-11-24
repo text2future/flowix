@@ -28,6 +28,7 @@ export interface DispatchChatStreamArgs {
   imagePaths?: string[];
   /** Product-owned title persisted before the runtime process starts. */
   conversationTitle?: string;
+  onResolvedProvider?: (providerId: string | undefined) => void;
 }
 
 /**
@@ -50,6 +51,7 @@ export async function dispatchChatStream({
   runtimeConfig: instanceRuntimeConfig,
   imagePaths,
   conversationTitle,
+  onResolvedProvider,
 }: DispatchChatStreamArgs): Promise<void> {
   await ensureAgentPreferencesReady(agentType);
   // Thread Card 首次运行前会冻结 workspaceSnapshot，后续 turn 只使用快照。
@@ -76,6 +78,7 @@ export async function dispatchChatStream({
     piCodeMode: userDefaults.pi.user.mode === "code",
     workspaceSnapshot,
   });
+  onResolvedProvider?.(preferences.model?.providerId);
   if (instanceId) markConversationWorkspaceStarted(instanceId);
   await agentClient.chatStream(threadId, {
     content,

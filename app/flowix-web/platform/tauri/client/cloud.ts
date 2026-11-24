@@ -25,6 +25,9 @@ export interface CloudMembership {
   availableBytes: number;
   noteCount: number;
   readOnly: boolean;
+  usageObservedAt?: number | null;
+  usageReadStatus?: 'unknown' | 'ok' | 'error' | null;
+  usageSource?: 'ledger' | 'object_store' | null;
 }
 
 export interface CloudAiCreditBalance {
@@ -51,6 +54,36 @@ export interface CloudState {
   restored?: boolean;
 }
 
+/** Capabilities of the currently selected sync backend, independent of login. */
+export interface CloudStorageAccess {
+  target: 'official' | 'customS3';
+  /** Named custom Remote bound to the running process at startup. */
+  profileId?: string;
+  configured: boolean;
+  canRead: boolean;
+  canUpload: boolean;
+  canDelete: boolean;
+}
+
+export type CloudStorageTarget =
+  | { type: 'official' }
+  | { type: 'customS3'; profileId: string };
+
+export interface CloudStorageProfile {
+  id: string;
+  remote: { endpoint: string; region: string; bucket: string; prefix: string };
+}
+
+export interface CloudStorageSettings {
+  activeTarget: CloudStorageTarget;
+  profiles: CloudStorageProfile[];
+}
+
+export interface CloudNoteShareLink {
+  url: string;
+  expiresAt: number;
+}
+
 /** Server-owned deletion lifecycle; the client never hardcodes the grace period. */
 export interface AccountDeletionState {
   state: 'active' | 'restorable' | 'purged' | 'suspended';
@@ -69,10 +102,28 @@ export interface AccountDeletionOutcome {
   pendingSubscriptionCancellations: string[];
 }
 
+export interface RegistrationCodeRequest {
+  verificationRequired: boolean;
+  email: string;
+  expiresInSeconds: number;
+  resendAfterSeconds: number;
+}
+
+export interface RegistrationCodeResend {
+  requested: boolean;
+  expiresInSeconds?: number | null;
+  resendAfterSeconds?: number | null;
+}
+
+export interface PasswordResetCodeRequest {
+  requested: boolean;
+  expiresInSeconds: number;
+  resendAfterSeconds: number;
+}
+
 export interface CloudNotebookSyncState {
   notebookId: string;
   enabled: boolean;
-  bootstrapRequired: boolean;
   updatedAt: number;
 }
 
@@ -113,9 +164,27 @@ export interface CloudSyncStatus {
   uploaded: number;
   deleted: number;
   downloaded: number;
+  progressCompleted?: number | null;
+  progressTotal?: number | null;
   startedAt: number;
   finishedAt?: number | null;
   lastError?: string | null;
+  /**
+   * Which engine produced these numbers: `indexed` is the epoch-3 protocol,
+   * `path` the path-keyed one. Absent when only the indexed engine ran.
+   */
+  engine?: 'indexed' | 'path' | null;
+  /**
+   * The path engine accepted writes. `false` means the account is over quota or
+   * its membership lapsed: downloads still happen, publishes wait for renewal.
+   */
+  writable?: boolean | null;
+  /**
+   * The path engine was allowed to delete. `false` during the window after a
+   * fresh bind, after a bucket change, or when the server clock is untrusted.
+   */
+  allowsDeletes?: boolean | null;
+  deletionDeferred?: boolean | null;
 }
 
 export interface CloudProduct {
@@ -177,9 +246,28 @@ export interface CloudFeedbackAttachment {
 }
 
 export const cloud = {
+  getStorageAccess: () => invoke<CloudStorageAccess>('cloud_get_storage_access'),
+  getStorageConfig: () => invoke<CloudStorageSettings>('cloud_get_storage_config'),
+  selectStorageTarget: (target: CloudStorageTarget) =>
+    invoke<CloudStorageSettings>('cloud_select_storage_target', { target }),
+  deleteCustomS3Profile: (profileId: string) =>
+    invoke<CloudStorageSettings>('cloud_delete_custom_s3_profile', { profileId }),
+  checkCustomS3: (input: CustomS3Input) => invoke<void>('cloud_check_custom_s3', { input }),
+  saveCustomS3Profile: (input: CustomS3ProfileInput) =>
+    invoke<CloudStorageSettings>('cloud_save_custom_s3_profile', { input }),
   getState: () => invoke<CloudState>('cloud_get_state'),
-  register: (email: string, password: string, displayName: string) =>
-    invoke<CloudState>('cloud_register', { email, password, displayName }),
+  updateAccountRegion: (region: CloudUser['region']) =>
+    invoke<CloudState>('cloud_update_account_region', { region }),
+  requestPasswordResetCode: (email: string, emailLanguage: 'zh-CN' | 'en-US') =>
+    invoke<PasswordResetCodeRequest>('cloud_request_password_reset_code', { email, emailLanguage }),
+  confirmPasswordResetCode: (email: string, code: string, newPassword: string) =>
+    invoke<void>('cloud_confirm_password_reset_code', { email, code, newPassword }),
+  requestRegistrationCode: (email: string, password: string, displayName: string, emailLanguage: 'zh-CN' | 'en-US') =>
+    invoke<RegistrationCodeRequest>('cloud_request_registration_code', { email, password, displayName, emailLanguage }),
+  resendRegistrationCode: (email: string) =>
+    invoke<RegistrationCodeResend>('cloud_resend_registration_code', { email }),
+  confirmRegistration: (email: string, code: string, password: string) =>
+    invoke<CloudState>('cloud_confirm_registration', { email, code, password }),
   login: (email: string, password: string, restoreDeleted = false) =>
     invoke<CloudState>('cloud_login', { email, password, restoreDeleted }),
   /** Where the account stands in its deletion window, with the real deadline. */
@@ -189,16 +277,16 @@ export const cloud = {
   /** Irreversible: starts the deletion clock and clears this account locally. */
   deleteAccount: (confirmEmail: string) =>
     invoke<AccountDeletionOutcome>('cloud_delete_account', { confirmEmail }),
-  signInWithApple: () => invoke<CloudState>('cloud_sign_in_with_apple'),
-  startGoogleSignIn: () => invoke<void>('cloud_start_google_sign_in'),
+  signInWithApple: (accountRegion: 'mainland' | 'non_mainland') =>
+    invoke<CloudState>('cloud_sign_in_with_apple', { accountRegion }),
+  startGoogleSignIn: (accountRegion: 'mainland' | 'non_mainland') =>
+    invoke<void>('cloud_start_google_sign_in', { accountRegion }),
   linkApple: () => invoke<CloudState>('cloud_link_apple'),
   logout: () => invoke<CloudState>('cloud_logout'),
   getNotebookState: (notebookId: string) =>
     invoke<CloudNotebookSyncState | null>('cloud_get_notebook_state', { notebookId }),
   listNotebookStates: () =>
     invoke<CloudNotebookSyncState[]>('cloud_list_notebook_states'),
-  listPendingFileOperationCounts: () =>
-    invoke<Record<string, number>>('cloud_list_pending_file_operation_counts'),
   listNotebooks: () => invoke<CloudNotebook[]>('cloud_list_notebooks'),
   linkNotebook: (notebookId: string, cloudNotebookId: string) =>
     invoke<CloudNotebookSyncState>('cloud_link_notebook', { notebookId, cloudNotebookId }),
@@ -209,7 +297,7 @@ export const cloud = {
   getAiCreditBalance: () =>
     invoke<CloudAiCreditBalance>('cloud_ai_credit_balance'),
   piModelCatalog: () => invoke<{ data: { models: Array<{
-    id: string; title?: string; subtitle?: string; creditMultiplier?: number; providerIconUrl?: string;
+    id: string; title?: string; subtitle?: string; creditMultiplier?: number; iconUrl?: string; providerIconUrl?: string;
     sortOrder?: number;
   }> } }>('cloud_pi_model_catalog'),
   piModelAvailability: () => invoke<boolean>('cloud_pi_model_availability'),
@@ -236,19 +324,34 @@ export const cloud = {
   ) => invoke<void>('cloud_submit_feedback', { deviceId, kind, content, appVersion, platform, attachments }),
   syncNow: (notebookId?: string) =>
     invoke<CloudSyncResult>('cloud_sync_now', { notebookId }),
-  listConflicts: (notebookId: string) =>
-    invoke<string[]>('cloud_list_conflicts', { notebookId }),
-  resolveMarkdownConflict: (notebookId: string, relativePath: string, conflictPath: string, useLocal: boolean) =>
-    invoke<void>('cloud_resolve_markdown_conflict', { notebookId, relativePath, conflictPath, useLocal }),
-  resolveAttachmentConflict: (notebookId: string, relativePath: string, conflictPath: string, useLocal: boolean) =>
-    invoke<void>('cloud_resolve_attachment_conflict', { notebookId, relativePath, conflictPath, useLocal }),
+  createNoteShareLink: (notebookId: string, relativePath: string) =>
+    invoke<CloudNoteShareLink>('cloud_create_note_share_link', { notebookId, relativePath }),
+  createFolderShareLink: (notebookId: string, relativePath: string) =>
+    invoke<CloudNoteShareLink>('cloud_create_folder_share_link', { notebookId, relativePath }),
 };
+
+export interface CustomS3Input {
+  remote: { endpoint: string; region: string; bucket: string; prefix: string };
+  profileId?: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+}
+
+export interface CustomS3ProfileInput {
+  profile: CloudStorageProfile;
+  accessKeyId: string;
+  secretAccessKey: string;
+}
 
 export function listenToCloudStateChanges(
   handler: (state: CloudState) => void,
   options?: SubscribeOptions,
 ): UnlistenFn {
   return subscribe<CloudState>('cloud-state-changed', handler, options);
+}
+
+export function listenToCloudStorageAccessChanges(handler: () => void): UnlistenFn {
+  return subscribe<void>('cloud-storage-access-changed', handler);
 }
 
 export function listenToCloudSyncStatusChanges(

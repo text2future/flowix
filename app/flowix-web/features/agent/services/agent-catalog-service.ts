@@ -117,9 +117,10 @@ async function fetchAgentModelCatalog(agentType: AgentTypeKey): Promise<AgentMod
         label: modelConfig?.name?.trim() || formatModelDisplayLabel(id),
         ...(modelConfig?.subtitle?.trim() ? { subtitle: modelConfig.subtitle.trim() } : {}),
         ...(modelConfig?.creditMultiplier != null ? { creditMultiplier: modelConfig.creditMultiplier } : {}),
+        ...(modelConfig?.reasoningConfig ? { reasoningConfig: modelConfig.reasoningConfig } : {}),
         ...(modelConfig?.sortOrder != null ? { sortOrder: modelConfig.sortOrder } : {}),
-        ...(modelConfig?.providerIconUrl || provider?.iconUrl
-          ? { iconUrl: modelConfig?.providerIconUrl || provider?.iconUrl }
+        ...(modelConfig?.iconUrl || provider?.iconUrl
+          ? { iconUrl: modelConfig?.iconUrl || provider?.iconUrl }
           : {}),
         providerId,
         providerName: provider?.displayName ?? providerId,

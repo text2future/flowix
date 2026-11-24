@@ -67,7 +67,9 @@ pub(crate) fn cmd_catalog(json: bool) -> Result<(), CliError> {
         println!("Source:  static HTML fragment; keep styles in <style> or style attributes.");
         println!("Preview: sandboxed iframe; scripts and event handlers are not supported.");
         println!("Height:  optional root data-flowix-preview-height=\"560\" (160–960 px).");
-        println!("Markdown: readable HTML/CSS snapshot inside a <flowix-component-block> HTML block.");
+        println!(
+            "Markdown: readable HTML/CSS snapshot inside a <flowix-component-block> HTML block."
+        );
         println!("Limit:   {MAX_SOURCE_BYTES} source bytes per component.");
         println!("The inserted node stores a snapshot. Replacing a library component does not change existing notes.");
     }

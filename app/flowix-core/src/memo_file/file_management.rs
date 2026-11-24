@@ -31,7 +31,6 @@ impl FileManagementPolicy {
             || EXCLUDED_DIRECTORY_NAMES.contains(&name)
     }
 
-
     /// Kept for call-site stability: the policy no longer reads any
     /// notebook-local configuration file.
     pub fn from_notebook_root(_root: &Path) -> Self {
@@ -100,7 +99,9 @@ impl FileManagementPolicy {
             let mut ancestor = root.to_path_buf();
             for component in relative.components() {
                 ancestor.push(component.as_os_str());
-                if std::fs::symlink_metadata(&ancestor).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+                if std::fs::symlink_metadata(&ancestor)
+                    .is_ok_and(|metadata| metadata.file_type().is_symlink())
+                {
                     return true;
                 }
             }
@@ -116,7 +117,9 @@ impl FileManagementPolicy {
     fn is_hidden_path_for(&self, relative: &Path, for_index: bool) -> bool {
         let components: Vec<_> = relative.components().collect();
         for (index, component) in components.iter().enumerate() {
-            let Component::Normal(name) = component else { return true; };
+            let Component::Normal(name) = component else {
+                return true;
+            };
             if index + 1 == components.len() {
                 break;
             }
@@ -128,13 +131,17 @@ impl FileManagementPolicy {
             }
         }
 
-        let Some(name) = relative.file_name() else { return true; };
+        let Some(name) = relative.file_name() else {
+            return true;
+        };
         matches_hidden_file_pattern(&name.to_string_lossy())
     }
 
     fn is_hidden_directory_for(relative: &Path, for_index: bool) -> bool {
         for (index, component) in relative.components().enumerate() {
-            let Component::Normal(name) = component else { return true; };
+            let Component::Normal(name) = component else {
+                return true;
+            };
             if index == 0 && Self::is_user_data_path(relative) {
                 continue;
             }

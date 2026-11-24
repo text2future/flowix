@@ -119,7 +119,7 @@ function SelectTrigger({ children, className, asChild, id, 'aria-label': ariaLab
 				disabled={disabled}
 				onClick={handleClick}
 				className={cn(
-					"flex items-center justify-between w-full h-8 px-3 rounded-lg bg-[var(--card)] border border-[var(--border)] text-sm text-[var(--foreground)] focus:outline-none focus:border-[var(--primary)]",
+					"flex items-center justify-between w-full h-8 px-3 rounded-lg bg-[var(--card)] border border-[var(--border)] text-sm text-[var(--foreground)] focus:outline-none focus:border-[var(--input-ring)]",
 					selectDisabledClassName,
 					className
 				)}
@@ -166,7 +166,7 @@ function SelectTrigger({ children, className, asChild, id, 'aria-label': ariaLab
 			disabled={disabled}
 			onClick={handleClick}
 			className={cn(
-				"flex items-center justify-between w-full h-8 px-3 rounded-lg bg-[var(--card)] border border-[var(--border)] text-sm text-[var(--foreground)] focus:outline-none focus:border-[var(--primary)]",
+			"flex items-center justify-between w-full h-8 px-3 rounded-lg bg-[var(--card)] border border-[var(--border)] text-sm text-[var(--foreground)] focus:outline-none focus:border-[var(--input-ring)]",
 				selectDisabledClassName,
 				className
 			)}
@@ -189,8 +189,9 @@ function SelectValue({ children, placeholder }: SelectValueProps) {
 
 	if (children) return <>{children}</>;
 
-	const displayValue = !value || value === "0" ? placeholder : value;
-	return <span className={displayValue ? "" : "text-[var(--muted-foreground)]"}>{displayValue}</span>;
+	const hasValue = Boolean(value) && value !== "0";
+	const displayValue = hasValue ? value : placeholder;
+	return <span className={hasValue ? "" : "text-[var(--input-placeholder)]"}>{displayValue}</span>;
 }
 
 interface SelectContentProps {

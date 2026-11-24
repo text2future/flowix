@@ -67,6 +67,7 @@ export interface AgentCatalogModel {
   description?: string;
   subtitle?: string;
   creditMultiplier?: number;
+  reasoningConfig?: { levels: string[]; defaultLevel?: string | null };
   iconUrl?: string;
   /** Cloud directory rank: larger values are shown first. */
   sortOrder?: number;
@@ -135,6 +136,7 @@ export interface AgentDataStoreState {
   userPreferenceRevisions: Partial<Record<AgentTypeKey, Record<string, string>>>;
   /** Flowix Cloud Pi models belong to the current account session, not disk. */
   piCloudAccountId: string | null;
+  piCloudRegion: "mainland" | "non_mainland" | null;
   /** Latest membership entitlement included in the native Cloud state snapshot. */
   piCloudMembership: CloudMembership | null;
   piCloudCatalogEpoch: number;
@@ -151,6 +153,7 @@ export interface AgentDataStoreState {
     accountId: string | null,
     revision?: number,
     membership?: CloudMembership | null,
+    region?: "mainland" | "non_mainland" | null,
   ) => void;
   setPiCloudModelLoadState: (epoch: number, state: AgentDataLoadState["piCloudModels"]) => void;
   invalidateSkillCatalog: (agentType: AgentTypeKey, notebookId: string) => void;
@@ -577,6 +580,7 @@ export const useAgentDataStore = create<AgentDataStoreState>()(
       piCloudAccountId: null,
       piCloudMembership: null,
       piCloudCatalogEpoch: 0,
+      piCloudRegion: null,
       piCloudRevision: -1,
       persistenceError: lastPersistenceError,
       agents: createInitialAgents(),
@@ -663,19 +667,23 @@ export const useAgentDataStore = create<AgentDataStoreState>()(
         };
       }),
 
-      setPiCloudAccount: (accountId, revision, membership) => set((state) => {
+      setPiCloudAccount: (accountId, revision, membership, region) => set((state) => {
         if (revision !== undefined && revision < state.piCloudRevision) return state;
         const piCloudRevision = revision ?? state.piCloudRevision;
+        const nextRegion = accountId === null ? null : region === undefined
+          ? (state.piCloudAccountId === accountId ? state.piCloudRegion : null) : region;
         const accountChanged = state.piCloudAccountId !== accountId;
+        const catalogChanged = accountChanged || state.piCloudRegion !== nextRegion;
         const piCloudMembership = accountId === null
           ? null
           : membership === undefined
             ? accountChanged ? null : state.piCloudMembership
             : membership;
-        if (!accountChanged) return { piCloudRevision, piCloudMembership };
+        if (!catalogChanged) return { piCloudRevision, piCloudMembership };
         const nextModels = withoutFlowixCloudModels(state.agents.pi.catalog.models);
         return {
           piCloudAccountId: accountId,
+          piCloudRegion: nextRegion,
           piCloudMembership,
           piCloudRevision,
           piCloudCatalogEpoch: state.piCloudCatalogEpoch + 1,
@@ -940,6 +948,7 @@ export const useAgentDataStore = create<AgentDataStoreState>()(
           ...current,
           agents,
           piCloudAccountId: current.piCloudAccountId,
+          piCloudRegion: current.piCloudRegion,
           piCloudMembership: current.piCloudMembership,
           piCloudCatalogEpoch: current.piCloudCatalogEpoch,
           piCloudRevision: current.piCloudRevision,

@@ -53,7 +53,8 @@ pub(crate) async fn start_plugin_chat(
             tracing::warn!("Failed to sync agent instructions: {error}");
         }
     }
-    state.external_runtimes
+    state
+        .external_runtimes
         .dispatch_chat(thread_id, runtime, message, app_handle)
         .await
         .map(|_| ())

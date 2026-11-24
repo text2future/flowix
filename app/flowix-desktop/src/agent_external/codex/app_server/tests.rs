@@ -184,8 +184,7 @@ fn projects_known_tool_items_to_stable_flowix_names() {
 #[test]
 fn accepts_current_app_server_tool_item_names() {
     let collab = json!({ "id": "item-c", "type": "collabToolCall", "tool": "spawn_agent" });
-    let image_view =
-        json!({ "id": "item-view", "type": "imageView", "path": "/tmp/image.png" });
+    let image_view = json!({ "id": "item-view", "type": "imageView", "path": "/tmp/image.png" });
     let image_generation = json!({ "id": "item-generation", "type": "imageGeneration" });
 
     assert_eq!(
@@ -1018,8 +1017,8 @@ fn projects_completed_user_message_content_from_codex_item() {
         "type": "userMessage",
         "content": [{ "type": "text", "text": "Inspect this file" }]
     });
-    let (chunk, metadata) = completed_message_chunk("thread-1", &item, Some("turn-1"))
-        .expect("completed user message");
+    let (chunk, metadata) =
+        completed_message_chunk("thread-1", &item, Some("turn-1")).expect("completed user message");
 
     assert!(matches!(
         chunk,
@@ -1140,12 +1139,9 @@ fn projects_completed_context_compaction_with_stable_identity() {
 #[test]
 fn context_compaction_without_provider_ids_uses_shared_fallback_identity() {
     for turn_id in [None, Some("")] {
-        let (chunk, metadata) = completed_message_chunk(
-            "thread-1",
-            &json!({ "type": "contextCompaction" }),
-            turn_id,
-        )
-        .expect("completed context compaction");
+        let (chunk, metadata) =
+            completed_message_chunk("thread-1", &json!({ "type": "contextCompaction" }), turn_id)
+                .expect("completed context compaction");
 
         assert!(matches!(
             chunk,
@@ -1441,11 +1437,7 @@ fn ordinary_chat_waits_for_its_start_response_before_routing_events() {
         UnboundNotificationAction::Buffer
     );
     assert_eq!(
-        unbound_notification_action(
-            TurnBinding::StartResponse,
-            "item/agentMessage/delta",
-            true,
-        ),
+        unbound_notification_action(TurnBinding::StartResponse, "item/agentMessage/delta", true,),
         UnboundNotificationAction::Buffer
     );
     assert_eq!(

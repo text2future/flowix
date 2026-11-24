@@ -164,6 +164,15 @@ export const DEVELOPMENT_PREFERENCE_TAB_GROUP = {
       visibleInProductMenu: false,
       ...lazyPreferenceTab(() => import('@features/preferences/tab-pages/environment-config').then((module) => ({ default: module.EnvironmentConfigPreferencesTab }))),
     },
+    {
+      id: 'cloudStorage',
+      labelKey: 'cloudSync.tabs.storage',
+      icon: <CloudIcon className="w-4 h-4" />,
+      sidebarIcon: <CloudIcon className={SIDEBAR_ICON_CLASS} weight="fill" />,
+      contentWidth: 'normal',
+      visibleInProductMenu: false,
+      ...lazyPreferenceTab(() => import('@features/preferences/sections/cloud-sync').then((module) => ({ default: module.CloudStorageSection }))),
+    },
   ],
 } as const satisfies PreferencesTabGroup;
 

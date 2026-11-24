@@ -10,8 +10,7 @@ import type { CloudAccessKind } from '@features/agent/config/cloud-access';
  *
  * The entry is written by two producers that share one meaning: the failed-turn
  * derivation (a Cloud run that came back unauthorized or out of credits) and
- * the send preflight (`cloud-access-preflight`), which stops a turn that cannot
- * run at all. Both leave a real user row behind and let this card be the reply.
+ * model selection. Send preflight uses a dialog and does not create a message.
  */
 interface AgentCloudAccessStore {
   entries: Record<string, CloudAccessKind>;

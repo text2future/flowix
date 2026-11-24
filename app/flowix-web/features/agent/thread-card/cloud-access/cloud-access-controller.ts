@@ -1,7 +1,7 @@
 import type { AgentTypeKey } from '@/types/agent';
 import type { I18nKey } from '@/lib/i18n';
-import { windows } from '@platform/tauri/client';
 import { openPaymentDialog } from '@features/cloud-billing/public/payment-dialog';
+import { openCloudLoginDialog } from '@features/preferences/public/cloud-login-dialog';
 import {
   deriveCloudAccess,
   type CloudAccessKind,
@@ -65,8 +65,7 @@ export class CloudAccessController {
     this.card = createCloudAccessCard({
       t: options.t,
       onSignIn: () => {
-        this.clear();
-        void windows.openPreferences('cloudSync');
+        void openCloudLoginDialog();
       },
       onBuyCredits: () => {
         void openPaymentDialog('credits');
@@ -141,13 +140,6 @@ export class CloudAccessController {
     this.detachStreamObserver();
     this.clearStore();
     this.card.el.remove();
-  }
-
-  private clear(): void {
-    this.clearStore();
-    // Keep the failing row id: the same failed turn must not reopen the notice
-    // on the next render, only a newer failure may.
-    this.render();
   }
 
   private clearStore(): void {

@@ -180,11 +180,12 @@ pub fn resolve(
     let notebook_root = PathBuf::from(&notebook.path);
     drop(memo_file_guard);
 
-    let raw_note = fs::read_to_string(path)
-        .map_err(|error| format!("read artifact pointer: {error}"))?;
+    let raw_note =
+        fs::read_to_string(path).map_err(|error| format!("read artifact pointer: {error}"))?;
     let pointer_memo = pointer_from_note(&raw_note)?;
     let pointer = &pointer_memo.flowix_artifact;
-    let candidates = artifact_candidates(&notebook_root, &pointer_memo.flowix_plugin, &pointer.path)?;
+    let candidates =
+        artifact_candidates(&notebook_root, &pointer_memo.flowix_plugin, &pointer.path)?;
     let artifact_path = candidates.iter().find(|path| path.is_file()).cloned();
     let plugin_available = crate::plugin::get_plugin(&pointer_memo.flowix_plugin).is_ok();
     let artifact_file = artifact_path

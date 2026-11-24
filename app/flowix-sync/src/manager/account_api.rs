@@ -71,21 +71,122 @@ impl SyncManager {
     }
 
     pub fn cloud_sync_available(&self) -> bool {
-        self.account.sync_access().can_read
+        match self.remote_kind() {
+            crate::remote::RemoteKind::OfficialCloud => self.account.sync_access().can_read,
+            crate::remote::RemoteKind::S3Compatible => self.remote_is_configured(),
+        }
+    }
+
+    /// Selects a custom remote before the first object-storage operation.
+    /// Changing an active target requires a new manager so that in-flight work
+    /// cannot write to different remotes during the same sync run.
+    pub fn configure_s3_remote(
+        &self,
+        remote: &crate::remote::S3Remote,
+        profile_id: &str,
+        access_key_id: &str,
+        secret_access_key: &str,
+    ) -> Result<(), SyncError> {
+        let credentials = remote.open(access_key_id, secret_access_key)?;
+        let mut selection = self.remote.lock().unwrap_or_else(|e| e.into_inner());
+        selection.ensure_not_opened()?;
+        let fingerprint = crate::v4::credential_fingerprint(
+            &credentials.backend_id,
+            &credentials.bucket,
+            &credentials.prefix,
+        );
+        self.store.bind_remote_target(&fingerprint)?;
+        selection.select_s3(credentials, profile_id.to_string())
+    }
+
+    /// Keeps the S3 target selected when its secret-store entry cannot be
+    /// read. Sync must fail closed instead of silently using the official one.
+    pub fn configure_unavailable_s3_remote(
+        &self,
+        profile_id: Option<&str>,
+    ) -> Result<(), SyncError> {
+        let mut selection = self.remote.lock().unwrap_or_else(|e| e.into_inner());
+        selection.select_unavailable_s3(profile_id.map(str::to_string))
+    }
+
+    pub fn remote_kind(&self) -> crate::remote::RemoteKind {
+        self.remote.lock().unwrap_or_else(|e| e.into_inner()).kind()
+    }
+
+    pub fn remote_is_configured(&self) -> bool {
+        self.remote
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_configured()
+    }
+
+    pub fn remote_profile_id(&self) -> Option<String> {
+        let selection = self.remote.lock().unwrap_or_else(|e| e.into_inner());
+        selection.profile_id().map(str::to_string)
+    }
+
+    /// Checks whether a target can use this database without changing it.
+    pub fn validate_s3_remote(
+        &self,
+        remote: &crate::remote::S3Remote,
+        access_key_id: &str,
+        secret_access_key: &str,
+    ) -> Result<(), SyncError> {
+        let credentials = remote.open(access_key_id, secret_access_key)?;
+        let fingerprint = crate::v4::credential_fingerprint(
+            &credentials.backend_id,
+            &credentials.bucket,
+            &credentials.prefix,
+        );
+        self.store.validate_remote_target(&fingerprint)
+    }
+
+    pub fn require_remote_access(&self) -> Result<(), SyncError> {
+        match self.remote_kind() {
+            crate::remote::RemoteKind::OfficialCloud => {
+                self.account.require_sync_access().map(|_| ())
+            }
+            crate::remote::RemoteKind::S3Compatible if self.remote_is_configured() => Ok(()),
+            crate::remote::RemoteKind::S3Compatible => Err(SyncError::InvalidState(
+                "S3 remote credentials are unavailable".into(),
+            )),
+        }
     }
 
     pub fn cloud_sync_read_only(&self) -> bool {
-        self.account.sync_access().restriction
-            == Some(crate::account::CloudSyncRestriction::StorageLimited)
+        self.remote_kind() == crate::remote::RemoteKind::OfficialCloud
+            && self.account.sync_access().restriction
+                == Some(crate::account::CloudSyncRestriction::StorageLimited)
     }
 
-    pub async fn register(
+    pub async fn request_registration_code(
         &self,
         email: &str,
         password: &str,
         display_name: &str,
+        email_language: &str,
+    ) -> Result<crate::RegistrationCodeRequest, SyncError> {
+        self.account
+            .request_registration_code(email, password, display_name, email_language)
+            .await
+    }
+
+    pub async fn resend_registration_code(
+        &self,
+        email: &str,
+    ) -> Result<crate::RegistrationCodeResend, SyncError> {
+        self.account.resend_registration_code(email).await
+    }
+
+    pub async fn confirm_registration(
+        &self,
+        email: &str,
+        code: &str,
+        password: &str,
     ) -> Result<CloudState, SyncError> {
-        self.account.register(email, password, display_name).await
+        self.account
+            .confirm_registration(email, code, password)
+            .await
     }
 
     pub async fn login(&self, email: &str, password: &str) -> Result<CloudState, SyncError> {
@@ -109,6 +210,10 @@ impl SyncManager {
         self.account.deletion_state().await
     }
 
+    pub async fn update_account_region(&self, region: &str) -> Result<CloudState, SyncError> {
+        self.account.update_account_region(region).await
+    }
+
     pub async fn delete_account(
         &self,
         confirm_email: &str,
@@ -127,8 +232,11 @@ impl SyncManager {
     pub async fn sign_in_with_apple(
         &self,
         authorization: &AppleAuthorization,
+        account_region: &str,
     ) -> Result<CloudState, SyncError> {
-        self.account.sign_in_with_apple(authorization).await
+        self.account
+            .sign_in_with_apple(authorization, account_region)
+            .await
     }
 
     pub fn begin_google_sign_in(&self) -> u64 {

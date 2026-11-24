@@ -10,7 +10,12 @@ fn is_package_document_directory(path: &Path) -> bool {
 impl MemoFile {
     /// Reject derived-index collisions before a directory operation changes disk.
     /// Inactive resource records retain user properties and must not be discarded.
-    pub fn validate_directory_index_rebase(&self, notebook_id: &str, previous: &str, next: &str) -> std::io::Result<()> {
+    pub fn validate_directory_index_rebase(
+        &self,
+        notebook_id: &str,
+        previous: &str,
+        next: &str,
+    ) -> std::io::Result<()> {
         let conn = self.open_note_index_connection(notebook_id)?;
         drop(self.open_notebook_db(notebook_id)?);
         let previous_prefix = format!("{previous}/");
@@ -30,7 +35,10 @@ impl MemoFile {
             params![previous_prefix, next_prefix, upper_bound, notebook_id], |row| row.get(0),
         ).map_err(sqlite_to_io)?;
         if conflict {
-            return Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, "DIRECTORY_INDEX_PATH_CONFLICT"));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                "DIRECTORY_INDEX_PATH_CONFLICT",
+            ));
         }
         Ok(())
     }
@@ -43,18 +51,32 @@ impl MemoFile {
         previous: &str,
         next: &str,
     ) -> std::io::Result<()> {
-        if previous.is_empty() || next.is_empty()
-            || [previous, next].iter().any(|path| path.starts_with('/') || path.contains('\\')
-                || path.split('/').any(|part| part.is_empty() || part == "." || part == ".."))
+        if previous.is_empty()
+            || next.is_empty()
+            || [previous, next].iter().any(|path| {
+                path.starts_with('/')
+                    || path.contains('\\')
+                    || path
+                        .split('/')
+                        .any(|part| part.is_empty() || part == "." || part == "..")
+            })
         {
-            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid directory rebase"));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "invalid directory rebase",
+            ));
         }
-        if previous == next { return Ok(()); }
+        if previous == next {
+            return Ok(());
+        }
         let mut conn = self.open_note_index_connection(notebook_id)?;
         // Both projections live in the same notebook DB; initialize the media schema too.
         drop(self.open_notebook_db(notebook_id)?);
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(sqlite_to_io)?;
-        tx.execute_batch("PRAGMA defer_foreign_keys=ON;").map_err(sqlite_to_io)?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(sqlite_to_io)?;
+        tx.execute_batch("PRAGMA defer_foreign_keys=ON;")
+            .map_err(sqlite_to_io)?;
         let previous_prefix = format!("{previous}/");
         let next_prefix = format!("{next}/");
         // '/' sorts immediately before '0': this range selects only descendants
@@ -72,28 +94,40 @@ impl MemoFile {
             params![previous_prefix, next_prefix, upper_bound, notebook_id],
         ).map_err(sqlite_to_io)?;
         let resource_rows = {
-            let mut statement = tx.prepare(
-                "SELECT id, relative_path FROM resource_catalog
+            let mut statement = tx
+                .prepare(
+                    "SELECT id, relative_path FROM resource_catalog
                  WHERE notebook_id=?1 AND relative_path>=?2 AND relative_path<?3
                    AND missing_since IS NULL AND deleted_at IS NULL",
-            ).map_err(sqlite_to_io)?;
-            let rows = statement.query_map(params![notebook_id, previous_prefix, upper_bound], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-            }).map_err(sqlite_to_io)?;
+                )
+                .map_err(sqlite_to_io)?;
+            let rows = statement
+                .query_map(params![notebook_id, previous_prefix, upper_bound], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+                .map_err(sqlite_to_io)?;
             rows.collect::<Result<Vec<_>, _>>().map_err(sqlite_to_io)?
         };
-        let resource_moves = resource_rows.into_iter().map(|(old_id, old_path)| {
-            let next_path = format!("{next}/{}", old_path.strip_prefix(&previous_prefix).unwrap_or_default());
-            let next_id = crate::memo_file::media_resource_id(notebook_id, &next_path)
-                .map_err(std::io::Error::other)?;
-            let temporary_id = format!("__flowix_resource_move__{}", uuid::Uuid::now_v7().simple());
-            Ok((old_id, temporary_id, next_path, next_id))
-        }).collect::<std::io::Result<Vec<_>>>()?;
+        let resource_moves = resource_rows
+            .into_iter()
+            .map(|(old_id, old_path)| {
+                let next_path = format!(
+                    "{next}/{}",
+                    old_path.strip_prefix(&previous_prefix).unwrap_or_default()
+                );
+                let next_id = crate::memo_file::media_resource_id(notebook_id, &next_path)
+                    .map_err(std::io::Error::other)?;
+                let temporary_id =
+                    format!("__flowix_resource_move__{}", uuid::Uuid::now_v7().simple());
+                Ok((old_id, temporary_id, next_path, next_id))
+            })
+            .collect::<std::io::Result<Vec<_>>>()?;
         for (old_id, temporary_id, _, _) in &resource_moves {
             tx.execute(
                 "UPDATE resource_catalog SET id=?1 WHERE notebook_id=?2 AND id=?3",
                 params![temporary_id, notebook_id, old_id],
-            ).map_err(sqlite_to_io)?;
+            )
+            .map_err(sqlite_to_io)?;
         }
         for (_, temporary_id, next_path, next_id) in resource_moves {
             tx.execute(
@@ -106,11 +140,7 @@ impl MemoFile {
 
     /// Move a file or directory and rebase every indexed child before releasing
     /// the write lock. Return before/after pairs for desktop path notifications.
-    pub fn rename_indexed_path(
-        &self,
-        source: &Path,
-        target: &Path,
-    ) -> std::io::Result<()> {
+    pub fn rename_indexed_path(&self, source: &Path, target: &Path) -> std::io::Result<()> {
         let started = std::time::Instant::now();
         let source_is_directory = source.is_dir();
         let source_absolute = std::fs::canonicalize(source)?;
@@ -120,11 +150,14 @@ impl MemoFile {
             let mut ids = self.notebook_ids_for_paths(&[source, target])?;
             if source_is_directory {
                 for notebook in self.read_notebook_configs()? {
-                    if std::fs::canonicalize(&notebook.path).is_ok_and(|root| root.starts_with(&source_absolute)) {
+                    if std::fs::canonicalize(&notebook.path)
+                        .is_ok_and(|root| root.starts_with(&source_absolute))
+                    {
                         ids.push(notebook.id);
                     }
                 }
-                ids.sort(); ids.dedup();
+                ids.sort();
+                ids.dedup();
             }
             Ok(ids)
         };
@@ -134,7 +167,10 @@ impl MemoFile {
             None
         } else {
             let ids: Vec<&str> = notebook_ids.iter().map(String::as_str).collect();
-            Some(self.operation_locks().notebook_change(&ids, "rename_indexed_path")?)
+            Some(
+                self.operation_locks()
+                    .notebook_change(&ids, "rename_indexed_path")?,
+            )
         };
         let structure_lock_wait = lock_requested.elapsed();
         let _legacy_guard = if notebook_ids.is_empty() {
@@ -156,11 +192,10 @@ impl MemoFile {
             let target_parent = target.parent().ok_or_else(|| {
                 std::io::Error::new(std::io::ErrorKind::InvalidInput, "path has no parent")
             })?;
-            let target_absolute = std::fs::canonicalize(target_parent)?.join(
-                target.file_name().ok_or_else(|| {
-                    std::io::Error::new(std::io::ErrorKind::InvalidInput, "path has no name")
-                })?,
-            );
+            let target_absolute =
+                std::fs::canonicalize(target_parent)?.join(target.file_name().ok_or_else(
+                    || std::io::Error::new(std::io::ErrorKind::InvalidInput, "path has no name"),
+                )?);
             for notebook_id in &notebook_ids {
                 let notebook = self.get_notebook_config_by_id(notebook_id).ok_or_else(|| {
                     std::io::Error::new(std::io::ErrorKind::NotFound, "notebook not found")
@@ -168,13 +203,24 @@ impl MemoFile {
                 let root = std::fs::canonicalize(&notebook.path)?;
                 if let Ok(suffix) = root.strip_prefix(&source_absolute) {
                     let next_root = target_absolute.join(suffix);
-                    let next_path = format!("{}/", dunce::simplified(&next_root).to_string_lossy().replace('\\', "/").trim_end_matches('/'));
+                    let next_path = format!(
+                        "{}/",
+                        dunce::simplified(&next_root)
+                            .to_string_lossy()
+                            .replace('\\', "/")
+                            .trim_end_matches('/')
+                    );
                     relocated_roots.push((notebook_id.clone(), notebook.path.clone(), next_path));
                     continue;
                 }
-                let (Ok(previous), Ok(next)) = (source_absolute.strip_prefix(&root), target_absolute.strip_prefix(&root)) else {
-                    return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput,
-                        "directory move crosses a registered notebook boundary"));
+                let (Ok(previous), Ok(next)) = (
+                    source_absolute.strip_prefix(&root),
+                    target_absolute.strip_prefix(&root),
+                ) else {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "directory move crosses a registered notebook boundary",
+                    ));
                 };
                 let previous = previous.to_string_lossy().replace('\\', "/");
                 let next = next.to_string_lossy().replace('\\', "/");
@@ -188,9 +234,13 @@ impl MemoFile {
         let mut rebased_directories: Vec<(String, String, String)> = Vec::new();
         for (notebook_id, previous, next) in &directory_rebases {
             if let Err(error) = self.rebase_directory_indexes(notebook_id, previous, next) {
-                for (applied_notebook, applied_previous, applied_next) in rebased_directories.iter().rev() {
+                for (applied_notebook, applied_previous, applied_next) in
+                    rebased_directories.iter().rev()
+                {
                     if let Err(rollback_error) = self.rebase_directory_indexes(
-                        applied_notebook, applied_next, applied_previous,
+                        applied_notebook,
+                        applied_next,
+                        applied_previous,
                     ) {
                         tracing::error!(notebook_id = %applied_notebook, "failed to roll back directory index rebase: {rollback_error}");
                     }
@@ -227,22 +277,31 @@ impl MemoFile {
             // Registry reads also initialize their connection, so never hold a
             // registry write transaction while rebasing notebook-owned indexes.
             // All root changes commit together; on failure restore indexes/disk.
-            let update_registry = (|| -> std::io::Result<()> {
-                let mut connection = self.open_registry_db()?;
-                let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(sqlite_to_io)?;
-                for (id, previous, next) in &relocated_roots {
-                    let changed = transaction.execute(
+            let update_registry =
+                (|| -> std::io::Result<()> {
+                    let mut connection = self.open_registry_db()?;
+                    let transaction = connection
+                        .transaction_with_behavior(TransactionBehavior::Immediate)
+                        .map_err(sqlite_to_io)?;
+                    for (id, previous, next) in &relocated_roots {
+                        let changed = transaction.execute(
                         "UPDATE notebooks SET path=?1, updated_at=?2 WHERE id=?3 AND path=?4",
                         params![next, chrono::Utc::now().timestamp_millis(), id, previous],
                     ).map_err(sqlite_to_io)?;
-                    if changed != 1 {
-                        return Err(std::io::Error::other("notebook registration changed while moving directory"));
+                        if changed != 1 {
+                            return Err(std::io::Error::other(
+                                "notebook registration changed while moving directory",
+                            ));
+                        }
                     }
-                }
-                transaction.commit().map_err(sqlite_to_io)?;
-                *self.registry.configs_cache.write().expect("notebook_configs_cache poisoned") = None;
-                Ok(())
-            })();
+                    transaction.commit().map_err(sqlite_to_io)?;
+                    *self
+                        .registry
+                        .configs_cache
+                        .write()
+                        .expect("notebook_configs_cache poisoned") = None;
+                    Ok(())
+                })();
             if let Err(error) = update_registry {
                 for (id, previous, next) in rebased_directories.iter().rev() {
                     if let Err(rollback_error) = self.rebase_directory_indexes(id, next, previous) {
@@ -270,8 +329,10 @@ impl MemoFile {
                     .map(|path| path.to_string_lossy().replace('\\', "/"));
                 match (old_relative, new_relative) {
                     (Some(old), Some(new)) => {
-                        let old_indexed = crate::memo_file::resource_kind_for_path(source).is_some();
-                        let new_indexed = crate::memo_file::resource_kind_for_path(target).is_some();
+                        let old_indexed =
+                            crate::memo_file::resource_kind_for_path(source).is_some();
+                        let new_indexed =
+                            crate::memo_file::resource_kind_for_path(target).is_some();
                         if old_indexed && new_indexed {
                             if !self.move_indexed_resource_path(notebook_id, &old, &new)? {
                                 self.refresh_indexed_resource_path(notebook_id, &new)?;
@@ -309,7 +370,9 @@ impl MemoFile {
         super::super::rename_probe::record(super::super::rename_probe::RenameProfile {
             structure_lock_wait,
             fs_move,
-            index_rebase: total.saturating_sub(structure_lock_wait).saturating_sub(fs_move),
+            index_rebase: total
+                .saturating_sub(structure_lock_wait)
+                .saturating_sub(fs_move),
             total,
         });
         Ok(())
@@ -688,7 +751,6 @@ impl MemoFile {
         self.reload_memo_inner_locked(memo)
     }
 
-
     pub fn reload_memo_from_disk_by_filename_for_notebook_id(
         &self,
         notebook_id: &str,
@@ -766,7 +828,6 @@ impl MemoFile {
         let base = self.get_memo_base();
         notebook_path_from_relative(&base, relative_path).ok()
     }
-
 
     fn persist_memo_metadata_to_markdown(
         &self,
@@ -895,9 +956,13 @@ impl MemoFile {
                 abs_path.display()
             );
         }
-        MemoFile::sync_index_on_delete_for_notebook_id_locked(self, notebook_id, &memo.relative_path).is_ok()
+        MemoFile::sync_index_on_delete_for_notebook_id_locked(
+            self,
+            notebook_id,
+            &memo.relative_path,
+        )
+        .is_ok()
     }
-
 
     pub fn sync_memo_filename_from_disk_key_for_notebook_id(
         &self,
@@ -939,11 +1004,9 @@ impl MemoFile {
             .read_index_for_notebook_id(Some(notebook_id))
             .map_err(|e| format!("read memo index failed: {e}"))?
             .unwrap_or_default();
-        if let Some(occupied) = list
-            .memos
-            .iter()
-            .find(|entry| entry.relative_path == new_relative_path && entry.relative_path != relative_path)
-        {
+        if let Some(occupied) = list.memos.iter().find(|entry| {
+            entry.relative_path == new_relative_path && entry.relative_path != relative_path
+        }) {
             return Err(format!(
                 "new filename already occupied by another note (path={})",
                 occupied.relative_path
@@ -1056,7 +1119,6 @@ impl MemoFile {
         self.rename_memo_file_for_notebook_id_locked(notebook_id, old_path, new_path)
     }
 
-
     pub(super) fn rename_memo_file_for_notebook_id_locked(
         &self,
         notebook_id: &str,
@@ -1151,7 +1213,11 @@ fn collect_markdown_paths(
                 continue;
             }
         };
-        if if file_type.is_dir() { !policy.can_traverse_index_directory(relative) } else { policy.is_index_hidden_at(base, relative) } {
+        if if file_type.is_dir() {
+            !policy.can_traverse_index_directory(relative)
+        } else {
+            policy.is_index_hidden_at(base, relative)
+        } {
             continue;
         }
         if file_type.is_dir() {

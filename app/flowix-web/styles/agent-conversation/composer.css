@@ -1285,11 +1285,7 @@
 }
 
 .agent-composer__note-search::placeholder {
-  color: var(--muted-foreground);
-  opacity: 0.85;
-}
-.agent-composer__note-search:focus::placeholder {
-  opacity: 0.6;
+  color: var(--input-placeholder);
 }
 
 /* 列表容器 — 仅承担垂直 padding, 不画外框; 水平方向不加 padding,

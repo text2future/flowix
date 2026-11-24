@@ -7,7 +7,10 @@ pub(crate) fn to_json_value<T: Serialize>(value: &T) -> Result<serde_json::Value
 }
 
 pub(crate) fn print_pretty_json<T: Serialize>(value: &T) -> Result<(), CliError> {
-    println!("{}", serde_json::to_string_pretty(value)
-        .map_err(|error| CliError::Other(format!("json serialize: {error}")))?);
+    println!(
+        "{}",
+        serde_json::to_string_pretty(value)
+            .map_err(|error| CliError::Other(format!("json serialize: {error}")))?
+    );
     Ok(())
 }

@@ -350,6 +350,7 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
 }
 
 .memo-date-line {
+  position: relative;
   min-height: 25px;
   box-sizing: border-box;
   padding: 4px 0;
@@ -522,12 +523,12 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
  * 亮度差减半 (light: L 0.62 → ≈0.80), 让占位只作为提示存在, 不与正文标题
  * 抢层级. 正文空块占位另一套规则见下方 p.is-empty::before (自带 opacity). */
 .memo-title-editor::placeholder {
-  color: color-mix(in oklch, var(--muted-foreground) 50%, transparent);
+  color: var(--input-placeholder);
 }
 
 .memo-title-editor--document-selection:empty::before {
   content: attr(data-placeholder);
-  color: color-mix(in oklch, var(--muted-foreground) 50%, transparent);
+  color: var(--input-placeholder);
   pointer-events: none;
 }
 
@@ -1404,6 +1405,16 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
   padding: 0.42rem 0.5rem;
 }
 
+.markdown-editor .math-block-input:focus-visible:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  border-color: var(--input-ring);
+  outline: 1px solid var(--input-ring);
+  outline-offset: 0;
+}
+
+.markdown-editor .math-block-input:where(:not(.agent-conversation-surface, .agent-conversation-surface *))::placeholder {
+  color: var(--input-placeholder);
+}
+
 .markdown-editor .web-card-node:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   position: relative;
   margin: 0;
@@ -1536,7 +1547,7 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
 }
 
 .markdown-editor .web-card-input:where(:not(.agent-conversation-surface, .agent-conversation-surface *))::placeholder {
-  color: var(--muted-foreground);
+  color: var(--input-placeholder);
 }
 
 .markdown-editor .web-card-status:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
@@ -1553,8 +1564,7 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
 
 .markdown-editor .tiptap:not(.agent-composer__input-content) p.is-empty:where(:not(.agent-conversation-surface, .agent-conversation-surface *))::before {
   content: attr(data-placeholder);
-  color: var(--muted-foreground);
-  opacity: 0.6;
+  color: var(--input-placeholder);
   pointer-events: none;
   float: left;
   height: 0;

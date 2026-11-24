@@ -162,7 +162,7 @@
 }
 
 .editor-link-hover-tooltip-input::placeholder {
-  color: var(--muted-foreground);
+  color: var(--input-placeholder);
 }
 
 /* 没有外框可染色, 非法地址改成文字色提示。 */

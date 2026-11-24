@@ -1,3 +1,4 @@
+import { CloudAccessBlockedError } from "@features/agent/config/cloud-access";
 import { create } from "zustand";
 import {
   createJSONStorage,
@@ -22,6 +23,7 @@ import {
   getAgentType,
   normalizeAgentTypeKey,
 } from "@/lib/agent-types";
+import { useAgentCloudAccessStore } from "@features/agent/store/agent-cloud-access-store";
 import { createStreamEventDispatcher } from "@features/agent/store/stream-event-dispatcher";
 import {
   createRunId,
@@ -29,6 +31,7 @@ import {
 } from "@features/agent/events/agent-event-mapper";
 import { completedRunUserMessageId } from "@features/agent/events/message-identity";
 import { isKnownProductThreadId, resolveProductThreadId } from "@features/agent/store/external-session";
+import { createSteeringLifecycleHandler } from "@features/agent/store/session-steering-lifecycle";
 import { resolveIncomingChunkThreadId } from "@features/agent/store/agent-chunk-routing";
 import {
   recordAgentChunkMapped,
@@ -49,7 +52,6 @@ import { saveInlineImagePresentation } from "@features/agent/store/inline-image-
 import { dispatchChatStream } from "@features/agent/store/chat-stream";
 import {
   cloudAccessReplyForError,
-  createCloudAccessRunEnd,
   resolveCloudAccessForSend,
 } from "@features/agent/store/cloud-access-preflight";
 import {
@@ -142,47 +144,14 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
   subscribeWithSelector(
     persist(
     (set, get) => {
+      const runProviders = new Map<string, string | null>();
       const streamDispatcher = createStreamEventDispatcher({
         getProjection: (threadId) => get().threadProjections[threadId],
         canDispatch: (threadId) => !get().threadTombstones[threadId],
         dispatch: (event) => get().dispatch(event),
         applySessionResolved: (event) => get().applySessionResolved(event),
       });
-      const clearPendingSteeringForLifecycleEvent = (event: AgentEvent): void => {
-        if (event.kind !== "error" && event.kind !== "stream_end") return;
-        const state = get();
-        const canonicalThreadId = resolveProductThreadId(
-          event.threadId,
-          state.sessionMeta.externalSessionResolutions,
-          event.agentType,
-          state.sessionMeta.threadTypes,
-          (id) => isKnownProductThreadId(id, state),
-        );
-        const projection = state.threadProjections[canonicalThreadId];
-        const activeRunId = projection?.runs.activeRunId;
-        // Ignore a delayed lifecycle event from an older run. The reducer
-        // uses the same active-run ownership rule for known run ids.
-        if (activeRunId && event.runId && activeRunId !== event.runId) return;
-        const eventType = normalizeAgentTypeKey(event.agentType ?? state.sessionMeta.threadTypes[canonicalThreadId]);
-        if (eventType === "codex") {
-          // Accepted manual steering is no longer in the provider queue.
-          // End/error is a fallback when its correlated user event was lost;
-          // ordinary follow-ups and operations still awaiting RPC stay intact.
-          for (const message of state.pendingSteeringMessages[canonicalThreadId] ?? []) {
-            if (message.deliveryStatus === "steering" || message.runtimeOwned) {
-              state.removeSteeringMessage(canonicalThreadId, message.id);
-            }
-          }
-          // Codex drains its persistent queue itself after a turn completes.
-          // Starting it again from Flowix races the server and can target an
-          // already-consumed queued submission id.
-          return;
-        }
-        state.clearPendingSteeringMessages(event.threadId);
-        if (canonicalThreadId !== event.threadId) {
-          state.clearPendingSteeringMessages(canonicalThreadId);
-        }
-      };
+      const clearPendingSteeringForLifecycleEvent = createSteeringLifecycleHandler(get);
       return ({
         ...createSessionMetaSlice(set, get),
         ...createConversationSlice(set, get),
@@ -314,6 +283,11 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
             }
             return;
           }
+          const blockedAccess = resolveCloudAccessForSend(threadId, type.id, options?.runtimeConfig ?? undefined);
+          if (blockedAccess) {
+            if (options?.rejectOnFailure) throw new CloudAccessBlockedError(blockedAccess);
+            return;
+          }
           const runId = options?.runId ?? createRunId(threadId);
           userMessage.id = completedRunUserMessageId(type.id, runId);
           userMessage.renderKey = userMessage.id;
@@ -339,14 +313,6 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
           if (options?.instanceId) {
             state.updateThread(options.instanceId, { threadId, agentType: type.id });
           }
-          // A blocked Cloud send is still a turn: the prompt above is already a
-          // row, so close the run and let the access card stand in for a reply.
-          // The credit read happens here, after the row exists, so the wait for
-          // it is invisible and a zero balance never reaches the model.
-          if (await resolveCloudAccessForSend(threadId, type.id)) {
-            state.dispatch(createCloudAccessRunEnd(threadId, type.id, runId));
-            return;
-          }
           try {
             await dispatchChatStream({
               threadId,
@@ -358,6 +324,7 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
               llmContent,
               runId,
               userPayload,
+              onResolvedProvider: (providerId) => { runProviders.set(runId, providerId ?? null); },
               agentType: type.id,
               runtimeConfig: options?.runtimeConfig ?? undefined,
               imagePaths: options?.imagePaths,
@@ -365,6 +332,7 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
                 isFirstMessage && conversationTitle ? conversationTitle : undefined,
             });
           } catch (err) {
+            runProviders.delete(runId);
             logger.error("Failed to dispatch thread card chat_stream", { error: String(err) });
             const errorMessage = createSendErrorMessage(
               err,
@@ -491,13 +459,22 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
           // failure; the card is the reply the user can act on, so the raw
           // upstream sentence never becomes a transcript row.
           if (event.kind === "error") {
-            const reply = cloudAccessReplyForError(threadId, event);
+            const reply = get().threadProjections[threadId]?.runs.activeRunId === event.runId
+              ? cloudAccessReplyForError(threadId, event, runProviders.has(event.runId) ? runProviders.get(event.runId) ?? "" : undefined)
+              : null;
             if (reply) {
+              runProviders.delete(event.runId);
+              if (useAgentCloudAccessStore.getState().entries[threadId] === "no_credits") {
+                void import("@features/agent/thread-card/cloud-access/cloud-credits-dialog")
+                  .then(({ openCloudCreditsDialog }) => openCloudCreditsDialog())
+                  .catch((error) => logger.error("Failed to open credits dialog", { error: String(error) }));
+              }
               clearPendingSteeringForLifecycleEvent(reply);
               streamDispatcher.dispatch(reply);
               return;
             }
           }
+          if (event.kind === "error" || event.kind === "stream_end") runProviders.delete(event.runId);
           clearPendingSteeringForLifecycleEvent(event);
           streamDispatcher.dispatch(event);
         },

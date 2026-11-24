@@ -413,7 +413,7 @@ export function NoteFilterMenu({ defaultFieldId = '', fields: autoCollectFields 
                       }}>
                         <SelectTrigger aria-label={`属性条件 ${index + 1} 字段`} className="h-8 w-full min-w-0 rounded-lg bg-transparent px-2 text-left text-sm">
                           <SelectValue placeholder={t('multidimensionalTable.autoCollect.selectProperty')}>
-                            <span className="min-w-0 flex-1 truncate">{(selectedOption?.label ?? condition.field_id) || t('multidimensionalTable.autoCollect.selectProperty')}</span>
+                            <span className={`min-w-0 flex-1 truncate ${selectedOption?.label || condition.field_id ? '' : 'text-[var(--input-placeholder)]'}`}>{(selectedOption?.label ?? condition.field_id) || t('multidimensionalTable.autoCollect.selectProperty')}</span>
                           </SelectValue>
                         </SelectTrigger>
                         <SelectContent align="start" keepParentMenuOpen={embedded} fitViewport maxHeight="33vh" style={{ zIndex: 170 }} className="flowix-preferences-select-content w-[180px] !min-w-[180px]">

@@ -1,30 +1,14 @@
-//! 文件夹的展示元数据：图标、头图、副标题。
+//! Notebook settings stored as synchronized JSON, with legacy SQLite migration.
 //!
-//! 这些信息曾经写在目录里的 `.index.yaml` 里，代价是「点开一个文件夹」等于
-//! 「打开一个集合」——文件夹必须承担表格 / 图墙 / 列表的整套集合协议，还得在
-//! 文件树里藏一个文件。现在文件夹只是一个表面（单 tab 的文件列表），外观是它
-//! 自己的属性，所以搬进 `<notebook>/.flowix/notebook.db` 的 `folder_index` 表。
-//!
-//! 身份是**路径**（笔记本相对、`/` 分隔、无尾斜杠），不是 id：文件夹在磁盘上
-//! 没有别的东西可当身份。因此每次目录改名 / 移动 / 删除都必须在同一把笔记本锁
-//! 里重定位，否则外观会留在旧路径上。生产入口只有三处：
-//!
-//! - `commands/file/transfer.rs::rename_path_and_notify`：本地改名 / 移动（含
-//!   `rename_folder`、`move_folder`）；
-//! - `watcher/processor.rs`：系统文件管理器里的外部移动（`rebase_collection_paths_for_move`
-//!   的同一个分支）；
-//! - `commands/file/mutate.rs::delete_folder_blocking`：删除整棵子树。
-//!
-//! 表跟随笔记本数据库：`notebook.db` 是索引库，损坏时整体重建，文件夹外观随之
-//! 丢失。这里刻意不写第二份 JSON 快照 —— 两处真相最终一定会分叉，宁可接受
-//! 「和集合索引同一条纪律」。
+//! Folder and file properties are keyed by notebook-relative paths. Unknown
+//! fields are preserved to allow future versions to extend the format.
 
-use super::MemoFile;
+use super::{atomic_write_bytes, FileLockIntent, MemoFile};
 use crate::collection::{validate_properties, CollectionProperty};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// 迁移完成标记：`folder_index_meta` 里的一行，保证每个笔记本只扫一次旧文件。
@@ -32,6 +16,37 @@ const LEGACY_MIGRATION_KEY: &str = "legacy_folder_collections_migrated";
 /// 旧 `.index.yaml` 的备份目录（相对 `.flowix`）。文件从用户目录里消失，但内容
 /// 仍可人工找回；这是「迁属性后删除」的安全网，不参与任何读取。
 const LEGACY_BACKUP_DIRECTORY: &str = "legacy-folder-index";
+
+/// The JSON is synced as one file; concurrent edits on different devices use
+/// the normal cloud conflict policy. `files` is reserved for future settings.
+pub const NOTEBOOK_SETTINGS_PATH: &str = ".flowix/database/notebook_settings.json";
+const JSON_MIGRATION_KEY: &str = "folder_index_json_migrated";
+
+#[derive(Default, Serialize, Deserialize)]
+struct NotebookSettings {
+    #[serde(default = "settings_version")]
+    schema_version: u32,
+    #[serde(default)]
+    folders: BTreeMap<String, FolderSettings>,
+    #[serde(default)]
+    files: BTreeMap<String, serde_json::Value>,
+    #[serde(flatten)]
+    extra: BTreeMap<String, serde_json::Value>,
+}
+
+#[derive(Clone, Default, Serialize, Deserialize)]
+struct FolderSettings {
+    #[serde(default)]
+    properties: BTreeMap<String, CollectionProperty>,
+    #[serde(default)]
+    updated_at: i64,
+    #[serde(flatten)]
+    extra: BTreeMap<String, serde_json::Value>,
+}
+
+fn settings_version() -> u32 {
+    1
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -53,8 +68,7 @@ fn now_ms() -> i64 {
 
 /// 规范化文件夹相对路径。空串 = 笔记本根目录，合法。
 ///
-/// 拒绝反斜杠、NUL、绝对路径与任何 `.` / `..` 分量：路径是表的主键，也是 SQL
-/// 前缀匹配的输入，放过一处 `..` 就等于让一次重定位改到别的目录。
+/// 拒绝反斜杠、NUL、绝对路径与任何 `.` / `..` 分量。
 fn normalize_folder_path(raw: &str) -> Result<String, String> {
     let trimmed = raw.trim().trim_matches('/');
     if trimmed.is_empty() {
@@ -74,7 +88,9 @@ fn normalize_folder_path(raw: &str) -> Result<String, String> {
 }
 
 fn open_connection(memo: &MemoFile, notebook_id: &str) -> Result<Connection, String> {
-    let path = memo.notebook_db_path(notebook_id).map_err(|e| e.to_string())?;
+    let path = memo
+        .notebook_db_path(notebook_id)
+        .map_err(|e| e.to_string())?;
     let conn = Connection::open(path).map_err(|e| e.to_string())?;
     conn.busy_timeout(std::time::Duration::from_secs(10))
         .map_err(|e| e.to_string())?;
@@ -94,36 +110,87 @@ fn open_connection(memo: &MemoFile, notebook_id: &str) -> Result<Connection, Str
     Ok(conn)
 }
 
-fn read_properties(raw: &str) -> BTreeMap<String, CollectionProperty> {
-    serde_json::from_str(raw).unwrap_or_default()
+fn settings_path(memo: &MemoFile, notebook_id: &str) -> Result<PathBuf, String> {
+    let notebook = memo
+        .get_notebook_config_by_id(notebook_id)
+        .ok_or("NOTEBOOK_NOT_FOUND")?;
+    Ok(Path::new(&notebook.path).join(NOTEBOOK_SETTINGS_PATH))
 }
 
-fn entry_from_row(relative_path: String, properties_json: String, updated_at: i64) -> FolderIndexEntry {
-    FolderIndexEntry {
-        relative_path,
-        properties: read_properties(&properties_json),
-        updated_at,
+fn read_settings(path: &Path) -> std::io::Result<NotebookSettings> {
+    match std::fs::read(path) {
+        Ok(bytes) => serde_json::from_slice(&bytes).map_err(std::io::Error::other),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(NotebookSettings {
+            schema_version: settings_version(),
+            ..Default::default()
+        }),
+        Err(error) => Err(error),
     }
 }
 
-/// 前缀谓词（内联在下面两条 SQL 里）：精确命中本目录，或命中其子目录。用
-/// `substr` 而不是 `LIKE`，避免 SQLite 的 ASCII 大小写折叠把 `Docs` 和 `docs`
-/// 当成同一个目录。
+fn write_settings(path: &Path, settings: &NotebookSettings) -> std::io::Result<()> {
+    let bytes = serde_json::to_vec_pretty(settings).map_err(std::io::Error::other)?;
+    atomic_write_bytes(path, &bytes)
+}
 
 impl MemoFile {
-    /// 整本笔记本的文件夹外观。表只存「有自定义外观的文件夹」，通常只有几十行，
-    /// 一次全量返回给文件树（每个文件夹图标共用同一份数据，避免每行一次 IPC）。
+    // File locking is shared with cloud conditional writes and other processes.
+    fn with_settings<T>(
+        &self,
+        notebook_id: &str,
+        operation: impl FnOnce(&Path, &mut NotebookSettings) -> std::io::Result<T>,
+    ) -> Result<T, String> {
+        let path = settings_path(self, notebook_id)?;
+        std::fs::create_dir_all(path.parent().ok_or("INVALID_SETTINGS_PATH")?)
+            .map_err(|e| e.to_string())?;
+        self.with_file_write(
+            notebook_id,
+            &path,
+            FileLockIntent::ExistingOrMissing,
+            "notebook_settings",
+            |path| {
+                let mut settings = read_settings(path)?;
+                operation(path, &mut settings)
+            },
+        )
+        .map_err(|e| e.to_string())
+    }
+
+    pub fn migrate_folder_index_to_json(&self, notebook_id: &str) -> Result<(), String> {
+        self.with_settings(notebook_id, |path, settings| {
+            let conn = open_connection(self, notebook_id).map_err(std::io::Error::other)?;
+            let done: Option<i64> = conn.query_row("SELECT value FROM folder_index_meta WHERE key = ?1", params![JSON_MIGRATION_KEY], |row| row.get(0)).optional().map_err(std::io::Error::other)?;
+            if done.is_some_and(|value| value != 0) { return Ok(()); }
+            // Existing JSON wins for the same folder; retain other legacy entries.
+            let mut query = conn.prepare("SELECT relative_path, properties_json, updated_at FROM folder_index ORDER BY relative_path").map_err(std::io::Error::other)?;
+            let rows = query.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))).map_err(std::io::Error::other)?;
+            let mut changed = false;
+            for row in rows {
+                let (folder, raw, updated_at) = row.map_err(std::io::Error::other)?;
+                if settings.folders.contains_key(&folder) { continue; }
+                let properties = serde_json::from_str(&raw).map_err(std::io::Error::other)?;
+                settings.folders.insert(folder, FolderSettings { properties, updated_at, extra: BTreeMap::new() });
+                changed = true;
+            }
+            if changed { write_settings(path, settings)?; }
+            conn.execute("INSERT INTO folder_index_meta (key, value) VALUES (?1, 1) ON CONFLICT(key) DO UPDATE SET value = 1", params![JSON_MIGRATION_KEY]).map_err(std::io::Error::other)?;
+            Ok(())
+        })
+    }
+
     pub fn list_folder_index(&self, notebook_id: &str) -> Result<Vec<FolderIndexEntry>, String> {
-        let conn = open_connection(self, notebook_id)?;
-        let mut statement = conn
-            .prepare("SELECT relative_path, properties_json, updated_at FROM folder_index ORDER BY relative_path")
-            .map_err(|e| e.to_string())?;
-        let rows = statement
-            .query_map([], |row| {
-                Ok(entry_from_row(row.get(0)?, row.get(1)?, row.get(2)?))
+        self.migrate_folder_index_to_json(notebook_id)?;
+        let settings =
+            read_settings(&settings_path(self, notebook_id)?).map_err(|e| e.to_string())?;
+        Ok(settings
+            .folders
+            .into_iter()
+            .map(|(relative_path, entry)| FolderIndexEntry {
+                relative_path,
+                properties: entry.properties,
+                updated_at: entry.updated_at,
             })
-            .map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+            .collect())
     }
 
     pub fn folder_index_entry(
@@ -132,20 +199,12 @@ impl MemoFile {
         relative_path: &str,
     ) -> Result<Option<FolderIndexEntry>, String> {
         let relative_path = normalize_folder_path(relative_path)?;
-        let conn = open_connection(self, notebook_id)?;
-        conn.query_row(
-            "SELECT relative_path, properties_json, updated_at FROM folder_index WHERE relative_path = ?1",
-            params![relative_path],
-            |row| Ok(entry_from_row(row.get(0)?, row.get(1)?, row.get(2)?)),
-        )
-        .optional()
-        .map_err(|e| e.to_string())
+        Ok(self
+            .list_folder_index(notebook_id)?
+            .into_iter()
+            .find(|entry| entry.relative_path == relative_path))
     }
 
-    /// 合并写入：`None` 表示删除该属性键，其余键覆盖。返回写入后的完整外观。
-    ///
-    /// 合并语义与 `collections.mutate` 的 `properties` 一致，调用方（头图开关、
-    /// 选图、图标、副标题）只需传自己改的那一个键，不会把别的键冲掉。
     pub fn set_folder_index_properties(
         &self,
         notebook_id: &str,
@@ -153,59 +212,34 @@ impl MemoFile {
         properties: BTreeMap<String, Option<CollectionProperty>>,
     ) -> Result<FolderIndexEntry, String> {
         let relative_path = normalize_folder_path(relative_path)?;
-        let mut conn = open_connection(self, notebook_id)?;
-        let transaction = conn.transaction().map_err(|e| e.to_string())?;
-        let existing: Option<String> = transaction
-            .query_row(
-                "SELECT properties_json FROM folder_index WHERE relative_path = ?1",
-                params![relative_path],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(|e| e.to_string())?;
-        let mut merged = existing.as_deref().map(read_properties).unwrap_or_default();
-        for (key, value) in properties {
-            match value {
-                Some(property) => {
-                    merged.insert(key, property);
-                }
-                None => {
-                    merged.remove(&key);
+        self.migrate_folder_index_to_json(notebook_id)?;
+        self.with_settings(notebook_id, |path, settings| {
+            let mut entry = settings.folders.remove(&relative_path).unwrap_or_default();
+            for (key, value) in properties {
+                match value {
+                    Some(value) => {
+                        entry.properties.insert(key, value);
+                    }
+                    None => {
+                        entry.properties.remove(&key);
+                    }
                 }
             }
-        }
-        validate_properties(&merged)?;
-        let updated_at = now_ms();
-        if merged.is_empty() {
-            transaction
-                .execute(
-                    "DELETE FROM folder_index WHERE relative_path = ?1",
-                    params![relative_path],
-                )
-                .map_err(|e| e.to_string())?;
-        } else {
-            let properties_json = serde_json::to_string(&merged).map_err(|e| e.to_string())?;
-            transaction
-                .execute(
-                    "INSERT INTO folder_index (relative_path, properties_json, updated_at)
-                     VALUES (?1, ?2, ?3)
-                     ON CONFLICT(relative_path) DO UPDATE SET
-                       properties_json = excluded.properties_json,
-                       updated_at = excluded.updated_at",
-                    params![relative_path, properties_json, updated_at],
-                )
-                .map_err(|e| e.to_string())?;
-        }
-        transaction.commit().map_err(|e| e.to_string())?;
-        Ok(FolderIndexEntry {
-            relative_path,
-            properties: merged,
-            updated_at,
+            validate_properties(&entry.properties).map_err(std::io::Error::other)?;
+            entry.updated_at = now_ms();
+            let result = FolderIndexEntry {
+                relative_path: relative_path.clone(),
+                properties: entry.properties.clone(),
+                updated_at: entry.updated_at,
+            };
+            if !entry.properties.is_empty() || !entry.extra.is_empty() {
+                settings.folders.insert(relative_path, entry);
+            }
+            write_settings(path, settings)?;
+            Ok(result)
         })
     }
 
-    /// 目录改名 / 移动后重定位整棵子树。返回被改写的行数（0 = 这个目录从来没有
-    /// 自定义外观，调用方通常只需要打一条 debug 日志）。
     pub fn rebase_folder_index(
         &self,
         notebook_id: &str,
@@ -217,20 +251,28 @@ impl MemoFile {
         if previous.is_empty() || previous == next {
             return Ok(0);
         }
-        let conn = open_connection(self, notebook_id)?;
-        let affected = conn
-            .execute(
-                "UPDATE OR REPLACE folder_index
-                 SET relative_path = ?2 || substr(relative_path, length(?1) + 1)
-                 WHERE relative_path = ?1
-                    OR substr(relative_path, 1, length(?1) + 1) = ?1 || '/'",
-                params![previous, next],
-            )
-            .map_err(|e| e.to_string())?;
-        Ok(affected)
+        self.migrate_folder_index_to_json(notebook_id)?;
+        self.with_settings(notebook_id, |path, settings| {
+            let keys: Vec<_> = settings
+                .folders
+                .keys()
+                .filter(|key| *key == &previous || key.starts_with(&format!("{previous}/")))
+                .cloned()
+                .collect();
+            for key in &keys {
+                if let Some(entry) = settings.folders.remove(key) {
+                    settings
+                        .folders
+                        .insert(format!("{next}{}", &key[previous.len()..]), entry);
+                }
+            }
+            if !keys.is_empty() {
+                write_settings(path, settings)?;
+            }
+            Ok(keys.len())
+        })
     }
 
-    /// 删除一个目录（含子目录）的外观。笔记本根目录不可删，返回 0。
     pub fn delete_folder_index_subtree(
         &self,
         notebook_id: &str,
@@ -240,25 +282,30 @@ impl MemoFile {
         if relative_path.is_empty() {
             return Ok(0);
         }
-        let conn = open_connection(self, notebook_id)?;
-        conn.execute(
-            "DELETE FROM folder_index
-             WHERE relative_path = ?1
-                OR substr(relative_path, 1, length(?1) + 1) = ?1 || '/'",
-            params![relative_path],
-        )
-        .map_err(|e| e.to_string())
+        self.migrate_folder_index_to_json(notebook_id)?;
+        self.with_settings(notebook_id, |path, settings| {
+            let before = settings.folders.len();
+            settings.folders.retain(|key, _| {
+                key != &relative_path && !key.starts_with(&format!("{relative_path}/"))
+            });
+            let removed = before - settings.folders.len();
+            if removed > 0 {
+                write_settings(path, settings)?;
+            }
+            Ok(removed)
+        })
     }
 
-    /// 把旧版「文件夹集合」的 `.index.yaml` 迁进表。
+    /// 把旧版「文件夹集合」的 `.index.yaml` 迁入设置文件。
     ///
     /// 只处理 `placement: folder` 的集合（`<目录>/.index.yaml` 且文件自己声明是
     /// 文件夹用途）；独立集合文件原样留在磁盘上。迁完把文件移到
     /// `<notebook>/.flowix/legacy-folder-index/` 备份，用户目录里不再出现这个隐藏
-    /// 文件。表里已有同名路径时以表为准（用户可能已经在新界面上改过外观）。
+    /// 文件。设置文件里已有同名路径时以设置文件为准（用户可能已经在新界面上改过外观）。
     ///
     /// 幂等：标记写在 `folder_index_meta`，每个笔记本只扫一次。
     pub fn migrate_legacy_folder_collections(&self, notebook_id: &str) -> Result<usize, String> {
+        self.migrate_folder_index_to_json(notebook_id)?;
         let conn = open_connection(self, notebook_id)?;
         let done: Option<i64> = conn
             .query_row(
@@ -429,7 +476,8 @@ pub fn rebase_folder_index_for_move(memo_file: &MemoFile, source: &Path, target:
         let Ok(root) = dunce::canonicalize(&notebook.path) else {
             continue;
         };
-        let (Ok(previous), Ok(next)) = (source.strip_prefix(&root), target.strip_prefix(&root)) else {
+        let (Ok(previous), Ok(next)) = (source.strip_prefix(&root), target.strip_prefix(&root))
+        else {
             continue;
         };
         let previous = previous.to_string_lossy().replace('\\', "/");
@@ -489,8 +537,8 @@ pub fn delete_folder_index_for_path(memo_file: &MemoFile, folder: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memo_file::NotebookConfig;
     use crate::collection::CollectionProperty;
+    use crate::memo_file::NotebookConfig;
 
     fn fixture() -> (MemoFile, tempfile::TempDir, std::path::PathBuf, String) {
         let temp = tempfile::tempdir().unwrap();
@@ -518,6 +566,80 @@ mod tests {
             name: None,
             value: serde_json::json!(value),
         }
+    }
+
+    #[test]
+    fn migrates_sqlite_once_and_preserves_unknown_settings() {
+        let (memo, _temp, root, id) = fixture();
+        let conn = open_connection(&memo, &id).unwrap();
+        conn.execute(
+            "INSERT INTO folder_index VALUES (?1, ?2, ?3)",
+            params!["Docs", r#"{"icon":{"type":"Text","value":"cat"}}"#, 123],
+        )
+        .unwrap();
+        drop(conn);
+        assert_eq!(
+            memo.list_folder_index(&id).unwrap()[0].properties["icon"].value,
+            "cat"
+        );
+        let path = root.join(NOTEBOOK_SETTINGS_PATH);
+        assert!(super::super::scan_syncable_notebook_files(&root)
+            .unwrap()
+            .iter()
+            .any(|entry| entry.display_path == NOTEBOOK_SETTINGS_PATH));
+        let mut json: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        json["files"]["example.md"] = serde_json::json!({"future": true});
+        json["future_section"] = serde_json::json!({"value": 42});
+        std::fs::write(&path, serde_json::to_vec(&json).unwrap()).unwrap();
+        memo.set_folder_index_properties(&id, "Docs", BTreeMap::from([("icon".to_string(), None)]))
+            .unwrap();
+        let json: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(json["files"]["example.md"]["future"], true);
+        assert_eq!(json["future_section"]["value"], 42);
+        std::fs::remove_file(&path).unwrap();
+        assert!(
+            memo.list_folder_index(&id).unwrap().is_empty(),
+            "deleted settings must not resurrect old SQLite rows"
+        );
+    }
+
+    #[test]
+    fn migration_merges_missing_folders_without_overwriting_json() {
+        let (memo, _temp, root, id) = fixture();
+        let conn = open_connection(&memo, &id).unwrap();
+        let old = r#"{"icon":{"type":"Text","value":"old"}}"#;
+        for folder in ["Docs", "Other"] {
+            conn.execute(
+                "INSERT INTO folder_index VALUES (?1, ?2, 1)",
+                params![folder, old],
+            )
+            .unwrap();
+        }
+        let path = root.join(NOTEBOOK_SETTINGS_PATH);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, r#"{"schema_version":1,"folders":{"Docs":{"properties":{"icon":{"type":"Text","value":"new"}}}},"files":{}}"#).unwrap();
+        let entries = memo.list_folder_index(&id).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].properties["icon"].value, "new");
+        assert_eq!(entries[1].properties["icon"].value, "old");
+    }
+
+    #[test]
+    fn malformed_settings_are_not_overwritten() {
+        let (memo, _temp, root, id) = fixture();
+        let path = root.join(NOTEBOOK_SETTINGS_PATH);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"{invalid").unwrap();
+        assert!(memo
+            .set_folder_index_properties(
+                &id,
+                "Docs",
+                BTreeMap::from([("icon".to_string(), Some(text_property("cat")))])
+            )
+            .is_err());
+        assert_eq!(std::fs::read(path).unwrap(), b"{invalid");
     }
 
     #[test]
@@ -556,12 +678,8 @@ mod tests {
             BTreeMap::from([("icon".to_string(), Some(text_property("dog-face")))]),
         )
         .unwrap();
-        memo.set_folder_index_properties(
-            &id,
-            "Docs",
-            BTreeMap::from([("icon".to_string(), None)]),
-        )
-        .unwrap();
+        memo.set_folder_index_properties(&id, "Docs", BTreeMap::from([("icon".to_string(), None)]))
+            .unwrap();
         assert!(memo.list_folder_index(&id).unwrap().is_empty());
     }
 
@@ -576,14 +694,21 @@ mod tests {
             )
             .unwrap();
         }
-        assert_eq!(memo.rebase_folder_index(&id, "Docs", "Archive/Docs").unwrap(), 2);
+        assert_eq!(
+            memo.rebase_folder_index(&id, "Docs", "Archive/Docs")
+                .unwrap(),
+            2
+        );
         let paths = memo
             .list_folder_index(&id)
             .unwrap()
             .into_iter()
             .map(|entry| entry.relative_path)
             .collect::<Vec<_>>();
-        assert_eq!(paths, vec!["", "Archive/Docs", "Archive/Docs/Guide", "Docs2"]);
+        assert_eq!(
+            paths,
+            vec!["", "Archive/Docs", "Archive/Docs/Guide", "Docs2"]
+        );
     }
 
     #[test]
@@ -612,16 +737,15 @@ mod tests {
         )
         .unwrap();
         // 独立集合不是文件夹外观，迁移后必须还在。
-        std::fs::write(
-            docs.join("Tasks.index.yaml"),
-            "format: flowix.collection\n",
-        )
-        .unwrap();
+        std::fs::write(docs.join("Tasks.index.yaml"), "format: flowix.collection\n").unwrap();
         assert_eq!(memo.migrate_legacy_folder_collections(&id).unwrap(), 1);
         let entries = memo.list_folder_index(&id).unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].relative_path, "Docs");
-        assert_eq!(entries[0].properties["icon"].value, serde_json::json!("dog-face"));
+        assert_eq!(
+            entries[0].properties["icon"].value,
+            serde_json::json!("dog-face")
+        );
         assert!(!docs.join(".index.yaml").exists());
         assert!(docs.join("Tasks.index.yaml").exists());
         // 幂等：第二次不再迁移。

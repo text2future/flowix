@@ -19,47 +19,33 @@ export function createRuntimeInfoRequester(
       return async () => {
         const threadId = getThreadId();
         if (!threadId) return null;
-        // Pi run metadata lives in its native conversation history. Read the
-        // latest complete turn so the popup can recover model and usage after
-        // the in-memory run projection has been cleared by a reload.
-        const page = await agent.getPiSessionPage(threadId, null, 1);
-        const latestAssistant = [...page.messages].reverse().find(
-          (message) => message.role === "assistant",
-        );
-        const nativeUsage = latestAssistant?.usage;
-        const usage = nativeUsage && typeof nativeUsage === "object"
-          ? nativeUsage as Record<string, unknown>
-          : {};
+        // Pi owns the authoritative session-wide totals. These include
+        // assistant turns, tool usage, and compaction/branch summaries.
+        const stats = await agent.getPiSessionStats(threadId);
+        const tokens = stats.tokens ?? {};
         const numeric = (value: unknown) =>
           typeof value === "number" && Number.isFinite(value) ? value : undefined;
-        const inputTokens = numeric(usage.input);
-        const cachedInputTokens = numeric(usage.cacheRead);
-        const outputTokens = numeric(usage.output);
-        const totalTokens = numeric(usage.totalTokens) ?? (
-          [inputTokens, cachedInputTokens, numeric(usage.cacheWrite), outputTokens]
-            .some((value) => value !== undefined)
-            ? (inputTokens ?? 0) + (cachedInputTokens ?? 0)
-              + (numeric(usage.cacheWrite) ?? 0) + (outputTokens ?? 0)
-            : undefined
-        );
+        const inputParts = [tokens.input, tokens.cacheRead, tokens.cacheWrite]
+          .map(numeric);
+        const inputTokens = inputParts.some((value) => value !== undefined)
+          ? inputParts.reduce<number>((sum, value) => sum + (value ?? 0), 0)
+          : undefined;
         const candidateSessionId = getSessionId();
-        const sessionId = page.revision.sessionId || (
+        const sessionId = stats.sessionId || (
           candidateSessionId && candidateSessionId !== threadId
             ? candidateSessionId
-            : await agent.getPiSessionId(threadId)
+            : undefined
         );
         return {
           sessionId: sessionId ?? undefined,
-          model: typeof latestAssistant?.model === "string"
-            ? typeof latestAssistant.provider === "string"
-              ? `${latestAssistant.provider}/${latestAssistant.model}`
-              : latestAssistant.model
-            : undefined,
+          model: stats.model ?? undefined,
           usage: {
             input_tokens: inputTokens,
-            cached_input_tokens: cachedInputTokens,
-            output_tokens: outputTokens,
-            total_tokens: totalTokens,
+            cached_input_tokens: numeric(tokens.cacheRead),
+            output_tokens: numeric(tokens.output),
+            total_tokens: numeric(tokens.total),
+            context_used_tokens: numeric(stats.contextUsage?.tokens),
+            model_context_window: numeric(stats.contextUsage?.contextWindow),
           },
         };
       };

@@ -10,6 +10,13 @@ pub struct CloudUser {
     pub region: String,
 }
 
+/// Local identity snapshot for a signed-in Cloud account.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudAccount {
+    pub user: CloudUser,
+}
+
 fn default_non_mainland_region() -> String {
     "non_mainland".to_string()
 }
@@ -27,6 +34,15 @@ pub struct CloudNotebook {
     pub synced: bool,
     #[serde(default)]
     pub used_bytes: i64,
+}
+
+/// Time-limited public link for one Markdown document in official Cloud.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudNoteShareLink {
+    pub url: String,
+    /// Unix time in milliseconds.
+    pub expires_at: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,6 +63,36 @@ pub(crate) struct AuthData {
     /// still inside its grace window. Absent for ordinary sign-ins.
     #[serde(default)]
     pub restored: bool,
+}
+
+/// Server response after a registration code has been sent to an email.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RegistrationCodeRequest {
+    pub verification_required: bool,
+    pub email: String,
+    pub expires_in_seconds: u64,
+    pub resend_after_seconds: u64,
+}
+
+/// Resend responses may omit timing when there is no active pending request.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RegistrationCodeResend {
+    pub requested: bool,
+    #[serde(default)]
+    pub expires_in_seconds: Option<u64>,
+    #[serde(default)]
+    pub resend_after_seconds: Option<u64>,
+}
+
+/// Server response after a password reset verification code is requested.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PasswordResetCodeRequest {
+    pub requested: bool,
+    pub expires_in_seconds: u64,
+    pub resend_after_seconds: u64,
 }
 
 /// Where a deleted account stands. `state` is one of `active`, `restorable`,
@@ -73,6 +119,12 @@ pub struct AccountDeletionOutcome {
     pub restorable_until: Option<i64>,
     #[serde(default)]
     pub pending_subscription_cancellations: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AccountRegionData {
+    pub region: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -166,6 +218,12 @@ pub struct CloudMembership {
     pub available_bytes: i64,
     pub note_count: i64,
     pub read_only: bool,
+    #[serde(default)]
+    pub usage_observed_at: Option<i64>,
+    #[serde(default)]
+    pub usage_read_status: Option<String>,
+    #[serde(default)]
+    pub usage_source: Option<String>,
 }
 
 impl CloudMembership {
@@ -173,18 +231,16 @@ impl CloudMembership {
     pub fn is_active_at(&self, now_ms: i64) -> bool {
         self.active
             && self.starts_at.is_none_or(|starts_at| starts_at <= now_ms)
-            && self.expires_at.is_some_and(|expires_at| expires_at > now_ms)
+            && self
+                .expires_at
+                .is_some_and(|expires_at| expires_at > now_ms)
     }
-
-
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct CloudAiCredential {
     pub api_key: String,
-    #[serde(default)]
-    pub model_base_url: Option<String>,
     pub model: CloudAiModel,
     #[serde(default)]
     pub models: Vec<CloudAiModel>,
@@ -225,6 +281,8 @@ pub struct CloudAiModel {
     #[serde(default)]
     pub subtitle: Option<String>,
     #[serde(default)]
+    pub icon_url: Option<String>,
+    #[serde(default)]
     pub credit_multiplier: Option<f64>,
     #[serde(default)]
     pub provider_id: Option<String>,
@@ -236,6 +294,8 @@ pub struct CloudAiModel {
     /// Optional so credentials issued by older Cloud versions still parse.
     #[serde(default)]
     pub sort_order: Option<i64>,
+    #[serde(default)]
+    pub reasoning: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -344,7 +404,7 @@ pub struct CloudState {
     pub authenticated: bool,
     pub auth_status: CloudAuthStatus,
     pub auth_error: Option<String>,
-    pub account: Option<crate::v2::V2CloudAccount>,
+    pub account: Option<CloudAccount>,
     pub membership: Option<CloudMembership>,
     pub membership_status: CloudEntitlementStatus,
     pub membership_error: Option<String>,
@@ -380,12 +440,6 @@ pub trait RefreshTokenStore: Send + Sync {
     fn load(&self) -> Result<Option<String>, String>;
     fn save(&self, token: &str) -> Result<(), String>;
     fn delete(&self) -> Result<(), String>;
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LocalChangeKind {
-    Put,
-    Delete,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -430,6 +484,12 @@ pub(crate) struct EntitlementUsage {
     pub available_bytes: i64,
     pub note_count: i64,
     pub read_only: bool,
+    #[serde(default)]
+    pub observed_at: Option<i64>,
+    #[serde(default)]
+    pub read_status: Option<String>,
+    #[serde(default)]
+    pub usage_source: Option<String>,
 }
 
 impl From<EntitlementData> for CloudMembership {
@@ -437,7 +497,10 @@ impl From<EntitlementData> for CloudMembership {
         Self {
             ai_active: value.ai.as_ref().map(|ai| ai.active),
             ai_grant_expires_at: value.ai.as_ref().and_then(|ai| ai.grant_expires_at),
-            ai_grant_duration_unit: value.ai.as_ref().and_then(|ai| ai.grant_duration_unit.clone()),
+            ai_grant_duration_unit: value
+                .ai
+                .as_ref()
+                .and_then(|ai| ai.grant_duration_unit.clone()),
             ai_grant_duration_count: value.ai.as_ref().and_then(|ai| ai.grant_duration_count),
             active: value.membership.active,
             starts_at: value.membership.starts_at,
@@ -449,6 +512,9 @@ impl From<EntitlementData> for CloudMembership {
             available_bytes: value.usage.available_bytes,
             note_count: value.usage.note_count,
             read_only: value.usage.read_only,
+            usage_observed_at: value.usage.observed_at,
+            usage_read_status: value.usage.read_status,
+            usage_source: value.usage.usage_source,
         }
     }
 }
@@ -467,16 +533,15 @@ mod subscription_tests {
 
     #[test]
     fn older_subscription_response_without_flags_is_supported() {
-        let response: DataEnvelope<Vec<CloudSubscription>> = serde_json::from_value(
-            serde_json::json!({"data": [{
+        let response: DataEnvelope<Vec<CloudSubscription>> =
+            serde_json::from_value(serde_json::json!({"data": [{
                 "id": "sub_legacy",
                 "status": "active",
                 "productId": "membership",
                 "productName": "Annual membership",
                 "currentPeriodEnd": 1800000000000_i64
-            }]}),
-        )
-        .unwrap();
+            }]}))
+            .unwrap();
         let subscription = &response.data[0];
         assert_eq!(subscription.id, "sub_legacy");
         assert!(!subscription.cancel_at_period_end);
@@ -514,7 +579,10 @@ mod subscription_tests {
         }))
         .unwrap();
         assert_eq!(subscription.product_id.as_deref(), Some("membership"));
-        assert_eq!(subscription.product_name.as_deref(), Some("Annual membership"));
+        assert_eq!(
+            subscription.product_name.as_deref(),
+            Some("Annual membership")
+        );
         assert_eq!(subscription.current_period_end, Some(1800000000000));
         assert!(subscription.cancel_at_period_end);
         assert!(subscription.is_annual_membership);

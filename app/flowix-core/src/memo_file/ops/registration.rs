@@ -7,7 +7,6 @@ impl MemoFile {
         self.register_existing_file_locked(path)
     }
 
-
     pub fn register_existing_file_for_notebook_id(
         &self,
         notebook_id: &str,
@@ -44,11 +43,7 @@ impl MemoFile {
         self.register_path_locked(notebook_id, path)
     }
 
-    fn register_path_locked(
-        &self,
-        notebook_id: &str,
-        path: &Path,
-    ) -> Result<Memo, String> {
+    fn register_path_locked(&self, notebook_id: &str, path: &Path) -> Result<Memo, String> {
         if !path.is_md() || !path.is_file() {
             return Err(format!("not an existing Markdown file: {}", path.display()));
         }

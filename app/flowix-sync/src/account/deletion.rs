@@ -42,11 +42,10 @@ impl AccountService {
     ///
     /// The local teardown runs only after the server confirms, and it reuses
     /// the logout path (`clear_auth_at_generation`) so the generation bump,
-    /// entitlement reset, `v2_cloud_account` wipe and refresh-credential delete
-    /// stay in one place. `clear_v2_account` already clears cursors, note
-    /// states, dirty rows and inflight operations, which is what makes a later
-    /// account with the same address start from scratch instead of replaying
-    /// the old notebook.
+    /// entitlement reset, cloud-account wipe and refresh-credential delete
+    /// stay in one place. `clear_account` also clears the local path-sync
+    /// baselines and notebook links, so a later account starts from a clean
+    /// synchronization state.
     ///
     /// A failure to remove the persisted credential is reported, not swallowed:
     /// leaving a usable refresh token on disk after the user asked to be
@@ -64,8 +63,8 @@ impl AccountService {
             }
             other => other,
         }?;
-        let (_, cleanup) = self
-            .clear_auth_at_generation(generation, || self.delete_persisted_refresh_token())?;
+        let (_, cleanup) =
+            self.clear_auth_at_generation(generation, || self.delete_persisted_refresh_token())?;
         cleanup?;
         Ok(outcome)
     }

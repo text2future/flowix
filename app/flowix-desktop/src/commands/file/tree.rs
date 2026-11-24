@@ -189,9 +189,13 @@ fn enclosing_notebook(memo_file: &MemoFile, path: &Path) -> Option<(String, Path
 /// True when `path` sits in a notebook folder that every index and the watcher
 /// skip, so content created there would never show up in a list.
 pub(crate) fn index_excluded_for_path(memo_file: &MemoFile, path: &Path) -> bool {
-    let Some((_, root)) = enclosing_notebook(memo_file, path) else { return false; };
+    let Some((_, root)) = enclosing_notebook(memo_file, path) else {
+        return false;
+    };
     let canonical = canonical_path(path);
-    let Ok(relative) = canonical.strip_prefix(&root) else { return false; };
+    let Ok(relative) = canonical.strip_prefix(&root) else {
+        return false;
+    };
     FileManagementPolicy::from_notebook_root(&root).is_index_hidden_at(&root, relative)
 }
 
@@ -215,18 +219,25 @@ pub(crate) fn populate_memo_tree_metadata(
     notebook_background: &Arc<crate::app::notebook_background::NotebookBackground>,
 ) {
     let memo_file = read_lock(memo_file_store, "memo_file");
-    let Some((notebook_id, notebook_root)) = enclosing_notebook(&memo_file, directory_path) else { return; };
+    let Some((notebook_id, notebook_root)) = enclosing_notebook(&memo_file, directory_path) else {
+        return;
+    };
     // Resolve only listed notes, preserving metadata for in-notebook symlinks.
     let relative_path_for = |item: &DocTreeItem| {
-        canonical_path(Path::new(&item.full_path)).strip_prefix(&notebook_root).ok()
+        canonical_path(Path::new(&item.full_path))
+            .strip_prefix(&notebook_root)
+            .ok()
             .map(|path| path.to_string_lossy().replace('\\', "/"))
     };
-    let listed_notes: Vec<_> = items.iter().enumerate()
+    let listed_notes: Vec<_> = items
+        .iter()
+        .enumerate()
         .filter(|(_, item)| matches!(item.resource_kind, Some(DocTreeResourceKind::Note)))
         .filter_map(|(index, item)| relative_path_for(item).map(|path| (index, path)))
         .collect();
     let relative_paths: Vec<_> = listed_notes.iter().map(|(_, path)| path.clone()).collect();
-    let metadata = match memo_file.read_note_tree_metadata_for_paths(&notebook_id, &relative_paths) {
+    let metadata = match memo_file.read_note_tree_metadata_for_paths(&notebook_id, &relative_paths)
+    {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
             notebook_background.request(&notebook_id, true, false);
@@ -234,20 +245,27 @@ pub(crate) fn populate_memo_tree_metadata(
         }
         Err(_) => return,
     };
-    let by_path: HashMap<_, _> = metadata.into_iter().map(|entry| (entry.relative_path.clone(), entry)).collect();
+    let by_path: HashMap<_, _> = metadata
+        .into_iter()
+        .map(|entry| (entry.relative_path.clone(), entry))
+        .collect();
     for (index, relative_path) in listed_notes {
         let item = &mut items[index];
         if let Some(entry) = by_path.get(&relative_path) {
             item.memo_created_ms = u64::try_from(entry.created_at).ok();
             item.pinned = entry.favorited;
             item.memo_meta = Some(DocTreeMemoMeta {
-                icon: entry.icon.clone(), colors: entry.colors.clone(), favorited: entry.favorited,
+                icon: entry.icon.clone(),
+                colors: entry.colors.clone(),
+                favorited: entry.favorited,
             });
         }
     }
     // Non-note documents have no frontmatter, so their pin lives in the
     // resource catalog. One query covers the whole listing.
-    let listed_documents: Vec<(usize, String)> = items.iter().enumerate()
+    let listed_documents: Vec<(usize, String)> = items
+        .iter()
+        .enumerate()
         .filter(|(_, item)| {
             item.item_type == "document"
                 && !matches!(item.resource_kind, Some(DocTreeResourceKind::Note))
@@ -257,7 +275,10 @@ pub(crate) fn populate_memo_tree_metadata(
     if listed_documents.is_empty() {
         return;
     }
-    let paths: Vec<String> = listed_documents.iter().map(|(_, path)| path.clone()).collect();
+    let paths: Vec<String> = listed_documents
+        .iter()
+        .map(|(_, path)| path.clone())
+        .collect();
     let Ok(pinned) = memo_file.read_pinned_resource_paths(&notebook_id, &paths) else {
         return;
     };
@@ -274,12 +295,7 @@ pub(crate) fn read_dir_single_level(
     dir_path: &Path,
     memo_metadata: Option<&HashMap<std::path::PathBuf, MemoTreeMetadata>>,
 ) -> Vec<DocTreeItem> {
-    read_dir_single_level_with_policy(
-        dir_path,
-        memo_metadata,
-        None,
-        TreeVisibility::default(),
-    )
+    read_dir_single_level_with_policy(dir_path, memo_metadata, None, TreeVisibility::default())
 }
 
 /// One-level listing shared by the tree and the folder lists.
@@ -359,7 +375,9 @@ pub(crate) fn read_dir_single_level_with_policy(
                 memo_meta: memo_metadata.map(|metadata| metadata.memo.clone()),
                 resource_kind,
                 index_excluded,
-                pinned: memo_metadata.and_then(|metadata| Some(metadata.memo.favorited)).unwrap_or(false),
+                pinned: memo_metadata
+                    .and_then(|metadata| Some(metadata.memo.favorited))
+                    .unwrap_or(false),
             };
 
             items.push(item);
@@ -415,10 +433,7 @@ pub(crate) fn tree_visibility_for(state: &AppState, scoped: bool) -> TreeVisibil
 // ==================== IPC ====================
 
 #[tauri::command]
-pub async fn get_file_tree(
-    space_path: String,
-    app: AppHandle,
-) -> Option<Vec<DocTreeItem>> {
+pub async fn get_file_tree(space_path: String, app: AppHandle) -> Option<Vec<DocTreeItem>> {
     let path = Path::new(&space_path).to_path_buf();
     // Filesystem enumeration and index reads stay off the command thread.
     let (memo_file, notebook_background, notebook_policy, tree_visibility) = {

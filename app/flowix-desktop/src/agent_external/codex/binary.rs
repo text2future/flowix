@@ -6,7 +6,6 @@ pub(crate) fn resolve_codex_binary() -> PathBuf {
     resolve_external_cli(&CODEX_CLI_SPEC)
 }
 
-
 const CODEX_CLI_SPEC: ExternalCliSpec = ExternalCliSpec {
     binary_name: "codex",
     #[cfg(windows)]

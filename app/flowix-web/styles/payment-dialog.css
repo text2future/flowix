@@ -49,9 +49,9 @@
 
 .payment-dialog__list-container {
   padding: 4px;
-  border: 1px solid var(--border);
+  border: 0;
   border-radius: 12px;
-  background: color-mix(in srgb, var(--foreground) 2%, transparent);
+  background: color-mix(in srgb, var(--foreground) 4%, transparent);
 }
 
 .payment-dialog__product {
@@ -62,7 +62,7 @@
   padding: 14px;
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: color-mix(in srgb, var(--foreground) 2%, transparent);
+  background: color-mix(in srgb, var(--foreground) 4%, transparent);
 }
 
 .payment-dialog__product--ai {

@@ -450,9 +450,7 @@ fn cached_font_metadata_present(definition: &FontDefinition) -> bool {
         let Ok(metadata) = fs::metadata(dir.join(font.file_name)) else {
             return false;
         };
-        if !metadata.is_file()
-            || !(4..=MAX_CACHED_FONT_FILE_BYTES).contains(&metadata.len())
-        {
+        if !metadata.is_file() || !(4..=MAX_CACHED_FONT_FILE_BYTES).contains(&metadata.len()) {
             return false;
         }
     }

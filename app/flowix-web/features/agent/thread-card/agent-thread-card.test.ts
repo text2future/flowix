@@ -106,6 +106,11 @@ vi.mock("@platform/tauri/client", () => ({
   files: {
     resolveLocation: vi.fn(async (path: string) => ({ path, notebookId: null, notebookPath: null, isDirectory: false })),
   },
+  // The cloud access card reads account state through this surface; it is not the
+  // subject of these tests, so every call resolves empty rather than throwing.
+  cloud: new Proxy({} as Record<string, unknown>, {
+    get: () => vi.fn(async () => null),
+  }),
   agent: {
     ...createAgentClientMock(),
     listSupportedModels: vi.fn(async () => []),
@@ -189,16 +194,24 @@ vi.mock("@features/agent/store/agent-workspace-store", async (importOriginal) =>
   ) };
 });
 
-vi.mock("@features/agent/store/agent-runtime-store", () => ({
-  useAgentRuntimeStore: {
-    getState: () => ({
-      statusByType: {},
-      refresh: vi.fn(),
-      refreshIfStale: vi.fn(async () => undefined),
-    }),
-    subscribe: vi.fn(() => () => undefined),
-  },
-}));
+vi.mock("@features/agent/store/agent-runtime-store", () => {
+  const state = {
+    statusByType: {},
+    isChecking: false,
+    refresh: vi.fn(),
+    refreshIfStale: vi.fn(async () => undefined),
+  };
+  // The source consumes this as a hook (`useAgentRuntimeStore(selector)`), so the
+  // mock has to be callable — a plain object breaks any render path that reaches it.
+  const useAgentRuntimeStore = Object.assign(
+    (selector: (value: typeof state) => unknown) => selector(state),
+    {
+      getState: () => state,
+      subscribe: vi.fn(() => () => undefined),
+    },
+  );
+  return { useAgentRuntimeStore };
+});
 
 vi.mock("@features/memo/store/note-store", () => ({
   useNoteStore: Object.assign(
@@ -244,14 +257,22 @@ vi.mock("@features/shortcuts", () => ({
   isWindowsPlatform: () => false,
 }));
 
-vi.mock("@features/preferences/store/user-settings-store", () => ({
-  useUserSettingsStore: {
-    getState: () => ({
-      settings: { language: "zh-CN" },
-    }),
-    subscribe: () => () => undefined,
-  },
-}));
+vi.mock("@features/preferences/store/user-settings-store", () => {
+  const state = {
+    settings: { language: "zh-CN", agents: { enabledByType: {} } },
+    updateSettings: vi.fn(),
+  };
+  return {
+    // Consumers call this as a hook, so the mock must be callable.
+    useUserSettingsStore: Object.assign(
+      (selector: (value: typeof state) => unknown) => selector(state),
+      {
+        getState: () => state,
+        subscribe: () => () => undefined,
+      },
+    ),
+  };
+});
 
 async function flushAnimationFrame(): Promise<void> {
   await new Promise<void>((resolve) => {

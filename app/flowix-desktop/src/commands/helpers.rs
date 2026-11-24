@@ -182,11 +182,7 @@ fn rebind_current_notebook_watcher_locked(state: &AppState, app: &AppHandle) -> 
     let Ok(mut guard) = watcher.write() else {
         return None;
     };
-    guard.rebind_current_notebook(
-        app.clone(),
-        active_id.as_deref(),
-        active_config,
-    );
+    guard.rebind_current_notebook(app.clone(), active_id.as_deref(), active_config);
     active_id.filter(|notebook_id| guard.is_watching(notebook_id))
 }
 
@@ -199,9 +195,7 @@ pub(crate) fn rebind_current_notebook_watcher_while_transition_locked(
 
 pub(crate) fn refresh_current_notebook_watcher(state: &AppState, app: &AppHandle) {
     let active_id = {
-        let _transition = state
-            .notebook_transition
-            .lock();
+        let _transition = state.notebook_transition.lock();
         rebind_current_notebook_watcher_locked(state, app)
     };
     // The rebind has a short gap. Reconcile only the root that actually
@@ -210,8 +204,6 @@ pub(crate) fn refresh_current_notebook_watcher(state: &AppState, app: &AppHandle
         state.notebook_background.request(&notebook_id, false, true);
     }
 }
-
-
 
 pub(crate) fn switch_notebook_trusting_index(
     state: &AppState,
@@ -368,10 +360,14 @@ pub(crate) fn is_internal_notebook_path_with_state(path: &Path, state: &AppState
             let root = Path::new(&config.path);
             let database = root.join(".flowix/database");
             let real_directory = [root.join(".flowix"), database.clone()].iter().all(|dir| {
-                std::fs::symlink_metadata(dir).map(|metadata| metadata.is_dir() && !metadata.file_type().is_symlink()).unwrap_or(false)
+                std::fs::symlink_metadata(dir)
+                    .map(|metadata| metadata.is_dir() && !metadata.file_type().is_symlink())
+                    .unwrap_or(false)
             });
             path_is_inside_reserved_directory(path, root, ".flowix")
-                && !(real_directory && path_is_inside(path, root) && path_is_inside(path, &database))
+                && !(real_directory
+                    && path_is_inside(path, root)
+                    && path_is_inside(path, &database))
         })
 }
 

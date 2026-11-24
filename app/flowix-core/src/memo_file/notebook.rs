@@ -480,7 +480,6 @@ impl MemoFile {
         Ok(max_sort.map(|v| v + 10).unwrap_or(10))
     }
 
-
     /// Return the first registered notebook and report whether this call created it.
     ///
     /// New installs intentionally do not auto-register `~/Documents/flowix`.

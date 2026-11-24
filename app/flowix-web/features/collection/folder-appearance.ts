@@ -4,7 +4,7 @@
  * 文件夹外观（图标 / 头图 / 副标题）的前端缓存。
  *
  * 这些属性原来住在每个目录的 `.index.yaml` 里，读一次要一次磁盘 IPC；现在住在
- * 笔记本的索引库里，整本书一张表、通常只有几十行，所以**整本一次拉取**，
+ * 笔记本的 notebook_settings.json 中，所以**整本一次拉取**，
  * 文件树的每一行、面包屑和标题旁的图标共用同一份数据。
  *
  * 键是笔记本相对路径（`''` = 根目录）。目录改名 / 移动后后端会重定位表里的
@@ -39,6 +39,7 @@ interface FolderStore {
   listeners: Set<() => void>;
   stop?: () => void;
   loading: boolean;
+  reloadPending: boolean;
 }
 
 /** 按 `notebookId` 缓存：事件用 id 标识笔记本，路径只用来算表键。 */
@@ -51,6 +52,7 @@ function storeFor(notebookId: string): FolderStore {
     state: { ready: false, entries: EMPTY },
     listeners: new Set(),
     loading: false,
+    reloadPending: false,
   };
   stores.set(notebookId, store);
   return store;
@@ -107,6 +109,11 @@ async function load(notebookId: string, notebookPath: string): Promise<void> {
     publish(store, store.state.entries);
   } finally {
     store.loading = false;
+    if (store.reloadPending) {
+      store.reloadPending = false;
+      store.state = { ...store.state, ready: false };
+      void load(notebookId, notebookPath);
+    }
   }
 }
 
@@ -116,15 +123,26 @@ function attach(notebookId: string, notebookPath: string, store: FolderStore): v
     const current = storeFor(notebookId);
     publish(current, withEntry(current.state.entries, event.relativePath, toProperties(event.properties)));
   });
+  const stopInvalidated = subscribe<{ notebookId: string }>('folder-index-invalidated', (event) => {
+    if (event.notebookId !== notebookId) return;
+    if (store.loading) { store.reloadPending = true; return; }
+    store.state = { ...store.state, ready: false };
+    void load(notebookId, notebookPath);
+  });
   const stopChanges = subscribeNotebookChanges((event) => {
     if (event.notebookId !== notebookId || event.kind !== 'path-moved') return;
     rebaseFolderAppearance(notebookId, event.previousRelativePath, event.relativePath);
   });
   store.stop = () => {
     stopChanged();
+    stopInvalidated();
     stopChanges();
   };
-  void load(notebookId, notebookPath);
+  if (store.loading) store.reloadPending = true;
+  else {
+    store.state = { ...store.state, ready: false };
+    void load(notebookId, notebookPath);
+  }
 }
 
 /** 保存一组外观变更（`null` 删除该键），返回写入后的完整属性。 */

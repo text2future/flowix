@@ -127,15 +127,17 @@ impl ClaudeCliManager {
                 None
             } else if cancelled {
                 Some(USER_STOPPED_REASON.to_string())
-            } else { match result {
-                Ok(()) => None,
-                Err(err) => {
-                    manager
-                        .emit_run_error(&app_handle, &thread_id, err.clone(), &run_id)
-                        .await;
-                    Some(err)
+            } else {
+                match result {
+                    Ok(()) => None,
+                    Err(err) => {
+                        manager
+                            .emit_run_error(&app_handle, &thread_id, err.clone(), &run_id)
+                            .await;
+                        Some(err)
+                    }
                 }
-            }};
+            };
 
             manager
                 .emit_stream_end(
@@ -162,13 +164,17 @@ impl ClaudeCliManager {
         let mut stopped = match self
             .runs
             .stop_run(thread_id, thread_id, run_id, "ClaudeCli")
-            .await {
-                Ok(stopped) => stopped,
-                Err(unconfirmed) => {
-                    tracing::warn!("[ClaudeCli] stop still unconfirmed for run {}", unconfirmed.run_id);
-                    return false;
-                }
-            };
+            .await
+        {
+            Ok(stopped) => stopped,
+            Err(unconfirmed) => {
+                tracing::warn!(
+                    "[ClaudeCli] stop still unconfirmed for run {}",
+                    unconfirmed.run_id
+                );
+                return false;
+            }
+        };
         if stopped.is_none() {
             let mapped_thread_id = {
                 self.thread_manager
@@ -183,13 +189,17 @@ impl ClaudeCliManager {
                     stopped = match self
                         .runs
                         .stop_run(&mapped_thread_id, thread_id, run_id, "ClaudeCli")
-                        .await {
-                            Ok(stopped) => stopped,
-                            Err(unconfirmed) => {
-                                tracing::warn!("[ClaudeCli] stop still unconfirmed for run {}", unconfirmed.run_id);
-                                return false;
-                            }
-                        };
+                        .await
+                    {
+                        Ok(stopped) => stopped,
+                        Err(unconfirmed) => {
+                            tracing::warn!(
+                                "[ClaudeCli] stop still unconfirmed for run {}",
+                                unconfirmed.run_id
+                            );
+                            return false;
+                        }
+                    };
                     if stopped.is_some() {
                         event_thread_id = mapped_thread_id;
                     }
@@ -202,11 +212,18 @@ impl ClaudeCliManager {
             }
             // The reservation may have become a child between the first
             // stop lookup and cancellation. Recheck before reporting failure.
-            let stopped = match self.runs.stop_run(&lookup_thread_id, thread_id, run_id, "ClaudeCli").await {
+            let stopped = match self
+                .runs
+                .stop_run(&lookup_thread_id, thread_id, run_id, "ClaudeCli")
+                .await
+            {
                 Ok(Some(stopped)) => stopped,
                 Ok(None) => return false,
                 Err(unconfirmed) => {
-                    tracing::warn!("[ClaudeCli] stop still unconfirmed for run {}", unconfirmed.run_id);
+                    tracing::warn!(
+                        "[ClaudeCli] stop still unconfirmed for run {}",
+                        unconfirmed.run_id
+                    );
                     return false;
                 }
             };
@@ -217,7 +234,8 @@ impl ClaudeCliManager {
                 &stopped.run_id,
                 Some(USER_STOPPED_REASON.to_string()),
                 &stopped.stream_end_emitted,
-            ).await;
+            )
+            .await;
             return true;
         };
 
@@ -383,43 +401,51 @@ impl ClaudeCliManager {
         let stdout = match child.stdout.take() {
             Some(stdout) => stdout,
             None => {
-                crate::agent_external::shared::kill_child_tree(&mut child, "ClaudeCli", thread_id).await;
+                crate::agent_external::shared::kill_child_tree(&mut child, "ClaudeCli", thread_id)
+                    .await;
                 return Err("failed to capture Claude Code stdout".to_string());
             }
         };
         let stderr = match child.stderr.take() {
             Some(stderr) => stderr,
             None => {
-                crate::agent_external::shared::kill_child_tree(&mut child, "ClaudeCli", thread_id).await;
+                crate::agent_external::shared::kill_child_tree(&mut child, "ClaudeCli", thread_id)
+                    .await;
                 return Err("failed to capture Claude Code stderr".to_string());
             }
         };
 
         if let Err(mut cancelled_child) = self
             .runs
-            .insert_reserved(
-                thread_id.to_string(),
-                child,
-                run_id,
-                stream_end_emitted,
-            )
+            .insert_reserved(thread_id.to_string(), child, run_id, stream_end_emitted)
             .await
         {
             crate::agent_external::shared::kill_child_tree(
-                &mut cancelled_child, "ClaudeCli", thread_id,
-            ).await;
+                &mut cancelled_child,
+                "ClaudeCli",
+                thread_id,
+            )
+            .await;
             return Err(USER_STOPPED_REASON.to_string());
         }
 
         if let Some(mut stdin) = stdin {
             let write_result = async {
-                stdin.write_all(prompt.as_bytes()).await
+                stdin
+                    .write_all(prompt.as_bytes())
+                    .await
                     .map_err(|e| format!("failed to write Claude Code prompt: {e}"))?;
-                stdin.shutdown().await
+                stdin
+                    .shutdown()
+                    .await
                     .map_err(|e| format!("failed to close Claude Code stdin: {e}"))
-            }.await;
+            }
+            .await;
             if let Err(error) = write_result {
-                let _ = self.runs.stop_run(thread_id, thread_id, Some(run_id), "ClaudeCli").await;
+                let _ = self
+                    .runs
+                    .stop_run(thread_id, thread_id, Some(run_id), "ClaudeCli")
+                    .await;
                 return Err(error);
             }
         }
@@ -436,7 +462,11 @@ impl ClaudeCliManager {
             read_stderr_to_string(thread_id, Some(run_id), &self.runs, BufReader::new(stderr));
         let (stdout_result, stderr_text) = tokio::join!(stdout_task, stderr_task);
 
-        let status = if let Some(status) = self.runs.wait_for_exit_and_remove_if_run_id(thread_id, run_id).await? {
+        let status = if let Some(status) = self
+            .runs
+            .wait_for_exit_and_remove_if_run_id(thread_id, run_id)
+            .await?
+        {
             status
         } else {
             // child 已�? stop_chat �?watchdog 移走 ── 二者都�?CAS 抢发�?

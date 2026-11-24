@@ -400,13 +400,13 @@
 }
 
 .code-editor .cm-code-search-input:focus {
-	border-color: var(--primary, #7c3aed);
-	outline: 2px solid color-mix(in oklch, var(--primary, #7c3aed) 18%, transparent);
+  border-color: var(--input-ring, var(--primary, #7c3aed));
+  outline: 1px solid var(--input-ring, color-mix(in oklch, var(--primary, #7c3aed) 50%, transparent));
 	outline-offset: 0;
 }
 
 .code-editor .cm-code-search-input::placeholder {
-	color: var(--muted-foreground, #6b7280);
+  color: var(--input-placeholder, color-mix(in oklch, var(--muted-foreground, #6b7280) 50%, transparent));
 	opacity: 1;
 }
 

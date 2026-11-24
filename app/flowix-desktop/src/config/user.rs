@@ -4,11 +4,17 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use super::property_presets::{PropertyPresetChange, PropertyPresetRegistry, PropertyPresetStore};
 use crate::USER_CONFIG_DIR_NAME;
 use flowix_core::secret::{entry_name, SecretStore};
+
+#[path = "user/cloud_storage.rs"]
+mod cloud_storage;
+pub use cloud_storage::{
+    CloudStorageProfile, CloudStorageSettings, CloudStorageTarget, DevCloudEnvironment,
+};
 
 /// AI 模型配置文件�?── TOML 格式, 便于人手编辑与注释�?///
 /// TOML 格式便于用户手改磁盘配置时写注释 (TOML 原生 `# ...`), 避免�?��字�?�?/// �?Flowix 的其它配�?���?(`boot/preference.json` /
@@ -35,11 +41,10 @@ pub const DSH_PLUGIN_SETTINGS_FILE_NAME: &str = "plugin-settings.json";
 const BOOT_DIR_NAME: &str = "boot";
 const PREFERENCE_FILE_NAME: &str = "preference.json";
 const DEFAULT_SECRET_DB_NAME: &str = "default.db";
+const DEV_SECRET_DB_NAME: &str = "dev-secrets.db";
 const SECRET_ACCOUNT_NAME: &str = "default";
 const CLOUD_SECRET_PROVIDER: &str = "flowix_cloud_refresh";
-const CLOUD_DEV_STAGING_SECRET_PROVIDER: &str = "flowix_cloud_dev_staging_refresh";
-const CLOUD_DEV_MAINLAND_STAGING_SECRET_PROVIDER: &str = "flowix_cloud_dev_mainland_staging_refresh";
-const CLOUD_DEV_PRODUCTION_SECRET_PROVIDER: &str = "flowix_cloud_dev_production_refresh";
+const LEGACY_CLOUD_DEV_PRODUCTION_SECRET_PROVIDER: &str = "flowix_cloud_dev_production_refresh";
 
 /// ~/.flowix/boot/preference.json —用户偏好设置
 /// 瀛楁鍏ㄩ儴 #[serde(default)], 鏂囦欢鎹熷潖鎴栫己澶辨椂鍥為€€鍒伴粯璁ゅ€笺€?
@@ -207,8 +212,8 @@ pub struct PreferenceFile {
     /// Explicit path to the user's DSH CLI, when automatic discovery is insufficient.
     #[serde(default)]
     pub dsh_cli_path: Option<String>,
-    /// Saved Cloud target name for development builds. Unknown legacy values
-    /// fall back to the build default; release builds always use production.
+    /// Legacy Cloud target field. Dev builds now keep their target in a
+    /// separate file so the production preference remains untouched.
     #[serde(default)]
     pub cloud_environment: String,
     /// Memo list card presentation ("detailed" | "compact").
@@ -652,6 +657,7 @@ pub struct UserConfigStore {
     preference: RwLock<PreferenceFile>,
     ai_config: RwLock<AiConfigFile>,
     secrets: SecretStore,
+    cloud_storage_lock: Mutex<()>,
     property_presets: PropertyPresetStore,
     property_presets_migration_complete: Arc<AtomicBool>,
 }
@@ -709,11 +715,26 @@ impl UserConfigStore {
     pub fn new(home_dir: PathBuf) -> Self {
         // 凭据数据库位于 config_dir/db/default.db (生产环境 ~/.flowix/db/default.db),
         // �?local.db 同目�?── �?0o700 �?�� + 0o600 文件权限保护�?
-        let db_path = home_dir
-            .join(USER_CONFIG_DIR_NAME)
-            .join("db")
-            .join(DEFAULT_SECRET_DB_NAME);
-        Self::new_with_secret_store(home_dir, SecretStore::new(db_path))
+        let secret_db_dir = home_dir.join(USER_CONFIG_DIR_NAME).join("db");
+        let is_dev_build = option_env!("FLOWIX_DEV_MODE") == Some("1");
+        let dev_secret_db_path = secret_db_dir.join(DEV_SECRET_DB_NAME);
+        let secrets = if is_dev_build {
+            // Dev credentials stay isolated from production and never enter
+            // Keychain, whose code-signature ACL changes after dev rebuilds.
+            SecretStore::new_database(&dev_secret_db_path)
+        } else {
+            SecretStore::new(secret_db_dir.join(DEFAULT_SECRET_DB_NAME))
+        };
+        if is_dev_build && dev_secret_db_path.is_file() {
+            let legacy_account = entry_name(
+                LEGACY_CLOUD_DEV_PRODUCTION_SECRET_PROVIDER,
+                SECRET_ACCOUNT_NAME,
+            );
+            if let Err(error) = secrets.delete(&legacy_account) {
+                tracing::warn!(%error, "failed to remove legacy Dev production Cloud credential");
+            }
+        }
+        Self::new_with_secret_store(home_dir, secrets)
     }
 
     fn new_with_secret_store(home_dir: PathBuf, secrets: SecretStore) -> Self {
@@ -744,6 +765,7 @@ impl UserConfigStore {
             preference: RwLock::new(preference),
             ai_config: RwLock::new(ai_config),
             secrets,
+            cloud_storage_lock: Mutex::new(()),
             property_presets,
             property_presets_migration_complete: Arc::new(AtomicBool::new(false)),
         }
@@ -1192,41 +1214,6 @@ impl UserConfigStore {
         self.delete_provider_secret(CLOUD_SECRET_PROVIDER)
     }
 
-    fn cloud_dev_secret_provider(environment: flowix_sync::CloudEnvironment) -> &'static str {
-        match environment {
-            flowix_sync::CloudEnvironment::Staging => CLOUD_DEV_STAGING_SECRET_PROVIDER,
-            flowix_sync::CloudEnvironment::MainlandStaging => CLOUD_DEV_MAINLAND_STAGING_SECRET_PROVIDER,
-            flowix_sync::CloudEnvironment::Prod => CLOUD_DEV_PRODUCTION_SECRET_PROVIDER,
-        }
-    }
-
-    pub fn save_cloud_dev_refresh_token(
-        &self,
-        environment: flowix_sync::CloudEnvironment,
-        token: &str,
-    ) -> Result<(), UserConfigError> {
-        self.save_provider_secret(Self::cloud_dev_secret_provider(environment), token)
-    }
-
-    pub fn load_cloud_dev_refresh_token(
-        &self,
-        environment: flowix_sync::CloudEnvironment,
-    ) -> Result<Option<String>, UserConfigError> {
-        let provider = Self::cloud_dev_secret_provider(environment);
-        let account = entry_name(provider, SECRET_ACCOUNT_NAME);
-        self.secrets
-            .load(&account)
-            .map(|value| value.map(|secret| secret.into_inner()))
-            .map_err(|err| UserConfigError::SecretStore(err.to_string()))
-    }
-
-    pub fn delete_cloud_dev_refresh_token(
-        &self,
-        environment: flowix_sync::CloudEnvironment,
-    ) -> Result<(), UserConfigError> {
-        self.delete_provider_secret(Self::cloud_dev_secret_provider(environment))
-    }
-
     fn read_ai_config_from_disk(dir: &PathBuf) -> Option<AiConfigFile> {
         let path = dir.join(AI_CONFIG_FILE_NAME);
         match fs::read(&path) {
@@ -1268,13 +1255,13 @@ impl flowix_sync::RefreshTokenStore for UserConfigStore {
 
 pub struct CloudDevRefreshTokenStore {
     user_config: std::sync::Arc<UserConfigStore>,
-    environment: flowix_sync::CloudEnvironment,
+    environment: DevCloudEnvironment,
 }
 
 impl CloudDevRefreshTokenStore {
     pub fn new(
         user_config: std::sync::Arc<UserConfigStore>,
-        environment: flowix_sync::CloudEnvironment,
+        environment: DevCloudEnvironment,
     ) -> Self {
         Self {
             user_config,
@@ -1610,6 +1597,27 @@ mod tests {
     use flowix_core::secret::{KeyBackend, SecretBackend, SecretStoreError, SecretString};
     use std::sync::Mutex;
 
+    #[test]
+    fn custom_s3_profile_round_trips_in_secret_store() {
+        let home = tempfile::tempdir().unwrap();
+        let store = test_user_config_store(home.path().to_path_buf());
+        let remote = flowix_sync::remote::S3Remote {
+            endpoint: "https://s3.example.com".into(),
+            region: "auto".into(),
+            bucket: "notes".into(),
+            prefix: "flowix".into(),
+        };
+        assert!(store.load_custom_s3_remote().unwrap().is_none());
+        store
+            .save_custom_s3_remote(&remote, "access", "secret")
+            .unwrap();
+        let restored = store.load_custom_s3_remote().unwrap().unwrap();
+        assert_eq!(restored.bucket, "notes");
+        assert_eq!(restored.secret_access_key, "secret");
+        store.delete_custom_s3_remote().unwrap();
+        assert!(store.load_custom_s3_remote().unwrap().is_none());
+    }
+
     struct TestSecretBackend {
         store: Mutex<HashMap<String, String>>,
     }
@@ -1842,7 +1850,9 @@ mod tests {
         let store = UserConfigStore::new(home.path().to_path_buf());
         // The layout migration runs as its own startup step (storage
         // initialization), not implicitly inside dsh_dir().
-        store.initialize_legacy_dsh_layout().expect("migrate legacy DSH layout");
+        store
+            .initialize_legacy_dsh_layout()
+            .expect("migrate legacy DSH layout");
         let dsh_dir = store.dsh_dir();
 
         assert_eq!(

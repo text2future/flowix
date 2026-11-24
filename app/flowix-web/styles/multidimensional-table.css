@@ -458,12 +458,7 @@ button.multidimensional-table__primary-title--placeholder {
 }
 
 .multidimensional-table__option-input::placeholder {
-  color: color-mix(in srgb, var(--muted-foreground) 85%, transparent);
-  opacity: 1;
-}
-
-.multidimensional-table__option-input:focus::placeholder {
-  color: color-mix(in srgb, var(--muted-foreground) 60%, transparent);
+  color: var(--input-placeholder);
 }
 
 .multidimensional-table__field-options-popover {
@@ -499,6 +494,15 @@ button.multidimensional-table__primary-title--placeholder {
   font-size: 0.875rem;
   line-height: 1.25rem;
   outline: none;
+}
+
+.multidimensional-table__primary-title-input::placeholder {
+  color: var(--input-placeholder);
+}
+
+.multidimensional-table__primary-title-input:focus-visible {
+  outline: 1px solid var(--input-ring);
+  outline-offset: 1px;
 }
 
 .calendar-note-create-popover .multidimensional-table__primary-title-input {
@@ -701,9 +705,8 @@ button.multidimensional-table__primary-title--placeholder {
 }
 
 .frontmatter-property__edit-input.multidimensional-table__tag-input::placeholder {
-  color: var(--muted-foreground) !important;
+  color: var(--input-placeholder) !important;
   font-size: inherit !important;
-  opacity: 0.8 !important;
 }
 
 .table-reference-node {

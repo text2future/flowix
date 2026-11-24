@@ -64,6 +64,16 @@ pub fn matches_hidden_file_pattern(name: &str) -> bool {
             .any(|pattern| glob_matches(pattern, name))
 }
 
+/// File noise excluded from cloud sync, without excluding ordinary dotfiles.
+pub(crate) fn is_sync_file_noise(name: &str) -> bool {
+    is_legacy_media_sidecar(name)
+        || name.eq_ignore_ascii_case(".DS_Store")
+        || HIDDEN_FILE_PATTERNS
+            .iter()
+            .filter(|pattern| **pattern != ".*")
+            .any(|pattern| glob_matches(pattern, name))
+}
+
 /// 旧版媒体属性旁车（`photo.png.yaml`）：扩展名是 yaml，去后缀后本身是媒体
 /// 文件。通配表达不了「stem 是媒体类型」，所以留一个谓词，规则表只负责其余
 /// 的纯名字模式。

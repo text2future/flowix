@@ -6,11 +6,11 @@ use crate::client::CloudClient;
 use crate::error::SyncError;
 use crate::models::{
     AccountDeletionOutcome, AccountDeletionState, AppleAuthChallenge, AppleAuthorization,
-    CloudAuthStatus, CloudCheckout, CloudEntitlementStatus, CloudMembership, CloudOrder,
-    CloudOrderCheck, CloudProduct, CloudState, RefreshTokenStore, RuntimeSession,
+    CloudAccount, CloudAuthStatus, CloudCheckout, CloudEntitlementStatus, CloudMembership,
+    CloudOrder, CloudOrderCheck, CloudProduct, CloudState, PasswordResetCodeRequest,
+    RefreshTokenStore, RegistrationCodeRequest, RegistrationCodeResend, RuntimeSession,
 };
 use crate::store::SyncStore;
-use crate::v2::V2CloudAccount;
 
 #[derive(Clone)]
 pub struct AccountService {
@@ -70,10 +70,6 @@ impl Default for AuthState {
 impl AccountService {
     pub(crate) fn client(&self) -> &CloudClient {
         &self.client
-    }
-
-    pub(crate) fn request_entitlement_refresh(&self) {
-        self.entitlement_retry.notify_one();
     }
 
     pub async fn submit_feedback(
@@ -153,4 +149,5 @@ mod deletion;
 mod entitlements;
 pub use access::{CloudSyncAccess, CloudSyncRestriction};
 mod lifecycle;
+mod note_shares;
 mod state;

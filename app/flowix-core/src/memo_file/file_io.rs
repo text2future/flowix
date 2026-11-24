@@ -104,22 +104,48 @@ pub fn rename_file_noclobber(_source: &Path, _target: &Path) -> io::Result<()> {
 }
 
 impl MemoFile {
-    pub fn create_file_for_notebook(&self, notebook_id: &str, path: &Path, content: &[u8]) -> io::Result<()> {
-        self.with_file_write(notebook_id, path, FileLockIntent::Create, "create_file", |path| {
-            atomic_create_bytes(path, content)
-        })
+    pub fn create_file_for_notebook(
+        &self,
+        notebook_id: &str,
+        path: &Path,
+        content: &[u8],
+    ) -> io::Result<()> {
+        self.with_file_write(
+            notebook_id,
+            path,
+            FileLockIntent::Create,
+            "create_file",
+            |path| atomic_create_bytes(path, content),
+        )
     }
 
-    pub fn write_file_for_notebook(&self, notebook_id: &str, path: &Path, content: &[u8]) -> io::Result<()> {
-        self.with_file_write(notebook_id, path, FileLockIntent::Existing, "write_file", |path| {
-            // Existing saves must never recreate a deleted parent or file.
-            fs::metadata(path)?;
-            atomic_write_bytes(path, content)
-        })
+    pub fn write_file_for_notebook(
+        &self,
+        notebook_id: &str,
+        path: &Path,
+        content: &[u8],
+    ) -> io::Result<()> {
+        self.with_file_write(
+            notebook_id,
+            path,
+            FileLockIntent::Existing,
+            "write_file",
+            |path| {
+                // Existing saves must never recreate a deleted parent or file.
+                fs::metadata(path)?;
+                atomic_write_bytes(path, content)
+            },
+        )
     }
 
     pub fn delete_file_for_notebook(&self, notebook_id: &str, path: &Path) -> io::Result<()> {
-        self.with_file_write(notebook_id, path, FileLockIntent::Existing, "delete_file", |path| fs::remove_file(path))
+        self.with_file_write(
+            notebook_id,
+            path,
+            FileLockIntent::Existing,
+            "delete_file",
+            |path| fs::remove_file(path),
+        )
     }
 
     pub fn write_file_if_matches_for_notebook(
@@ -129,17 +155,43 @@ impl MemoFile {
         content: &str,
         expected: Option<&str>,
     ) -> io::Result<FileWriteOutcome> {
-        self.with_file_write(notebook_id, path, FileLockIntent::Existing, "write_file_if_matches", |path| {
-            write_file_if_matches_locked(path, content, expected)
-        })
+        self.with_file_write(
+            notebook_id,
+            path,
+            FileLockIntent::Existing,
+            "write_file_if_matches",
+            |path| write_file_if_matches_locked(path, content, expected),
+        )
     }
 
     pub fn write_file_if_matches_for_registered_path(
-        &self, path: &Path, content: &str, expected: Option<&str>,
+        &self,
+        path: &Path,
+        content: &str,
+        expected: Option<&str>,
     ) -> io::Result<FileWriteOutcome> {
         self.with_registered_path_change(&[path], "write_file_nested_notebooks", || {
             write_file_if_matches_locked(path, content, expected)
         })
+    }
+
+    /// Write text that may not exist yet, under the same notebook file lock as an
+    /// ordinary save. Only callers materializing a file from elsewhere (cloud
+    /// download) need this: an editor save must keep refusing to recreate a file
+    /// the user deleted.
+    pub fn write_file_if_matches_for_notebook_creating(
+        &self,
+        notebook_id: &str,
+        path: &Path,
+        content: &str,
+    ) -> io::Result<FileWriteOutcome> {
+        self.with_file_write(
+            notebook_id,
+            path,
+            FileLockIntent::ExistingOrMissing,
+            "write_file_if_matches_creating",
+            |path| write_file_if_matches_locked_creating(path, content),
+        )
     }
 
     pub fn write_markdown_merging_for_notebook(
@@ -149,13 +201,20 @@ impl MemoFile {
         content: &str,
         expected: Option<&str>,
     ) -> io::Result<MergedFileWriteOutcome> {
-        self.with_file_write(notebook_id, path, FileLockIntent::Existing, "write_markdown_merging", |path| {
-            write_markdown_merging_locked(path, content, expected)
-        })
+        self.with_file_write(
+            notebook_id,
+            path,
+            FileLockIntent::Existing,
+            "write_markdown_merging",
+            |path| write_markdown_merging_locked(path, content, expected),
+        )
     }
 
     pub fn write_markdown_merging_for_registered_path(
-        &self, path: &Path, content: &str, expected: Option<&str>,
+        &self,
+        path: &Path,
+        content: &str,
+        expected: Option<&str>,
     ) -> io::Result<MergedFileWriteOutcome> {
         self.with_registered_path_change(&[path], "write_markdown_nested_notebooks", || {
             write_markdown_merging_locked(path, content, expected)
@@ -205,7 +264,11 @@ impl MemoFile {
     }
 }
 
-fn write_file_if_matches_locked(path: &Path, content: &str, expected: Option<&str>) -> io::Result<FileWriteOutcome> {
+fn write_file_if_matches_locked(
+    path: &Path,
+    content: &str,
+    expected: Option<&str>,
+) -> io::Result<FileWriteOutcome> {
     let disk_content = fs::read_to_string(path)?;
     if expected.is_some_and(|expected| expected != disk_content) {
         return Ok(FileWriteOutcome::Conflict { disk_content });
@@ -214,32 +277,56 @@ fn write_file_if_matches_locked(path: &Path, content: &str, expected: Option<&st
     Ok(FileWriteOutcome::Saved)
 }
 
+/// Like `write_file_if_matches_locked`, but a missing file is a normal first
+/// write rather than an error. No expectation is accepted: there is nothing to
+/// compare against, so a caller that wanted conflict detection must not silently
+/// get a blind write instead.
+fn write_file_if_matches_locked_creating(
+    path: &Path,
+    content: &str,
+) -> io::Result<FileWriteOutcome> {
+    match fs::read_to_string(path) {
+        Ok(disk_content) => {
+            if disk_content != content {
+                // Not a conflict: the caller asked to materialize this exact body.
+                atomic_write_bytes(path, content.as_bytes())?;
+            }
+            Ok(FileWriteOutcome::Saved)
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            atomic_write_bytes(path, content.as_bytes())?;
+            Ok(FileWriteOutcome::Saved)
+        }
+        Err(error) => Err(error),
+    }
+}
+
 fn write_markdown_merging_locked(
     path: &Path,
     content: &str,
     expected: Option<&str>,
 ) -> io::Result<MergedFileWriteOutcome> {
-        let disk_content = fs::read_to_string(path)?;
-        let (content, merged) = match expected {
-            Some(base) if base != disk_content => {
-                match crate::text_merge::merge_markdown(
-                    base.as_bytes(),
-                    content.as_bytes(),
-                    disk_content.as_bytes(),
-                ) {
-                    crate::text_merge::MergeOutcome::Merged(bytes) => {
-                        (String::from_utf8(bytes).map_err(io::Error::other)?, true)
-                    }
-                    crate::text_merge::MergeOutcome::Conflict
-                    | crate::text_merge::MergeOutcome::Unsupported => {
-                        return Ok(MergedFileWriteOutcome::Conflict { disk_content });
-                    }
+    let disk_content = fs::read_to_string(path)?;
+    let (content, merged) = match expected {
+        Some(base) if base != disk_content => {
+            match crate::text_merge::merge_markdown(
+                base.as_bytes(),
+                content.as_bytes(),
+                disk_content.as_bytes(),
+            ) {
+                crate::text_merge::MergeOutcome::Merged(bytes) => {
+                    (String::from_utf8(bytes).map_err(io::Error::other)?, true)
+                }
+                crate::text_merge::MergeOutcome::Conflict
+                | crate::text_merge::MergeOutcome::Unsupported => {
+                    return Ok(MergedFileWriteOutcome::Conflict { disk_content });
                 }
             }
-            _ => (content.to_owned(), false),
-        };
-        atomic_write_bytes(path, content.as_bytes())?;
-        Ok(MergedFileWriteOutcome::Saved { content, merged })
+        }
+        _ => (content.to_owned(), false),
+    };
+    atomic_write_bytes(path, content.as_bytes())?;
+    Ok(MergedFileWriteOutcome::Saved { content, merged })
 }
 
 #[cfg(test)]

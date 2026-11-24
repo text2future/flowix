@@ -192,7 +192,7 @@ export function MediaLibraryFilterPanel({
           onChange={(event) => onFileNameChange(event.currentTarget.value)}
           placeholder={t('mediaLibrary.filterFileNamePlaceholder')}
           aria-label={t('mediaLibrary.filterFileName')}
-          className="h-8 w-full rounded-lg border border-[var(--border)] bg-transparent px-3 text-sm outline-none focus:border-[var(--brand)] disabled:opacity-50"
+          className="h-8 w-full rounded-lg border border-[var(--border)] bg-transparent px-3 text-sm outline-none placeholder:text-[var(--input-placeholder)] focus:border-[var(--input-ring)] disabled:opacity-50"
         />
       </label>
       {showTypeSelect && <div className="grid min-w-0 grid-cols-[64px_minmax(0,1fr)] items-center gap-2">

@@ -12,14 +12,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::derivation::{apply_derived_memo_fields, extract_title_and_preview};
+use super::extract_document_metadata;
 pub(super) use super::file_io::{atomic_create_bytes, atomic_write_bytes, rename_file_noclobber};
 use super::frontmatter::extract_document_metadata_preserving_invalid_tag_paths;
 use super::frontmatter::{
-    extract_document_metadata_tolerant,
-    merge_frontmatter, replace_frontmatter_tags,
+    extract_document_metadata_tolerant, merge_frontmatter, replace_frontmatter_tags,
     replace_frontmatter_tags_preserving_invalid_paths, MergeOverrides,
 };
-use super::extract_document_metadata;
 use super::notebook::sqlite_to_io;
 use super::types::{DeleteTagReport, Memo, MoveTagReport, ReconcileReport};
 use super::MemoFile;
@@ -229,7 +228,6 @@ impl MemoFile {
             .find(|entry| entry.relative_path == relative_path)
             .map(|entry| MemoFile::index_entry_to_memo(&entry))
     }
-
 
     /// 公开 title 清洗工具: 供 index_store 复用, 行为等同 `sanitize_filename_component`。
     pub fn sanitize_memo_filename_component(title: &str) -> String {

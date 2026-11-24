@@ -71,6 +71,16 @@ it('hides Pi Cloud models while signed out', async () => {
   expect(container.textContent).not.toContain('PI_MEMBER_MODELS_SECTION');
 });
 
+it('shows privacy and terms links alongside Google sign-in', async () => {
+  mocks.cloudState.authenticated = false;
+  await act(async () => root.render(<CloudSyncSection />));
+  expect(container.textContent).toContain('preferences.cloud.googleSignIn');
+  expect(container.textContent).toContain('preferences.cloud.registration.continueLegal');
+  expect(Array.from(container.querySelectorAll('a')).map((link) => link.href)).toEqual(expect.arrayContaining([
+    expect.stringMatching(/\/privacy\/$/), expect.stringMatching(/\/terms\/$/),
+  ]));
+});
+
 it('shows Pi Cloud models while signed in', async () => {
   await act(async () => root.render(<CloudSyncSection />));
   expect(container.textContent).toContain('PI_MEMBER_MODELS_SECTION');

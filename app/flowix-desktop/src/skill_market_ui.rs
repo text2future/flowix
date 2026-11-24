@@ -60,7 +60,6 @@ pub struct SkillMarketUiPage {
     pub cached: bool,
 }
 
-
 pub async fn ensure_entry_path(
     cloud_base: String,
     root: std::path::PathBuf,
@@ -396,7 +395,6 @@ fn valid_bundle_path(path: &str) -> bool {
                     .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
         })
 }
-
 
 #[cfg(test)]
 mod tests {

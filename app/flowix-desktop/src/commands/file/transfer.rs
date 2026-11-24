@@ -34,7 +34,11 @@ fn rename_path_and_notify(
     let _ = flowix_core::memo_file::rename_probe::take_last();
     let source_was_directory = source.is_dir();
     let mf = read_lock(&state.memo_file, "memo_file");
-    let roots_before = if source_was_directory { mf.read_notebook_configs().map_err(file_mutation_error)? } else { Vec::new() };
+    let roots_before = if source_was_directory {
+        mf.read_notebook_configs().map_err(file_mutation_error)?
+    } else {
+        Vec::new()
+    };
     let _watch_move = crate::external_watch::begin_path_move(app, source);
     mf.rename_indexed_path(source, target)
         .map_err(file_mutation_error)?;
@@ -98,7 +102,10 @@ fn rename_path_and_notify(
         {
             if let Some(previous_path) = previous_path {
                 let change = crate::events::path_change::NotebookPathMove::new(
-                    notebook_id, previous_path, relative_path, source_was_directory,
+                    notebook_id,
+                    previous_path,
+                    relative_path,
+                    source_was_directory,
                 );
                 change.emit(app);
                 notebook_change = Some(change);
@@ -117,13 +124,18 @@ fn rename_path_and_notify(
     };
     let rebase = address_for(source).zip(address_for(target));
     let notebook_roots_changed = roots_before.iter().any(|previous| {
-        notebooks.iter().any(|current| current.id == previous.id && current.path != previous.path)
+        notebooks
+            .iter()
+            .any(|current| current.id == previous.id && current.path != previous.path)
     });
     drop(mf);
     if notebook_roots_changed {
         refresh_current_notebook_watcher(state, app);
         let _ = app.emit(crate::commands::notebook::NOTEBOOKS_CHANGED_EVENT, ());
-        let _ = app.emit(crate::commands::agent_workspace::AGENT_WORKSPACE_CHANGED_EVENT, ());
+        let _ = app.emit(
+            crate::commands::agent_workspace::AGENT_WORKSPACE_CHANGED_EVENT,
+            (),
+        );
     }
     if let Some(((old_notebook_id, old_relative), (new_notebook_id, new_relative))) = rebase {
         if let Err(error) = state.thread_manager.rebase_agent_note_paths(
@@ -155,7 +167,9 @@ fn rename_path_and_notify(
 const SLOW_RENAME_LOG_MS: f64 = 50.0;
 
 fn record_rename_profile(started: std::time::Instant, directory: bool) {
-    let Some(profile) = flowix_core::memo_file::rename_probe::take_last() else { return };
+    let Some(profile) = flowix_core::memo_file::rename_probe::take_last() else {
+        return;
+    };
     let tail = started.elapsed().saturating_sub(profile.total);
     let payload = profile.to_json(tail, directory);
     let total_ms = profile.total_ms() + tail.as_secs_f64() * 1_000.0;
@@ -197,7 +211,10 @@ pub async fn rename_file(
                 return Err("SOURCE_NOT_REGULAR_FILE".to_string());
             }
             let notebook_change = rename_path_and_notify(source, &target, state.inner(), &app)?;
-            Ok(crate::events::path_change::PathMutationResult { path: target.to_string_lossy().into_owned(), notebook_change })
+            Ok(crate::events::path_change::PathMutationResult {
+                path: target.to_string_lossy().into_owned(),
+                notebook_change,
+            })
         },
     )
     .await
@@ -243,19 +260,23 @@ pub fn move_file(
         return Err(FileOperationFailure::code("FILE_PERMISSION_DENIED"));
     }
     if source == target {
-        return Ok(crate::events::path_change::PathMutationResult { path: source.to_string_lossy().into_owned(), notebook_change: None });
+        return Ok(crate::events::path_change::PathMutationResult {
+            path: source.to_string_lossy().into_owned(),
+            notebook_change: None,
+        });
     }
     if fs::symlink_metadata(&target).is_ok() {
-        return Err(
-            file_mutation_error(std::io::Error::new(
-                std::io::ErrorKind::AlreadyExists,
-                "target already exists",
-            ))
-            .into(),
-        );
+        return Err(file_mutation_error(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "target already exists",
+        ))
+        .into());
     }
     let notebook_change = rename_path_and_notify(source, &target, state.inner(), &app)?;
-    Ok(crate::events::path_change::PathMutationResult { path: target.to_string_lossy().into_owned(), notebook_change })
+    Ok(crate::events::path_change::PathMutationResult {
+        path: target.to_string_lossy().into_owned(),
+        notebook_change,
+    })
 }
 
 /// Move a folder within the caller's notebook/access-folder scope.
@@ -271,7 +292,13 @@ pub async fn move_folder(
     // disk-bound work, so it leaves the main thread.
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        move_folder_blocking(&folder_path, &target_directory_path, &space_path, &state, &app)
+        move_folder_blocking(
+            &folder_path,
+            &target_directory_path,
+            &space_path,
+            &state,
+            &app,
+        )
     })
     .await
     .map_err(|error| FileOperationFailure::from(format!("FOLDER_MOVE_TASK_FAILED: {error}")))?
@@ -319,36 +346,51 @@ fn move_folder_blocking(
         return Err(FileOperationFailure::code("FILE_PERMISSION_DENIED"));
     }
     if source == target {
-        return Ok(crate::events::path_change::PathMutationResult { path: source.to_string_lossy().into_owned(), notebook_change: None });
+        return Ok(crate::events::path_change::PathMutationResult {
+            path: source.to_string_lossy().into_owned(),
+            notebook_change: None,
+        });
     }
     if fs::symlink_metadata(&target).is_ok() {
-        return Err(
-            file_mutation_error(std::io::Error::new(
-                std::io::ErrorKind::AlreadyExists,
-                "target already exists",
-            ))
-            .into(),
-        );
+        return Err(file_mutation_error(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "target already exists",
+        ))
+        .into());
     }
     let notebook_change = rename_path_and_notify(source, &target, state.inner(), &app)?;
-    Ok(crate::events::path_change::PathMutationResult { path: target.to_string_lossy().into_owned(), notebook_change })
+    Ok(crate::events::path_change::PathMutationResult {
+        path: target.to_string_lossy().into_owned(),
+        notebook_change,
+    })
 }
 
 /// Resolve physical paths before detecting self-imports or filename conflicts.
 /// Access checks remain the command boundary's responsibility.
-pub(crate) fn resolve_import_file_paths(source: &Path, target_directory: &Path) -> Result<(PathBuf, PathBuf), FileOperationFailure> {
+pub(crate) fn resolve_import_file_paths(
+    source: &Path,
+    target_directory: &Path,
+) -> Result<(PathBuf, PathBuf), FileOperationFailure> {
     let source = dunce::canonicalize(source).map_err(file_mutation_error)?;
     let target_directory = dunce::canonicalize(target_directory).map_err(target_directory_error)?;
-    if !fs::metadata(&source).map_err(file_mutation_error)?.is_file() {
+    if !fs::metadata(&source)
+        .map_err(file_mutation_error)?
+        .is_file()
+    {
         return Err(FileOperationFailure::code("SOURCE_NOT_REGULAR_FILE"));
     }
     if flowix_core::file_copy::is_cloud_file_not_downloaded(&source) {
         return Err(FileOperationFailure::code("CLOUD_FILE_NOT_DOWNLOADED"));
     }
-    if !fs::metadata(&target_directory).map_err(target_directory_error)?.is_dir() {
+    if !fs::metadata(&target_directory)
+        .map_err(target_directory_error)?
+        .is_dir()
+    {
         return Err(FileOperationFailure::code("TARGET_NOT_DIRECTORY"));
     }
-    let file_name = source.file_name().ok_or_else(|| FileOperationFailure::code("INVALID_FILE_PATH"))?;
+    let file_name = source
+        .file_name()
+        .ok_or_else(|| FileOperationFailure::code("INVALID_FILE_PATH"))?;
     let target = target_directory.join(file_name);
     // Canonicalize existing destinations too (including file symlinks).
     if dunce::canonicalize(&target).is_ok_and(|path| path == source) {
@@ -356,8 +398,10 @@ pub(crate) fn resolve_import_file_paths(source: &Path, target_directory: &Path) 
     }
     if fs::symlink_metadata(&target).is_ok() {
         return Err(file_mutation_error(std::io::Error::new(
-            std::io::ErrorKind::AlreadyExists, "target already exists",
-        )).into());
+            std::io::ErrorKind::AlreadyExists,
+            "target already exists",
+        ))
+        .into());
     }
     Ok((source, target))
 }
@@ -491,7 +535,9 @@ pub async fn rename_folder(
             }
             let collection_move = {
                 let memo = read_lock(&state.memo_file, "memo_file");
-                crate::commands::collection::rename_folder_collection_at_path(&memo, source, &name, &app)?
+                crate::commands::collection::rename_folder_collection_at_path(
+                    &memo, source, &name, &app,
+                )?
             };
             if let Some((_notebook_id, result)) = collection_move {
                 let path = Path::new(&result.notebook_path).join(&result.actual_relative_path);
@@ -504,8 +550,15 @@ pub async fn rename_folder(
                     rebase_default_create_folder_for_move(&memo, source, &path, &app);
                 }
                 return Ok(crate::events::path_change::PathMutationResult {
-                    path: path.parent().ok_or("INVALID_COLLECTION_PATH")?.to_string_lossy().into_owned(),
-                    notebook_change: crate::commands::collection::path_change_for_result(&_notebook_id, &result),
+                    path: path
+                        .parent()
+                        .ok_or("INVALID_COLLECTION_PATH")?
+                        .to_string_lossy()
+                        .into_owned(),
+                    notebook_change: crate::commands::collection::path_change_for_result(
+                        &_notebook_id,
+                        &result,
+                    ),
                 });
             }
             if fs::symlink_metadata(&target).is_ok() {
@@ -515,7 +568,10 @@ pub async fn rename_folder(
                 )));
             }
             let notebook_change = rename_path_and_notify(source, &target, state.inner(), &app)?;
-            Ok(crate::events::path_change::PathMutationResult { path: target.to_string_lossy().into_owned(), notebook_change })
+            Ok(crate::events::path_change::PathMutationResult {
+                path: target.to_string_lossy().into_owned(),
+                notebook_change,
+            })
         },
     )
     .await

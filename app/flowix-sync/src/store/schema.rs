@@ -39,7 +39,10 @@ impl SyncStore {
     fn initialize_schema_locked(&self) -> Result<(), SyncError> {
         flowix_core::memo_file::with_corrupt_database_rebuild(&self.path, || {
             let connection = self.open_raw().map_err(std::io::Error::other)?;
-            Self::initialize_v2_schema(&connection).map_err(std::io::Error::other)?;
+            Self::initialize_account_schema(&connection).map_err(std::io::Error::other)?;
+            Self::initialize_path_notebook_schema(&connection).map_err(std::io::Error::other)?;
+            Self::initialize_v4_schema(&connection).map_err(std::io::Error::other)?;
+            Self::initialize_remote_schema(&connection).map_err(std::io::Error::other)?;
             connection
                 .query_row(
                     "SELECT blocked FROM session_restore_policy WHERE singleton=1",

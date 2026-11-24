@@ -276,7 +276,7 @@ export function GlobalSearchCommand({ open, onOpenChange }: GlobalSearchCommandP
                     <select
                       value={filter.field}
                       onChange={(event) => updatePropertyFilter(filter.id, { field: event.target.value })}
-                      className="h-7 min-w-0 rounded-md border border-[var(--border)] bg-[var(--background)] px-2 text-xs text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
+                      className="h-7 min-w-0 rounded-md border border-[var(--border)] bg-[var(--background)] px-2 text-xs text-[var(--foreground)] outline-none focus:border-[var(--input-ring)]"
                       aria-label={t('shell.commandPalette.propertyField')}
                     >
                       {PROPERTY_FILTER_FIELDS.map((field) => (
@@ -288,7 +288,7 @@ export function GlobalSearchCommand({ open, onOpenChange }: GlobalSearchCommandP
                       onChange={(event) => updatePropertyFilter(filter.id, {
                         operator: event.target.value as PropertyFilterCondition['operator'],
                       })}
-                      className="h-7 min-w-0 rounded-md border border-[var(--border)] bg-[var(--background)] px-2 text-xs text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
+                      className="h-7 min-w-0 rounded-md border border-[var(--border)] bg-[var(--background)] px-2 text-xs text-[var(--foreground)] outline-none focus:border-[var(--input-ring)]"
                       aria-label={t('shell.commandPalette.filterRelation')}
                     >
                       {(['equals', 'notEquals', 'contains', 'empty'] as PropertyFilterCondition['operator'][]).map((value) => (
@@ -300,7 +300,7 @@ export function GlobalSearchCommand({ open, onOpenChange }: GlobalSearchCommandP
                       disabled={filter.operator === 'empty'}
                       onChange={(event) => updatePropertyFilter(filter.id, { value: event.target.value })}
                       placeholder={filter.operator === 'empty' ? t('shell.commandPalette.noValueNeeded') : t('shell.commandPalette.inputValue')}
-                      className="h-7 min-w-0 rounded-md border border-[var(--border)] bg-[var(--background)] px-2 text-xs text-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)] focus:border-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-50"
+                      className="h-7 min-w-0 rounded-md border border-[var(--border)] bg-[var(--background)] px-2 text-xs text-[var(--foreground)] outline-none placeholder:text-[var(--input-placeholder)] focus:border-[var(--input-ring)] disabled:cursor-not-allowed disabled:opacity-50"
                       aria-label={t('shell.commandPalette.filterValue')}
                     />
                     <button

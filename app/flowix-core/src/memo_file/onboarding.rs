@@ -112,14 +112,20 @@ fn seed_onboarding_docs_if_empty(
         return Ok(false);
     }
 
-    let target_notebook = notebook_id.map(str::to_owned)
+    let target_notebook = notebook_id
+        .map(str::to_owned)
         .or_else(|| memo_file.current_notebook_id_value())
         .ok_or_else(|| std::io::Error::other("no notebook selected for onboarding"))?;
     let doc = onboarding_doc_for_language(language);
     memo_file.create_note_by_path(&target_notebook, None, doc.title, doc.body)?;
     seed_onboarding_page(memo_file, &target_notebook, &base, &ONBOARDING_INTRO_PAGE);
     // The dashboard is created last so it appears at the top of the file tree.
-    seed_onboarding_page(memo_file, &target_notebook, &base, &ONBOARDING_WORKBENCH_PAGE);
+    seed_onboarding_page(
+        memo_file,
+        &target_notebook,
+        &base,
+        &ONBOARDING_WORKBENCH_PAGE,
+    );
 
     Ok(true)
 }
@@ -129,7 +135,12 @@ fn seed_onboarding_docs_if_empty(
 /// The page is decorative: an existing file with the same name (user edits) or a
 /// failed write must never roll back a notebook that was created successfully,
 /// so both cases are swallowed instead of surfacing as an import failure.
-fn seed_onboarding_page(memo_file: &MemoFile, notebook_id: &str, base: &Path, page: &OnboardingPage) {
+fn seed_onboarding_page(
+    memo_file: &MemoFile,
+    notebook_id: &str,
+    base: &Path,
+    page: &OnboardingPage,
+) {
     let path = base.join(page.filename);
     match memo_file.create_file_for_notebook(notebook_id, &path, page.body.as_bytes()) {
         Ok(()) => {}
@@ -148,7 +159,11 @@ fn contains_markdown_files(base: &Path) -> std::io::Result<bool> {
     }
 
     let policy = super::FileManagementPolicy::from_notebook_root(base);
-    fn visit(base: &Path, directory: &Path, policy: &super::FileManagementPolicy) -> std::io::Result<bool> {
+    fn visit(
+        base: &Path,
+        directory: &Path,
+        policy: &super::FileManagementPolicy,
+    ) -> std::io::Result<bool> {
         for entry in fs::read_dir(directory)? {
             let entry = entry?;
             let path = entry.path();
@@ -298,7 +313,10 @@ mod tests {
             .unwrap();
         assert!(!mf.seed_onboarding_docs("zh-CN").unwrap());
         assert_eq!(mf.read_index().unwrap().memos.len(), 1);
-        assert!(!mf.get_memo_base().join(ONBOARDING_INTRO_PAGE.filename).exists());
+        assert!(!mf
+            .get_memo_base()
+            .join(ONBOARDING_INTRO_PAGE.filename)
+            .exists());
     }
 
     #[test]
@@ -312,7 +330,10 @@ mod tests {
         assert!(mf.read_index().unwrap_or_default().memos.is_empty());
         assert!(!mf.get_memo_base().join("Welcome.md").exists());
         assert!(!mf.get_memo_base().join("欢迎文档.md").exists());
-        assert!(!mf.get_memo_base().join(ONBOARDING_INTRO_PAGE.filename).exists());
+        assert!(!mf
+            .get_memo_base()
+            .join(ONBOARDING_INTRO_PAGE.filename)
+            .exists());
     }
 
     #[test]
@@ -374,7 +395,10 @@ mod tests {
         assert_eq!(mf.read_index().unwrap_or_default().memos.len(), 0);
         assert_eq!(mf.list_note_paths_from_disk("nb_other").unwrap().len(), 1);
         // The active notebook must stay untouched, intro page included.
-        assert!(!mf.get_memo_base().join(ONBOARDING_INTRO_PAGE.filename).exists());
+        assert!(!mf
+            .get_memo_base()
+            .join(ONBOARDING_INTRO_PAGE.filename)
+            .exists());
     }
 
     #[test]

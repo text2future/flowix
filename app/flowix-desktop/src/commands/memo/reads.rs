@@ -10,7 +10,7 @@ use flowix_core::memo_file::{
     normalize_markdown_encoding_boundaries, notebook_relative_path, NoteEntry, NoteSummary,
     NoteTitleFilter,
 };
-use flowix_core::service::{NoteSaveOutcome, NotePageQuery};
+use flowix_core::service::{NotePageQuery, NoteSaveOutcome};
 use flowix_core::{FlowixError, NoteService};
 
 use crate::app::state::AppState;
@@ -39,7 +39,10 @@ pub enum NotePathStatus {
 
 /// Report absence separately from permission and I/O errors for stale-note actions.
 #[tauri::command]
-pub fn note_path_status(file_path: String, state: State<AppState>) -> Result<NotePathStatus, String> {
+pub fn note_path_status(
+    file_path: String,
+    state: State<AppState>,
+) -> Result<NotePathStatus, String> {
     let path = Path::new(&file_path);
     if !path.is_absolute() {
         return Err("absolute note path required".into());
@@ -72,7 +75,9 @@ pub async fn resolve_markdown_location(
         }
         let path = dunce::canonicalize(requested).unwrap_or_else(|_| requested.to_path_buf());
         let is_directory = fs::metadata(&path).ok().map(|metadata| metadata.is_dir());
-        let mut notebooks = memo_file.read_notebook_configs().map_err(|error| error.to_string())?;
+        let mut notebooks = memo_file
+            .read_notebook_configs()
+            .map_err(|error| error.to_string())?;
         notebooks.sort_by_key(|notebook| std::cmp::Reverse(notebook.path.len()));
         for notebook in notebooks {
             let root = Path::new(&notebook.path);
@@ -86,7 +91,9 @@ pub async fn resolve_markdown_location(
                 relative_path
             };
             let relative = Path::new(&relative_path);
-            let markdown = relative.extension().and_then(|ext| ext.to_str())
+            let markdown = relative
+                .extension()
+                .and_then(|ext| ext.to_str())
                 .is_some_and(|ext| matches!(ext.to_ascii_lowercase().as_str(), "md" | "markdown"));
             let policy = memo_file.file_management_policy(&notebook.id);
             let indexable = markdown && !policy.is_index_hidden_at(&canonical_root, relative);
@@ -107,7 +114,9 @@ pub async fn resolve_markdown_location(
             indexable: false,
             is_directory,
         })
-    }).await.map_err(|error| format!("Markdown location task failed: {error}"))?
+    })
+    .await
+    .map_err(|error| format!("Markdown location task failed: {error}"))?
 }
 /// List the notebook's rebuildable note projection, keyed by relative path.
 #[tauri::command]
@@ -120,7 +129,9 @@ pub async fn list_notes_by_path(
         let memo_file = read_lock(&state.memo_file, "memo_file");
         NoteService::new(&memo_file)
             .list(&notebook_id)
-            .map_err(|error| crate::app::notebook_background::query_error(state.inner(), &notebook_id, error))
+            .map_err(|error| {
+                crate::app::notebook_background::query_error(state.inner(), &notebook_id, error)
+            })
     })
     .await
     .map_err(|error| format!("path-based note list task failed: {error}"))?
@@ -136,7 +147,8 @@ pub async fn get_indexed_note_by_path(
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let memo_file = read_lock(&state.memo_file, "memo_file");
-        memo_file.read_indexed_note_entry_by_path(&notebook_id, &relative_path)
+        memo_file
+            .read_indexed_note_entry_by_path(&notebook_id, &relative_path)
             .map_err(|error| error.to_string())
     })
     .await
@@ -155,7 +167,9 @@ pub async fn list_note_summaries(
         let memo_file = read_lock(&state.memo_file, "memo_file");
         NoteService::new(&memo_file)
             .list_summaries(&notebook_id)
-            .map_err(|error| crate::app::notebook_background::query_error(state.inner(), &notebook_id, error))
+            .map_err(|error| {
+                crate::app::notebook_background::query_error(state.inner(), &notebook_id, error)
+            })
     })
     .await
     .map_err(|error| format!("note summary list task failed: {error}"))?
@@ -180,16 +194,21 @@ pub async fn get_path_notes(
         let memo_file = read_lock(&state.memo_file, "memo_file");
         let mut service = NoteService::new(&memo_file);
         let page = service
-            .list_indexed_page_query(&notebook_id, NotePageQuery {
-                filter: filter.as_deref().unwrap_or("all"),
-                sort: sort.as_deref().unwrap_or("createdAt"),
-                tag_id: tag_id.as_deref(),
-                color: color.as_deref(),
-                cursor: cursor.as_deref(),
-                limit,
-                title_filter: title_filter.as_ref(),
-            })
-            .map_err(|error: FlowixError| crate::app::notebook_background::query_error(state.inner(), &notebook_id, error))?;
+            .list_indexed_page_query(
+                &notebook_id,
+                NotePageQuery {
+                    filter: filter.as_deref().unwrap_or("all"),
+                    sort: sort.as_deref().unwrap_or("createdAt"),
+                    tag_id: tag_id.as_deref(),
+                    color: color.as_deref(),
+                    cursor: cursor.as_deref(),
+                    limit,
+                    title_filter: title_filter.as_ref(),
+                },
+            )
+            .map_err(|error: FlowixError| {
+                crate::app::notebook_background::query_error(state.inner(), &notebook_id, error)
+            })?;
         Ok(GetPathNotesResponse {
             notes: page.notes,
             next_cursor: page.next_cursor,
@@ -207,10 +226,15 @@ pub async fn get_used_memo_tag_ids(
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let memo_file = read_lock(&state.memo_file, "memo_file");
-        let id = notebook_id.or_else(|| memo_file.current_notebook_id_value()).unwrap_or_default();
+        let id = notebook_id
+            .or_else(|| memo_file.current_notebook_id_value())
+            .unwrap_or_default();
         let (used_tag_ids, tag_counts, total_memo_count, agent_memo_count, todo_memo_count) =
-            memo_file.read_tag_usage_summary_for_notebook_id(Some(&id))
-                .map_err(|error| crate::app::notebook_background::query_error(state.inner(), &id, error))?;
+            memo_file
+                .read_tag_usage_summary_for_notebook_id(Some(&id))
+                .map_err(|error| {
+                    crate::app::notebook_background::query_error(state.inner(), &id, error)
+                })?;
         Ok(UsedMemoTagIdsResponse {
             used_tag_ids,
             tag_counts: tag_counts
@@ -282,8 +306,12 @@ pub async fn get_document_modified_at(
         if !crate::commands::helpers::can_access_document_path(path, window.label(), &state) {
             return None;
         }
-        fs::metadata(path).ok()?.modified().ok()?
-            .duration_since(std::time::UNIX_EPOCH).ok()
+        fs::metadata(path)
+            .ok()?
+            .modified()
+            .ok()?
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()
             .map(|duration| duration.as_millis() as u64)
     })
     .await
@@ -394,13 +422,16 @@ fn write_document_internal(
     // another full-file read + hash on the save path. This keeps the mark alive
     // past a long index refresh.
     mark_self_write_content_for(app, &saved_path, saved_content.as_bytes());
-    let _ = app.emit("flowix:path-note-changed", serde_json::json!({
-        "changeId": uuid::Uuid::new_v4().to_string(),
-        "notebookId": notebook_id,
-        "relativePath": relative_path,
-        "entry": entry,
-        "originWindowLabel": origin_window_label,
-    }));
+    let _ = app.emit(
+        "flowix:path-note-changed",
+        serde_json::json!({
+            "changeId": uuid::Uuid::new_v4().to_string(),
+            "notebookId": notebook_id,
+            "relativePath": relative_path,
+            "entry": entry,
+            "originWindowLabel": origin_window_label,
+        }),
+    );
 
     Ok(Some(WriteDocumentResult {
         path: saved_path.display().to_string(),
@@ -413,9 +444,7 @@ fn write_document_internal(
 /// the whole path is ~12-15ms, so anything above this is a real signal.
 const SLOW_SAVE_LOG_MS: f64 = 40.0;
 
-fn record_slow_save_profile(
-    profile: Option<flowix_core::memo_file::save_probe::SaveProfile>,
-) {
+fn record_slow_save_profile(profile: Option<flowix_core::memo_file::save_probe::SaveProfile>) {
     let Some(profile) = profile else { return };
     if profile.total_ms() < SLOW_SAVE_LOG_MS {
         return;

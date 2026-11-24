@@ -4,14 +4,13 @@ use serde_json::json;
 
 use crate::error::SyncError;
 use crate::models::{
-    AccountDeletionOutcome, AccountDeletionState, ApiErrorEnvelope, AppleAuthChallenge,
-    AppleAuthorization, AuthData, CloudAiCredential, CloudCheckout, CloudOrder, CloudOrderCheck,
-    CloudProduct, CloudSubscription, DataEnvelope, EntitlementData, MeData, RefreshData,
+    AccountDeletionOutcome, AccountDeletionState, AccountRegionData, ApiErrorEnvelope,
+    AppleAuthChallenge, AppleAuthorization, AuthData, CloudAiCredential, CloudCheckout,
+    CloudNoteShareLink, CloudOrder, CloudOrderCheck, CloudProduct, CloudSubscription, DataEnvelope,
+    EntitlementData, MeData, PasswordResetCodeRequest, RefreshData, RegistrationCodeRequest,
+    RegistrationCodeResend,
 };
-use crate::v2::{
-    V2BlobDownloadEnvelope, V2BlobReservationEnvelope, V2Bootstrap, V2ChangesPage,
-    V2PushOperation, V2PushResult, V2SyncStatus, PROTOCOL_EPOCH,
-};
+use crate::object_store::StorageCredentialEnvelope;
 
 fn apple_authorization_body(authorization: &AppleAuthorization) -> serde_json::Value {
     let mut body = serde_json::Map::from_iter([
@@ -62,8 +61,18 @@ fn with_registration_client(mut body: serde_json::Value) -> serde_json::Value {
     body
 }
 
-fn apple_registration_body(authorization: &AppleAuthorization) -> serde_json::Value {
-    with_registration_client(apple_authorization_body(authorization))
+fn apple_registration_body(
+    authorization: &AppleAuthorization,
+    account_region: Option<&str>,
+) -> serde_json::Value {
+    let mut body = with_registration_client(apple_authorization_body(authorization));
+    if let (Some(account_region), Some(fields)) = (account_region, body.as_object_mut()) {
+        fields.insert(
+            "accountRegion".to_string(),
+            serde_json::Value::String(account_region.to_string()),
+        );
+    }
+    body
 }
 
 #[derive(Clone)]
@@ -101,6 +110,43 @@ impl CloudClient {
         }
         let response = request.send().await?;
         Self::decode(response).await
+    }
+
+    pub(crate) async fn create_note_share_link(
+        &self,
+        access_token: &str,
+        notebook_id: &str,
+        relative_path: &str,
+        content_hash: &str,
+    ) -> Result<CloudNoteShareLink, SyncError> {
+        self.send::<DataEnvelope<CloudNoteShareLink>>(
+            Method::POST,
+            "/v2/shares/notes",
+            Some(access_token),
+            Some(json!({
+                "notebookId": notebook_id,
+                "relativePath": relative_path,
+                "contentHash": content_hash,
+            })),
+        )
+        .await
+        .map(|envelope| envelope.data)
+    }
+
+    pub(crate) async fn create_folder_share_link(
+        &self,
+        access_token: &str,
+        notebook_id: &str,
+        relative_path: &str,
+    ) -> Result<CloudNoteShareLink, SyncError> {
+        self.send::<DataEnvelope<CloudNoteShareLink>>(
+            Method::POST,
+            "/v2/shares/folders",
+            Some(access_token),
+            Some(json!({ "notebookId": notebook_id, "relativePath": relative_path })),
+        )
+        .await
+        .map(|envelope| envelope.data)
     }
 
     async fn decode<T: DeserializeOwned>(response: reqwest::Response) -> Result<T, SyncError> {
@@ -251,13 +297,14 @@ impl CloudClient {
         .map(|_| ())
     }
 
-    pub(crate) async fn register(
+    pub(crate) async fn request_registration_code(
         &self,
         email: &str,
         password: &str,
         display_name: &str,
-    ) -> Result<AuthData, SyncError> {
-        self.send::<DataEnvelope<AuthData>>(
+        email_language: &str,
+    ) -> Result<RegistrationCodeRequest, SyncError> {
+        self.send::<DataEnvelope<RegistrationCodeRequest>>(
             Method::POST,
             "/v1/auth/register",
             None,
@@ -265,10 +312,74 @@ impl CloudClient {
                 "email": email,
                 "password": password,
                 "displayName": display_name,
+                "emailLanguage": email_language,
+                "accountRegion": if email_language == "zh-CN" { "mainland" } else { "non_mainland" },
+                "confirmationVersion": 2,
             }))),
         )
         .await
         .map(|value| value.data)
+    }
+
+    pub(crate) async fn resend_registration_code(
+        &self,
+        email: &str,
+    ) -> Result<RegistrationCodeResend, SyncError> {
+        self.send::<DataEnvelope<RegistrationCodeResend>>(
+            Method::POST,
+            "/v1/auth/register/resend",
+            None,
+            Some(json!({ "email": email })),
+        )
+        .await
+        .map(|value| value.data)
+    }
+
+    pub(crate) async fn confirm_registration(
+        &self,
+        email: &str,
+        code: &str,
+        password: &str,
+    ) -> Result<AuthData, SyncError> {
+        self.send::<DataEnvelope<AuthData>>(
+            Method::POST,
+            "/v1/auth/register/confirm",
+            None,
+            Some(json!({ "email": email, "code": code, "password": password })),
+        )
+        .await
+        .map(|value| value.data)
+    }
+
+    pub(crate) async fn request_password_reset_code(
+        &self,
+        email: &str,
+        email_language: &str,
+    ) -> Result<PasswordResetCodeRequest, SyncError> {
+        self.send::<DataEnvelope<PasswordResetCodeRequest>>(
+            Method::POST,
+            "/v1/auth/password/reset/code/request",
+            None,
+            Some(json!({ "email": email, "emailLanguage": email_language })),
+        )
+        .await
+        .map(|value| value.data)
+    }
+
+    pub(crate) async fn confirm_password_reset_code(
+        &self,
+        email: &str,
+        code: &str,
+        new_password: &str,
+    ) -> Result<(), SyncError> {
+        self.send::<DataEnvelope<serde_json::Value>>(
+            Method::POST,
+            "/v1/auth/password/reset/code/confirm",
+            None,
+            Some(json!({ "email": email, "code": code, "newPassword": new_password })),
+        )
+        .await
+        .map(|_| ())
     }
 
     pub(crate) async fn login(
@@ -303,6 +414,21 @@ impl CloudClient {
         )
         .await
         .map(|value| value.data)
+    }
+
+    pub(crate) async fn update_account_region(
+        &self,
+        access_token: &str,
+        region: &str,
+    ) -> Result<String, SyncError> {
+        self.send::<DataEnvelope<AccountRegionData>>(
+            Method::PATCH,
+            "/v1/account/region",
+            Some(access_token),
+            Some(json!({ "region": region })),
+        )
+        .await
+        .map(|value| value.data.region)
     }
 
     pub(crate) async fn delete_account(
@@ -350,12 +476,13 @@ impl CloudClient {
     pub(crate) async fn apple_exchange(
         &self,
         authorization: &AppleAuthorization,
+        account_region: &str,
     ) -> Result<AuthData, SyncError> {
         self.send::<DataEnvelope<AuthData>>(
             Method::POST,
             "/v1/auth/apple/exchange",
             None,
-            Some(apple_registration_body(authorization)),
+            Some(apple_registration_body(authorization, Some(account_region))),
         )
         .await
         .map(|value| value.data)
@@ -495,251 +622,65 @@ impl CloudClient {
         .map(|_| ())
     }
 
-    pub async fn v2_sync_status(
+    /// Fetches the short-lived, prefix-scoped credential the object store
+    /// accepts. This is the only cloud round trip on the direct-transfer path.
+    pub async fn storage_credentials(
         &self,
-        access_token: &str,
-        cursor: i64,
-    ) -> Result<V2SyncStatus, SyncError> {
-        self.send::<DataEnvelope<V2SyncStatus>>(
-            Method::GET,
-            &format!("/v2/sync/status?cursor={cursor}"),
-            Some(access_token),
-            None,
-        )
-        .await
-        .map(|value| value.data)
-    }
-
-    pub async fn v2_changes(
-        &self,
-        access_token: &str,
-        cursor: i64,
-        limit: usize,
-    ) -> Result<V2ChangesPage, SyncError> {
-        let limit = limit.clamp(1, 1_000);
-        self.send::<DataEnvelope<V2ChangesPage>>(
-            Method::GET,
-            &format!("/v2/sync/changes?cursor={cursor}&limit={limit}"),
-            Some(access_token),
-            None,
-        )
-        .await
-        .map(|value| value.data)
-    }
-
-    pub async fn v2_bootstrap_page(
-        &self,
-        access_token: &str,
-        page_token: Option<&str>,
-    ) -> Result<V2Bootstrap, SyncError> {
-        let path = match page_token {
-            Some(token) => format!("/v2/sync/bootstrap?limit=100&pageToken={token}"),
-            None => "/v2/sync/bootstrap?limit=100".to_string(),
-        };
-        self.send::<DataEnvelope<V2Bootstrap>>(Method::GET, &path, Some(access_token), None)
-            .await
-            .map(|value| value.data)
-    }
-
-    pub async fn v2_reserve_blob(
-        &self,
-        access_token: &str,
-        content_hash: &str,
-        size_bytes: i64,
-        blob_kind: &str,
-        content_type: &str,
-    ) -> Result<V2BlobReservationEnvelope, SyncError> {
-        self.send::<V2BlobReservationEnvelope>(
+        token: &str,
+        mode: &str,
+        ttl_seconds: Option<u32>,
+    ) -> Result<StorageCredentialEnvelope, SyncError> {
+        let mut body = json!({ "mode": mode });
+        if let Some(ttl_seconds) = ttl_seconds {
+            body["ttlSeconds"] = json!(ttl_seconds);
+        }
+        self.send(
             Method::POST,
-            "/v2/blobs/reservations",
-            Some(access_token),
-            Some(json!({
-                "protocolEpoch": PROTOCOL_EPOCH,
-                "contentHash": content_hash,
-                "sizeBytes": size_bytes,
-                "blobKind": blob_kind,
-                "contentType": content_type,
-            })),
+            "/v2/storage/credentials",
+            Some(token),
+            Some(body),
         )
         .await
     }
 
-    pub async fn v2_upload_blob(
+    pub(crate) async fn storage_tombstone(
         &self,
-        access_token: &str,
-        upload: &crate::v2::V2BlobUpload,
-        content_type: &str,
-        content: Vec<u8>,
+        token: &str,
+        notebook: &str,
+        path: &str,
+        etag: &str,
     ) -> Result<(), SyncError> {
-        if upload.method != "PUT" {
-            return Err(SyncError::InvalidState(
-                "cloud returned an unsupported v2 upload method".into(),
-            ));
-        }
-        let content_length = content.len();
-        let direct_upload = upload.url.is_some();
-        let response = if let Some(url) = upload.url.as_deref() {
-            Self::validate_direct_blob_url(url)?;
-            let mut request = self
-                .http
-                .put(url)
-                .header(reqwest::header::CONTENT_TYPE, content_type)
-                .header(reqwest::header::CONTENT_LENGTH, content_length);
-            for (name, value) in &upload.headers {
-                if Self::allowed_capability_header(name) {
-                    request = request.header(name, value);
-                }
-            }
-            request.body(content).send().await?
-        } else if let Some(upload_path) = upload.path.as_deref() {
-            if !upload_path.starts_with("/v2/blobs/reservations/") {
-                return Err(SyncError::InvalidState(
-                    "cloud returned an invalid v2 upload path".into(),
-                ));
-            }
-            self.http
-                .put(format!("{}{}", self.base_url, upload_path))
-                .bearer_auth(access_token)
-                .header(reqwest::header::CONTENT_TYPE, content_type)
-                .body(content)
-                .send()
-                .await?
-        } else {
-            return Err(SyncError::InvalidState(
-                "cloud returned no v2 upload destination".into(),
-            ));
-        };
-        if direct_upload && response.status().is_success() {
-            // S3-compatible PUT responses normally have no JSON body.
-        } else {
-            Self::decode::<DataEnvelope<serde_json::Value>>(response)
-                .await
-                .map(|_| ())?;
-        }
-        if let Some(completion_path) = upload.completion_path.as_deref() {
-            if !completion_path.starts_with("/v2/blobs/reservations/")
-                || !completion_path.ends_with("/complete")
-            {
-                return Err(SyncError::InvalidState(
-                    "cloud returned an invalid v2 completion path".into(),
-                ));
-            }
-            self.send::<DataEnvelope<serde_json::Value>>(
-                Method::POST,
-                completion_path,
-                Some(access_token),
-                None,
-            )
-            .await?;
-        }
-        Ok(())
-    }
-
-    pub async fn v2_push(
-        &self,
-        access_token: &str,
-        operations: &[V2PushOperation],
-    ) -> Result<V2PushResult, SyncError> {
-        self.send::<DataEnvelope<V2PushResult>>(
+        self.send::<DataEnvelope<serde_json::Value>>(
             Method::POST,
-            "/v2/sync/push",
-            Some(access_token),
-            Some(json!({
-                "protocolEpoch": PROTOCOL_EPOCH,
-                "operations": operations,
-            })),
+            "/v2/storage/tombstone",
+            Some(token),
+            Some(json!({"notebookId": notebook, "path": path, "etag": etag})),
         )
         .await
-        .map(|value| value.data)
+        .map(|_| ())
     }
 
-    pub async fn v2_download_blob(
+    pub(crate) async fn storage_deletion_stamp(
         &self,
-        access_token: &str,
-        blob_id: &str,
-    ) -> Result<Vec<u8>, SyncError> {
-        let capability = self
-            .send::<V2BlobDownloadEnvelope>(
-                Method::GET,
-                &format!("/v2/blobs/{blob_id}/access"),
-                Some(access_token),
-                None,
-            )
-            .await;
-        let response = match capability {
-            Ok(envelope) => {
-                if envelope.download.method != "GET" {
-                    return Err(SyncError::InvalidState(
-                        "cloud returned an unsupported v2 download method".into(),
-                    ));
-                }
-                if let Some(url) = envelope.download.url.as_deref() {
-                    Self::validate_direct_blob_url(url)?;
-                    let mut request = self.http.get(url);
-                    for (name, value) in &envelope.download.headers {
-                        if Self::allowed_capability_header(name) {
-                            request = request.header(name, value);
-                        }
-                    }
-                    request.send().await?
-                } else if let Some(path) = envelope.download.path.as_deref() {
-                    if !path.starts_with("/v2/blobs/") {
-                        return Err(SyncError::InvalidState(
-                            "cloud returned an invalid v2 download path".into(),
-                        ));
-                    }
-                    self.http
-                        .get(format!("{}{}", self.base_url, path))
-                        .bearer_auth(access_token)
-                        .send()
-                        .await?
-                } else {
-                    return Err(SyncError::InvalidState(
-                        "cloud returned no v2 download source".into(),
-                    ));
-                }
-            }
-            Err(SyncError::Api { status: 404, .. }) => {
-                self.http
-                    .get(format!("{}/v2/blobs/{blob_id}", self.base_url))
-                    .bearer_auth(access_token)
-                    .send()
-                    .await?
-            }
-            Err(error) => return Err(error),
-        };
-        if !response.status().is_success() {
-            return Self::decode::<DataEnvelope<serde_json::Value>>(response)
-                .await
-                .map(|_| Vec::new());
-        }
-        Ok(response.bytes().await?.to_vec())
-    }
-
-    fn validate_direct_blob_url(value: &str) -> Result<(), SyncError> {
-        let url = reqwest::Url::parse(value).map_err(|error| {
-            SyncError::InvalidState(format!("cloud returned an invalid blob URL: {error}"))
-        })?;
-        let local_test = matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "::1"));
-        if url.scheme() != "https" && !(url.scheme() == "http" && local_test) {
-            return Err(SyncError::InvalidState(
-                "cloud returned an insecure blob URL".into(),
-            ));
-        }
-        Ok(())
-    }
-
-    fn allowed_capability_header(name: &str) -> bool {
-        let name = name.to_ascii_lowercase();
-        name == "content-type" || name == "x-amz-checksum-sha256" || name.starts_with("x-amz-meta-")
+        token: &str,
+        notebook: &str,
+        path: &str,
+    ) -> Result<(), SyncError> {
+        self.send::<DataEnvelope<serde_json::Value>>(
+            Method::POST,
+            "/v2/storage/deletion-stamp",
+            Some(token),
+            Some(json!({"notebookId": notebook, "path": path})),
+        )
+        .await
+        .map(|_| ())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{apple_authorization_body, CloudClient};
+    use super::apple_authorization_body;
     use crate::models::AppleAuthorization;
-    use crate::v2::V2BlobReservationEnvelope;
     use serde_json::json;
 
     fn authorization(display_name: Option<&str>) -> AppleAuthorization {
@@ -779,65 +720,5 @@ mod tests {
             })
         );
         assert!(body.get("displayName").is_none());
-    }
-
-    #[test]
-    fn blob_upload_contract_accepts_proxy_and_direct_capabilities() {
-        let proxy: V2BlobReservationEnvelope = serde_json::from_value(json!({
-            "data": {
-                "reservationId": "res_proxy",
-                "blobId": "res_proxy",
-                "contentHash": "A".repeat(43),
-                "sizeBytes": 10,
-                "expiresAt": 1000
-            },
-            "upload": { "method": "PUT", "path": "/v2/blobs/reservations/res_proxy" }
-        }))
-        .unwrap();
-        assert!(proxy.upload.url.is_none());
-        assert_eq!(
-            proxy.upload.path.as_deref(),
-            Some("/v2/blobs/reservations/res_proxy")
-        );
-
-        let direct: V2BlobReservationEnvelope = serde_json::from_value(json!({
-            "data": {
-                "reservationId": "res_direct",
-                "blobId": "res_direct",
-                "contentHash": "A".repeat(43),
-                "sizeBytes": 10,
-                "expiresAt": 1000
-            },
-            "upload": {
-                "method": "PUT",
-                "path": "/v2/blobs/reservations/res_direct",
-                "url": "https://storage.example.test/object?signature=test",
-                "headers": { "x-amz-meta-sha256": "A".repeat(43) },
-                "expiresAt": 1000,
-                "completionPath": "/v2/blobs/reservations/res_direct/complete"
-            }
-        }))
-        .unwrap();
-        assert_eq!(
-            direct.upload.path.as_deref(),
-            Some("/v2/blobs/reservations/res_direct")
-        );
-        assert_eq!(direct.upload.expires_at, Some(1000));
-        assert_eq!(
-            direct.upload.completion_path.as_deref(),
-            Some("/v2/blobs/reservations/res_direct/complete")
-        );
-    }
-
-    #[test]
-    fn direct_blob_capabilities_never_forward_cloud_credentials() {
-        assert!(CloudClient::validate_direct_blob_url("https://storage.example.test/blob").is_ok());
-        assert!(CloudClient::validate_direct_blob_url("http://localhost:8787/blob").is_ok());
-        assert!(CloudClient::validate_direct_blob_url("http://storage.example.test/blob").is_err());
-        assert!(CloudClient::allowed_capability_header(
-            "x-amz-checksum-sha256"
-        ));
-        assert!(!CloudClient::allowed_capability_header("authorization"));
-        assert!(!CloudClient::allowed_capability_header("cookie"));
     }
 }

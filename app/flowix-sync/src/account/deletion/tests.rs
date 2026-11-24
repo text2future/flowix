@@ -48,11 +48,17 @@ impl Server {
                     std::thread::sleep(std::time::Duration::from_millis(1));
                     continue;
                 };
+                // macOS may return accepted sockets with the listener's
+                // nonblocking mode. Restore blocking reads before waiting for
+                // the request bytes, otherwise an early WouldBlock looks like
+                // an empty connection and the client sees an incomplete reply.
+                socket.set_nonblocking(false).unwrap();
                 socket
                     .set_read_timeout(Some(std::time::Duration::from_secs(2)))
                     .unwrap();
                 let mut request = Vec::new();
                 let mut buffer = [0; 2048];
+                let mut complete_request = false;
                 loop {
                     let count = match socket.read(&mut buffer) {
                         Ok(0) => break,
@@ -62,32 +68,44 @@ impl Server {
                     request.extend_from_slice(&buffer[..count]);
                     if let Some(end) = request.windows(4).position(|part| part == b"\r\n\r\n") {
                         let headers = String::from_utf8_lossy(&request[..end]);
-                        let size: usize = headers
+                        let size = headers
                             .lines()
                             .find_map(|line| {
                                 line.to_lowercase()
                                     .strip_prefix("content-length:")
-                                    .map(|value| value.trim().parse().unwrap())
+                                    .and_then(|value| value.trim().parse().ok())
                             })
                             .unwrap_or(0);
                         if request.len() >= end + 4 + size {
+                            complete_request = true;
                             break;
                         }
                     }
                 }
+                // A client may open and close a pooled connection without
+                // sending an HTTP request. It is not an application request
+                // and must not take down the test server or its clients.
+                if !complete_request {
+                    continue;
+                }
                 let headers = String::from_utf8_lossy(&request);
-                let path = headers
+                let Some(path) = headers
                     .lines()
                     .next()
-                    .unwrap()
-                    .split_whitespace()
-                    .nth(1)
-                    .unwrap()
-                    .to_string();
+                    .and_then(|line| line.split_whitespace().nth(1))
+                    .map(str::to_string)
+                else {
+                    continue;
+                };
                 let (status, body) = handler(&path);
                 let body = body.to_string();
+                let reason = match status {
+                    200 => "OK",
+                    410 => "Gone",
+                    _ => "Error",
+                };
                 let response = format!(
-                    "HTTP/1.1 {status} OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                     body.len()
                 );
                 let _ = socket.write_all(response.as_bytes());
@@ -104,7 +122,11 @@ impl Server {
 impl Drop for Server {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::SeqCst);
-        self.thread.take().unwrap().join().unwrap();
+        if let Some(thread) = self.thread.take() {
+            if thread.join().is_err() && !std::thread::panicking() {
+                panic!("account test HTTP server thread panicked");
+            }
+        }
     }
 }
 
@@ -153,7 +175,7 @@ async fn deleting_an_account_clears_local_state_only_after_the_server_confirms()
         _ => panic!("unexpected request {path}"),
     });
     let (manager, tokens, _directory) = signed_in(&server).await;
-    assert!(manager.store().v2_account().unwrap().is_some());
+    assert!(manager.store().account().unwrap().is_some());
 
     let outcome = manager.delete_account("a@example.test").await.unwrap();
 
@@ -168,7 +190,7 @@ async fn deleting_an_account_clears_local_state_only_after_the_server_confirms()
     assert!(state.account.is_none());
     assert!(!state.restored);
     // Nothing may survive that could re-upload the same notes later.
-    assert!(manager.store().v2_account().unwrap().is_none());
+    assert!(manager.store().account().unwrap().is_none());
     assert!(manager.store().session_restore_blocked().unwrap());
     assert_eq!(tokens.load().unwrap(), None);
 }
@@ -244,8 +266,15 @@ async fn a_deleted_account_reports_the_deadline_and_can_be_restored_explicitly()
     )
     .unwrap();
 
-    let refusal = manager.login("a@example.test", "password").await.unwrap_err();
-    assert_eq!(refusal.api_code(), Some("ACCOUNT_DELETED_RESTORABLE"));
+    let refusal = manager
+        .login("a@example.test", "password")
+        .await
+        .unwrap_err();
+    assert_eq!(
+        refusal.api_code(),
+        Some("ACCOUNT_DELETED_RESTORABLE"),
+        "unexpected login refusal: {refusal:?}"
+    );
     match &refusal {
         SyncError::Api { details, .. } => {
             assert_eq!(

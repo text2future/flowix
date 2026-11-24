@@ -185,7 +185,7 @@ function CollectionSubtitleInput({ subtitle }: { subtitle: CollectionHeaderSubti
     onBlur={() => { commit(); setEditing(false); }}
     className={cn(
       'w-full resize-none overflow-hidden rounded-lg border-0 bg-transparent px-2 py-1 text-sm leading-relaxed -ml-2',
-      'text-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)]/70',
+      'text-[var(--foreground)] outline-none placeholder:text-[var(--input-placeholder)]',
       'max-h-32 [field-sizing:content]',
       // 显式透明，避免 Windows WebView2 使用 textarea 原生底色；hover / 聚焦也不铺底色。
       !subtitle.editable && 'cursor-default opacity-80',

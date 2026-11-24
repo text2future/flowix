@@ -341,6 +341,35 @@ pub struct PiSessionSnapshot {
     revision: PiHistoryRevision,
 }
 
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PiSessionStats {
+    pub session_id: Option<String>,
+    /// Most recent assistant model, recovered from Pi's native session history.
+    pub model: Option<String>,
+    pub tokens: PiSessionTokenStats,
+    pub cost: Option<f64>,
+    pub context_usage: Option<PiSessionContextUsage>,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PiSessionTokenStats {
+    pub input: Option<u64>,
+    pub output: Option<u64>,
+    pub cache_read: Option<u64>,
+    pub cache_write: Option<u64>,
+    pub total: Option<u64>,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PiSessionContextUsage {
+    pub tokens: Option<u64>,
+    pub context_window: Option<u64>,
+    pub percent: Option<f64>,
+}
+
 fn empty_pi_session_snapshot() -> PiSessionSnapshot {
     PiSessionSnapshot {
         messages: Vec::new(),
@@ -632,6 +661,18 @@ impl PiSession {
             .and_then(Value::as_array)
             .cloned()
             .ok_or_else(|| "Pi get_messages response did not include messages".to_string())
+    }
+
+    async fn session_stats(&self) -> Result<PiSessionStats, String> {
+        let request_id = format!("flowix-stats-{}", next_pi_rpc_id());
+        let request = serde_json::json!({"id": request_id, "type": "get_session_stats"});
+        let response = self.request(&request_id, &request).await?;
+        let data = response
+            .get("data")
+            .cloned()
+            .ok_or("Pi get_session_stats response did not include data")?;
+        serde_json::from_value(data)
+            .map_err(|error| format!("invalid Pi get_session_stats response: {error}"))
     }
 
     async fn is_alive(&self) -> bool {
@@ -1056,9 +1097,13 @@ impl PiRpcManager {
             }
             let api_base = context.api_base().to_string();
             self.connect_cloud_model_provider(app, &api_base).await?;
-            provider = Some(super::config::list()?.into_iter()
-                .find(|provider| provider.source.as_deref() == Some("flowix-cloud"))
-                .ok_or_else(|| "Cloud models are unavailable".to_string())?.id);
+            provider = Some(
+                super::config::list()?
+                    .into_iter()
+                    .find(|provider| provider.source.as_deref() == Some("flowix-cloud"))
+                    .ok_or_else(|| "Cloud models are unavailable".to_string())?
+                    .id,
+            );
         }
         let permission_mode = message.permission_mode_for_runtime(AGENT_TYPE);
         let pi_features = super::config::features()?;
@@ -1181,6 +1226,7 @@ impl PiRpcManager {
         }
         let mut settled = false;
         let mut initial_user_seen = false;
+        let mut last_assistant_error: Option<String> = None;
         let mut sequence = 0_u64;
         let mut latest_usage = None;
         let mut stop_settle_deadline = None;
@@ -1334,6 +1380,24 @@ impl PiRpcManager {
                     ) {
                         continue;
                     }
+                    if completed_message.get("role").and_then(Value::as_str) == Some("assistant") {
+                        last_assistant_error =
+                            if completed_message.get("stopReason").and_then(Value::as_str)
+                                == Some("error")
+                            {
+                                completed_message
+                                    .get("errorMessage")
+                                    .and_then(Value::as_str)
+                                    .filter(|message| !message.is_empty())
+                                    .map(str::to_owned)
+                            } else {
+                                None
+                            };
+                        // Only surface the final failure after Pi has settled, not intermediate retries.
+                        if last_assistant_error.is_some() {
+                            continue;
+                        }
+                    }
                     sequence += 1;
                     let (_entries, leaf_id) = match session.session_entries().await {
                         Ok(snapshot) => snapshot,
@@ -1397,6 +1461,10 @@ impl PiRpcManager {
             }
         }
         if settled {
+            if let Some(error) = last_assistant_error {
+                session.touch();
+                return Err(error);
+            }
             if !active.finalizing.load(Ordering::Acquire) {
                 if let Some(usage) = latest_usage {
                     sequence += 1;
@@ -2246,11 +2314,23 @@ async fn run_pi_fork_extension(
 }
 
 pub(super) fn pi_config_dir() -> Result<PathBuf, String> {
+    let app_directory = if option_env!("FLOWIX_DEV_MODE") == Some("1") {
+        "Flowix Dev"
+    } else {
+        "Flowix"
+    };
     if let Some(path) = dirs::config_dir() {
-        return Ok(path.join("Flowix").join("pi"));
+        return Ok(path.join(app_directory).join("pi"));
     }
     dirs::home_dir()
-        .map(|path| path.join(".flowix").join("pi"))
+        .map(|path| {
+            let config_directory = if option_env!("FLOWIX_DEV_MODE") == Some("1") {
+                ".flowix-dev"
+            } else {
+                ".flowix"
+            };
+            path.join(config_directory).join("pi")
+        })
         .ok_or_else(|| "user config directory is unavailable".to_string())
 }
 
@@ -2267,13 +2347,27 @@ fn pi_session_dir(thread_id: &str) -> Result<PathBuf, String> {
 fn pi_session_root() -> Result<PathBuf, String> {
     #[cfg(windows)]
     {
-        return crate::runtime_state::windows_state_dir().map(|root| root.join("pi-sessions"));
+        let is_dev_build = option_env!("FLOWIX_DEV_MODE") == Some("1");
+        return crate::runtime_state::windows_state_dir().map(|root| {
+            root.join(if is_dev_build {
+                "pi-sessions-dev"
+            } else {
+                "pi-sessions"
+            })
+        });
     }
     #[cfg(not(windows))]
-    dirs::data_local_dir()
-        .or_else(dirs::home_dir)
-        .map(|path| path.join("Flowix").join("pi-sessions"))
-        .ok_or_else(|| "user data directory is unavailable".to_string())
+    {
+        let app_directory = if option_env!("FLOWIX_DEV_MODE") == Some("1") {
+            "Flowix Dev"
+        } else {
+            "Flowix"
+        };
+        dirs::data_local_dir()
+            .or_else(dirs::home_dir)
+            .map(|path| path.join(app_directory).join("pi-sessions"))
+            .ok_or_else(|| "user data directory is unavailable".to_string())
+    }
 }
 
 fn resolve_pi_session_dir(thread_id: &str, create: bool) -> Result<PathBuf, String> {

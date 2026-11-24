@@ -513,11 +513,7 @@ impl PropertyPresetStore {
                 return Err("invalid property preset type".into());
             }
             if change.field.key.trim().is_empty()
-                || [
-                    "flowix_property_types",
-                    "flowix_plugin",
-                ]
-                .contains(&change.field.key.as_str())
+                || ["flowix_property_types", "flowix_plugin"].contains(&change.field.key.as_str())
             {
                 return Err("invalid property preset key".into());
             }
@@ -622,9 +618,7 @@ impl PropertyPresetStore {
              WHERE property_type IN ('List', 'Tags', 'noteTag')",
             )
             .map_err(|error| error.to_string())?;
-        for (position, (key, kind)) in SYSTEM_PRESET_TYPES        .into_iter()
-        .enumerate()
-        {
+        for (position, (key, kind)) in SYSTEM_PRESET_TYPES.into_iter().enumerate() {
             if existing.system_fields.iter().any(|field| field.key == key) {
                 continue;
             }
@@ -917,7 +911,10 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let store = PropertyPresetStore::new(directory.path().join("local.db"));
         store.initialize_runtime_storage().unwrap();
-        assert_eq!(serde_json::to_value(store.get().unwrap()).unwrap(), serde_json::to_value(PropertyPresetStore::runtime_defaults()).unwrap());
+        assert_eq!(
+            serde_json::to_value(store.get().unwrap()).unwrap(),
+            serde_json::to_value(PropertyPresetStore::runtime_defaults()).unwrap()
+        );
     }
 
     #[test]

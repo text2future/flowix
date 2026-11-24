@@ -61,7 +61,7 @@ export function TableTextValueInput({ value, disabled = false, placeholder, sing
         aria-label={placeholder || '编辑文本'}
         className={`multidimensional-table__text-value min-h-8 w-full min-w-0 border-0 bg-transparent px-0 py-1 text-left text-sm disabled:cursor-not-allowed ${singleLineDisplay ? 'multidimensional-table__text-value--single-line' : 'whitespace-pre-wrap'}`}
       >
-        {value ? <span className={singleLineDisplay ? 'block truncate' : undefined}>{value}</span> : <span className="text-[var(--muted-foreground)] opacity-80">{placeholder}</span>}
+        {value ? <span className={singleLineDisplay ? 'block truncate' : undefined}>{value}</span> : <span className="text-[var(--input-placeholder)]">{placeholder}</span>}
       </button>
     </PopoverTrigger>
     <PopoverContent

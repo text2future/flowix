@@ -6,12 +6,12 @@ use crate::agent_wire::{AgentChatResponse, AgentUserMessage, RunInfo};
 use crate::app::state::AppState;
 
 use super::flowix_instructions::sync_native_agent_instructions;
-use crate::agent_image_cache::{
-    resolve_cached_agent_image, MAX_AGENT_IMAGE_BYTES, MAX_AGENT_IMAGE_COUNT,
-};
 use super::runtime::{
     runtime_from_agent_type, runtime_from_message, runtime_handle, stop_any_runtime_chat,
     AgentRuntime,
+};
+use crate::agent_image_cache::{
+    resolve_cached_agent_image, MAX_AGENT_IMAGE_BYTES, MAX_AGENT_IMAGE_COUNT,
 };
 
 #[tauri::command]
@@ -348,10 +348,7 @@ pub async fn execute_deepseek_harness_command(
         .external_runtimes
         .ensure_thread_writable(&threadId)
         .await?;
-    if !matches!(
-        message.agent_type.as_deref(),
-        Some("dsh") | None
-    ) {
+    if !matches!(message.agent_type.as_deref(), Some("dsh") | None) {
         return Err("DSH slash commands require the deepseek-harness agent".to_string());
     }
     validate_runtime_workspace(&message, "dsh", &state)?;
@@ -369,10 +366,7 @@ pub async fn deepseek_harness_skill_catalog(
     message: AgentUserMessage,
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    if !matches!(
-        message.agent_type.as_deref(),
-        Some("dsh") | None
-    ) {
+    if !matches!(message.agent_type.as_deref(), Some("dsh") | None) {
         return Err("DSH skills require the deepseek-harness agent".to_string());
     }
     state

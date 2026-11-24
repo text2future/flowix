@@ -144,62 +144,169 @@ mod tests {
     #[tokio::test]
     async fn conversation_history_excludes_placeholders_but_keeps_untitled_messages() {
         let manager = ThreadManager::for_tests();
-        for (id, time) in [("draft", 400), ("placeholder", 300), ("untitled", 200), ("named", 100)] {
+        for (id, time) in [
+            ("draft", 400),
+            ("placeholder", 300),
+            ("untitled", 200),
+            ("named", 100),
+        ] {
             seed_conversation(&manager, id, "codex", Some("nb-visible"), time).await;
         }
         {
             let conn = manager.lock_conn();
-            conn.execute("DELETE FROM threads_index WHERE instance_id = 'draft'", []).unwrap();
+            conn.execute("DELETE FROM threads_index WHERE instance_id = 'draft'", [])
+                .unwrap();
             conn.execute("UPDATE threads_index SET title = '' WHERE instance_id IN ('placeholder', 'untitled')", []).unwrap();
             conn.execute("INSERT INTO thread_messages (id, thread_id, role, content, timestamp, sequence) VALUES ('visible-message', 'thread-untitled', 'user', 'Hello', '0', 1)", []).unwrap();
         }
-        let rows = manager.list_agent_conversation_instances_page(
-            Some("nb-visible".into()), None, None, 10,
-        ).await.unwrap();
-        assert_eq!(rows.iter().map(|row| row.instance_id.as_str()).collect::<Vec<_>>(), vec!["untitled", "named"]);
+        let rows = manager
+            .list_agent_conversation_instances_page(Some("nb-visible".into()), None, None, 10)
+            .await
+            .unwrap();
+        assert_eq!(
+            rows.iter()
+                .map(|row| row.instance_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["untitled", "named"]
+        );
         assert!(rows[0].has_messages);
         assert!(!rows[1].has_messages);
         // Hidden rows remain recoverable by id; this is a presentation filter.
-        assert!(manager.get_agent_conversation_instance("placeholder").await.unwrap().is_some());
+        assert!(manager
+            .get_agent_conversation_instance("placeholder")
+            .await
+            .unwrap()
+            .is_some());
     }
 
     #[tokio::test]
     async fn conversation_visibility_includes_external_history_and_ignores_status_events() {
         let manager = ThreadManager::for_tests();
-        for (id, time) in [("product", 600), ("provider", 500), ("legacy", 400), ("status", 300), ("wrong-runtime", 200), ("legacy-json", 100)] {
+        for (id, time) in [
+            ("product", 600),
+            ("provider", 500),
+            ("legacy", 400),
+            ("status", 300),
+            ("wrong-runtime", 200),
+            ("legacy-json", 100),
+        ] {
             seed_conversation(&manager, id, "codex", Some("nb-external"), time).await;
         }
         {
             let conn = manager.lock_conn();
-            conn.execute("UPDATE threads_index SET title = ''", []).unwrap();
+            conn.execute("UPDATE threads_index SET title = ''", [])
+                .unwrap();
             // Old event journals can be keyed by provider identity rather than product id.
             conn.execute("INSERT INTO threads (thread_id, agent_id, title, created_at, updated_at) VALUES ('provider-session', 'codex', '', 0, 0), ('legacy-session', 'codex', '', 0, 0)", []).unwrap();
             conn.execute("INSERT INTO threads_codex (thread_id, external_id) VALUES ('thread-provider', 'provider-session')", []).unwrap();
             conn.execute("INSERT INTO thread_external_sessions (thread_id, runtime, external_session_id, created_at, updated_at) VALUES ('thread-legacy', 'codex', 'legacy-session', 0, 0)", []).unwrap();
             for (thread_id, runtime, kind, payload) in [
-                ("thread-product", "codex", Some("user_message"), r#"{"kind":"user_message","text":"Hello"}"#),
-                ("provider-session", "codex", Some("text"), r#"{"kind":"text","text":"Answer"}"#),
-                ("legacy-session", "codex", Some("tool_call"), r#"{"kind":"tool_call","name":"test"}"#),
-                ("thread-status", "codex", Some("session_resolved"), r#"{"kind":"session_resolved"}"#),
-                ("thread-wrong-runtime", "pi", Some("text"), r#"{"kind":"text","text":"Other runtime"}"#),
-                ("thread-legacy-json", "codex", None, r#"{"kind":"user_message","text":"Legacy metadata"}"#),
+                (
+                    "thread-product",
+                    "codex",
+                    Some("user_message"),
+                    r#"{"kind":"user_message","text":"Hello"}"#,
+                ),
+                (
+                    "provider-session",
+                    "codex",
+                    Some("text"),
+                    r#"{"kind":"text","text":"Answer"}"#,
+                ),
+                (
+                    "legacy-session",
+                    "codex",
+                    Some("tool_call"),
+                    r#"{"kind":"tool_call","name":"test"}"#,
+                ),
+                (
+                    "thread-status",
+                    "codex",
+                    Some("session_resolved"),
+                    r#"{"kind":"session_resolved"}"#,
+                ),
+                (
+                    "thread-wrong-runtime",
+                    "pi",
+                    Some("text"),
+                    r#"{"kind":"text","text":"Other runtime"}"#,
+                ),
+                (
+                    "thread-legacy-json",
+                    "codex",
+                    None,
+                    r#"{"kind":"user_message","text":"Legacy metadata"}"#,
+                ),
             ] {
                 conn.execute("INSERT INTO agent_external_events (thread_id, runtime, event_kind, normalized_json, created_at) VALUES (?1, ?2, ?3, ?4, 0)", params![thread_id, runtime, kind, payload]).unwrap();
             }
         }
-        let rows = manager.list_agent_conversation_instances_page(Some("nb-external".into()), None, None, 2).await.unwrap();
-        assert_eq!(rows.iter().map(|row| row.instance_id.as_str()).collect::<Vec<_>>(), vec!["product", "provider"]);
+        let rows = manager
+            .list_agent_conversation_instances_page(Some("nb-external".into()), None, None, 2)
+            .await
+            .unwrap();
+        assert_eq!(
+            rows.iter()
+                .map(|row| row.instance_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["product", "provider"]
+        );
         assert!(rows.iter().all(|row| row.has_messages));
-        let cursor = AgentConversationCursor { updated_at: rows[1].updated_at, instance_id: rows[1].instance_id.clone() };
-        let next = manager.list_agent_conversation_instances_page(Some("nb-external".into()), None, Some(cursor), 2).await.unwrap();
-        assert_eq!(next.iter().map(|row| row.instance_id.as_str()).collect::<Vec<_>>(), vec!["legacy", "legacy-json"]);
-        assert_eq!(manager.count_agent_conversation_instances_by_notebook(Some("nb-external".into())).await.unwrap(), 4);
-        let counts = manager.list_agent_conversation_type_counts_by_notebook(Some("nb-external".into())).await.unwrap();
+        let cursor = AgentConversationCursor {
+            updated_at: rows[1].updated_at,
+            instance_id: rows[1].instance_id.clone(),
+        };
+        let next = manager
+            .list_agent_conversation_instances_page(
+                Some("nb-external".into()),
+                None,
+                Some(cursor),
+                2,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            next.iter()
+                .map(|row| row.instance_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["legacy", "legacy-json"]
+        );
+        assert_eq!(
+            manager
+                .count_agent_conversation_instances_by_notebook(Some("nb-external".into()))
+                .await
+                .unwrap(),
+            4
+        );
+        let counts = manager
+            .list_agent_conversation_type_counts_by_notebook(Some("nb-external".into()))
+            .await
+            .unwrap();
         assert_eq!(counts[0].count, 4);
-        let favorites = manager.get_agent_conversation_instances_by_ids("nb-external".into(), vec!["provider".into(), "legacy".into()]).await.unwrap();
+        let favorites = manager
+            .get_agent_conversation_instances_by_ids(
+                "nb-external".into(),
+                vec!["provider".into(), "legacy".into()],
+            )
+            .await
+            .unwrap();
         assert!(favorites.iter().all(|row| row.has_messages));
-        assert!(manager.get_agent_conversation_instance("provider").await.unwrap().unwrap().has_messages);
-        assert!(!manager.get_agent_conversation_instance("status").await.unwrap().unwrap().has_messages);
+        assert!(
+            manager
+                .get_agent_conversation_instance("provider")
+                .await
+                .unwrap()
+                .unwrap()
+                .has_messages
+        );
+        assert!(
+            !manager
+                .get_agent_conversation_instance("status")
+                .await
+                .unwrap()
+                .unwrap()
+                .has_messages
+        );
     }
 
     #[tokio::test]
@@ -1326,10 +1433,29 @@ mod tests {
                 "SELECT id, runtime, thread_id, normalized_json, raw_json, created_at
                  FROM agent_external_events WHERE thread_id = 'thread-legacy'",
                 [],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                    ))
+                },
             )
             .expect("read migrated event");
-        assert_eq!(migrated, (7, "codex".into(), "thread-legacy".into(), "{}".into(), None, 123));
+        assert_eq!(
+            migrated,
+            (
+                7,
+                "codex".into(),
+                "thread-legacy".into(),
+                "{}".into(),
+                None,
+                123
+            )
+        );
     }
 
     #[tokio::test]
@@ -1438,7 +1564,9 @@ mod tests {
 
         drop(ThreadManager::new(db_path.clone()).expect("migrate database"));
         let conn = rusqlite::Connection::open(&db_path).expect("inspect migrated database");
-        let mut stmt = conn.prepare("PRAGMA table_info(threads_pi)").expect("inspect Pi columns");
+        let mut stmt = conn
+            .prepare("PRAGMA table_info(threads_pi)")
+            .expect("inspect Pi columns");
         let columns = stmt
             .query_map([], |row| row.get::<_, String>(1))
             .expect("query Pi columns")
@@ -1542,8 +1670,13 @@ mod tests {
         assert!(ThreadManager::new(db_path.clone()).is_err());
         assert!(!dir.path().join("rebuild-backups").exists());
         let preserved = rusqlite::Connection::open(db_path).unwrap();
-        let version: i64 = preserved.pragma_query_value(None, "user_version", |row| row.get(0)).unwrap();
-        assert_eq!(version, crate::agent_session::migrations::THREAD_DB_SCHEMA_VERSION + 1);
+        let version: i64 = preserved
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(
+            version,
+            crate::agent_session::migrations::THREAD_DB_SCHEMA_VERSION + 1
+        );
     }
 
     #[tokio::test]
@@ -1643,12 +1776,7 @@ mod tests {
             .await
             .expect("bind codex provider thread");
         manager
-            .upsert_external_session(
-                "thread-simplified-index",
-                "dsh",
-                "dsh-provider-id",
-                None,
-            )
+            .upsert_external_session("thread-simplified-index", "dsh", "dsh-provider-id", None)
             .await
             .expect("bind dsh provider session");
         manager

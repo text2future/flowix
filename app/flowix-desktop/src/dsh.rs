@@ -49,8 +49,8 @@ use download::{normalized_sha256, partial_download_path, response_resumes};
 use environment::dsh_plugin_environment;
 pub use environment::managed_child_environment;
 use manifest::{
-    dsh_version_is_at_least, fetch_manifest, flowix_version_is_at_least,
-    validate_manifest_version, DshArtifact, DshManifest,
+    dsh_version_is_at_least, fetch_manifest, flowix_version_is_at_least, validate_manifest_version,
+    DshArtifact, DshManifest,
 };
 use publish::safe_bundle_path;
 use verify::verify_artifact;
@@ -776,8 +776,6 @@ fn harness_version_from_root(root: &Path) -> Option<String> {
     value.get("version")?.as_str().map(ToOwned::to_owned)
 }
 
-
-
 /// Prepare and verify an update while the current host remains available, then
 /// invoke `before_publish` immediately before replacing the installed runtime.
 pub fn install_runtime_with_progress_before_publish(
@@ -818,7 +816,6 @@ fn check_cancelled() -> Result<(), String> {
     }
     Ok(())
 }
-
 
 /// Delegate profile dependency changes to the official `dsh plugin`
 /// implementation embedded in the managed carrier. Flowix validates only the
@@ -988,7 +985,6 @@ fn current_artifact_matches(current: &DshInstallation, artifact: &DshArtifact) -
         .is_some_and(|sha256| sha256.eq_ignore_ascii_case(artifact.sha256.trim()))
         && current.build_id == artifact.build_id
 }
-
 
 pub fn managed_launch_spec() -> Option<ManagedDshLaunch> {
     if let Some(result) = development_bundle_launch_spec() {

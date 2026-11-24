@@ -37,8 +37,11 @@ impl FileRevision {
     /// reads its contents on the watcher worker.
     pub fn read_metadata(path: &std::path::Path) -> Option<Self> {
         let metadata = std::fs::metadata(path).ok()?;
-        let modified = metadata.modified().ok()?
-            .duration_since(std::time::UNIX_EPOCH).ok()?;
+        let modified = metadata
+            .modified()
+            .ok()?
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()?;
         let mut digest = Sha256::new();
         digest.update(metadata.len().to_le_bytes());
         digest.update(modified.as_nanos().to_le_bytes());

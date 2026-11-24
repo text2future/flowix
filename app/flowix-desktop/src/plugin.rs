@@ -21,9 +21,9 @@ mod artifact;
 mod lifecycle;
 mod manifest;
 
-use artifact::{output_file_path, parse_plugin_output};
 #[cfg(test)]
 use artifact::{clean_markdown, parse_html, parse_json, parse_mindmap_markdown};
+use artifact::{output_file_path, parse_plugin_output};
 pub(crate) use lifecycle::PluginRunCoordinator;
 use manifest::{validate_manifest, PluginDefinition, PluginManifest, PluginParser, PluginRuntime};
 
@@ -119,7 +119,8 @@ pub fn emit_run_event(app_handle: &tauri::AppHandle, event: PluginRunEvent) -> R
 fn plugin_root() -> Result<PathBuf, String> {
     let home = dirs::home_dir().ok_or_else(|| "Home directory is unavailable".to_string())?;
     let root = get_user_config_dir(&home).join("plugin");
-    flowix_core::memo_file::ensure_storage_directory(&root).map_err(|e| format!("create plugin directory: {e}"))?;
+    flowix_core::memo_file::ensure_storage_directory(&root)
+        .map_err(|e| format!("create plugin directory: {e}"))?;
     let metadata = fs::symlink_metadata(&root)
         .map_err(|error| format!("inspect plugin directory: {error}"))?;
     if metadata.file_type().is_symlink() || !metadata.is_dir() {
@@ -199,7 +200,6 @@ fn ensure_builtin_plugin(
     }
     Ok(())
 }
-
 
 fn read_plugin(path: &Path) -> Result<PluginDescriptor, String> {
     let expected_id = path
@@ -504,8 +504,10 @@ fn scan_plugin_catalog() -> Result<PluginCatalogSnapshot, String> {
     };
     for entry in fs::read_dir(&root).map_err(|e| format!("scan plugins: {e}"))? {
         let entry = entry.map_err(|e| format!("scan plugin entry: {e}"))?;
-        if !entry.path().is_dir() || entry.file_name().to_string_lossy().starts_with('.')
-            || entry.file_name() == "rebuild-backups" {
+        if !entry.path().is_dir()
+            || entry.file_name().to_string_lossy().starts_with('.')
+            || entry.file_name() == "rebuild-backups"
+        {
             continue;
         }
         match read_plugin(&entry.path()) {
@@ -703,16 +705,24 @@ pub fn write_output(
     let clean = parsed.content;
     let title = parsed.title;
     let notebook_id = read_lock(memo_file, "memo_file")
-        .read_notebook_configs().map_err(|error| error.to_string())?
+        .read_notebook_configs()
+        .map_err(|error| error.to_string())?
         .into_iter()
-        .find(|config| dunce::canonicalize(&config.path).ok().as_deref() == Some(notebook.as_path()))
+        .find(|config| {
+            dunce::canonicalize(&config.path).ok().as_deref() == Some(notebook.as_path())
+        })
         .map(|config| config.id)
         .ok_or_else(|| "notebook path is not registered in Flowix".to_string())?;
     {
-        let output_dir = if id == "mindmap" { notebook.join("Mindmaps") }
-            else { notebook.join("Plugins").join(id) };
+        let output_dir = if id == "mindmap" {
+            notebook.join("Mindmaps")
+        } else {
+            notebook.join("Plugins").join(id)
+        };
         read_lock(memo_file, "memo_file")
-            .with_notebook_change(&[&notebook_id], "create_plugin_output_directory", || fs::create_dir_all(&output_dir))
+            .with_notebook_change(&[&notebook_id], "create_plugin_output_directory", || {
+                fs::create_dir_all(&output_dir)
+            })
             .map_err(|e| format!("create plugin directory: {e}"))?;
         if !path_is_inside(&output_dir, &notebook) {
             return Err("mindmap directory escaped notebook root".to_string());
@@ -730,17 +740,23 @@ pub fn write_output(
             )
         } else {
             flowix_plugin_runtime::serialize_path_plugin_document(
-                &plugin.manifest.id, &plugin.manifest.version,
-                &plugin.manifest.output.format, &plugin.manifest.output.renderer,
-                &clean, agent_type, source_note,
+                &plugin.manifest.id,
+                &plugin.manifest.version,
+                &plugin.manifest.output.format,
+                &plugin.manifest.output.renderer,
+                &clean,
+                agent_type,
+                source_note,
             )
         };
         read_lock(memo_file, "memo_file")
             .create_file_for_notebook(&notebook_id, &output_path, document.as_bytes())
             .map_err(|e| format!("write mindmap: {e}"))?;
-        let relative_path = output_path.strip_prefix(&notebook)
+        let relative_path = output_path
+            .strip_prefix(&notebook)
             .map_err(|_| "mindmap path escaped notebook root".to_string())?
-            .to_string_lossy().replace('\\', "/");
+            .to_string_lossy()
+            .replace('\\', "/");
         read_lock(memo_file, "memo_file")
             .refresh_note_path_after_write(&notebook_id, &relative_path);
         if let Some(app_handle) = app_handle.as_ref() {
@@ -757,15 +773,20 @@ pub fn write_output(
             note_id: None,
         };
         if let (Some(run_id), Some(app_handle)) = (run_id, app_handle) {
-            app_handle.emit("plugin-run", PluginRunEvent {
-                run_id: run_id.to_string(),
-                plugin_id: artifact.plugin_id.clone(),
-                status: "completed".to_string(),
-                agent_type: agent_type.to_string(),
-                artifact: Some(artifact.clone()),
-                error: None,
-                content: None,
-            }).map_err(|e| e.to_string())?;
+            app_handle
+                .emit(
+                    "plugin-run",
+                    PluginRunEvent {
+                        run_id: run_id.to_string(),
+                        plugin_id: artifact.plugin_id.clone(),
+                        status: "completed".to_string(),
+                        agent_type: agent_type.to_string(),
+                        artifact: Some(artifact.clone()),
+                        error: None,
+                        content: None,
+                    },
+                )
+                .map_err(|e| e.to_string())?;
         }
         return Ok(artifact);
     }
@@ -784,11 +805,13 @@ mod tests {
     #[test]
     fn missing_runtime_dependencies_recreate_invalid_plugin_files() {
         let temp = tempfile::tempdir().unwrap();
-        super::ensure_builtin_plugin(temp.path(), "mindmap", MINDMAP_MANIFEST, MINDMAP_SKILL).unwrap();
+        super::ensure_builtin_plugin(temp.path(), "mindmap", MINDMAP_MANIFEST, MINDMAP_SKILL)
+            .unwrap();
         let dir = temp.path().join("mindmap");
         std::fs::write(dir.join("plugin.json"), "existing manifest").unwrap();
         std::fs::remove_file(dir.join("SKILL.md")).unwrap();
-        super::ensure_builtin_plugin(temp.path(), "mindmap", MINDMAP_MANIFEST, MINDMAP_SKILL).unwrap();
+        super::ensure_builtin_plugin(temp.path(), "mindmap", MINDMAP_MANIFEST, MINDMAP_SKILL)
+            .unwrap();
         assert_eq!(
             std::fs::read_to_string(dir.join("plugin.json")).unwrap(),
             MINDMAP_MANIFEST

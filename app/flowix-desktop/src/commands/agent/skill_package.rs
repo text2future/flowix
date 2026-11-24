@@ -802,7 +802,8 @@ mod skill_install_tests {
     #[test]
     fn official_website_skill_archive_is_accepted() {
         let mut request = ProjectSkillArchive {
-            url: "https://flowix.cc/skills/archives/example.zip".into(), source: None,
+            url: "https://flowix.cc/skills/archives/example.zip".into(),
+            source: None,
         };
         assert!(validate_skill_archive_request("example", &request).is_ok());
         request.url = "https://flowix.cc.evil.test/skills/archives/example.zip".into();

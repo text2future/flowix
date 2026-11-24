@@ -18,7 +18,7 @@ impl CloudEnvironment {
     pub const fn api_base(self) -> &'static str {
         match self {
             Self::Staging => "https://staging-cloud.flowix.cc",
-            Self::MainlandStaging => "https://ai-cn.flowix.cc",
+            Self::MainlandStaging => "https://staging-cloud.flowix.cc",
             Self::Prod => "https://cloud.flowix.cc",
         }
     }
@@ -52,18 +52,30 @@ mod tests {
     use super::CloudEnvironment;
 
     #[test]
-    fn mainland_staging_uses_its_own_https_target() {
+    fn mainland_staging_uses_cloudflare_staging_target() {
         let environment = CloudEnvironment::parse("cn-staging").unwrap();
         assert_eq!(environment.name(), "cn-staging");
-        assert_eq!(environment.api_base(), "https://ai-cn.flowix.cc");
+        assert_eq!(environment.api_base(), "https://staging-cloud.flowix.cc");
         assert_ne!(environment.api_base(), CloudEnvironment::Prod.api_base());
     }
 
     #[test]
     fn development_staging_follows_region_without_switching_production() {
-        assert_eq!(CloudEnvironment::Staging.for_dev_region("mainland"), CloudEnvironment::MainlandStaging);
-        assert_eq!(CloudEnvironment::MainlandStaging.for_dev_region("overseas"), CloudEnvironment::Staging);
-        assert_eq!(CloudEnvironment::Prod.for_dev_region("mainland"), CloudEnvironment::Prod);
-        assert_eq!(CloudEnvironment::Staging.for_dev_region(""), CloudEnvironment::Staging);
+        assert_eq!(
+            CloudEnvironment::Staging.for_dev_region("mainland"),
+            CloudEnvironment::MainlandStaging
+        );
+        assert_eq!(
+            CloudEnvironment::MainlandStaging.for_dev_region("overseas"),
+            CloudEnvironment::Staging
+        );
+        assert_eq!(
+            CloudEnvironment::Prod.for_dev_region("mainland"),
+            CloudEnvironment::Prod
+        );
+        assert_eq!(
+            CloudEnvironment::Staging.for_dev_region(""),
+            CloudEnvironment::Staging
+        );
     }
 }

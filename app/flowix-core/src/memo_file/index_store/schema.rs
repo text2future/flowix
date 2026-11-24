@@ -491,10 +491,13 @@ impl MemoFile {
         // Recording an artifact migration does not require the legacy Memo schema:
         // ensure_memo_tables may discard ID-backed tables and revision history.
         let conn = self.open_notebook_db(notebook_id)?;
-        conn.execute_batch("CREATE TABLE IF NOT EXISTS notebook_data_migrations (
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS notebook_data_migrations (
             notebook_id TEXT NOT NULL, migration_key TEXT NOT NULL,
             version INTEGER NOT NULL, completed_at INTEGER NOT NULL,
-            PRIMARY KEY(notebook_id, migration_key));").map_err(sqlite_to_io)?;
+            PRIMARY KEY(notebook_id, migration_key));",
+        )
+        .map_err(sqlite_to_io)?;
         conn.execute(
             "INSERT INTO notebook_data_migrations
                 (notebook_id, migration_key, version, completed_at)

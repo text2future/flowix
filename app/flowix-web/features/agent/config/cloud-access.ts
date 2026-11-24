@@ -10,6 +10,14 @@
  */
 export type CloudAccessKind = "signed_out" | "no_credits";
 
+/** A preflight rejection: the composer should restore its draft without an error toast. */
+export class CloudAccessBlockedError extends Error {
+  constructor(public readonly kind: CloudAccessKind) {
+    super(kind);
+    this.name = "CloudAccessBlockedError";
+  }
+}
+
 /** Preview provider used by the guest catalog; it has no local credentials. */
 export const FLOWIX_CLOUD_PREVIEW_PROVIDER_ID = "__flowix-cloud-preview";
 

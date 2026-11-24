@@ -57,7 +57,12 @@ pub(crate) struct DueReconcile {
 impl DirectoryCoalescer {
     /// Fold one directory event into the open window for its notebook, opening
     /// the window if this is the first event of a burst.
-    pub(crate) fn absorb(&mut self, context: &NotebookWatchContext, directory: &Path, now: Instant) {
+    pub(crate) fn absorb(
+        &mut self,
+        context: &NotebookWatchContext,
+        directory: &Path,
+        now: Instant,
+    ) {
         if let Some(pending) = self.pending.get_mut(&context.notebook_id) {
             pending.absorbed += 1;
             if pending.directories.len() < MAX_REMEMBERED_DIRECTORIES
@@ -81,10 +86,7 @@ impl DirectoryCoalescer {
     /// Earliest moment at which some burst is due. The worker blocks on this so
     /// a trailing reconcile never waits for the next unrelated event.
     pub(crate) fn next_deadline(&self) -> Option<Instant> {
-        self.pending
-            .values()
-            .map(|pending| pending.deadline)
-            .min()
+        self.pending.values().map(|pending| pending.deadline).min()
     }
 
     /// Remove and return every burst whose window has closed.
@@ -125,13 +127,17 @@ mod tests {
             coalescer.absorb(&context("a"), Path::new("root/sub"), start);
         }
 
-        assert!(coalescer.drain_due(start + Duration::from_millis(399)).is_empty());
+        assert!(coalescer
+            .drain_due(start + Duration::from_millis(399))
+            .is_empty());
 
         let due = coalescer.drain_due(start + DIRECTORY_COALESCE_WINDOW);
         assert_eq!(due.len(), 1);
         assert_eq!(due[0].absorbed, 3);
         assert_eq!(due[0].directories, vec![PathBuf::from("root/sub")]);
-        assert!(coalescer.drain_due(start + DIRECTORY_COALESCE_WINDOW).is_empty());
+        assert!(coalescer
+            .drain_due(start + DIRECTORY_COALESCE_WINDOW)
+            .is_empty());
     }
 
     #[test]
@@ -157,7 +163,10 @@ mod tests {
         let later = start + Duration::from_millis(200);
         coalescer.absorb(&context("b"), Path::new("other/sub"), later);
 
-        assert_eq!(coalescer.next_deadline(), Some(start + DIRECTORY_COALESCE_WINDOW));
+        assert_eq!(
+            coalescer.next_deadline(),
+            Some(start + DIRECTORY_COALESCE_WINDOW)
+        );
         let first = coalescer.drain_due(start + DIRECTORY_COALESCE_WINDOW);
         assert_eq!(first.len(), 1);
         assert_eq!(first[0].context.notebook_id, "a");

@@ -90,9 +90,8 @@ fn hash_tree(root: &Path) -> Result<String, String> {
         } else {
             // Files and symlinks alike are hashed by their content; the copy
             // below dereferences symlinks the same way.
-            let contents = std::fs::read(entry.path()).map_err(|error| {
-                format!("cannot read {}: {error}", entry.path().display())
-            })?;
+            let contents = std::fs::read(entry.path())
+                .map_err(|error| format!("cannot read {}: {error}", entry.path().display()))?;
             hasher.update(b"file");
             hasher.update((contents.len() as u64).to_le_bytes());
             hasher.update(&contents);
@@ -125,14 +124,20 @@ fn copy_vendored_tree(bundled: &Path, config_dir: &Path) -> Result<(), String> {
         let target = config_dir.join(relative);
         if entry.file_type().is_dir() {
             std::fs::create_dir_all(&target).map_err(|error| {
-                format!("cannot seed Pi package directory {}: {error}", target.display())
+                format!(
+                    "cannot seed Pi package directory {}: {error}",
+                    target.display()
+                )
             })?;
         } else {
             // fs::copy dereferences symlinks, so vendored links (e.g.
             // node_modules/.bin shims) land as real files.
             if let Some(parent) = target.parent() {
                 std::fs::create_dir_all(parent).map_err(|error| {
-                    format!("cannot seed Pi package directory {}: {error}", parent.display())
+                    format!(
+                        "cannot seed Pi package directory {}: {error}",
+                        parent.display()
+                    )
                 })?;
             }
             std::fs::copy(entry.path(), &target).map_err(|error| {
@@ -146,10 +151,7 @@ fn copy_vendored_tree(bundled: &Path, config_dir: &Path) -> Result<(), String> {
 /// Merges the vendored `packages` declarations into the user's
 /// `settings.json` without touching any other user setting. A fresh agent
 /// directory adopts the vendored file wholesale.
-fn merge_vendored_packages(
-    bundled_settings: &Path,
-    config_settings: &Path,
-) -> Result<(), String> {
+fn merge_vendored_packages(bundled_settings: &Path, config_settings: &Path) -> Result<(), String> {
     let bundled = super::config::read_json(bundled_settings)?;
     let Some(packages) = bundled.get("packages").and_then(Value::as_array).cloned() else {
         return Ok(());
@@ -205,10 +207,15 @@ mod tests {
         let _ = fs::remove_dir_all(&base);
         write_file(&bundled.join("settings.json"), "{}");
         write_file(&bundled.join("npm/package.json"), "{}");
-        write_file(&bundled.join("npm/node_modules/pi-subagents/index.js"), "export {}");
+        write_file(
+            &bundled.join("npm/node_modules/pi-subagents/index.js"),
+            "export {}",
+        );
         write_file(&bundled.join("auth.json"), "secret");
         copy_vendored_tree(&bundled, &config).unwrap();
-        assert!(config.join("npm/node_modules/pi-subagents/index.js").is_file());
+        assert!(config
+            .join("npm/node_modules/pi-subagents/index.js")
+            .is_file());
         // settings.json is user state: excluded from the tree copy and
         // merged separately by merge_vendored_packages.
         assert!(!config.join("settings.json").exists());
@@ -218,7 +225,8 @@ mod tests {
 
     #[test]
     fn merges_packages_without_touching_other_settings() {
-        let base = std::env::temp_dir().join(format!("flowix-pi-seed-merge-{}", std::process::id()));
+        let base =
+            std::env::temp_dir().join(format!("flowix-pi-seed-merge-{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
         fs::create_dir_all(&base).unwrap();
         let bundled = base.join("bundled-settings.json");
@@ -226,12 +234,14 @@ mod tests {
         fs::write(&bundled, r#"{"packages":["npm:pi-subagents@0.79.2"]}"#).unwrap();
         fs::write(&config, r#"{"defaultProvider":"anthropic"}"#).unwrap();
         merge_vendored_packages(&bundled, &config).unwrap();
-        let merged: serde_json::Value = serde_json::from_str(&fs::read_to_string(&config).unwrap()).unwrap();
+        let merged: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&config).unwrap()).unwrap();
         assert_eq!(merged["defaultProvider"], json!("anthropic"));
         assert_eq!(merged["packages"], json!(["npm:pi-subagents@0.79.2"]));
         // Idempotent: a second merge must not duplicate entries.
         merge_vendored_packages(&bundled, &config).unwrap();
-        let merged: serde_json::Value = serde_json::from_str(&fs::read_to_string(&config).unwrap()).unwrap();
+        let merged: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&config).unwrap()).unwrap();
         assert_eq!(merged["packages"], json!(["npm:pi-subagents@0.79.2"]));
         let _ = fs::remove_dir_all(&base);
     }
@@ -246,7 +256,8 @@ mod tests {
         let config = base.join("settings.json");
         fs::write(&bundled, r#"{"packages":["npm:pi-subagents@0.79.2"]}"#).unwrap();
         merge_vendored_packages(&bundled, &config).unwrap();
-        let merged: serde_json::Value = serde_json::from_str(&fs::read_to_string(&config).unwrap()).unwrap();
+        let merged: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&config).unwrap()).unwrap();
         assert_eq!(merged["packages"], json!(["npm:pi-subagents@0.79.2"]));
         let _ = fs::remove_dir_all(&base);
     }

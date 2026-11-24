@@ -12,9 +12,37 @@ pub fn run_cli(args: &[String]) -> Result<(), CliError> {
     };
 
     match command {
-        cli::Cli::RequestList { state, limit, json } => path_store::print(crate::idempotency::list(state.as_deref(), limit)?, json),
-        cli::Cli::RequestShow { notebook, operation, request_id, json } => path_store::print(crate::idempotency::show(&notebook, &operation, &request_id)?, json),
-        cli::Cli::RequestReview { notebook, operation, request_id, outcome, actor, evidence, json } => path_store::print(crate::idempotency::review(&notebook, &operation, &request_id, &outcome, &actor, evidence.as_deref())?, json),
+        cli::Cli::RequestList { state, limit, json } => {
+            path_store::print(crate::idempotency::list(state.as_deref(), limit)?, json)
+        }
+        cli::Cli::RequestShow {
+            notebook,
+            operation,
+            request_id,
+            json,
+        } => path_store::print(
+            crate::idempotency::show(&notebook, &operation, &request_id)?,
+            json,
+        ),
+        cli::Cli::RequestReview {
+            notebook,
+            operation,
+            request_id,
+            outcome,
+            actor,
+            evidence,
+            json,
+        } => path_store::print(
+            crate::idempotency::review(
+                &notebook,
+                &operation,
+                &request_id,
+                &outcome,
+                &actor,
+                evidence.as_deref(),
+            )?,
+            json,
+        ),
         cli::Cli::Version => {
             println!("{} {}", cli::DISPLAY_BIN, env!("CARGO_PKG_VERSION"));
             Ok(())
@@ -26,9 +54,21 @@ pub fn run_cli(args: &[String]) -> Result<(), CliError> {
                 store::cmd_notebooks()
             }
         }
-        cli::Cli::List { notebook, limit, offset, snapshot, json } => {
-            path_store::print(operation::execute(operation::FlowixOperation::List { notebook, limit, offset, snapshot })?, json)
-        }
+        cli::Cli::List {
+            notebook,
+            limit,
+            offset,
+            snapshot,
+            json,
+        } => path_store::print(
+            operation::execute(operation::FlowixOperation::List {
+                notebook,
+                limit,
+                offset,
+                snapshot,
+            })?,
+            json,
+        ),
         cli::Cli::Tags { notebook, json } => store::cmd_tags(notebook.as_deref(), json),
         cli::Cli::Show { id, json } => path_store::print(path_store::show(&id)?, json),
         cli::Cli::Create {
@@ -41,20 +81,63 @@ pub fn run_cli(args: &[String]) -> Result<(), CliError> {
             json,
         } => {
             let content = path_store::read_input(file.as_deref(), stdin, "create")?;
-            path_store::print(operation::execute(operation::FlowixOperation::Create { notebook, title, folder, content, request_id })?, json)
+            path_store::print(
+                operation::execute(operation::FlowixOperation::Create {
+                    notebook,
+                    title,
+                    folder,
+                    content,
+                    request_id,
+                })?,
+                json,
+            )
         }
-        cli::Cli::Delete { id, expected_version, json } => path_store::print(path_store::delete(&id, expected_version.as_deref())?, json),
-        cli::Cli::CollectionCreate { notebook, path, fields_file, json } => {
+        cli::Cli::Delete {
+            id,
+            expected_version,
+            json,
+        } => path_store::print(path_store::delete(&id, expected_version.as_deref())?, json),
+        cli::Cli::CollectionCreate {
+            notebook,
+            path,
+            fields_file,
+            json,
+        } => {
             let data = crate::collection_store::create(&notebook, &path, fields_file.as_deref())?;
             path_store::print(data, json)
         }
-        cli::Cli::CollectionAdd { notebook, collection_id, path, file, stdin, request_id, json } => {
+        cli::Cli::CollectionAdd {
+            notebook,
+            collection_id,
+            path,
+            file,
+            stdin,
+            request_id,
+            json,
+        } => {
             let input = path_store::read_input(file.as_deref(), stdin, "collection add")?;
-            let data = crate::collection_store::add_record(&notebook, collection_id.as_deref(), path.as_deref(), &input, request_id.as_deref())?;
+            let data = crate::collection_store::add_record(
+                &notebook,
+                collection_id.as_deref(),
+                path.as_deref(),
+                &input,
+                request_id.as_deref(),
+            )?;
             path_store::print(data, json)
         }
-        cli::Cli::CollectionAddFields { notebook, collection_id, path, fields_file, json } => {
-            let data = crate::collection_store::add_fields(&notebook, collection_id.as_deref(), path.as_deref(), &fields_file)?;
+        cli::Cli::CollectionAddFields {
+            notebook,
+            collection_id,
+            path,
+            fields_file,
+            json,
+        } => {
+            let data = crate::collection_store::add_fields(
+                &notebook,
+                collection_id.as_deref(),
+                path.as_deref(),
+                &fields_file,
+            )?;
             path_store::print(data, json)
         }
         cli::Cli::CollectionRead {
@@ -165,7 +248,14 @@ pub fn run_cli(args: &[String]) -> Result<(), CliError> {
             snapshot,
             json,
         } => path_store::print(
-            path_store::search(&query, notebook.as_deref(), tag.as_deref(), limit, offset, snapshot.as_deref())?,
+            path_store::search(
+                &query,
+                notebook.as_deref(),
+                tag.as_deref(),
+                limit,
+                offset,
+                snapshot.as_deref(),
+            )?,
             json,
         ),
         cli::Cli::Edit {
@@ -197,7 +287,10 @@ pub fn run_cli(args: &[String]) -> Result<(), CliError> {
             json,
         } => {
             let content = path_store::read_input(file.as_deref(), stdin, "write")?;
-            path_store::print(path_store::write(&id, &content, expected_version.as_deref())?, json)
+            path_store::print(
+                path_store::write(&id, &content, expected_version.as_deref())?,
+                json,
+            )
         }
         cli::Cli::PluginList { json } => plugin::cmd_list(json),
         cli::Cli::PluginDescribe { plugin_id, json } => plugin::cmd_describe(&plugin_id, json),

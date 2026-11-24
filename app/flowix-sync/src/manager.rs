@@ -4,12 +4,6 @@ use crate::client::CloudClient;
 use crate::error::SyncError;
 use crate::models::*;
 use crate::store::SyncStore;
-use crate::v2::{
-    V2AccountSyncReport, V2Bootstrap, V2EntityType, V2FreezeOperation, V2LocalNote,
-    V2LocalNotebook, V2OperationKind, V2PushOperation, V2RemoteApply,
-};
-use chrono::Utc;
-use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -18,7 +12,15 @@ pub struct SyncManager {
     account: AccountService,
     client: CloudClient,
     store: SyncStore,
-    account_sync_lock: Arc<tokio::sync::Mutex<()>>,
+    /// Serialises path-keyed passes. See `v4_engine` for why one at a time.
+    v4_pass_lock: Arc<tokio::sync::Mutex<()>>,
+    v4_credentials: Arc<tokio::sync::Mutex<v4_engine::V4CredentialCache>>,
+    v4_credential_refresh: Arc<tokio::sync::Mutex<()>>,
+    v4_directory_cache: Arc<tokio::sync::Mutex<v4_engine::DirectoryCache>>,
+    remote: Arc<std::sync::Mutex<crate::remote::RemoteSelection>>,
+    /// Object storage is not the control plane: a single object can be large
+    /// and a slow uplink must not be cut off at the API client's 30 seconds.
+    v4_http: reqwest::Client,
 }
 
 impl SyncManager {
@@ -31,10 +33,21 @@ impl SyncManager {
             client: account.client().clone(),
             store: account.store().clone(),
             account,
-            account_sync_lock: Arc::new(tokio::sync::Mutex::new(())),
+            v4_pass_lock: Arc::new(tokio::sync::Mutex::new(())),
+            v4_credentials: Arc::new(tokio::sync::Mutex::new(Default::default())),
+            v4_credential_refresh: Arc::new(tokio::sync::Mutex::new(())),
+            v4_directory_cache: Arc::new(tokio::sync::Mutex::new(Default::default())),
+            remote: Arc::new(std::sync::Mutex::new(Default::default())),
+            v4_http: reqwest::Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(10))
+                .read_timeout(std::time::Duration::from_secs(300))
+                .build()
+                .unwrap_or_default(),
         }
     }
 }
 
 mod account_api;
-mod v2_engine;
+mod v4_engine;
+
+pub use v4_engine::{V4PassInput, V4_CREDENTIAL_RENEWAL_MARGIN_MS};

@@ -60,6 +60,8 @@ const agentAccessMock = vi.hoisted(() => ({
 }));
 
 vi.mock("@platform/tauri/client", () => ({
+  cloud: { getAiCreditBalance: vi.fn(async () => ({ balanceMicrocredits: 0 })) },
+  piModels: { list: vi.fn(async () => []), getFeatures: vi.fn(async () => ({})) },
   agent: {
     chatStream: vi.fn(),
     stopChatStream: vi.fn(async () => true),
@@ -551,7 +553,7 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     ).toBe(renderMessages);
   });
 
-  it("keeps a signed-out Cloud prompt in the transcript and answers with the sign-in card", async () => {
+  it("rejects a signed-out Cloud prompt before creating a transcript row", async () => {
     const { agent } = await import("@platform/tauri/client");
     const { useAgentSessionStore } = await import("@features/agent/store/agent-session-store");
     const { useAgentDataStore } = await import("@features/agent/store/agent-data-store");
@@ -576,21 +578,13 @@ describe("chat-store Agent Thread Card streaming flow", () => {
       },
     });
     try {
-      await useAgentSessionStore.getState().sendMessageToThread(
-        threadId, "帮我总结这篇笔记", "pi",
-      );
-
-      // The prompt travels the normal message pipeline: it is a transcript row
-      // even though no model ever answered it.
+      await expect(useAgentSessionStore.getState().sendMessageToThread(
+        threadId, "帮我总结这篇笔记", "pi", { rejectOnFailure: true },
+      )).rejects.toMatchObject({ name: "CloudAccessBlockedError", kind: "signed_out" });
       const projection = useAgentSessionStore.getState().threadProjections[threadId];
-      expect(projection.messages).toHaveLength(1);
-      expect(projection.messages[0]).toMatchObject({ role: "user" });
-      expect(projection.messages[0].content).toContain("帮我总结这篇笔记");
-      // The turn is closed, so the composer is usable again, and the access card
-      // is the reply the surface renders below the message.
-      expect(projection.runs.isLoading).toBe(false);
+      expect(projection?.messages ?? []).toHaveLength(0);
       expect(vi.mocked(agent.chatStream)).not.toHaveBeenCalled();
-      expect(useAgentCloudAccessStore.getState().entries[threadId]).toBe("signed_out");
+      expect(useAgentCloudAccessStore.getState().entries[threadId]).toBeUndefined();
     } finally {
       useAgentDataStore.setState({
         piCloudAccountId: previousAccount,
@@ -602,6 +596,33 @@ describe("chat-store Agent Thread Card streaming flow", () => {
         },
       });
       useAgentCloudAccessStore.getState().clearAccess(threadId);
+    }
+  });
+
+  it("shows a Cloud prompt immediately without a balance preflight", async () => {
+    const { agent } = await import("@platform/tauri/client");
+    const { useAgentSessionStore } = await import("@features/agent/store/agent-session-store");
+    const { useAgentDataStore } = await import("@features/agent/store/agent-data-store");
+    const previous = useAgentDataStore.getState();
+    useAgentDataStore.setState({
+      piCloudAccountId: "account-1",
+      agents: { ...previous.agents, pi: { ...previous.agents.pi, user: {
+        ...previous.agents.pi.user,
+        model: { id: "flowix-cloud-member/auto", providerId: "flowix-cloud-member" },
+      } } },
+    });
+    const threadId = "thread-pi-no-credits";
+    try {
+      const send = useAgentSessionStore.getState().sendMessageToThread(
+        threadId, "你好", "pi", { rejectOnFailure: true },
+      );
+      expect(useAgentSessionStore.getState().threadProjections[threadId]?.messages).toHaveLength(1);
+      const { cloud } = await import("@platform/tauri/client");
+      expect(vi.mocked(cloud.getAiCreditBalance)).not.toHaveBeenCalled();
+      await send;
+      expect(vi.mocked(agent.chatStream)).toHaveBeenCalled();
+    } finally {
+      useAgentDataStore.setState({ piCloudAccountId: previous.piCloudAccountId, agents: previous.agents });
     }
   });
 

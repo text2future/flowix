@@ -1,16 +1,12 @@
-//! Serializes manual, automatic and polling sync work, including retries.
-use super::local_adapter::*;
+//! Serializes manual, automatic and polling path sync work, including retries.
+mod status;
+
 use super::*;
+use flowix_sync::{PathNotebookLink, PendingNotebookAction};
+use status::emit_activity_status;
+use tokio::sync::watch;
 
-static ACCOUNT_SYNC_LOCK: OnceLock<Arc<tokio::sync::Mutex<()>>> = OnceLock::new();
-
-fn account_sync_lock() -> Arc<tokio::sync::Mutex<()>> {
-    ACCOUNT_SYNC_LOCK
-        .get_or_init(|| Arc::new(tokio::sync::Mutex::new(())))
-        .clone()
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum SyncTarget {
     Notebook(String),
     FullAccount,
@@ -38,9 +34,20 @@ impl SyncTarget {
     }
 }
 
+fn current_target(requested: SyncTarget, current: Option<String>) -> Option<SyncTarget> {
+    match (requested, current) {
+        (SyncTarget::FullAccount, Some(id)) => Some(SyncTarget::Notebook(id)),
+        (SyncTarget::Notebook(id), Some(current)) if id == current => {
+            Some(SyncTarget::Notebook(id))
+        }
+        _ => None,
+    }
+}
+
 struct ManualSyncRequest {
     target: SyncTarget,
     responder: oneshot::Sender<Result<CloudSyncResult, String>>,
+    selection_epoch: u64,
 }
 
 enum SyncCoordinatorRequest {
@@ -55,13 +62,72 @@ enum SyncCoordinatorRequest {
 
 #[derive(Clone)]
 struct SyncCoordinatorHandle {
-    sender: mpsc::UnboundedSender<SyncCoordinatorRequest>,
+    sender: mpsc::UnboundedSender<QueuedSyncRequest>,
+    pending: std::sync::Arc<std::sync::Mutex<HashSet<CoalescedRequest>>>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+enum CoalescedRequest {
+    Poll,
+    Automatic(SyncTarget, bool),
+}
+
+struct QueuedSyncRequest {
+    request: SyncCoordinatorRequest,
+    key: Option<CoalescedRequest>,
+    pending: std::sync::Arc<std::sync::Mutex<HashSet<CoalescedRequest>>>,
+}
+
+impl QueuedSyncRequest {
+    fn take(self) -> SyncCoordinatorRequest {
+        if let Some(key) = &self.key {
+            self.pending
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(key);
+        }
+        self.request
+    }
+}
+
+impl SyncCoordinatorHandle {
+    fn send(&self, request: SyncCoordinatorRequest) -> Result<(), String> {
+        let key = match &request {
+            SyncCoordinatorRequest::Poll => Some(CoalescedRequest::Poll),
+            SyncCoordinatorRequest::Automatic {
+                target,
+                generation_changed,
+            } => Some(CoalescedRequest::Automatic(
+                target.clone(),
+                *generation_changed,
+            )),
+            _ => None,
+        };
+        let mut pending = self.pending.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(key) = &key {
+            if !pending.insert(key.clone()) {
+                return Ok(());
+            }
+        }
+        let queued = QueuedSyncRequest {
+            request,
+            key: key.clone(),
+            pending: self.pending.clone(),
+        };
+        if self.sender.send(queued).is_err() {
+            if let Some(key) = key {
+                pending.remove(&key);
+            }
+            return Err("cloud sync coordinator is unavailable".to_string());
+        }
+        Ok(())
+    }
 }
 
 #[derive(Default)]
 struct PendingSyncBatch {
     target: Option<SyncTarget>,
-    responders: Vec<oneshot::Sender<Result<CloudSyncResult, String>>>,
+    responders: Vec<ManualSyncRequest>,
     retry_on_failure: bool,
     debounce_required: bool,
 }
@@ -96,29 +162,70 @@ impl SyncActivity {
             },
         }
     }
+}
 
-    fn absorb_report(&mut self, report: &V2AccountSyncReport) {
-        self.result.uploaded = self.result.uploaded.saturating_add(report.uploaded);
-        self.result.deleted = self.result.deleted.saturating_add(report.deleted);
-        self.result.downloaded = self.result.downloaded.saturating_add(report.remote.len());
-        self.result.notebooks = self.notebooks.len();
+const AUTO_SYNC_DEBOUNCE: Duration = Duration::from_millis(600);
+const AUTO_SYNC_MAX_WAIT: Duration = Duration::from_secs(5);
+const FAILED_SYNC_RETRY_INTERVAL: Duration = Duration::from_secs(30);
+pub(super) const CLOUD_POLL_INTERVAL: Duration = Duration::from_secs(10);
+const CLOUD_SYNC_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+
+async fn timeout_without_progress<F: std::future::Future>(
+    mut progress: watch::Receiver<()>,
+    future: F,
+    idle: Duration,
+) -> Result<F::Output, ()> {
+    tokio::pin!(future);
+    loop {
+        tokio::select! {
+            biased;
+            result = &mut future => return Ok(result),
+            changed = progress.changed() => {
+                if changed.is_err() { return Err(()); }
+            }
+            _ = tokio::time::sleep(idle) => return Err(()),
+        }
     }
 }
 
-const AUTO_SYNC_DEBOUNCE: Duration = Duration::from_millis(1_200);
-const AUTO_SYNC_MAX_WAIT: Duration = Duration::from_secs(5);
-const CLOUD_POLL_INTERVAL: Duration = Duration::from_secs(30);
-const CLOUD_SYNC_PASS_TIMEOUT: Duration = Duration::from_secs(180);
-const MANUAL_SYNC_TIMEOUT: Duration = Duration::from_secs(300);
-
 static SYNC_COORDINATOR: OnceLock<SyncCoordinatorHandle> = OnceLock::new();
 static POLLING_STARTED: AtomicBool = AtomicBool::new(false);
+static DELETION_WORKER_RUNNING: AtomicBool = AtomicBool::new(false);
+static NOTEBOOK_SELECTION: Lazy<watch::Sender<u64>> = Lazy::new(|| watch::channel(0).0);
+
+async fn run_until_selection_changed<F: std::future::Future>(
+    changes: &mut watch::Receiver<u64>,
+    future: F,
+) -> Option<F::Output> {
+    tokio::pin!(future);
+    tokio::select! {
+        biased;
+        _ = changes.changed() => None,
+        result = &mut future => Some(result),
+    }
+}
+
+fn current_notebook_id(state: &AppState) -> Option<String> {
+    read_lock(&state.memo_file, "memo_file").current_notebook_id_value()
+}
+
+/// Called under notebook_transition before the selected notebook can change.
+pub(crate) fn invalidate_notebook_selection() {
+    NOTEBOOK_SELECTION.send_modify(|generation| *generation = generation.wrapping_add(1));
+}
+
+pub(crate) fn notebook_selection_changed(app: &AppHandle, notebook_id: Option<&str>) {
+    if let Some(notebook_id) = notebook_id {
+        schedule_notebook_sync(app.clone(), notebook_id.to_string());
+    }
+}
 
 fn sync_coordinator(app: &AppHandle) -> SyncCoordinatorHandle {
     SYNC_COORDINATOR
         .get_or_init(|| {
             let (sender, receiver) = mpsc::unbounded_channel();
-            let handle = SyncCoordinatorHandle { sender };
+            let pending = std::sync::Arc::new(std::sync::Mutex::new(HashSet::new()));
+            let handle = SyncCoordinatorHandle { sender, pending };
             tauri::async_runtime::spawn(run_sync_coordinator(app.clone(), receiver));
             handle
         })
@@ -126,18 +233,16 @@ fn sync_coordinator(app: &AppHandle) -> SyncCoordinatorHandle {
 }
 
 fn send_sync_request(app: &AppHandle, request: SyncCoordinatorRequest) -> Result<(), String> {
-    sync_coordinator(app)
-        .sender
-        .send(request)
-        .map_err(|_| "cloud sync coordinator is unavailable".to_string())
+    sync_coordinator(app).send(request)
 }
 
 fn automatic_sync_available(app: &AppHandle, notebook_id: &str) -> bool {
     let state = app.state::<AppState>();
-    state.cloud_sync.account().sync_access().can_read
+    current_notebook_id(state.inner()).as_deref() == Some(notebook_id)
+        && state.cloud_sync.cloud_sync_available()
         && state
             .cloud_sync
-            .v2_notebook(notebook_id)
+            .path_notebook(notebook_id)
             .ok()
             .flatten()
             .is_some_and(|notebook| notebook.enabled)
@@ -148,12 +253,7 @@ fn automatic_sync_target_available(app: &AppHandle, target: &SyncTarget) -> bool
         SyncTarget::Notebook(notebook_id) => automatic_sync_available(app, notebook_id),
         SyncTarget::FullAccount => {
             let state = app.state::<AppState>();
-            state.cloud_sync.account().sync_access().can_read
-                && !state
-                    .cloud_sync
-                    .v2_enabled_notebooks()
-                    .unwrap_or_default()
-                    .is_empty()
+            current_notebook_id(state.inner()).is_some_and(|id| automatic_sync_available(app, &id))
         }
     }
 }
@@ -161,10 +261,10 @@ fn automatic_sync_target_available(app: &AppHandle, target: &SyncTarget) -> bool
 fn enabled_notebooks_for_target(
     state: &AppState,
     target: &SyncTarget,
-) -> Result<Vec<V2SyncedNotebook>, String> {
+) -> Result<Vec<PathNotebookLink>, String> {
     Ok(state
         .cloud_sync
-        .v2_enabled_notebooks()
+        .path_enabled_notebooks()
         .map_err(sync_error)?
         .into_iter()
         .filter(|notebook| {
@@ -173,32 +273,6 @@ fn enabled_notebooks_for_target(
                 .is_none_or(|scope| notebook.notebook_id == scope)
         })
         .collect())
-}
-
-fn emit_activity_status(
-    app: &AppHandle,
-    activity: &SyncActivity,
-    notebook_ids: impl IntoIterator<Item = String>,
-    state: &str,
-    phase: &str,
-    error: Option<&str>,
-) {
-    let finished_at = matches!(state, "success" | "error").then(|| Utc::now().timestamp_millis());
-    for notebook_id in notebook_ids {
-        let mut status = CloudSyncStatus::new(
-            &notebook_id,
-            &activity.run_id,
-            state,
-            phase,
-            activity.started_at,
-        );
-        status.uploaded = activity.result.uploaded;
-        status.deleted = activity.result.deleted;
-        status.downloaded = activity.result.downloaded;
-        status.finished_at = finished_at;
-        status.last_error = error.map(str::to_owned);
-        emit_sync_status(app, &status);
-    }
 }
 
 fn fail_sync_activity(
@@ -220,146 +294,15 @@ fn fail_sync_activity(
         "failed",
         Some(&error),
     );
-    finish_responders(std::mem::take(&mut batch.responders), Err(error.clone()));
+    finish_responders(
+        std::mem::take(&mut batch.responders),
+        Err(error.clone()),
+        &HashSet::new(),
+    );
     if batch.retry_on_failure {
         schedule_retry_after_failure(app, target.clone());
     }
     error
-}
-
-async fn sync_v2_account_pass(
-    state: &AppState,
-    app: &AppHandle,
-    target: &SyncTarget,
-    enabled: &[V2SyncedNotebook],
-    activity: &SyncActivity,
-) -> Result<V2AccountSyncReport, String> {
-    let generation = state.cloud_sync.account().session_generation();
-    let notebook_scope = target.notebook_scope();
-    let full_local_snapshot = should_run_full_local_snapshot(state, notebook_scope)?;
-    let sync_lock = account_sync_lock();
-    let _guard = sync_lock.lock().await;
-    emit_activity_status(
-        app,
-        activity,
-        enabled.iter().map(|notebook| notebook.notebook_id.clone()),
-        "checking",
-        "snapshot",
-        None,
-    );
-    let (mut notebooks, mut notes) =
-        v2_account_snapshot(state, full_local_snapshot, notebook_scope)?;
-    if full_local_snapshot {
-        let present: HashSet<_> = notes.iter().map(|note| note.id.as_str()).collect();
-        let moving: HashSet<_> = state
-            .cloud_sync
-            .v2_pending_moves()
-            .map_err(sync_error)?
-            .into_iter()
-            .map(|item| item.from_note_id)
-            .collect();
-        let enabled_ids: HashSet<_> = enabled
-            .iter()
-            .map(|item| item.notebook_id.as_str())
-            .collect();
-        for previous in state.cloud_sync.v2_all_note_states().map_err(sync_error)? {
-            if !previous.deleted
-                && enabled_ids.contains(previous.notebook_id.as_str())
-                && notebook_scope.is_none_or(|scope| scope == previous.notebook_id)
-                && !present.contains(previous.note_id.as_str())
-                && !moving.contains(&previous.note_id)
-            {
-                state
-                    .cloud_sync
-                    .record_v2_local_change(
-                        &previous.notebook_id,
-                        &previous.note_id,
-                        flowix_sync::LocalChangeKind::Delete,
-                        "deleted",
-                    )
-                    .map_err(sync_error)?;
-            }
-        }
-    }
-    emit_activity_status(
-        app,
-        activity,
-        enabled.iter().map(|notebook| notebook.notebook_id.clone()),
-        "syncing",
-        "transfer",
-        None,
-    );
-    let mut conflict_attempts = 0;
-    let report_result = loop {
-        let result = match tokio::time::timeout(
-            CLOUD_SYNC_PASS_TIMEOUT,
-            state.cloud_sync.sync_v2_snapshot_at_generation(
-                notebook_scope,
-                notebooks,
-                notes,
-                generation,
-            ),
-        )
-        .await
-        {
-            Ok(result) => result,
-            Err(_) => Err(SyncError::InvalidState(
-                "云同步超过 3 分钟仍未完成，请检查网络后重试。".into(),
-            )),
-        };
-        match result {
-            Err(SyncError::MoveConflict { operation_id, .. }) if conflict_attempts < 3 => {
-                conflict_attempts += 1;
-                let movement = state
-                    .cloud_sync
-                    .v2_pending_move(&operation_id)
-                    .map_err(sync_error)?
-                    .ok_or_else(|| "CLOUD_MOVE_CONFLICT_QUEUE_MISSING".to_string())?;
-                resolve_v2_move_conflict(state, app, &movement)?;
-                (notebooks, notes) = v2_account_snapshot(state, true, notebook_scope)?;
-            }
-            Err(SyncError::RevisionConflict {
-                notebook_id,
-                note_id,
-                operation_id,
-                operation_kind,
-                ..
-            }) if matches!(operation_kind.as_str(), "put" | "delete") && conflict_attempts < 3 => {
-                conflict_attempts += 1;
-                let material = state
-                    .cloud_sync
-                    .v2_conflict_material(&notebook_id, &note_id, &operation_id)
-                    .await
-                    .map_err(cloud_error)?;
-                if operation_kind == "delete" {
-                    resolve_v2_delete_conflict(state, app, &material)?;
-                } else {
-                    resolve_v2_file_put_conflict(state, app, &material)?;
-                }
-                (notebooks, notes) = v2_account_snapshot(state, true, notebook_scope)?;
-            }
-            other => break other,
-        }
-    };
-    let mut report = report_result.map_err(cloud_error)?;
-    emit_activity_status(
-        app,
-        activity,
-        enabled.iter().map(|notebook| notebook.notebook_id.clone()),
-        "finalizing",
-        "apply",
-        None,
-    );
-    state
-        .cloud_sync
-        .complete_v2_sync_with_prepare(&mut report, notebook_scope, |report| {
-            apply_v2_report_preserving_local(state, app, report).map_err(SyncError::InvalidState)
-        })
-        .map_err(sync_error)?;
-    if full_local_snapshot && !report.read_only && report.deferred_notebooks.is_empty() {
-        record_full_local_snapshot(notebook_scope);
-    }
-    Ok(report)
 }
 
 fn merge_waiting_request(
@@ -377,12 +320,13 @@ fn merge_waiting_request(
             batch.debounce_required |= generation_changed;
             false
         }
-        SyncCoordinatorRequest::Retry(target) => {
+        SyncCoordinatorRequest::Retry(target) if poll_due => {
             batch.merge_target(target);
             batch.retry_on_failure = true;
             batch.debounce_required = false;
             true
         }
+        SyncCoordinatorRequest::Retry(_) => false,
         SyncCoordinatorRequest::Poll if poll_due => {
             batch.merge_target(SyncTarget::FullAccount);
             batch.retry_on_failure = true;
@@ -391,8 +335,8 @@ fn merge_waiting_request(
         }
         SyncCoordinatorRequest::Poll => false,
         SyncCoordinatorRequest::Manual(request) => {
-            batch.merge_target(request.target);
-            batch.responders.push(request.responder);
+            batch.merge_target(request.target.clone());
+            batch.responders.push(request);
             batch.debounce_required = false;
             true
         }
@@ -400,7 +344,7 @@ fn merge_waiting_request(
 }
 
 async fn collect_debounced_requests(
-    receiver: &mut mpsc::UnboundedReceiver<SyncCoordinatorRequest>,
+    receiver: &mut mpsc::UnboundedReceiver<QueuedSyncRequest>,
     batch: &mut PendingSyncBatch,
     poll_due: bool,
 ) {
@@ -415,6 +359,7 @@ async fn collect_debounced_requests(
             _ = tokio::time::sleep_until(deadline) => break,
             request = receiver.recv() => {
                 let Some(request) = request else { break };
+                let request = request.take();
                 let resets_debounce = matches!(
                     request,
                     SyncCoordinatorRequest::Automatic {
@@ -486,28 +431,29 @@ fn merge_request_after_pass(
         // periodic tick will be measured from this activity's success.
         SyncCoordinatorRequest::Poll => false,
         SyncCoordinatorRequest::Manual(request) => {
-            let covered =
-                activity_covers(completed_full_account, completed_notebooks, &request.target);
-            if !covered {
-                batch.merge_target(request.target);
-                batch.debounce_required = false;
-            }
-            batch.responders.push(request.responder);
-            !covered
+            // A request arriving during a pass may include edits made after its scan.
+            batch.merge_target(request.target.clone());
+            batch.debounce_required = false;
+            batch.responders.push(request);
+            true
         }
     }
 }
 
 async fn collect_trailing_requests(
-    receiver: &mut mpsc::UnboundedReceiver<SyncCoordinatorRequest>,
+    receiver: &mut mpsc::UnboundedReceiver<QueuedSyncRequest>,
     batch: &mut PendingSyncBatch,
     completed_full_account: bool,
     completed_notebooks: &HashSet<String>,
 ) {
     let mut start_immediately = false;
     while let Ok(request) = receiver.try_recv() {
-        start_immediately |=
-            merge_request_after_pass(batch, request, completed_full_account, completed_notebooks);
+        start_immediately |= merge_request_after_pass(
+            batch,
+            request.take(),
+            completed_full_account,
+            completed_notebooks,
+        );
     }
     if start_immediately || !batch.debounce_required {
         return;
@@ -520,6 +466,7 @@ async fn collect_trailing_requests(
             _ = tokio::time::sleep_until(deadline) => break,
             request = receiver.recv() => {
                 let Some(request) = request else { break };
+                let request = request.take();
                 let resets_debounce = matches!(
                     request,
                     SyncCoordinatorRequest::Automatic {
@@ -546,17 +493,28 @@ async fn collect_trailing_requests(
 }
 
 fn finish_responders(
-    responders: Vec<oneshot::Sender<Result<CloudSyncResult, String>>>,
+    responders: Vec<ManualSyncRequest>,
     result: Result<CloudSyncResult, String>,
+    completed: &HashSet<String>,
 ) {
-    for responder in responders {
-        let _ = responder.send(result.clone());
+    let epoch = *NOTEBOOK_SELECTION.borrow();
+    for request in responders {
+        let own_result = match &result {
+            Ok(_)
+                if request.selection_epoch != epoch
+                    || !activity_covers(false, completed, &request.target) =>
+            {
+                Err("笔记本已切换，原同步已停止。".to_string())
+            }
+            _ => result.clone(),
+        };
+        let _ = request.responder.send(own_result);
     }
 }
 
 async fn run_sync_activity(
     app: &AppHandle,
-    receiver: &mut mpsc::UnboundedReceiver<SyncCoordinatorRequest>,
+    receiver: &mut mpsc::UnboundedReceiver<QueuedSyncRequest>,
     mut batch: PendingSyncBatch,
 ) -> Result<CloudSyncResult, String> {
     let mut activity = SyncActivity::new();
@@ -564,13 +522,31 @@ async fn run_sync_activity(
     let mut completed_notebooks = HashSet::new();
 
     loop {
-        let Some(target) = batch.target.take() else {
+        let Some(requested_target) = batch.target.take() else {
             let result = activity.result.clone();
-            finish_responders(batch.responders, Ok(result.clone()));
+            finish_responders(batch.responders, Ok(result.clone()), &completed_notebooks);
             return Ok(result);
         };
         let state = app.state::<AppState>();
-        if let Err(error) = state.cloud_sync.account().require_sync_access() {
+        // Snapshot selection and its cancellation receiver under the same lock
+        // used by notebook switching, so they cannot describe different epochs.
+        let (current, mut selection_changes) = {
+            let _transition = state.notebook_transition.lock();
+            let current = current_notebook_id(state.inner());
+            let mut changes = NOTEBOOK_SELECTION.subscribe();
+            let _ = *changes.borrow_and_update();
+            (current, changes)
+        };
+        let Some(target) = current_target(requested_target, current) else {
+            let error = "只能同步当前打开的笔记本。".to_string();
+            finish_responders(
+                std::mem::take(&mut batch.responders),
+                Err(error.clone()),
+                &HashSet::new(),
+            );
+            return Err(error);
+        };
+        if let Err(error) = state.cloud_sync.require_remote_access() {
             return Err(fail_sync_activity(
                 app,
                 &activity,
@@ -579,96 +555,154 @@ async fn run_sync_activity(
                 cloud_error(error),
             ));
         }
+
         let enabled = match enabled_notebooks_for_target(state.inner(), &target) {
             Ok(enabled) => enabled,
             Err(error) => {
                 return Err(fail_sync_activity(
                     app, &activity, &mut batch, &target, error,
-                ))
+                ));
             }
         };
-        activity
-            .notebooks
-            .extend(enabled.iter().map(|notebook| notebook.notebook_id.clone()));
-        activity.result.notebooks = activity.notebooks.len();
-
-        let mut first_head = None;
-        let mut previous_cursor = None;
-        loop {
-            let mut report = match sync_v2_account_pass(
-                state.inner(),
-                app,
-                &target,
-                &enabled,
-                &activity,
-            )
-            .await
-            {
-                Ok(report) => report,
-                Err(error) => {
-                    return Err(fail_sync_activity(
-                        app, &activity, &mut batch, &target, error,
-                    ))
-                }
-            };
-            activity.absorb_report(&report);
-            let mut bootstrap_pages = 0;
-            while report.bootstrap_next_page_token.is_some() {
-                bootstrap_pages += 1;
-                let next = if bootstrap_pages > 10_000 {
-                    Err("CLOUD_BOOTSTRAP_PAGE_LIMIT: bootstrap exceeded page limit".to_string())
-                } else {
-                    async {
-                        let mut next = tokio::time::timeout(
-                            CLOUD_SYNC_PASS_TIMEOUT,
-                            state
-                                .cloud_sync
-                                .v2_continue_bootstrap(&report, target.notebook_scope()),
-                        )
-                        .await
-                        .map_err(|_| {
-                            "云端笔记初始化超过 3 分钟仍未完成，请检查网络后重试。".to_string()
-                        })?
-                        .map_err(cloud_error)?;
-                        state
-                            .cloud_sync
-                            .complete_v2_sync_with_prepare(
-                                &mut next,
-                                target.notebook_scope(),
-                                |report| {
-                                    apply_v2_report_preserving_local(state.inner(), app, report)
-                                        .map_err(SyncError::InvalidState)
-                                },
-                            )
-                            .map_err(sync_error)?;
-                        Ok::<_, String>(next)
-                    }
-                    .await
-                };
-                report = match next {
-                    Ok(next) => next,
-                    Err(error) => {
-                        return Err(fail_sync_activity(
-                            app, &activity, &mut batch, &target, error,
-                        ))
-                    }
-                };
-                activity.absorb_report(&report);
-            }
-            let head = *first_head.get_or_insert(report.head_cursor);
-            if report.cursor >= head {
-                break;
-            }
-            if previous_cursor.is_some_and(|cursor| report.cursor <= cursor) {
+        let mut notebook_ids: Vec<String> = enabled
+            .iter()
+            .map(|notebook| notebook.notebook_id.clone())
+            .collect();
+        let pending_metadata = match state.cloud_sync.v4_pending_notebook_changes() {
+            Ok(changes) => changes,
+            Err(error) => {
                 return Err(fail_sync_activity(
                     app,
                     &activity,
                     &mut batch,
                     &target,
-                    "CLOUD_SYNC_CURSOR_STALLED: remote cursor did not advance".to_string(),
+                    sync_error(error),
                 ));
             }
-            previous_cursor = Some(report.cursor);
+        };
+        notebook_ids.extend(
+            pending_metadata
+                .into_iter()
+                .filter(|change| {
+                    change.action == PendingNotebookAction::Delete
+                        && target
+                            .notebook_scope()
+                            .is_none_or(|scope| change.notebook_id == scope)
+                })
+                .map(|change| change.notebook_id),
+        );
+        notebook_ids.sort();
+        notebook_ids.dedup();
+        activity.notebooks.extend(notebook_ids.iter().cloned());
+        activity.result.notebooks = activity.notebooks.len();
+        emit_activity_status(
+            app,
+            &activity,
+            notebook_ids.clone(),
+            "checking",
+            "path",
+            None,
+        );
+
+        let (progress_tx, progress_rx) = watch::channel(());
+        let network_progress = progress_tx.clone();
+        let path_report = match timeout_without_progress(
+            progress_rx,
+            async {
+                let on_transfer = |notebook_id: &str, direction: Option<&str>| {
+                    emit_activity_status(
+                        app,
+                        &activity,
+                        [notebook_id.to_string()],
+                        "syncing",
+                        direction.unwrap_or("transfer-idle"),
+                        None,
+                    );
+                };
+                let on_progress = |notebook_id: &str, completed: usize, total: usize| {
+                    progress_tx.send_replace(());
+                    let mut status = CloudSyncStatus::new(
+                        notebook_id,
+                        &activity.run_id,
+                        "syncing",
+                        "actions",
+                        activity.started_at,
+                    );
+                    status.progress_completed = Some(completed);
+                    status.progress_total = Some(total);
+                    status.engine = Some("path".to_string());
+                    emit_sync_status(app, &status);
+                };
+                let pass = super::path_sync_runner::run_passes(
+                    state.inner(),
+                    app,
+                    &notebook_ids,
+                    true,
+                    &on_transfer,
+                    &on_progress,
+                );
+                let measured_pass = flowix_sync::telemetry::observe_sync_with_progress(
+                    pass,
+                    std::sync::Arc::new(move || {
+                        network_progress.send_replace(());
+                    }),
+                    |metrics| {
+                        crate::runtime_log::record_event(
+                            "info",
+                            "cloud.sync.network",
+                            format!(
+                                "run={} notebook_count={} metrics={metrics}",
+                                activity.run_id,
+                                notebook_ids.len()
+                            ),
+                        );
+                    },
+                );
+                match run_until_selection_changed(&mut selection_changes, measured_pass).await {
+                    Some(result)
+                        if !selection_changes.has_changed().unwrap_or(true)
+                            && current_notebook_id(state.inner()).as_deref()
+                                == target.notebook_scope() =>
+                    {
+                        result
+                    }
+                    _ => Err("笔记本已切换，原同步已停止。".to_string()),
+                }
+            },
+            CLOUD_SYNC_IDLE_TIMEOUT,
+        )
+        .await
+        {
+            Ok(Ok(report)) => report,
+            Ok(Err(error)) => {
+                return Err(fail_sync_activity(
+                    app, &activity, &mut batch, &target, error,
+                ));
+            }
+            Err(_) => {
+                return Err(fail_sync_activity(
+                    app,
+                    &activity,
+                    &mut batch,
+                    &target,
+                    "CLOUD_SYNC_TIMEOUT: path sync made no progress for 5 minutes".to_string(),
+                ));
+            }
+        };
+        activity.result = CloudSyncResult {
+            notebooks: path_report.notebooks,
+            uploaded: path_report.uploaded,
+            downloaded: path_report.downloaded,
+            deleted: path_report.deleted,
+        };
+        if !path_report.errors.is_empty() {
+            return Err(fail_sync_activity(
+                app,
+                &activity,
+                &mut batch,
+                &target,
+                path_report.errors.join("\n"),
+            ));
         }
         match &target {
             SyncTarget::FullAccount => completed_full_account = true,
@@ -677,6 +711,12 @@ async fn run_sync_activity(
             }
         }
 
+        // Manual callers whose pass has completed need not wait for later edits.
+        finish_responders(
+            std::mem::take(&mut batch.responders),
+            Ok(activity.result.clone()),
+            &completed_notebooks,
+        );
         collect_trailing_requests(
             receiver,
             &mut batch,
@@ -694,20 +734,38 @@ async fn run_sync_activity(
                 None,
             );
             let result = activity.result.clone();
-            finish_responders(batch.responders, Ok(result.clone()));
+            finish_responders(batch.responders, Ok(result.clone()), &completed_notebooks);
             return Ok(result);
         }
     }
 }
 
+fn automatic_check_due(elapsed: Option<Duration>, last_failed: bool) -> bool {
+    let interval = if last_failed {
+        FAILED_SYNC_RETRY_INTERVAL
+    } else {
+        CLOUD_POLL_INTERVAL
+    };
+    elapsed.is_none_or(|duration| duration >= interval)
+}
+
 async fn run_sync_coordinator(
     app: AppHandle,
-    mut receiver: mpsc::UnboundedReceiver<SyncCoordinatorRequest>,
+    mut receiver: mpsc::UnboundedReceiver<QueuedSyncRequest>,
 ) {
-    let mut last_success_at: Option<Instant> = None;
+    let mut last_attempt_at: Option<Instant> = None;
+    let mut last_attempt_failed = false;
     while let Some(first_request) = receiver.recv().await {
-        let poll_due = last_success_at
-            .is_none_or(|last_success| last_success.elapsed() >= CLOUD_POLL_INTERVAL);
+        let first_request = first_request.take();
+        let poll_due = automatic_check_due(
+            last_attempt_at.map(|last| last.elapsed()),
+            last_attempt_failed,
+        );
+        // A timer from an earlier failure may arrive after another attempt.
+        // Do not let stale retries bypass the same backoff as polling.
+        if matches!(first_request, SyncCoordinatorRequest::Retry(_)) && !poll_due {
+            continue;
+        }
         let mut batch = PendingSyncBatch::default();
         merge_waiting_request(&mut batch, first_request, poll_due);
         if batch.target.is_none() {
@@ -717,10 +775,14 @@ async fn run_sync_coordinator(
         if batch.target.is_none() {
             continue;
         }
-        match run_sync_activity(&app, &mut receiver, batch).await {
-            Ok(_) => last_success_at = Some(Instant::now()),
-            Err(error) => tracing::warn!("cloud sync activity failed: {error}"),
-        }
+        last_attempt_failed = match run_sync_activity(&app, &mut receiver, batch).await {
+            Ok(_) => false,
+            Err(error) => {
+                tracing::warn!("cloud sync activity failed: {error}");
+                true
+            }
+        };
+        last_attempt_at = Some(Instant::now());
     }
 }
 
@@ -749,46 +811,41 @@ pub(crate) fn schedule_notebook_sync_observation(
 }
 
 fn schedule_retry_after_failure(app: &AppHandle, target: SyncTarget) {
-    let state = app.state::<AppState>();
-    match state
-        .cloud_sync
-        .v2_retry_delay(chrono::Utc::now().timestamp_millis())
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(FAILED_SYNC_RETRY_INTERVAL).await;
+        if automatic_sync_target_available(&app, &target) {
+            if let Err(error) =
+                send_sync_request(&app, SyncCoordinatorRequest::Retry(target.clone()))
+            {
+                tracing::warn!(
+                    "failed to schedule cloud retry for {}: {error}",
+                    target.label()
+                );
+            }
+        }
+    });
+}
+
+/// Complete explicit notebook removals without synchronizing their contents.
+/// A durable pending row is retried on later polls if this worker fails.
+pub(crate) fn schedule_pending_notebook_deletions(app: AppHandle) {
+    if !app.state::<AppState>().cloud_sync.cloud_sync_available()
+        || DELETION_WORKER_RUNNING.swap(true, Ordering::SeqCst)
     {
-        Ok(Some(delay_ms)) => {
-            let app = app.clone();
-            tauri::async_runtime::spawn(async move {
-                tokio::time::sleep(Duration::from_millis(delay_ms.max(1) as u64)).await;
-                if !automatic_sync_target_available(&app, &target) {
-                    return;
-                }
-                let state = app.state::<AppState>();
-                if state
-                    .cloud_sync
-                    .v2_retry_delay(Utc::now().timestamp_millis())
-                    .ok()
-                    .flatten()
-                    .is_none()
-                {
-                    return;
-                }
-                if let Err(error) =
-                    send_sync_request(&app, SyncCoordinatorRequest::Retry(target.clone()))
-                {
-                    tracing::warn!(
-                        "failed to schedule cloud retry for {}: {error}",
-                        target.label()
-                    );
-                }
-            });
-        }
-        Ok(None) => {}
-        Err(error) => {
-            tracing::warn!(
-                "failed to calculate cloud retry for {}: {error}",
-                target.label()
-            );
-        }
+        return;
     }
+    tauri::async_runtime::spawn(async move {
+        let result = super::path_sync_runner::flush_deleted_notebook_manifests(
+            app.state::<AppState>().inner(),
+            &app,
+        )
+        .await;
+        if let Err(error) = result {
+            tracing::warn!(%error, "pending notebook deletion will be retried");
+        }
+        DELETION_WORKER_RUNNING.store(false, Ordering::SeqCst);
+    });
 }
 
 pub(crate) fn start_cloud_sync_polling(app: AppHandle) {
@@ -797,21 +854,20 @@ pub(crate) fn start_cloud_sync_polling(app: AppHandle) {
     }
     tauri::async_runtime::spawn(async move {
         loop {
-            tokio::time::sleep(CLOUD_POLL_INTERVAL).await;
+            // Check once as soon as storage initialization finishes; later
+            // checks use the regular interval.
             let should_poll = {
                 let state = app.state::<AppState>();
-                state.cloud_sync.account().sync_access().can_read
-                    && !state
-                        .cloud_sync
-                        .v2_enabled_notebooks()
-                        .unwrap_or_default()
-                        .is_empty()
+                current_notebook_id(state.inner())
+                    .is_some_and(|id| automatic_sync_available(&app, &id))
             };
+            schedule_pending_notebook_deletions(app.clone());
             if should_poll {
                 if let Err(error) = send_sync_request(&app, SyncCoordinatorRequest::Poll) {
                     tracing::warn!("failed to request periodic cloud sync: {error}");
                 }
             }
+            tokio::time::sleep(CLOUD_POLL_INTERVAL).await;
         }
     });
 }
@@ -823,30 +879,118 @@ pub(super) async fn sync_now(
     let state = app.state::<AppState>();
     state
         .cloud_sync
-        .account()
-        .require_sync_access()
+        .require_remote_access()
         .map_err(cloud_error)?;
-    let target = match notebook_id {
-        Some(notebook_id) => SyncTarget::Notebook(notebook_id),
-        None => SyncTarget::FullAccount,
+    let (current, selection_epoch) = {
+        let _transition = state.notebook_transition.lock();
+        (
+            current_notebook_id(state.inner()),
+            *NOTEBOOK_SELECTION.borrow(),
+        )
     };
+    let current = current.ok_or_else(|| "请先打开需要同步的笔记本。".to_string())?;
+    if notebook_id.as_deref().is_some_and(|id| id != current) {
+        return Err("只能同步当前打开的笔记本。".to_string());
+    }
+    let target = SyncTarget::Notebook(current);
     let (responder, response) = oneshot::channel();
     send_sync_request(
         &app,
-        SyncCoordinatorRequest::Manual(ManualSyncRequest { target, responder }),
+        SyncCoordinatorRequest::Manual(ManualSyncRequest {
+            target,
+            responder,
+            selection_epoch,
+        }),
     )?;
-    match tokio::time::timeout(MANUAL_SYNC_TIMEOUT, response).await {
-        Ok(Ok(result)) => result,
-        Ok(Err(_)) => {
-            Err("cloud sync coordinator stopped before completing the request".to_string())
-        }
-        Err(_) => Err("云同步超过 5 分钟仍未完成，请检查网络后重试。".to_string()),
+    match response.await {
+        Ok(result) => result,
+        Err(_) => Err("cloud sync coordinator stopped before completing the request".to_string()),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn repeated_automatic_requests_are_coalesced_until_consumed() {
+        let (sender, mut receiver) = mpsc::unbounded_channel();
+        let handle = SyncCoordinatorHandle {
+            sender,
+            pending: std::sync::Arc::new(std::sync::Mutex::new(HashSet::new())),
+        };
+        for _ in 0..1000 {
+            handle
+                .send(SyncCoordinatorRequest::Automatic {
+                    target: SyncTarget::Notebook("nb".into()),
+                    generation_changed: true,
+                })
+                .unwrap();
+            handle.send(SyncCoordinatorRequest::Poll).unwrap();
+        }
+        assert_eq!(receiver.len(), 2);
+        let _ = receiver.try_recv().unwrap().take();
+        handle
+            .send(SyncCoordinatorRequest::Automatic {
+                target: SyncTarget::Notebook("nb".into()),
+                generation_changed: true,
+            })
+            .unwrap();
+        assert_eq!(receiver.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn completed_manual_responders_do_not_wait_for_trailing_changes() {
+        let (sender, receiver) = oneshot::channel();
+        let request = ManualSyncRequest {
+            target: SyncTarget::Notebook("nb".into()),
+            responder: sender,
+            selection_epoch: *NOTEBOOK_SELECTION.borrow(),
+        };
+        let result = CloudSyncResult {
+            notebooks: 1,
+            uploaded: 1,
+            downloaded: 0,
+            deleted: 0,
+        };
+        let mut batch = PendingSyncBatch::default();
+        batch.target = Some(SyncTarget::Notebook("nb".into()));
+        batch.responders.push(request);
+        finish_responders(
+            std::mem::take(&mut batch.responders),
+            Ok(result),
+            &HashSet::from(["nb".into()]),
+        );
+        assert!(receiver.await.unwrap().is_ok());
+        assert!(batch.target.is_some());
+    }
+
+    #[tokio::test]
+    async fn idle_timeout_extends_while_progress_continues() {
+        let (progress, receiver) = watch::channel(());
+        let work = async move {
+            for _ in 0..4 {
+                tokio::time::sleep(Duration::from_millis(40)).await;
+                progress.send_replace(());
+            }
+            42
+        };
+        assert_eq!(
+            timeout_without_progress(receiver, work, Duration::from_millis(120)).await,
+            Ok(42)
+        );
+    }
+
+    #[tokio::test]
+    async fn idle_timeout_stops_stalled_work() {
+        let (_progress, receiver) = watch::channel(());
+        let stalled = std::future::pending::<()>();
+        assert!(
+            timeout_without_progress(receiver, stalled, Duration::from_millis(30))
+                .await
+                .is_err()
+        );
+    }
 
     #[test]
     fn sync_target_merge_keeps_one_scope_and_promotes_distinct_notebooks() {
@@ -859,6 +1003,80 @@ mod tests {
 
         target.merge(SyncTarget::Notebook("nb_3".into()));
         assert_eq!(target, SyncTarget::FullAccount);
+    }
+
+    #[test]
+    fn failed_automatic_checks_back_off_without_delaying_manual_requests() {
+        assert!(automatic_check_due(None, false));
+        assert!(!automatic_check_due(Some(Duration::from_secs(9)), false));
+        assert!(automatic_check_due(Some(Duration::from_secs(10)), false));
+        assert!(!automatic_check_due(Some(Duration::from_secs(10)), true));
+        assert!(automatic_check_due(Some(Duration::from_secs(30)), true));
+        let mut batch = PendingSyncBatch::default();
+        let (responder, _response) = oneshot::channel();
+        assert!(merge_waiting_request(
+            &mut batch,
+            SyncCoordinatorRequest::Manual(ManualSyncRequest {
+                target: SyncTarget::Notebook("nb_1".into()),
+                responder,
+                selection_epoch: *NOTEBOOK_SELECTION.borrow(),
+            }),
+            false
+        ));
+        assert_eq!(batch.target, Some(SyncTarget::Notebook("nb_1".into())));
+    }
+
+    #[test]
+    fn every_sync_target_is_restricted_to_the_current_notebook() {
+        assert_eq!(
+            current_target(SyncTarget::FullAccount, Some("b".into())),
+            Some(SyncTarget::Notebook("b".into()))
+        );
+        assert_eq!(
+            current_target(SyncTarget::Notebook("a".into()), Some("a".into())),
+            Some(SyncTarget::Notebook("a".into()))
+        );
+        assert_eq!(
+            current_target(SyncTarget::Notebook("a".into()), Some("b".into())),
+            None
+        );
+        assert_eq!(current_target(SyncTarget::FullAccount, None), None);
+    }
+
+    #[tokio::test]
+    async fn a_manual_response_cannot_report_another_notebooks_success() {
+        let (responder, response) = oneshot::channel();
+        let request = ManualSyncRequest {
+            target: SyncTarget::Notebook("notebook_a".into()),
+            responder,
+            selection_epoch: *NOTEBOOK_SELECTION.borrow(),
+        };
+        let result = CloudSyncResult {
+            notebooks: 1,
+            uploaded: 1,
+            downloaded: 0,
+            deleted: 0,
+        };
+        finish_responders(
+            vec![request],
+            Ok(result),
+            &HashSet::from(["notebook_b".into()]),
+        );
+        assert!(response.await.unwrap().is_err());
+    }
+
+    #[tokio::test]
+    async fn a_changed_selection_wins_over_a_ready_pass() {
+        let (sender, mut receiver) = watch::channel(0u64);
+        let _ = *receiver.borrow_and_update();
+        sender.send_modify(|value| *value += 1);
+        let started = std::sync::atomic::AtomicBool::new(false);
+        let result = run_until_selection_changed(&mut receiver, async {
+            started.store(true, Ordering::SeqCst);
+        })
+        .await;
+        assert!(result.is_none());
+        assert!(!started.load(Ordering::SeqCst));
     }
 
     #[test]
@@ -880,6 +1098,7 @@ mod tests {
             SyncCoordinatorRequest::Manual(ManualSyncRequest {
                 target: SyncTarget::Notebook("nb_1".into()),
                 responder,
+                selection_epoch: *NOTEBOOK_SELECTION.borrow(),
             }),
             true,
         ));
@@ -939,20 +1158,21 @@ mod tests {
     }
 
     #[test]
-    fn covered_manual_request_joins_current_activity_without_another_pass() {
+    fn manual_request_during_pass_schedules_a_fresh_pass() {
         let mut batch = PendingSyncBatch::default();
         let completed = HashSet::from(["nb_1".to_string()]);
         let (responder, _response) = oneshot::channel();
-        assert!(!merge_request_after_pass(
+        assert!(merge_request_after_pass(
             &mut batch,
             SyncCoordinatorRequest::Manual(ManualSyncRequest {
                 target: SyncTarget::Notebook("nb_1".into()),
                 responder,
+                selection_epoch: *NOTEBOOK_SELECTION.borrow(),
             }),
             false,
             &completed,
         ));
-        assert!(batch.target.is_none());
+        assert_eq!(batch.target, Some(SyncTarget::Notebook("nb_1".into())));
         assert_eq!(batch.responders.len(), 1);
     }
 

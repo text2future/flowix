@@ -15,6 +15,7 @@ import { useShallow } from 'zustand/react/shallow';
 import {
   cloud,
   listenToCloudStateChanges,
+  listenToCloudStorageAccessChanges,
   mediaResources,
   notes,
   notebooks as notebookCommands,
@@ -50,7 +51,6 @@ import { clearWorkspaceDocument } from '@features/workspace/public/note-navigati
 import { selectNotebook } from '@features/workspace/public/main-window-api';
 import { openPaymentDialog } from '@features/cloud-billing/public/payment-dialog';
 import { toast } from '@/lib/toast';
-import { subscribe } from '@platform/tauri/event-bus';
 import { cn } from '@/lib/utils';
 import { canonicalDirectoryPath, joinNotebookMemoPath } from '@/lib/path';
 import { Kbd } from '@shared/ui/kbd';
@@ -303,7 +303,6 @@ export function MemoListServicesHost({
   const [editingNotebook, setEditingNotebook] = useState<Notebook | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [loginDialogOpen, setLoginDialogOpen] = useState(false);
-  const [googleSignInBusy, setGoogleSignInBusy] = useState(false);
   const [editName, setEditName] = useState('');
   const [editIcon, setEditIcon] = useState<string | null>(DEFAULT_NOTEBOOK_ICON_ID);
   const [editPaths, setEditPaths] = useState<string[]>([]);
@@ -367,11 +366,11 @@ export function MemoListServicesHost({
   useEffect(() => {
     if (!editOpen || !editingNotebookId) return;
     let cancelled = false;
-    void Promise.all([cloud.getState(), cloud.getNotebookState(editingNotebookId)])
-      .then(([cloudState, link]) => {
+    void Promise.all([cloud.getStorageAccess(), cloud.getNotebookState(editingNotebookId)])
+      .then(([storageAccess, link]) => {
         if (cancelled) return;
         const enabled = Boolean(link?.enabled);
-        setCloudSyncAvailable(getCloudSyncAccess(cloudState).canUpload);
+        setCloudSyncAvailable(storageAccess.canUpload);
         setEditCloudSync(enabled);
         setOriginalEditCloudSync(enabled);
       })
@@ -383,30 +382,41 @@ export function MemoListServicesHost({
     };
   }, [editOpen, editingNotebookId]);
 
-  useEffect(() => listenToCloudStateChanges((state) => {
-    setCloudSyncAvailable(getCloudSyncAccess(state).canUpload);
-    if (state.authenticated) setLoginDialogOpen(false);
-    if (consumeAccountRestoreNotice(state)) toast.info(t('preferences.cloud.restored'));
-  }), [t]);
-
-  useEffect(() => subscribe<string>('cloud-google-auth-error', (message) => {
-    toast.error(cloudSyncErrorMessage(message, t));
-  }), [t]);
-
-  const startGoogleSignIn = useCallback(async () => {
-    if (googleSignInBusy) return;
-    setGoogleSignInBusy(true);
-    try {
-      await cloud.startGoogleSignIn();
-    } catch (error) {
-      toast.error(cloudSyncErrorMessage(error, t));
-    } finally {
-      setGoogleSignInBusy(false);
-    }
-  }, [googleSignInBusy, t]);
+  useEffect(() => {
+    let cancelled = false;
+    const refreshStorageAccess = () => {
+      void cloud.getStorageAccess().then((access) => {
+        if (!cancelled) setCloudSyncAvailable(access.canUpload);
+      }).catch(() => {
+        if (!cancelled) setCloudSyncAvailable(false);
+      });
+    };
+    refreshStorageAccess();
+    const unlistenState = listenToCloudStateChanges((state) => {
+      refreshStorageAccess();
+      if (state.authenticated) setLoginDialogOpen(false);
+      if (consumeAccountRestoreNotice(state)) toast.info(t('preferences.cloud.restored'));
+    });
+    const unlistenStorage = listenToCloudStorageAccessChanges(refreshStorageAccess);
+    return () => {
+      cancelled = true;
+      unlistenState();
+      unlistenStorage();
+    };
+  }, [t]);
 
   const handleCloudSyncUnavailable = useCallback(async (enableCloudSync: () => void) => {
     try {
+      const storageAccess = await cloud.getStorageAccess();
+      if (storageAccess.canUpload) {
+        setCloudSyncAvailable(true);
+        enableCloudSync();
+        return;
+      }
+      if (storageAccess.target === 'customS3') {
+        await tauriWindows.openPreferences('cloudSync');
+        return;
+      }
       let state = await cloud.getState();
       if (!state.authenticated) {
         setLoginDialogOpen(true);
@@ -618,16 +628,9 @@ export function MemoListServicesHost({
 
   const openRemoteNotebooks = useCallback(async () => {
     try {
-      const state = await cloud.getState();
-      const syncAccess = getCloudSyncAccess(state);
-      const syncAvailable = syncAccess.canRead;
-      setCloudSyncAvailable(syncAccess.canUpload);
-      if (!state.authenticated) {
-        resetCreateState();
-        await tauriWindows.openPreferences('cloudSync');
-        return;
-      }
-      if (!syncAvailable) {
+      const storageAccess = await cloud.getStorageAccess();
+      setCloudSyncAvailable(storageAccess.canUpload);
+      if (!storageAccess.canRead) {
         await tauriWindows.openPreferences('cloudSync');
         return;
       }
@@ -789,9 +792,13 @@ export function MemoListServicesHost({
         }
       }
       if (cloudChanged && editCloudSync) {
-        void cloud.syncNow(editingNotebook.id).catch((error) => {
-          toast.error(cloudSyncErrorMessage(error, t));
-        });
+        if (useNoteStore.getState().selectedNotebook?.id === updated.id) {
+          void cloud.syncNow(updated.id).catch((error) => {
+            toast.error(cloudSyncErrorMessage(error, t));
+          });
+        } else {
+          toast.info(t('notebook.edit.cloudSyncWhenOpened'));
+        }
       }
       toast.success(t('memo.list.updated'));
       closeEdit();
@@ -937,8 +944,6 @@ export function MemoListServicesHost({
             onRetryEditStorage={() => { if (editingNotebook) void loadEditStorage(editingNotebook); }}
             loginOpen={loginDialogOpen}
             onLoginOpenChange={setLoginDialogOpen}
-            googleSignInBusy={googleSignInBusy}
-            onGoogleSignIn={() => void startGoogleSignIn()}
             onSelectEditDirectory={() => void selectEditDirectory()}
             onRemoveEditDirectory={(path) => {
               setEditPaths((current) => current.length > 1

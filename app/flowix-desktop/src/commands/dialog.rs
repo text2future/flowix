@@ -445,8 +445,13 @@ pub fn retain_external_file_reference(
     {
         return Err("Referenced file is not authorized".to_string());
     }
-    state.security_bookmarks.record_file(&source).map_err(|error| error.to_string())?;
-    state.document_access.retain_file_reference(&source)
+    state
+        .security_bookmarks
+        .record_file(&source)
+        .map_err(|error| error.to_string())?;
+    state
+        .document_access
+        .retain_file_reference(&source)
         .map(|path| path.to_string_lossy().into_owned())
         .map_err(|error| error.to_string())
 }

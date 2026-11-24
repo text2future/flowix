@@ -11,7 +11,7 @@ members = [
 
 # 锁定共用依赖到同一版本 ── 避免 backend / cli 走不一致版本。
 [workspace.package]
-version = "1.6.0"
+version = "1.6.1"
 edition = "2021"
 license = "AGPL-3.0-only"
 
@@ -39,6 +39,9 @@ dunce = "1.0"
 tempfile = "3"
 fs2 = "0.4"
 sha2 = "0.10"
+# 键归一化（NFC）：macOS 的文件名是 NFD、Windows 是 NFC，同一个 `é` 不折叠
+# 就是两个对象键。v4 的键规则依赖它，见 docs/CLOUD_STORAGE_PATH_LWW_DESIGN.md §2。
+unicode-normalization = "0.1"
 zip = { version = "4.6", default-features = false }
 flate2 = "1"
 tar = "0.4"
@@ -51,7 +54,7 @@ shell-words = "1.1"
 # Win32_Foundation 必须开: SetConsoleCP/SetConsoleOutputCP 返回 BOOL, 被该 feature 门控。
 windows-sys = { version = "0.59", features = ["Win32_System_Console", "Win32_Foundation"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", features = ["json", "stream"] }
 tokio = { version = "1", features = ["sync", "time"] }
 
 # ── 生产体积优化（release 专用，不影响 dev 调试）──────────────────────────────

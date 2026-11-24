@@ -97,6 +97,15 @@ pub async fn pi_thread_get_snapshot(
 }
 
 #[tauri::command]
+pub async fn pi_thread_session_stats(
+    thread_id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<crate::agent_external::pi::PiSessionStats, String> {
+    state.pi.get_session_stats(&app, &thread_id).await
+}
+
+#[tauri::command]
 pub async fn pi_thread_get_page(
     thread_id: String,
     before_entry_id: Option<String>,
@@ -335,7 +344,8 @@ pub async fn agent_conversation_get_by_ids(
     if notebook_id.is_empty() {
         return Err("NOTEBOOK_ID_REQUIRED".to_string());
     }
-    state.thread_manager
+    state
+        .thread_manager
         .get_agent_conversation_instances_by_ids(notebook_id.to_string(), instance_ids)
         .await
         .map_err(|e| e.to_string())
@@ -758,8 +768,15 @@ pub async fn thread_delete(
     if stopped {
         tracing::info!("[Thread] stopped running agent before deleting thread {thread_id}");
     }
-    state.external_runtimes.cancel_pending_work_for_lifecycle(&thread_id).await?;
-    if state.external_runtimes.thread_has_active_run(&thread_id).await {
+    state
+        .external_runtimes
+        .cancel_pending_work_for_lifecycle(&thread_id)
+        .await?;
+    if state
+        .external_runtimes
+        .thread_has_active_run(&thread_id)
+        .await
+    {
         return Err("StopUnconfirmed: thread still has an active run".to_string());
     }
 
@@ -845,8 +862,15 @@ async fn apply_thread_lifecycle(
             action
         );
     }
-    state.external_runtimes.cancel_pending_work_for_lifecycle(thread_id).await?;
-    if state.external_runtimes.thread_has_active_run(thread_id).await {
+    state
+        .external_runtimes
+        .cancel_pending_work_for_lifecycle(thread_id)
+        .await?;
+    if state
+        .external_runtimes
+        .thread_has_active_run(thread_id)
+        .await
+    {
         return Err("StopUnconfirmed: thread still has an active run".to_string());
     }
 

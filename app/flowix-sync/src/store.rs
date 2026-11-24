@@ -12,8 +12,11 @@ pub struct SyncStore {
     schema_lock: std::sync::Arc<std::sync::Mutex<()>>,
 }
 
+mod account;
+mod path_notebooks;
+mod remote;
 mod schema;
-mod v2;
+mod v4;
 
 #[cfg(test)]
-mod v2_tests;
+mod v4_tests;

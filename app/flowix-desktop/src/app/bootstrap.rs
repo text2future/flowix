@@ -267,13 +267,19 @@ pub fn run() {
             let is_dev_build = option_env!("FLOWIX_DEV_MODE") == Some("1");
             // A saved Preferences selection is the source of truth. The build
             // target only supplies the initial/default environment.
-            let cloud_environment = if is_dev_build {
+            let (cloud_environment, dev_cloud_environment) = if is_dev_build {
                 let preference = user_config_for_state.get_preference();
-                flowix_sync::CloudEnvironment::parse(&preference.cloud_environment)
-                    .unwrap_or_else(flowix_sync::default_cloud_environment)
-                    .for_dev_region(&preference.region)
+                let build_default = user_config::DevCloudEnvironment::try_from(
+                    flowix_sync::default_cloud_environment(),
+                )
+                .unwrap_or(user_config::DevCloudEnvironment::Staging);
+                let dev_environment = user_config_for_state
+                    .get_dev_cloud_environment()
+                    .unwrap_or(build_default)
+                    .for_region(&preference.region);
+                (dev_environment.into(), Some(dev_environment))
             } else {
-                flowix_sync::CloudEnvironment::Prod
+                (flowix_sync::CloudEnvironment::Prod, None)
             };
             runtime_log::record_event(
                 "info",
@@ -284,18 +290,83 @@ pub fn run() {
                     cloud_environment.api_base()
                 ),
             );
-            let cloud_sync_db_path = if is_dev_build {
-                user_config_dir_for_device
-                    .join("db")
-                    .join(format!("sync-dev-{}.db", cloud_environment.name()))
+            let (selected_custom_profile, custom_s3_credentials, custom_s3_load_failed, custom_s3_selected) =
+                match user_config_for_state.get_cloud_storage_settings() {
+                    Ok(settings) => match settings.active_target {
+                        crate::config::user::CloudStorageTarget::Official => (None, None, false, false),
+                        crate::config::user::CloudStorageTarget::CustomS3 { profile_id } => {
+                            let profile = settings.profiles.into_iter().find(|profile| profile.id == profile_id);
+                            match profile {
+                                Some(profile) => match user_config_for_state
+                                    .load_custom_s3_profile_credentials(&profile.id)
+                                {
+                                    Ok(Some(credentials)) => (Some(profile), Some(credentials), false, true),
+                                    Ok(None) => (Some(profile), None, true, true),
+                                    Err(error) => {
+                                        tracing::warn!(%error, "selected custom S3 profile credentials could not be loaded");
+                                        (Some(profile), None, true, true)
+                                    }
+                                },
+                                None => {
+                                    tracing::warn!(%profile_id, "selected custom S3 profile is missing");
+                                    (None, None, true, true)
+                                }
+                            }
+                        }
+                    },
+                    Err(error) => {
+                        tracing::warn!(%error, "cloud storage selection could not be loaded; sync is paused");
+                        (None, None, true, true)
+                    }
+                };
+            let sync_db_directory = user_config_dir_for_device.join("db");
+            let cloud_sync_db_path = if let Some(profile) = &selected_custom_profile {
+                // Local protocol state belongs to a storage target. Keeping a
+                // separate database per target lets users switch remotes
+                // without carrying deletion windows or baselines across them.
+                let fingerprint = profile.remote.open("flowix-profile-id", "flowix-profile-secret")
+                    .map(|credentials| flowix_sync::v4::credential_fingerprint(
+                        &credentials.backend_id,
+                        &credentials.bucket,
+                        &credentials.prefix,
+                    ))
+                    .unwrap_or_else(|_| {
+                        flowix_sync::v4::credential_fingerprint(
+                            "custom-s3-invalid-profile",
+                            &profile.id,
+                            "",
+                        )
+                    });
+                let target_id = fingerprint.strip_prefix("sha256:").unwrap_or(&fingerprint);
+                let environment = if is_dev_build {
+                    cloud_environment.name()
+                } else {
+                    "production"
+                };
+                sync_db_directory
+                    .join("remotes")
+                    .join(environment)
+                    .join(format!("custom-s3-{target_id}.db"))
+            } else if custom_s3_selected {
+                let environment = if is_dev_build {
+                    cloud_environment.name()
+                } else {
+                    "production"
+                };
+                sync_db_directory
+                    .join("remotes")
+                    .join(environment)
+                    .join("custom-s3-unavailable.db")
+            } else if is_dev_build {
+                sync_db_directory.join(format!("sync-dev-{}.db", cloud_environment.name()))
             } else {
-                user_config_dir_for_device.join("db").join("sync.db")
+                sync_db_directory.join("sync.db")
             };
             let cloud_refresh_token_store: Arc<dyn flowix_sync::RefreshTokenStore> =
-                if is_dev_build {
+                if let Some(environment) = dev_cloud_environment {
                     Arc::new(crate::config::CloudDevRefreshTokenStore::new(
                         user_config_for_state.clone(),
-                        cloud_environment,
+                        environment,
                     ))
                 } else {
                     user_config_for_state.clone()
@@ -346,7 +417,7 @@ pub fn run() {
                         tracing::warn!("failed to emit cloud state notification: {error}");
                     }
                 });
-            let cloud_sync_for_state = Arc::new(
+            let cloud_sync_manager =
                 flowix_sync::SyncManager::new_with_session_dependencies_deferred(
                     cloud_environment.api_base(),
                     &cloud_sync_db_path,
@@ -364,8 +435,37 @@ pub fn run() {
                         cloud_state_notifier.clone(),
                     )
                     .expect("failed to initialize temporary cloud sync database")
-                }),
-            );
+                });
+            let custom_remote_selection = if custom_s3_selected && custom_s3_load_failed {
+                cloud_sync_manager.configure_unavailable_s3_remote(
+                    selected_custom_profile.as_ref().map(|profile| profile.id.as_str()),
+                )
+            } else if let Some(credentials) = &custom_s3_credentials {
+                let remote = flowix_sync::remote::S3Remote {
+                    endpoint: credentials.endpoint.clone(),
+                    region: credentials.region.clone(),
+                    bucket: credentials.bucket.clone(),
+                    prefix: credentials.prefix.clone(),
+                };
+                cloud_sync_manager.configure_s3_remote(
+                    &remote,
+                    selected_custom_profile
+                        .as_ref()
+                        .map(|profile| profile.id.as_str())
+                        .unwrap_or("custom-s3"),
+                    &credentials.access_key_id,
+                    &credentials.secret_access_key,
+                )
+            } else {
+                Ok(())
+            };
+            if let Err(error) = custom_remote_selection {
+                tracing::warn!(%error, "custom S3 remote could not be selected; sync is paused");
+                let _ = cloud_sync_manager.configure_unavailable_s3_remote(
+                    selected_custom_profile.as_ref().map(|profile| profile.id.as_str()),
+                );
+            }
+            let cloud_sync_for_state = Arc::new(cloud_sync_manager);
 
             // pi 的 Cloud 凭据路径要 `SyncManager` 与启动时选定的 API 基址。
             // 只能在这里注入：`PiRpcManager` 在这两个对象之前构造（见上方 agent
@@ -495,26 +595,6 @@ pub fn run() {
                         notebook_id.to_owned(),
                         generation_changed,
                     );
-                },
-                record_local_change: |app, notebook_id, cloud_id, kind, fingerprint| {
-                    // 沿用改造前的宽容语义：`AppState` 尚未就位时跳过登记，不 panic。
-                    // 事件可能在装配窗口里到达，而这是在 watcher 的工作线程上。
-                    let Some(state) = app.try_state::<AppState>() else {
-                        return Err("app state is not ready".to_string());
-                    };
-                    state
-                        .cloud_sync
-                        .record_v2_local_change(notebook_id, cloud_id, kind, fingerprint)
-                        .map_err(|error| error.to_string())
-                },
-                record_local_move: |app, notebook_id, from_path, to_path| {
-                    let Some(state) = app.try_state::<AppState>() else {
-                        return Err("app state is not ready".to_string());
-                    };
-                    state
-                        .cloud_sync
-                        .record_v2_local_move(notebook_id, from_path, to_path)
-                        .map_err(|error| error.to_string())
                 },
                 rebase_agent_paths: |app,
                                      old_notebook_id,
@@ -669,7 +749,18 @@ pub fn run() {
             commands::boot::record_frontend_error,
             commands::boot::wait_for_startup_ready,
             commands::cloud::cloud_get_state,
-            commands::cloud::cloud_register,
+            commands::cloud::cloud_get_storage_access,
+            commands::cloud::cloud_get_storage_config,
+            commands::cloud::cloud_select_storage_target,
+            commands::cloud::cloud_delete_custom_s3_profile,
+            commands::cloud::cloud_check_custom_s3,
+            commands::cloud::cloud_save_custom_s3_profile,
+            commands::cloud::cloud_update_account_region,
+            commands::cloud::cloud_request_password_reset_code,
+            commands::cloud::cloud_confirm_password_reset_code,
+            commands::cloud::cloud_request_registration_code,
+            commands::cloud::cloud_resend_registration_code,
+            commands::cloud::cloud_confirm_registration,
             commands::cloud::cloud_login,
             commands::cloud::cloud_account_deletion,
             commands::cloud::cloud_export_account,
@@ -680,7 +771,6 @@ pub fn run() {
             commands::cloud::cloud_logout,
             commands::cloud::cloud_get_notebook_state,
             commands::cloud::cloud_list_notebook_states,
-            commands::cloud::cloud_list_pending_file_operation_counts,
             commands::cloud::cloud_list_notebooks,
             commands::cloud::cloud_link_notebook,
             commands::cloud::cloud_set_notebook_enabled,
@@ -698,11 +788,10 @@ pub fn run() {
             commands::cloud::cloud_create_checkout,
             commands::cloud::cloud_submit_feedback,
             commands::cloud::cloud_sync_now,
+            commands::cloud::cloud_create_note_share_link,
+            commands::cloud::cloud_create_folder_share_link,
             commands::cloud::list_local_path_archives,
             commands::cloud::restore_local_path_version,
-            commands::cloud::cloud_list_conflicts,
-            commands::cloud::cloud_resolve_markdown_conflict,
-            commands::cloud::cloud_resolve_attachment_conflict,
             // Device-local notebook workspaces (local.db).
             commands::agent_workspace::get_agent_workspace,
             commands::agent_workspace::attach_notebook_directory,
@@ -912,6 +1001,7 @@ pub fn run() {
             commands::thread::pi_thread_list,
             commands::thread::pi_thread_get_messages,
             commands::thread::pi_thread_get_snapshot,
+            commands::thread::pi_thread_session_stats,
             commands::thread::pi_thread_get_page,
             commands::thread::pi_thread_session_id,
             commands::thread::pi_thread_fork,
@@ -1076,7 +1166,10 @@ fn spawn_workbench_startup(
             loop {
                 let manager = session_manager.clone();
                 let initialized = tauri::async_runtime::spawn_blocking(move || {
-                    manager.initialize_runtime_storage()
+                    manager
+                        .initialize_runtime_storage()
+                        .map_err(|error| error.to_string())?;
+                    Ok::<(), String>(())
                 })
                 .await;
                 match initialized {
@@ -1088,6 +1181,9 @@ fn spawn_workbench_startup(
                 }
                 tokio::time::sleep(delay).await;
                 delay = (delay * 2).min(Duration::from_secs(60));
+            }
+            if let Err(error) = cloud_app.emit("cloud-storage-access-changed", ()) {
+                tracing::warn!(%error, "failed to emit cloud storage access notification");
             }
             if let Ok(state) = session_manager.state() {
                 let _ = cloud_app.emit("cloud-state-changed", state);
@@ -1107,9 +1203,7 @@ fn spawn_workbench_startup(
         let (current_notebook_id, initial_notebooks) = {
             let app_state = app.state::<AppState>();
             let app_state = app_state.inner();
-            let _transition = app_state
-                .notebook_transition
-                .lock();
+            let _transition = app_state.notebook_transition.lock();
             let current_notebook_id =
                 crate::lock_utils::read_lock(&memo_file, "memo_file").current_notebook_id_value();
             let mut watcher = memo_watcher.write().unwrap_or_else(|p| p.into_inner());
@@ -1191,9 +1285,7 @@ fn spawn_notebook_watch_retry(
                 return;
             }
             let state = app.state::<AppState>();
-            let _transition = state
-                .notebook_transition
-                .lock();
+            let _transition = state.notebook_transition.lock();
             let active_notebook_id = crate::lock_utils::read_lock(&state.memo_file, "memo_file")
                 .current_notebook_id_value();
             let active_config =

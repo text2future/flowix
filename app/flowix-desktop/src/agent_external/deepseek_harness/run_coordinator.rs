@@ -71,7 +71,8 @@ impl RunCoordinator {
     }
 
     pub(crate) async fn mark_stopping(&self, thread_id: &str, run_id: &str) {
-        self.update(thread_id, run_id, |run| run.stopping = true).await;
+        self.update(thread_id, run_id, |run| run.stopping = true)
+            .await;
     }
 
     pub(crate) async fn target(
@@ -110,14 +111,16 @@ impl RunCoordinator {
             .iter()
             .map(|(thread_id, run)| {
                 let mut info = RunInfo::active(
-                        run.started_at,
-                        Some("DeepSeek Harness"),
-                        Some(agent_type),
-                        Some(run.run_id.clone()),
-                        Some(thread_id.clone()),
-                        Some(run.session_id.clone()),
-                    );
-                if run.stopping { info.phase = Some("stopping".to_string()); }
+                    run.started_at,
+                    Some("DeepSeek Harness"),
+                    Some(agent_type),
+                    Some(run.run_id.clone()),
+                    Some(thread_id.clone()),
+                    Some(run.session_id.clone()),
+                );
+                if run.stopping {
+                    info.phase = Some("stopping".to_string());
+                }
                 (thread_id.clone(), info)
             })
             .collect()
@@ -198,11 +201,15 @@ mod tests {
     async fn stopping_remains_visible_until_native_turn_is_removed() {
         let runs = RunCoordinator::default();
         runs.register("t", "r1", Some("s1"), Arc::new(AtomicBool::new(false)))
-            .await.unwrap();
+            .await
+            .unwrap();
         runs.mark_stopping("t", "r1").await;
         let snapshot = runs.running_threads("dsh").await;
         assert_eq!(snapshot["t"].phase.as_deref(), Some("stopping"));
-        assert!(runs.register("t", "r2", None, Arc::new(AtomicBool::new(false))).await.is_err());
+        assert!(runs
+            .register("t", "r2", None, Arc::new(AtomicBool::new(false)))
+            .await
+            .is_err());
         assert!(runs.remove_if_matches("t", "r1").await);
     }
 }

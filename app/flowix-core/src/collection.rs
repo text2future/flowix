@@ -71,9 +71,18 @@ pub fn is_collection_document_path(path: &std::path::Path) -> bool {
         return false;
     };
     let name = name.to_ascii_lowercase();
-    name == ".index.yaml" ||
-        [".index.yaml", ".table.yaml", ".table.yml", ".lib.yaml", ".lib.yml", ".workdocs.yaml", ".workdocs.yml"]
-            .iter().any(|suffix| name.len() > suffix.len() && name.ends_with(suffix))
+    name == ".index.yaml"
+        || [
+            ".index.yaml",
+            ".table.yaml",
+            ".table.yml",
+            ".lib.yaml",
+            ".lib.yml",
+            ".workdocs.yaml",
+            ".workdocs.yml",
+        ]
+        .iter()
+        .any(|suffix| name.len() > suffix.len() && name.ends_with(suffix))
 }
 
 pub fn display_name_for_path(path: &std::path::Path, placement: CollectionPlacement) -> String {
@@ -82,16 +91,31 @@ pub fn display_name_for_path(path: &std::path::Path, placement: CollectionPlacem
     } else {
         path
     };
-    let filename = display_path.file_name().unwrap_or_default().to_string_lossy();
+    let filename = display_path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy();
     if placement == CollectionPlacement::Folder {
         return filename.into_owned();
     }
-    [".index.yaml", ".index.yml", ".table.yaml", ".table.yml", ".lib.yaml", ".lib.yml", ".workdocs.yaml", ".workdocs.yml"]
-        .iter()
-        .find_map(|suffix| filename.get(..filename.len().checked_sub(suffix.len())?)
-            .filter(|_| filename.to_ascii_lowercase().ends_with(suffix)))
-        .unwrap_or(&filename)
-        .to_owned()
+    [
+        ".index.yaml",
+        ".index.yml",
+        ".table.yaml",
+        ".table.yml",
+        ".lib.yaml",
+        ".lib.yml",
+        ".workdocs.yaml",
+        ".workdocs.yml",
+    ]
+    .iter()
+    .find_map(|suffix| {
+        filename
+            .get(..filename.len().checked_sub(suffix.len())?)
+            .filter(|_| filename.to_ascii_lowercase().ends_with(suffix))
+    })
+    .unwrap_or(&filename)
+    .to_owned()
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -190,7 +214,10 @@ impl CollectionDocument {
             }
             validate_collection_v2(self)?;
         } else {
-            if matches!(self.collection.kind, CollectionType::WorkDocuments | CollectionType::Hybrid) {
+            if matches!(
+                self.collection.kind,
+                CollectionType::WorkDocuments | CollectionType::Hybrid
+            ) {
                 return Err("UNSUPPORTED_COLLECTION_VERSION".into());
             }
             let keys: &[&str] = match self.collection.kind {
@@ -228,7 +255,11 @@ impl CollectionDocument {
         }
 
         if self.collection.kind == CollectionType::Hybrid {
-            if let Some(domains) = self.payload.get_mut("domains").and_then(Value::as_object_mut) {
+            if let Some(domains) = self
+                .payload
+                .get_mut("domains")
+                .and_then(Value::as_object_mut)
+            {
                 for dataset in domains.values_mut() {
                     remove_from_dataset(dataset);
                 }
@@ -252,14 +283,22 @@ impl CollectionDocument {
             CollectionType::Table => {
                 let table = &self.payload["table"];
                 let auto = &self.payload["records"]["auto_collect"];
-                let views = array(table, "views")?.iter().map(|view| serde_json::json!({
-                    "id": view["id"], "name": view["name"], "layout": view["type"],
-                    "filter": {"all":[],"any":[]},
-                    "sort": [{"field":"modified_at","direction":"desc"}],
-                    "config": view["config"]
-                })).collect::<Vec<_>>();
-                let exclude = if auto.is_null() { Vec::new() } else {
-                    array(auto, "excluded_note_paths")?.iter()
+                let views = array(table, "views")?
+                    .iter()
+                    .map(|view| {
+                        serde_json::json!({
+                            "id": view["id"], "name": view["name"], "layout": view["type"],
+                            "filter": {"all":[],"any":[]},
+                            "sort": [{"field":"modified_at","direction":"desc"}],
+                            "config": view["config"]
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                let exclude = if auto.is_null() {
+                    Vec::new()
+                } else {
+                    array(auto, "excluded_note_paths")?
+                        .iter()
                         .map(|path| serde_json::json!({"note_path":path}))
                         .collect::<Vec<_>>()
                 };
@@ -395,7 +434,9 @@ impl CollectionDocument {
                     }
                 }
                 Value::Array(array) => {
-                    for child in array { changed |= rules(child, previous, next); }
+                    for child in array {
+                        changed |= rules(child, previous, next);
+                    }
                 }
                 _ => {}
             }
@@ -403,7 +444,9 @@ impl CollectionDocument {
         }
         let previous = previous.trim_matches('/');
         let next = next.trim_matches('/');
-        if previous.is_empty() || next.is_empty() || previous == next { return false; }
+        if previous.is_empty() || next.is_empty() || previous == next {
+            return false;
+        }
         /// Rebase records, source scope path and dataset filter of one dataset.
         fn rebase_dataset(dataset: &mut Value, previous: &str, next: &str) -> bool {
             let mut changed = false;
@@ -423,7 +466,11 @@ impl CollectionDocument {
                     }
                 }
             }
-            if let Some(path) = dataset.get("source").and_then(|source| source.get("path")).and_then(Value::as_str) {
+            if let Some(path) = dataset
+                .get("source")
+                .and_then(|source| source.get("path"))
+                .and_then(Value::as_str)
+            {
                 if let Some(path) = rebase(path, previous, next) {
                     dataset["source"]["path"] = Value::String(path);
                     changed = true;
@@ -442,29 +489,47 @@ impl CollectionDocument {
         }
         let mut changed = false;
         if self.collection.kind == CollectionType::Hybrid {
-            let Some(domains) = self.payload.get_mut("domains").and_then(Value::as_object_mut) else { return false; };
+            let Some(domains) = self
+                .payload
+                .get_mut("domains")
+                .and_then(Value::as_object_mut)
+            else {
+                return false;
+            };
             for dataset in domains.values_mut() {
                 changed |= rebase_dataset(dataset, previous, next);
             }
         } else if let Some(dataset) = self.payload.get_mut("dataset") {
             changed = rebase_dataset(dataset, previous, next);
         }
-        if let Some(views) = self.payload.get_mut("views").and_then(|views| views.get_mut("items")).and_then(Value::as_array_mut) {
+        if let Some(views) = self
+            .payload
+            .get_mut("views")
+            .and_then(|views| views.get_mut("items"))
+            .and_then(Value::as_array_mut)
+        {
             for view in views {
-                if let Some(filter) = view.get_mut("filter") { changed |= rules(filter, previous, next); }
+                if let Some(filter) = view.get_mut("filter") {
+                    changed |= rules(filter, previous, next);
+                }
             }
         }
         changed
     }
 }
 fn legacy_file_rules(file: &Value, notes: bool, output: &mut Vec<Value>) {
-    for (key, field) in [("file_name_contains", "file_name"), ("path_contains", "path")] {
+    for (key, field) in [
+        ("file_name_contains", "file_name"),
+        ("path_contains", "path"),
+    ] {
         if let Some(value) = file[key].as_str().filter(|value| !value.is_empty()) {
             output.push(serde_json::json!({"field":field,"op":"contains","value":value}));
         }
     }
     if let Some(kind) = file["file_type"].as_str().filter(|kind| !kind.is_empty()) {
-        output.push(serde_json::json!({"field":"kind","op":"eq","value":if notes { "note" } else { kind }}));
+        output.push(
+            serde_json::json!({"field":"kind","op":"eq","value":if notes { "note" } else { kind }}),
+        );
     }
 }
 fn legacy_table_filter(auto: &Value) -> Result<Value, String> {
@@ -515,7 +580,10 @@ fn hybrid_domain_type(domain: &str) -> Option<CollectionType> {
     }
 }
 
-fn normalize_media_resource_records(records: &mut Value, notebook_id: &str) -> Result<bool, String> {
+fn normalize_media_resource_records(
+    records: &mut Value,
+    notebook_id: &str,
+) -> Result<bool, String> {
     let mut changed = false;
     for key in ["include", "exclude"] {
         let entries = records
@@ -543,11 +611,15 @@ fn normalize_media_resource_records(records: &mut Value, notebook_id: &str) -> R
 /// place (the v2 validator) and stay in lockstep with the frontend projection.
 fn validate_collection_hybrid(document: &CollectionDocument) -> Result<(), String> {
     let payload = &document.payload;
-    only_keys(payload, &["schema_version", "file_tree", "domains", "views"])?;
+    only_keys(
+        payload,
+        &["schema_version", "file_tree", "domains", "views"],
+    )?;
     match payload.get("file_tree") {
         Some(Value::Bool(false)) => {}
         // The file tree tab only renders for folder collections anchored to a path.
-        Some(Value::Bool(true)) if document.collection.placement == CollectionPlacement::Folder => {}
+        Some(Value::Bool(true)) if document.collection.placement == CollectionPlacement::Folder => {
+        }
         _ => return Err("INVALID_COLLECTION_FILE_TREE".into()),
     }
     let domains = payload
@@ -561,7 +633,9 @@ fn validate_collection_hybrid(document: &CollectionDocument) -> Result<(), Strin
         .get("default_by_domain")
         .and_then(Value::as_object)
         .ok_or("INVALID_DEFAULT_VIEW")?;
-    if domains.is_empty() && items.is_empty() && defaults.is_empty()
+    if domains.is_empty()
+        && items.is_empty()
+        && defaults.is_empty()
         && document.collection.placement == CollectionPlacement::Folder
         && payload.get("file_tree") == Some(&Value::Bool(true))
     {
@@ -576,7 +650,10 @@ fn validate_collection_hybrid(document: &CollectionDocument) -> Result<(), Strin
     let mut ids = HashSet::new();
     let mut views_by_domain: BTreeMap<&str, Vec<Value>> = BTreeMap::new();
     for view in items {
-        only_keys(view, &["id", "name", "domain", "layout", "filter", "sort", "config"])?;
+        only_keys(
+            view,
+            &["id", "name", "domain", "layout", "filter", "sort", "config"],
+        )?;
         id(view, "view_", &mut ids)?;
         let domain = view
             .get("domain")
@@ -672,7 +749,13 @@ fn validate_collection_v2(document: &CollectionDocument) -> Result<(), String> {
     only_keys(
         schema,
         if document.collection.kind == CollectionType::Table {
-            &["primary_field_id", "fields", "field_order", "preset_fields", "deleted_presets"]
+            &[
+                "primary_field_id",
+                "fields",
+                "field_order",
+                "preset_fields",
+                "deleted_presets",
+            ]
         } else {
             &["fields"]
         },
@@ -704,21 +787,71 @@ fn validate_collection_v2(document: &CollectionDocument) -> Result<(), String> {
             let deleted = deleted.as_array().ok_or("INVALID_DELETED_PRESETS")?;
             let mut deleted_ids = HashSet::new();
             for preset in deleted {
-                only_keys(preset, &["id", "name", "revision", "optionIds", "multiple", "key", "type", "options"])?;
+                only_keys(
+                    preset,
+                    &[
+                        "id",
+                        "name",
+                        "revision",
+                        "optionIds",
+                        "multiple",
+                        "key",
+                        "type",
+                        "options",
+                    ],
+                )?;
                 let id = preset["id"].as_str().ok_or("INVALID_DELETED_PRESET_ID")?;
-                let key = preset["key"].as_str().filter(|key| !key.trim().is_empty()).ok_or("INVALID_DELETED_PRESET_KEY")?;
-                let kind = preset["type"].as_str().ok_or("INVALID_DELETED_PRESET_TYPE")?;
-                if !valid_id(id, "fld_") || !deleted_ids.insert(id.to_owned()) || key == "flowix_property_types"
-                    || !["Text", "URL", "Icon", "Boolean", "Number", "Date", "Select", "MultiSelect", "Tag", "Color", "Image"].contains(&kind)
-                    || preset.get("revision").and_then(Value::as_u64).is_none_or(|revision| revision == 0)
-                    || preset.get("options").is_some_and(|options| options.as_array().is_none_or(|values| values.iter().any(|value| !value.is_string())))
-                    || preset.get("optionIds").is_some_and(|ids| ids.as_array().is_none_or(|values| values.iter().any(|value| value.as_str().is_none_or(|id| !valid_id(id, "opt_"))))) {
+                let key = preset["key"]
+                    .as_str()
+                    .filter(|key| !key.trim().is_empty())
+                    .ok_or("INVALID_DELETED_PRESET_KEY")?;
+                let kind = preset["type"]
+                    .as_str()
+                    .ok_or("INVALID_DELETED_PRESET_TYPE")?;
+                if !valid_id(id, "fld_")
+                    || !deleted_ids.insert(id.to_owned())
+                    || key == "flowix_property_types"
+                    || ![
+                        "Text",
+                        "URL",
+                        "Icon",
+                        "Boolean",
+                        "Number",
+                        "Date",
+                        "Select",
+                        "MultiSelect",
+                        "Tag",
+                        "Color",
+                        "Image",
+                    ]
+                    .contains(&kind)
+                    || preset
+                        .get("revision")
+                        .and_then(Value::as_u64)
+                        .is_none_or(|revision| revision == 0)
+                    || preset.get("options").is_some_and(|options| {
+                        options
+                            .as_array()
+                            .is_none_or(|values| values.iter().any(|value| !value.is_string()))
+                    })
+                    || preset.get("optionIds").is_some_and(|ids| {
+                        ids.as_array().is_none_or(|values| {
+                            values
+                                .iter()
+                                .any(|value| value.as_str().is_none_or(|id| !valid_id(id, "opt_")))
+                        })
+                    })
+                {
                     return Err("INVALID_DELETED_PRESET".into());
                 }
             }
         }
     }
-    if matches!(document.collection.kind, CollectionType::MediaLibrary | CollectionType::WorkDocuments) && !fields.is_empty() {
+    if matches!(
+        document.collection.kind,
+        CollectionType::MediaLibrary | CollectionType::WorkDocuments
+    ) && !fields.is_empty()
+    {
         return Err("COLLECTION_FIELDS_UNSUPPORTED".into());
     }
     let records = dataset.get("records").ok_or("MISSING_COLLECTION_RECORDS")?;
@@ -775,7 +908,9 @@ fn validate_collection_v2(document: &CollectionDocument) -> Result<(), String> {
                         return Err("DUPLICATE_MEDIA_RECORD".into());
                     }
                 }
-                CollectionType::WorkDocuments | CollectionType::Hybrid => return Err("WORK_DOCUMENTS_RECORDS_UNSUPPORTED".into()),
+                CollectionType::WorkDocuments | CollectionType::Hybrid => {
+                    return Err("WORK_DOCUMENTS_RECORDS_UNSUPPORTED".into())
+                }
             }
         }
     }
@@ -849,8 +984,11 @@ fn validate_collection_v2(document: &CollectionDocument) -> Result<(), String> {
             let mut seen = HashSet::new();
             for (index, id) in order.iter().enumerate() {
                 let id = id.as_str().ok_or("INVALID_FIELD_ORDER")?;
-                if !seen.insert(id) || (index == 0 && schema["primary_field_id"] != id)
-                    || (!fields.iter().any(|field| field["id"] == id) && !is_supported_table_field_id(id)) {
+                if !seen.insert(id)
+                    || (index == 0 && schema["primary_field_id"] != id)
+                    || (!fields.iter().any(|field| field["id"] == id)
+                        && !is_supported_table_field_id(id))
+                {
                     return Err("INVALID_FIELD_ORDER".into());
                 }
             }
@@ -859,7 +997,7 @@ fn validate_collection_v2(document: &CollectionDocument) -> Result<(), String> {
     Ok(())
 }
 fn validate_rule_filter(filter: &Value, collection_type: CollectionType) -> Result<(), String> {
-  validate_rule_filter_depth(filter, collection_type, 0, false)
+    validate_rule_filter_depth(filter, collection_type, 0, false)
 }
 fn validate_dataset_filter(filter: &Value, collection_type: CollectionType) -> Result<(), String> {
     if filter.get("conditions").is_none() && filter.get("match").is_none() {
@@ -883,14 +1021,26 @@ fn validate_dataset_filter(filter: &Value, collection_type: CollectionType) -> R
             return Err("INVALID_COLLECTION_FILTER_CONDITION".into());
         }
     }
-    validate_rule_filter_depth(&serde_json::json!({"all":array(filter, "conditions")?,"any":[]}), collection_type, 0, true)
+    validate_rule_filter_depth(
+        &serde_json::json!({"all":array(filter, "conditions")?,"any":[]}),
+        collection_type,
+        0,
+        true,
+    )
 }
-fn validate_rule_filter_depth(filter: &Value, collection_type: CollectionType, depth: usize, shared_asset_kinds: bool) -> Result<(), String> {
+fn validate_rule_filter_depth(
+    filter: &Value,
+    collection_type: CollectionType,
+    depth: usize,
+    shared_asset_kinds: bool,
+) -> Result<(), String> {
     only_keys(filter, &["all", "any"])?;
     for key in ["all", "any"] {
         for rule in array(filter, key)? {
             if rule.get("all").is_some() || rule.get("any").is_some() {
-                if depth != 0 { return Err("INVALID_COLLECTION_FILTER_DEPTH".into()); }
+                if depth != 0 {
+                    return Err("INVALID_COLLECTION_FILTER_DEPTH".into());
+                }
                 validate_rule_filter_depth(rule, collection_type, depth + 1, shared_asset_kinds)?;
                 continue;
             }
@@ -921,11 +1071,34 @@ fn validate_rule_filter_depth(filter: &Value, collection_type: CollectionType, d
                 _ => {}
             }
             let field = rule["field"].as_str().unwrap_or_default();
-            if shared_asset_kinds && field == "kind"
-                && matches!(collection_type, CollectionType::MediaLibrary | CollectionType::WorkDocuments) {
-                let asset_kind = |value: &Value| matches!(value.as_str(), Some("image" | "video" | "document" | "spreadsheet" | "presentation" | "web" | "archive" | "database"));
+            if shared_asset_kinds
+                && field == "kind"
+                && matches!(
+                    collection_type,
+                    CollectionType::MediaLibrary | CollectionType::WorkDocuments
+                )
+            {
+                let asset_kind = |value: &Value| {
+                    matches!(
+                        value.as_str(),
+                        Some(
+                            "image"
+                                | "video"
+                                | "document"
+                                | "spreadsheet"
+                                | "presentation"
+                                | "web"
+                                | "archive"
+                                | "database"
+                        )
+                    )
+                };
                 if (rule["op"] == "eq" && asset_kind(&rule["value"]))
-                    || (rule["op"] == "in" && rule["value"].as_array().is_some_and(|values| !values.is_empty() && values.iter().all(asset_kind))) {
+                    || (rule["op"] == "in"
+                        && rule["value"].as_array().is_some_and(|values| {
+                            !values.is_empty() && values.iter().all(asset_kind)
+                        }))
+                {
                     continue;
                 }
                 return Err("INVALID_COLLECTION_FILTER_RULE".into());
@@ -933,34 +1106,66 @@ fn validate_rule_filter_depth(filter: &Value, collection_type: CollectionType, d
             let valid_for_type = match collection_type {
                 CollectionType::Table => match field {
                     "file_name" | "path" => rule["op"] == "contains",
-                    "kind" => (rule["op"] == "eq" && rule["value"] == "note")
-                        || (rule["op"] == "in"
-                            && rule["value"].as_array().is_some_and(|values| {
-                                values.len() == 1 && values[0] == "note"
-                            })),
-                    _ => matches!(rule["op"].as_str(), Some("eq" | "equals" | "contains" | "in" | "gt" | "lt")),
+                    "kind" => {
+                        (rule["op"] == "eq" && rule["value"] == "note")
+                            || (rule["op"] == "in"
+                                && rule["value"]
+                                    .as_array()
+                                    .is_some_and(|values| values.len() == 1 && values[0] == "note"))
+                    }
+                    _ => matches!(
+                        rule["op"].as_str(),
+                        Some("eq" | "equals" | "contains" | "in" | "gt" | "lt")
+                    ),
                 },
                 CollectionType::MediaLibrary => match field {
                     "file_name" | "path" => rule["op"] == "contains" && rule["value"].is_string(),
-                    "kind" => (rule["op"] == "eq"
-                        && matches!(rule["value"].as_str(), Some("image" | "video")))
-                        || (rule["op"] == "in"
-                            && rule["value"].as_array().is_some_and(|values| {
-                                !values.is_empty()
-                                    && values
-                                        .iter()
-                                        .all(|value| matches!(value.as_str(), Some("image" | "video")))
-                            })),
+                    "kind" => {
+                        (rule["op"] == "eq"
+                            && matches!(rule["value"].as_str(), Some("image" | "video")))
+                            || (rule["op"] == "in"
+                                && rule["value"].as_array().is_some_and(|values| {
+                                    !values.is_empty()
+                                        && values.iter().all(|value| {
+                                            matches!(value.as_str(), Some("image" | "video"))
+                                        })
+                                }))
+                    }
                     _ => false,
                 },
                 CollectionType::WorkDocuments => match field {
                     "file_name" | "path" => rule["op"] == "contains" && rule["value"].is_string(),
-                    "kind" => (rule["op"] == "eq"
-                        && matches!(rule["value"].as_str(), Some("document" | "spreadsheet" | "presentation" | "web" | "archive" | "database")))
-                        || (rule["op"] == "in"
-                            && rule["value"].as_array().is_some_and(|values| {
-                                !values.is_empty() && values.iter().all(|value| matches!(value.as_str(), Some("document" | "spreadsheet" | "presentation" | "web" | "archive" | "database")))
-                            })),
+                    "kind" => {
+                        (rule["op"] == "eq"
+                            && matches!(
+                                rule["value"].as_str(),
+                                Some(
+                                    "document"
+                                        | "spreadsheet"
+                                        | "presentation"
+                                        | "web"
+                                        | "archive"
+                                        | "database"
+                                )
+                            ))
+                            || (rule["op"] == "in"
+                                && rule["value"].as_array().is_some_and(|values| {
+                                    !values.is_empty()
+                                        && values.iter().all(|value| {
+                                            matches!(
+                                                value.as_str(),
+                                                Some(
+                                                    "document"
+                                                        | "spreadsheet"
+                                                        | "presentation"
+                                                        | "web"
+                                                        | "archive"
+                                                        | "database"
+                                                )
+                                            )
+                                        })
+                                }))
+                    }
                     _ => false,
                 },
                 CollectionType::Hybrid => false,
@@ -1074,7 +1279,10 @@ fn records(value: &Value, table: bool) -> Result<(), String> {
                         || property["value"]
                             .as_str()
                             .is_none_or(|v| v.trim().is_empty())
-                        || !matches!(property["operator"].as_str(), Some("equals" | "contains" | "gt" | "lt"))
+                        || !matches!(
+                            property["operator"].as_str(),
+                            Some("equals" | "contains" | "gt" | "lt")
+                        )
                     {
                         return Err("INVALID_PROPERTY_CONDITION".into());
                     }
@@ -1149,7 +1357,16 @@ fn validate_table(payload: &Value) -> Result<(), String> {
     for field in field_values {
         only_keys(
             field,
-            &["id", "type", "name", "property_key", "options", "multiple", "preset_revision", "preset_pending"],
+            &[
+                "id",
+                "type",
+                "name",
+                "property_key",
+                "options",
+                "multiple",
+                "preset_revision",
+                "preset_pending",
+            ],
         )?;
         id(field, "fld_", &mut fields)?;
         let kind = field["type"].as_str().ok_or("INVALID_FIELD_TYPE")?;
@@ -1237,38 +1454,42 @@ fn validate_table(payload: &Value) -> Result<(), String> {
                 if kind == "table" {
                     only_keys(config, &["visible_fields", "tag_column_width"])?;
                     if config.get("tag_column_width").is_some_and(|width| {
-                        width.as_f64().is_none_or(|width| !width.is_finite() || !(120.0..=320.0).contains(&width))
+                        width.as_f64().is_none_or(|width| {
+                            !width.is_finite() || !(120.0..=320.0).contains(&width)
+                        })
                     }) {
                         return Err("INVALID_TAG_COLUMN_WIDTH".into());
                     }
                 } else {
                     only_keys(config, &["visible_fields"])?;
                 }
-                if array(config, "visible_fields")?
-                    .iter()
-                    .any(|v| v.as_str().is_none_or(|id| {
+                if array(config, "visible_fields")?.iter().any(|v| {
+                    v.as_str().is_none_or(|id| {
                         !fields.contains(id)
                             && !(kind == "table" && is_supported_table_field_id(id))
-                    }))
-                {
+                    })
+                }) {
                     return Err("INVALID_VIEW_FIELD".into());
                 }
             }
             "kanban" => {
                 only_keys(config, &["group_by"])?;
-                if config.get("group_by").is_some_and(|value| {
-                    value.as_str().is_none_or(str::is_empty)
-                }) {
+                if config
+                    .get("group_by")
+                    .is_some_and(|value| value.as_str().is_none_or(str::is_empty))
+                {
                     return Err("INVALID_KANBAN_FIELD".into());
                 }
             }
             "calendar" => {
                 only_keys(config, &["date_field", "title_field", "week_start"])?;
-                if config.get("date_field").is_some_and(|value| {
-                    value.as_str().is_none_or(str::is_empty)
-                }) || config.get("title_field").is_some_and(|value| {
-                    value.as_str().is_none_or(str::is_empty)
-                }) {
+                if config
+                    .get("date_field")
+                    .is_some_and(|value| value.as_str().is_none_or(str::is_empty))
+                    || config
+                        .get("title_field")
+                        .is_some_and(|value| value.as_str().is_none_or(str::is_empty))
+                {
                     return Err("INVALID_DATE_FIELD".into());
                 }
                 if config.get("week_start").is_some_and(|v| *v != 1) {
@@ -1305,11 +1526,31 @@ mod builtin_field_tests {
 
     #[test]
     fn collection_document_paths_are_explicitly_identified() {
-        for name in ["folder/.index.yaml", "Standalone.index.yaml", "Tasks.table.yaml", "Media.lib.yml", "Work.workdocs.yaml", "Notes.TABLE.YAML"] {
-            assert!(is_collection_document_path(std::path::Path::new(name)), "{name}");
+        for name in [
+            "folder/.index.yaml",
+            "Standalone.index.yaml",
+            "Tasks.table.yaml",
+            "Media.lib.yml",
+            "Work.workdocs.yaml",
+            "Notes.TABLE.YAML",
+        ] {
+            assert!(
+                is_collection_document_path(std::path::Path::new(name)),
+                "{name}"
+            );
         }
-        for name in ["config.yaml", ".index.yml", ".index.yaml.bak", ".table.yaml", "notes.md", "document.workdocs.json"] {
-            assert!(!is_collection_document_path(std::path::Path::new(name)), "{name}");
+        for name in [
+            "config.yaml",
+            ".index.yml",
+            ".index.yaml.bak",
+            ".table.yaml",
+            "notes.md",
+            "document.workdocs.json",
+        ] {
+            assert!(
+                !is_collection_document_path(std::path::Path::new(name)),
+                "{name}"
+            );
         }
     }
 
@@ -1319,7 +1560,11 @@ mod builtin_field_tests {
         let filter = serde_json::json!({"path":"项目","match":"all","conditions":[rule.clone()]});
         for kind in [CollectionType::MediaLibrary, CollectionType::WorkDocuments] {
             assert!(validate_dataset_filter(&filter, kind).is_ok());
-            assert!(validate_rule_filter(&serde_json::json!({"all":[rule.clone()],"any":[]}), kind).is_err());
+            assert!(validate_rule_filter(
+                &serde_json::json!({"all":[rule.clone()],"any":[]}),
+                kind
+            )
+            .is_err());
         }
         assert!(validate_dataset_filter(&filter, CollectionType::Table).is_err());
     }
@@ -1341,22 +1586,38 @@ mod builtin_field_tests {
         let mut swapped = CollectionDocument::parse(source).unwrap();
         swapped.schema_version = 2;
         swapped.payload["schema_version"] = serde_json::json!(2);
-        assert_eq!(swapped.validate().unwrap_err(), "UNSUPPORTED_COLLECTION_VERSION");
+        assert_eq!(
+            swapped.validate().unwrap_err(),
+            "UNSUPPORTED_COLLECTION_VERSION"
+        );
     }
 
     #[test]
     fn hybrid_requires_views_for_every_domain_and_rejects_unknown_domains() {
         let source = include_str!("../../fixtures/collections/hybrid-folder.yaml");
         let mut document = CollectionDocument::parse(source).unwrap();
-        document.payload["views"]["items"].as_array_mut().unwrap().retain(|view| view["domain"] != "media");
-        assert_eq!(document.validate().unwrap_err(), "INVALID_COLLECTION_DOMAINS");
+        document.payload["views"]["items"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|view| view["domain"] != "media");
+        assert_eq!(
+            document.validate().unwrap_err(),
+            "INVALID_COLLECTION_DOMAINS"
+        );
         let mut document = CollectionDocument::parse(source).unwrap();
         document.payload["views"]["items"][1]["domain"] = serde_json::json!("bookmarks");
-        assert_eq!(document.validate().unwrap_err(), "INVALID_COLLECTION_VIEW_DOMAIN");
+        assert_eq!(
+            document.validate().unwrap_err(),
+            "INVALID_COLLECTION_VIEW_DOMAIN"
+        );
         let mut document = CollectionDocument::parse(source).unwrap();
         document.payload["domains"]["bookmarks"] = serde_json::json!({"source":{"scope":"containing_folder","depth":"descendants"},"schema":{"fields":[]},"records":{"include":[],"exclude":[]},"filter":null});
-        document.payload["views"]["default_by_domain"]["bookmarks"] = serde_json::json!("view_cccccccccccccccccccccccccccccccc");
-        assert_eq!(document.validate().unwrap_err(), "INVALID_COLLECTION_DOMAINS");
+        document.payload["views"]["default_by_domain"]["bookmarks"] =
+            serde_json::json!("view_cccccccccccccccccccccccccccccccc");
+        assert_eq!(
+            document.validate().unwrap_err(),
+            "INVALID_COLLECTION_DOMAINS"
+        );
     }
 
     #[test]
@@ -1365,10 +1626,17 @@ mod builtin_field_tests {
         let mut document = CollectionDocument::parse(source).unwrap();
         document.collection.placement = CollectionPlacement::Standalone;
         // containing_folder scope is folder-only, so also relax the source to notebook.
-        for dataset in document.payload["domains"].as_object_mut().unwrap().values_mut() {
+        for dataset in document.payload["domains"]
+            .as_object_mut()
+            .unwrap()
+            .values_mut()
+        {
             dataset["source"] = serde_json::json!({"scope":"notebook","depth":"descendants"});
         }
-        assert_eq!(document.validate().unwrap_err(), "INVALID_COLLECTION_FILE_TREE");
+        assert_eq!(
+            document.validate().unwrap_err(),
+            "INVALID_COLLECTION_FILE_TREE"
+        );
         document.payload["file_tree"] = serde_json::json!(false);
         assert!(document.validate().is_ok());
     }
@@ -1382,9 +1650,11 @@ mod builtin_field_tests {
         document.collection.placement = CollectionPlacement::Standalone;
         document.payload["file_tree"] = serde_json::json!(false);
         for key in ["media", "work_documents"] {
-            document.payload["domains"][key]["source"] = serde_json::json!({"scope":"notebook","depth":"descendants"});
+            document.payload["domains"][key]["source"] =
+                serde_json::json!({"scope":"notebook","depth":"descendants"});
         }
-        document.payload["domains"]["notes"]["source"] = serde_json::json!({"scope":"folder","path":"Old","depth":"descendants"});
+        document.payload["domains"]["notes"]["source"] =
+            serde_json::json!({"scope":"folder","path":"Old","depth":"descendants"});
         document.payload["domains"]["notes"]["records"] = serde_json::json!({
             "include":[{"id":"rec_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","updated_at":"2026-10-31T00:00:00Z","note_path":"Old/note.md"}],
             "exclude":[]
@@ -1398,18 +1668,43 @@ mod builtin_field_tests {
         });
         document.payload["domains"]["media"]["filter"] = serde_json::json!({"all":[{"field":"path","op":"contains","value":"Old/sub"}],"any":[]});
         // work_documents records may not be handwritten; rebase still covers its filter.
-        document.payload["domains"]["work_documents"]["filter"] = serde_json::json!({"all":[{"field":"path","op":"contains","value":"Old"}],"any":[]});
-        document.payload["views"]["items"][0]["filter"] = serde_json::json!({"all":[],"any":[{"field":"path","op":"contains","value":"Old"}]});
+        document.payload["domains"]["work_documents"]["filter"] =
+            serde_json::json!({"all":[{"field":"path","op":"contains","value":"Old"}],"any":[]});
+        document.payload["views"]["items"][0]["filter"] =
+            serde_json::json!({"all":[],"any":[{"field":"path","op":"contains","value":"Old"}]});
         assert!(document.rebase_paths("Old", "New"));
-        assert_eq!(document.payload["domains"]["notes"]["records"]["include"][0]["note_path"], "New/note.md");
-        assert_eq!(document.payload["domains"]["notes"]["source"]["path"], "New");
-        assert_eq!(document.payload["domains"]["media"]["records"]["include"][0]["relative_path"], "New/a.png");
-        assert_eq!(document.payload["domains"]["media"]["filter"]["all"][0]["value"], "New/sub");
-        assert_eq!(document.payload["domains"]["work_documents"]["filter"]["all"][0]["value"], "New");
-        assert_eq!(document.payload["views"]["items"][0]["filter"]["any"][0]["value"], "New");
+        assert_eq!(
+            document.payload["domains"]["notes"]["records"]["include"][0]["note_path"],
+            "New/note.md"
+        );
+        assert_eq!(
+            document.payload["domains"]["notes"]["source"]["path"],
+            "New"
+        );
+        assert_eq!(
+            document.payload["domains"]["media"]["records"]["include"][0]["relative_path"],
+            "New/a.png"
+        );
+        assert_eq!(
+            document.payload["domains"]["media"]["filter"]["all"][0]["value"],
+            "New/sub"
+        );
+        assert_eq!(
+            document.payload["domains"]["work_documents"]["filter"]["all"][0]["value"],
+            "New"
+        );
+        assert_eq!(
+            document.payload["views"]["items"][0]["filter"]["any"][0]["value"],
+            "New"
+        );
         assert!(document.validate().is_ok());
-        assert!(document.normalize_media_resource_ids("nb_00000000000000000000000000000000").unwrap());
-        assert_eq!(document.payload["domains"]["media"]["records"]["include"][0]["resource_id"], "nb_00000000000000000000000000000000::New/a.png");
+        assert!(document
+            .normalize_media_resource_ids("nb_00000000000000000000000000000000")
+            .unwrap());
+        assert_eq!(
+            document.payload["domains"]["media"]["records"]["include"][0]["resource_id"],
+            "nb_00000000000000000000000000000000::New/a.png"
+        );
         document.validate().unwrap();
     }
 
@@ -1418,32 +1713,57 @@ mod builtin_field_tests {
         let source = include_str!("../../fixtures/collections/table-calendar-preset.yaml");
         let document = CollectionDocument::parse(source).unwrap();
         document.validate().unwrap();
-        assert_eq!(document.payload["views"]["items"][0]["config"]["date_field"], "__note_calendar_date__");
+        assert_eq!(
+            document.payload["views"]["items"][0]["config"]["date_field"],
+            "__note_calendar_date__"
+        );
         let restored = CollectionDocument::parse(&document.serialize().unwrap()).unwrap();
         let mut expected = document.payload.clone();
-        expected["dataset"]["source"].as_object_mut().unwrap().remove("depth");
+        expected["dataset"]["source"]
+            .as_object_mut()
+            .unwrap()
+            .remove("depth");
         assert_eq!(restored.payload, expected);
     }
 
-
     #[test]
     fn directory_rebase_updates_records_sources_and_filters_without_touching_similar_prefixes() {
-        let mut document = CollectionDocument::parse(include_str!("../../fixtures/collections/table-builtin-fields.yaml")).unwrap();
+        let mut document = CollectionDocument::parse(include_str!(
+            "../../fixtures/collections/table-builtin-fields.yaml"
+        ))
+        .unwrap();
         document.collection.placement = CollectionPlacement::Standalone;
-        document.payload["dataset"]["source"] = serde_json::json!({"scope":"folder","path":"Old","depth":"descendants"});
+        document.payload["dataset"]["source"] =
+            serde_json::json!({"scope":"folder","path":"Old","depth":"descendants"});
         document.payload["dataset"]["records"] = serde_json::json!({
             "include":[{"id":"rec_dddddddddddddddddddddddddddddddd","updated_at":"2026-10-11T00:00:00Z","note_path":"Old/a.md"}],
             "exclude":[{"note_path":"Old/sub/b.md"},{"note_path":"Oldish/keep.md"}]
         });
         document.payload["dataset"]["filter"] = serde_json::json!({"all":[{"field":"path","op":"contains","value":"Old/sub"}],"any":[]});
-        document.payload["views"]["items"][0]["filter"] = serde_json::json!({"all":[],"any":[{"field":"path","op":"contains","value":"Old"}]});
+        document.payload["views"]["items"][0]["filter"] =
+            serde_json::json!({"all":[],"any":[{"field":"path","op":"contains","value":"Old"}]});
         assert!(document.rebase_paths("Old", "New"));
-        assert_eq!(document.payload["dataset"]["records"]["include"][0]["note_path"], "New/a.md");
-        assert_eq!(document.payload["dataset"]["records"]["exclude"][0]["note_path"], "New/sub/b.md");
-        assert_eq!(document.payload["dataset"]["records"]["exclude"][1]["note_path"], "Oldish/keep.md");
+        assert_eq!(
+            document.payload["dataset"]["records"]["include"][0]["note_path"],
+            "New/a.md"
+        );
+        assert_eq!(
+            document.payload["dataset"]["records"]["exclude"][0]["note_path"],
+            "New/sub/b.md"
+        );
+        assert_eq!(
+            document.payload["dataset"]["records"]["exclude"][1]["note_path"],
+            "Oldish/keep.md"
+        );
         assert_eq!(document.payload["dataset"]["source"]["path"], "New");
-        assert_eq!(document.payload["dataset"]["filter"]["all"][0]["value"], "New/sub");
-        assert_eq!(document.payload["views"]["items"][0]["filter"]["any"][0]["value"], "New");
+        assert_eq!(
+            document.payload["dataset"]["filter"]["all"][0]["value"],
+            "New/sub"
+        );
+        assert_eq!(
+            document.payload["views"]["items"][0]["filter"]["any"][0]["value"],
+            "New"
+        );
         assert!(!document.rebase_paths("Old", "New"));
         document.validate().unwrap();
     }
@@ -1452,9 +1772,11 @@ mod builtin_field_tests {
     fn table_allows_deleted_remembered_view_but_still_validates_view_definitions() {
         let source = include_str!("../../fixtures/collections/table-builtin-fields.yaml");
         let mut document = CollectionDocument::parse(source).unwrap();
-        document.payload["views"]["default_id"] = serde_json::json!("view_ffffffffffffffffffffffffffffffff");
+        document.payload["views"]["default_id"] =
+            serde_json::json!("view_ffffffffffffffffffffffffffffffff");
         assert!(document.validate().is_ok());
-        document.payload["views"]["items"][0]["config"]["visible_fields"] = serde_json::json!(["__unknown__"]);
+        document.payload["views"]["items"][0]["config"]["visible_fields"] =
+            serde_json::json!(["__unknown__"]);
         assert_eq!(document.validate().unwrap_err(), "INVALID_VIEW_FIELD");
     }
 
@@ -1496,17 +1818,32 @@ mod builtin_field_tests {
         assert!(CollectionDocument::parse(&document.serialize().unwrap()).is_ok());
         document.payload["views"]["items"][0]["config"]["visible_fields"] = serde_json::json!([]);
         let hidden = CollectionDocument::parse(&document.serialize().unwrap()).unwrap();
-        assert_eq!(hidden.payload["views"]["items"][0]["config"]["visible_fields"], serde_json::json!([]));
-        document.payload["views"]["items"][0]["config"]["visible_fields"] = serde_json::json!(["__unknown__"]);
+        assert_eq!(
+            hidden.payload["views"]["items"][0]["config"]["visible_fields"],
+            serde_json::json!([])
+        );
+        document.payload["views"]["items"][0]["config"]["visible_fields"] =
+            serde_json::json!(["__unknown__"]);
         assert_eq!(document.validate().unwrap_err(), "INVALID_VIEW_FIELD");
     }
 
     #[test]
     fn table_accepts_builtin_visibility_without_schema_fields() {
-        let visible = serde_json::json!(["__note_created_at__", "__note_updated_at__", "__note_relative_path__", "__note_size__"]);
+        let visible = serde_json::json!([
+            "__note_created_at__",
+            "__note_updated_at__",
+            "__note_relative_path__",
+            "__note_size__"
+        ]);
         assert!(validate_table(&payload("table", visible.clone())).is_ok());
-        assert_eq!(validate_table(&payload("gallery", visible)).unwrap_err(), "INVALID_VIEW_FIELD");
-        assert_eq!(validate_table(&payload("table", serde_json::json!(["__unknown__"]))).unwrap_err(), "INVALID_VIEW_FIELD");
+        assert_eq!(
+            validate_table(&payload("gallery", visible)).unwrap_err(),
+            "INVALID_VIEW_FIELD"
+        );
+        assert_eq!(
+            validate_table(&payload("table", serde_json::json!(["__unknown__"]))).unwrap_err(),
+            "INVALID_VIEW_FIELD"
+        );
     }
 
     #[test]
@@ -1514,11 +1851,17 @@ mod builtin_field_tests {
         let source = include_str!("../../fixtures/collections/table-builtin-fields.yaml");
         let mut document = CollectionDocument::parse(source).unwrap();
         for width in [120, 245, 320] {
-            document.payload["views"]["items"][0]["config"]["tag_column_width"] = serde_json::json!(width);
+            document.payload["views"]["items"][0]["config"]["tag_column_width"] =
+                serde_json::json!(width);
             let saved = document.serialize().unwrap();
             assert!(CollectionDocument::parse(&saved).is_ok());
         }
-        for width in [serde_json::json!(119), serde_json::json!(321), serde_json::json!("160"), Value::Null] {
+        for width in [
+            serde_json::json!(119),
+            serde_json::json!(321),
+            serde_json::json!("160"),
+            Value::Null,
+        ] {
             document.payload["views"]["items"][0]["config"]["tag_column_width"] = width;
             assert_eq!(document.validate().unwrap_err(), "INVALID_TAG_COLUMN_WIDTH");
         }

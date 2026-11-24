@@ -5,18 +5,16 @@
 
 use super::*;
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use serde_json::{Value, json};
-use tokio::sync::Mutex;
 use super::super::AGENT_TYPE;
 use crate::agent_external::lifecycle::ExternalLifecycleEmitter;
 use crate::agent_external::{
-    USER_STOPPED_REASON,
-    emit_chunk_with_run_id,
-    select_external_session_for_runtime,
+    emit_chunk_with_run_id, select_external_session_for_runtime, USER_STOPPED_REASON,
 };
 use crate::agent_wire::{AgentChunk, AgentRuntimeConfig, AgentUserMessage};
+use serde_json::{json, Value};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 impl CodexAppServerManager {
     /// Reply to a server-initiated JSON-RPC request with its original id.
@@ -41,11 +39,9 @@ impl CodexAppServerManager {
         self.write(json!({ "id": id, "result": result })).await
     }
 
-
     pub async fn pending_approval_requests(&self) -> Vec<CodexApprovalRequest> {
         self.inner.pending_approvals.lock().await.clone()
     }
-
 
     /// Apply settings to an existing Codex thread. These settings affect the
     /// next turn and preserve the conversation history.
@@ -85,7 +81,6 @@ impl CodexAppServerManager {
             .await?;
         Ok(())
     }
-
 
     /// Execute a Codex-native composer command without sending the slash text
     /// through `turn/start`. The TUI handles these commands locally; Flowix
@@ -371,7 +366,6 @@ impl CodexAppServerManager {
         Ok(result)
     }
 
-
     pub(super) async fn emit_codex_command(
         &self,
         app_handle: &tauri::AppHandle,
@@ -393,7 +387,6 @@ impl CodexAppServerManager {
         };
         emit_chunk_with_run_id(app_handle, &chunk, AGENT_TYPE, run_id);
     }
-
 
     pub(super) async fn execute_slash_request(
         &self,

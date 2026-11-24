@@ -8,7 +8,7 @@ export const FIELD_DESC_CLASS = 'text-sm text-[var(--muted-foreground)]';
 export const SECTION_HEADER_TITLE_CLASS =
   'text-base font-medium text-[var(--foreground)]';
 export const FIELD_INPUT_CLASS =
-  'bg-[var(--card)] border-[var(--border)] text-[var(--foreground)] placeholder:text-[var(--muted-foreground)]';
+  'bg-[var(--card)] border-[var(--border)] text-[var(--foreground)] placeholder:text-[var(--input-placeholder)] focus-visible:border-[var(--input-ring)] focus-visible:outline-none';
 
 /** Top-of-tab header. Use once per tab to introduce the section.
  *  Renders the title with a light-gray divider underneath, visually

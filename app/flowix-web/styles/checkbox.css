@@ -36,6 +36,24 @@
   background: var(--brand);
 }
 
+.flowix-hand-checkbox--compact {
+  width: 14px;
+  height: 14px;
+  flex-basis: 14px;
+  border-radius: 4px;
+}
+
+.flowix-hand-checkbox--compact .flowix-hand-checkbox__mark {
+  width: 8px;
+  height: 6px;
+}
+
+.flowix-hand-checkbox--muted-checked.flowix-hand-checkbox--checked,
+.flowix-hand-checkbox--muted-checked.flowix-hand-checkbox--indeterminate {
+  border-color: var(--muted-foreground);
+  background: var(--muted-foreground);
+}
+
 :root[data-window-focused="false"] :is(.flowix-hand-checkbox, .flowix-hand-checkbox-input) {
   border-color: color-mix(in srgb, var(--muted-foreground) 60%, transparent);
 }

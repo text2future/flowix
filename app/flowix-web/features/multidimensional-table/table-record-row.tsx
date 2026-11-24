@@ -134,7 +134,7 @@ export function TableNumberInput({
         aria-label={placeholder || '编辑数值'}
         className="multidimensional-table__text-value min-h-8 w-full min-w-0 border-0 bg-transparent px-0 py-1 text-left text-sm disabled:cursor-not-allowed"
       >
-        {currentValue == null ? <span className="text-[var(--muted-foreground)] opacity-80">{placeholder}</span> : String(currentValue)}
+        {currentValue == null ? <span className="text-[var(--input-placeholder)]">{placeholder}</span> : String(currentValue)}
       </button>
     </PopoverTrigger>
     <PopoverContent
@@ -363,7 +363,7 @@ export const TableRecordRow = memo(function TableRecordRow({
     })].map((field) => {
       if (!note && builtinPresetTableField(field.id)) return <td key={field.id} className={`${showBottomBorder ? 'border-b' : ''} border-r border-[var(--border)] p-0 align-middle`} />;
       const value = builtinPresetTableField(field.id) ? builtinPresetValue(field.id, note) : notePropertyEditorValue(note, field);
-      const inputClass = 'h-8 w-full rounded-md border-0 bg-transparent px-0 text-sm outline-none placeholder:text-[var(--muted-foreground)] placeholder:opacity-80 focus:border-0 focus:bg-transparent focus:ring-0 disabled:cursor-not-allowed disabled:opacity-50';
+      const inputClass = 'h-8 w-full rounded-md border-0 bg-transparent px-0 text-sm outline-none placeholder:text-[var(--input-placeholder)] focus:border-0 focus:bg-transparent focus:ring-0 disabled:cursor-not-allowed disabled:opacity-50';
       const isWrappingContent = field.type === 'primary' || field.type === 'Text' || field.type === 'Tag' || field.type === 'MultiSelect';
       const cellStatus = cellStatuses.get(field.id);
       const cellDisabled = saving || Boolean(cellStatus?.saving) || noteStatus !== 'linked';

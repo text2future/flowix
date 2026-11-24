@@ -1,9 +1,9 @@
 //! Project-local instructions shared with runtimes that natively load
 //! `AGENTS.md` from their working directory.
 
+use crate::config::AiMemoryLocation;
 use std::fs;
 use std::path::Path;
-use crate::config::AiMemoryLocation;
 
 const MANAGED_START: &str = "<!-- flowix:instructions:start -->";
 const MANAGED_END: &str = "<!-- flowix:instructions:end -->";
@@ -64,7 +64,9 @@ fn normalize_ai_memory_path(value: &str) -> Option<String> {
         || path.starts_with('/')
         || path.contains('\\')
         || path.contains("//")
-        || path.chars().any(|ch| ch.is_control() || "<>:\"|?*`".contains(ch))
+        || path
+            .chars()
+            .any(|ch| ch.is_control() || "<>:\"|?*`".contains(ch))
         || path.split('/').any(|part| {
             part.is_empty()
                 || part == "."
@@ -121,9 +123,7 @@ fn effective_ai_memory_locations(
             continue;
         }
         let name = location.name.trim();
-        if name.is_empty()
-            || name.chars().any(|ch| ch.is_control() || "/\\".contains(ch))
-        {
+        if name.is_empty() || name.chars().any(|ch| ch.is_control() || "/\\".contains(ch)) {
             continue;
         }
         let Some(path) = normalize_ai_memory_path(&location.path) else {
@@ -144,7 +144,11 @@ fn workspace_scope_with_ai_memory_locations(
     let mut notebook_folders = Vec::new();
     if let Ok(entries) = fs::read_dir(cwd) {
         for entry in entries.flatten() {
-            if entry.metadata().map(|metadata| metadata.is_dir()).unwrap_or(false) {
+            if entry
+                .metadata()
+                .map(|metadata| metadata.is_dir())
+                .unwrap_or(false)
+            {
                 let name = entry.file_name().to_string_lossy().into_owned();
                 if name != ".flowix" {
                     notebook_folders.push(name);
@@ -193,7 +197,9 @@ fn workspace_scope_with_ai_memory_locations(
     }
     section.push_str("\n## AI memory\n\n");
     section.push_str("- Use the matching folder below. Paths are relative to the notebook root; create folders as needed. Save general memory in a daily `YYYY-MM-DD.md` file.\n");
-    for (kind, name, path) in effective_ai_memory_locations(ai_memory_locations, legacy_ai_memory_folder) {
+    for (kind, name, path) in
+        effective_ai_memory_locations(ai_memory_locations, legacy_ai_memory_folder)
+    {
         let location = if kind == "general" {
             format!("{path}/YYYY-MM-DD.md")
         } else {
@@ -408,14 +414,15 @@ fn upsert_managed_section_with_ai_memory_locations(
     } else {
         None
     };
-    let legacy_range = if let (Some(&begin), Some(&end)) = (legacy_start.first(), legacy_end.first()) {
-        if end <= begin {
-            return Err("旧版 Flowix 托管区标记顺序颠倒".into());
-        }
-        Some((lines[begin].start, lines[end].end))
-    } else {
-        None
-    };
+    let legacy_range =
+        if let (Some(&begin), Some(&end)) = (legacy_start.first(), legacy_end.first()) {
+            if end <= begin {
+                return Err("旧版 Flowix 托管区标记顺序颠倒".into());
+            }
+            Some((lines[begin].start, lines[end].end))
+        } else {
+            None
+        };
     if let (Some((a, b)), Some((c, d))) = (block_range, legacy_range) {
         if a < d && c < b {
             return Err("Flowix 托管区相互重叠".into());
@@ -432,10 +439,14 @@ fn upsert_managed_section_with_ai_memory_locations(
         ai_memory_locations,
         legacy_ai_memory_folder,
         ai_personality,
-    ).replace('\n', newline);
+    )
+    .replace('\n', newline);
     if let (Some((start, end)), Some((legacy_start, legacy_end))) = (block_range, legacy_range) {
         let mut updated = existing.to_string();
-        let mut edits = [(start, end, section.as_str()), (legacy_start, legacy_end, "")];
+        let mut edits = [
+            (start, end, section.as_str()),
+            (legacy_start, legacy_end, ""),
+        ];
         edits.sort_by_key(|(start, _, _)| std::cmp::Reverse(*start));
         for (start, end, replacement) in edits {
             updated.replace_range(start..end, replacement);
@@ -537,7 +548,10 @@ mod tests {
             assert!(!updated.contains(MANAGED_START));
             assert_eq!(marker_count(&updated, BLOCK_BEGIN), 1);
             assert!(updated.contains("\"/other\""));
-            assert_eq!(upsert_managed_section(&updated, cwd, &["/other".into()]).unwrap(), updated);
+            assert_eq!(
+                upsert_managed_section(&updated, cwd, &["/other".into()]).unwrap(),
+                updated
+            );
         }
     }
 

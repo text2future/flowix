@@ -5,9 +5,7 @@ use std::{fs, path::Path};
 use tauri::State;
 
 use crate::{
-    app::state::AppState,
-    commands::helpers::is_registered_notebook_root,
-    config::path_is_inside,
+    app::state::AppState, commands::helpers::is_registered_notebook_root, config::path_is_inside,
     lock_utils::read_lock,
 };
 
@@ -67,7 +65,9 @@ pub fn list_editor_components(
         let metadata = fs::symlink_metadata(&path).map_err(|error| error.to_string())?;
         if metadata.is_file()
             && !metadata.file_type().is_symlink()
-            && path.extension().and_then(|extension| extension.to_str())
+            && path
+                .extension()
+                .and_then(|extension| extension.to_str())
                 .is_some_and(|extension| extension.eq_ignore_ascii_case("html"))
         {
             paths.push(path.to_string_lossy().into_owned());
@@ -96,7 +96,9 @@ pub fn read_editor_component(
     let component_path = Path::new(&file_path);
     if !path_is_inside(&directory, root)
         || !component_path.is_absolute()
-        || component_path.extension().and_then(|extension| extension.to_str())
+        || component_path
+            .extension()
+            .and_then(|extension| extension.to_str())
             .is_none_or(|extension| !extension.eq_ignore_ascii_case("html"))
     {
         return Err("FILE_PERMISSION_DENIED".to_string());
@@ -109,8 +111,8 @@ pub fn read_editor_component(
         }
     }
 
-    let component_metadata = fs::symlink_metadata(component_path)
-        .map_err(|error| error.to_string())?;
+    let component_metadata =
+        fs::symlink_metadata(component_path).map_err(|error| error.to_string())?;
     if !component_metadata.is_file() || component_metadata.file_type().is_symlink() {
         return Err("FILE_PERMISSION_DENIED".to_string());
     }
@@ -119,8 +121,8 @@ pub fn read_editor_component(
     }
 
     let canonical_directory = dunce::canonicalize(&directory).map_err(|error| error.to_string())?;
-    let canonical_component = dunce::canonicalize(component_path)
-        .map_err(|error| error.to_string())?;
+    let canonical_component =
+        dunce::canonicalize(component_path).map_err(|error| error.to_string())?;
     if canonical_component.parent() != Some(canonical_directory.as_path())
         || !path_is_inside(&canonical_component, root)
     {

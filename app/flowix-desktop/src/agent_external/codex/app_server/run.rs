@@ -5,11 +5,11 @@
 
 use super::*;
 
-use std::collections::HashMap;
-use serde_json::{Value, json};
 use super::super::AGENT_TYPE;
 use crate::agent_external::select_external_session_for_runtime;
 use crate::agent_wire::RunInfo;
+use serde_json::{json, Value};
+use std::collections::HashMap;
 
 impl CodexAppServerManager {
     pub async fn stop_chat(
@@ -95,7 +95,6 @@ impl CodexAppServerManager {
         confirmed
     }
 
-
     pub async fn running_threads(&self) -> HashMap<String, RunInfo> {
         self.inner
             .active_turns
@@ -119,7 +118,6 @@ impl CodexAppServerManager {
             .collect()
     }
 
-
     /// Return Codex's background terminal processes for a product thread.
     /// The app-server response is intentionally kept as JSON: the protocol is
     /// experimental and its terminal fields have changed between Codex builds.
@@ -140,7 +138,6 @@ impl CodexAppServerManager {
         )
         .await
     }
-
 
     pub async fn stop_all(&self) -> usize {
         let active = {
@@ -180,7 +177,6 @@ impl CodexAppServerManager {
         count
     }
 
-
     pub async fn reap_inactive_runs(
         &self,
         app_handle: &tauri::AppHandle,
@@ -205,7 +201,6 @@ impl CodexAppServerManager {
         }
         count
     }
-
 
     pub async fn supported_model_catalog(&self) -> Result<Vec<Value>, String> {
         self.ensure_connection().await?;
@@ -255,7 +250,6 @@ impl CodexAppServerManager {
             .collect())
     }
 
-
     pub async fn supported_models(&self) -> Result<Vec<String>, String> {
         Ok(self
             .supported_model_catalog()
@@ -264,7 +258,6 @@ impl CodexAppServerManager {
             .filter_map(|model| model.get("id").and_then(Value::as_str).map(str::to_string))
             .collect())
     }
-
 
     /// Read the account snapshot used by the Codex badge popover. Rate limits
     /// are deliberately returned as raw JSON because the app-server schema is
@@ -289,5 +282,4 @@ impl CodexAppServerManager {
             "usage": usage,
         }))
     }
-
 }

@@ -6,12 +6,9 @@
 
 use super::*;
 
-
 use tauri::Emitter;
 
-
 impl PiRpcManager {
-
     pub async fn connect_cloud_model_provider(
         &self,
         app: &tauri::AppHandle,
@@ -26,7 +23,6 @@ impl PiRpcManager {
         *cached_generation = Some(generation);
         Ok(())
     }
-
 
     /// Remove the local Flowix Cloud provider and its credential after logout.
     pub async fn disconnect_cloud_model_provider(
@@ -53,7 +49,6 @@ impl PiRpcManager {
         }
         Ok(())
     }
-
 
     /// Ensure the Flowix Cloud Pi catalog is available once for the current
     /// signed-in account, including the first login before a provider exists.
@@ -85,7 +80,6 @@ impl PiRpcManager {
         .await
     }
 
-
     /// Refresh the saved Flowix Cloud model catalog on an explicit user request.
     pub async fn refresh_cloud_model_provider(
         &self,
@@ -116,7 +110,6 @@ impl PiRpcManager {
         Ok(true)
     }
 
-
     pub(super) async fn ensure_cloud_credential(
         &self,
         app: &tauri::AppHandle,
@@ -138,7 +131,6 @@ impl PiRpcManager {
         *cached_generation = Some(generation);
         Ok(Some(generation))
     }
-
 
     pub(super) async fn create_and_save_cloud_credential(
         &self,
@@ -170,5 +162,4 @@ impl PiRpcManager {
         let _ = app.emit(crate::events::USER_CONFIG_CHANGED_EVENT, "pi_config");
         Ok(())
     }
-
 }

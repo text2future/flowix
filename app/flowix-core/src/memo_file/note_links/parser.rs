@@ -114,16 +114,21 @@ fn destination(
         raw.split('#').next().unwrap_or_default()
     } else {
         strip_fragment(raw)
-    })?.replace('\\', "/");
+    })?
+    .replace('\\', "/");
     if target.is_empty() {
         return raw
             .starts_with('#')
             .then_some(("path".into(), source.to_owned()));
     }
     // A bare Markdown destination first addresses a same-named note at notebook root.
-    let root_note = !wiki && !target.contains('/') && !target.contains(':')
+    let root_note = !wiki
+        && !target.contains('/')
+        && !target.contains(':')
         && Path::new(&target).extension().is_none();
-    if root_note { target.push_str(".md"); }
+    if root_note {
+        target.push_str(".md");
+    }
     if !wiki && !markdown_path(&target) {
         return None;
     }
@@ -155,12 +160,18 @@ fn destination(
         let path = absolute_notebook_target(&target, book)?;
         return Some(("path".into(), path));
     }
-    if target.split('/').next().is_some_and(|part| part.contains(':')) {
+    if target
+        .split('/')
+        .next()
+        .is_some_and(|part| part.contains(':'))
+    {
         return None;
     }
     let target = if wiki && Path::new(&target).extension().is_none() {
         format!("{target}.md")
-    } else { target };
+    } else {
+        target
+    };
     let path = if !root_note && !parent.is_empty() {
         format!("{parent}/{target}")
     } else {

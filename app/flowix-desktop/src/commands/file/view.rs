@@ -195,9 +195,15 @@ pub async fn get_html_notebook_folders(
                 let entry = entry.map_err(|error| error.to_string())?;
                 let path = entry.path();
                 let metadata = fs::symlink_metadata(&path).map_err(|error| error.to_string())?;
-                if !metadata.is_dir() || metadata.file_type().is_symlink() { continue; }
-                let relative = path.strip_prefix(&root).map_err(|error| error.to_string())?;
-                if policy.is_index_hidden_at(&root, relative) { continue; }
+                if !metadata.is_dir() || metadata.file_type().is_symlink() {
+                    continue;
+                }
+                let relative = path
+                    .strip_prefix(&root)
+                    .map_err(|error| error.to_string())?;
+                if policy.is_index_hidden_at(&root, relative) {
+                    continue;
+                }
                 folders.push(NotebookFolderOption {
                     relative_path: relative.to_string_lossy().replace('\\', "/"),
                     depth: relative.components().count(),
@@ -206,8 +212,14 @@ pub async fn get_html_notebook_folders(
             }
         }
         folders.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
-        Ok(HtmlNotebookFolders { folders, default_relative_path, truncated })
-    }).await.map_err(|error| error.to_string())?
+        Ok(HtmlNotebookFolders {
+            folders,
+            default_relative_path,
+            truncated,
+        })
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -282,9 +294,11 @@ pub(crate) fn rebase_notebook_default_create_folder(
     let Some(current) = preferences.default_create_folder.as_deref() else {
         return Ok(None);
     };
-    let Some(rebased) =
-        flowix_core::memo_file::rebase_default_create_folder_path(current, previous_relative, next_relative)
-    else {
+    let Some(rebased) = flowix_core::memo_file::rebase_default_create_folder_path(
+        current,
+        previous_relative,
+        next_relative,
+    ) else {
         return Ok(None);
     };
     let path = notebook_preferences_path(root)?;
@@ -339,7 +353,11 @@ pub(crate) fn rebase_default_create_folder_for_move(
         crate::runtime_log::record_event(
             "warn",
             "notebook.default_create_folder.rebase",
-            format!("cannot read notebook registry for {} -> {}", source.display(), target.display()),
+            format!(
+                "cannot read notebook registry for {} -> {}",
+                source.display(),
+                target.display()
+            ),
         );
         return;
     };
@@ -374,7 +392,10 @@ pub(crate) fn rebase_default_create_folder_for_move(
                 crate::runtime_log::record_event(
                     "warn",
                     "notebook.default_create_folder.rebase",
-                    format!("guarded write refused for {}: {error}; writing directly", config.id),
+                    format!(
+                        "guarded write refused for {}: {error}; writing directly",
+                        config.id
+                    ),
                 );
                 match rebase_notebook_default_create_folder(&root, &previous, &next) {
                     Ok(rebased) => rebased,
@@ -382,7 +403,10 @@ pub(crate) fn rebase_default_create_folder_for_move(
                         crate::runtime_log::record_event(
                             "error",
                             "notebook.default_create_folder.rebase",
-                            format!("cannot rebase {} ({previous} -> {next}): {error}", config.id),
+                            format!(
+                                "cannot rebase {} ({previous} -> {next}): {error}",
+                                config.id
+                            ),
                         );
                         continue;
                     }
@@ -393,7 +417,10 @@ pub(crate) fn rebase_default_create_folder_for_move(
             crate::runtime_log::record_event(
                 "info",
                 "notebook.default_create_folder.rebase",
-                format!("{} does not track {previous} (move {previous} -> {next})", config.id),
+                format!(
+                    "{} does not track {previous} (move {previous} -> {next})",
+                    config.id
+                ),
             );
             continue;
         };

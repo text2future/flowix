@@ -207,8 +207,8 @@ impl ThreadManager {
     ) -> Result<Vec<AgentConversationTypeCount>, ThreadError> {
         self.run_blocking(move |tm| {
             let conn = tm.lock_conn();
-            let mut stmt = conn.prepare(
-                &format!("SELECT i.agent, COUNT(*)
+            let mut stmt = conn.prepare(&format!(
+                "SELECT i.agent, COUNT(*)
                  FROM agent_instances i
                  LEFT JOIN threads_index ti ON ti.instance_id = i.id
                  LEFT JOIN agent_conversation_instances legacy ON legacy.instance_id = i.id
@@ -221,8 +221,9 @@ impl ThreadManager {
                        AND i.id = 'legacy-' || ti.id
                        AND legacy.instance_id IS NULL
                    )
-                 GROUP BY i.agent", has_messages = CONVERSATION_HAS_MESSAGES_SQL),
-            )?;
+                 GROUP BY i.agent",
+                has_messages = CONVERSATION_HAS_MESSAGES_SQL
+            ))?;
             let rows = stmt.query_map(params![notebook_id], |row| {
                 Ok(AgentConversationTypeCount {
                     agent_type: row.get(0)?,
@@ -291,7 +292,8 @@ impl ThreadManager {
     ) -> Result<usize, ThreadError> {
         let conn = self.lock_conn();
         let count = conn.query_row(
-            &format!("SELECT COUNT(*)
+            &format!(
+                "SELECT COUNT(*)
              FROM agent_instances i
              LEFT JOIN threads_index ti ON ti.instance_id = i.id
              LEFT JOIN agent_conversation_instances legacy ON legacy.instance_id = i.id
@@ -303,7 +305,9 @@ impl ThreadManager {
                    AND ti.id GLOB 'ses_*'
                    AND i.id = 'legacy-' || ti.id
                    AND legacy.instance_id IS NULL
-               )", has_messages = CONVERSATION_HAS_MESSAGES_SQL),
+               )",
+                has_messages = CONVERSATION_HAS_MESSAGES_SQL
+            ),
             params![notebook_id],
             |row| row.get::<_, i64>(0),
         )?;

@@ -22,8 +22,14 @@ impl NotebookPathUpdated {
         origin_window_label: String,
         previous_favorited: Option<bool>,
     ) -> Self {
-        Self { change_id: uuid::Uuid::new_v4().to_string(), notebook_id,
-            relative_path, entry, origin_window_label, previous_favorited }
+        Self {
+            change_id: uuid::Uuid::new_v4().to_string(),
+            notebook_id,
+            relative_path,
+            entry,
+            origin_window_label,
+            previous_favorited,
+        }
     }
 
     pub fn emit(&self, app: &tauri::AppHandle) {
@@ -115,7 +121,11 @@ impl NotebookPathCreated {
 
 impl NotebookPathDeleted {
     pub fn new(notebook_id: String, relative_path: String) -> Self {
-        Self { change_id: uuid::Uuid::new_v4().to_string(), notebook_id, relative_path }
+        Self {
+            change_id: uuid::Uuid::new_v4().to_string(),
+            notebook_id,
+            relative_path,
+        }
     }
 
     pub fn emit(&self, app: &tauri::AppHandle) {
@@ -131,7 +141,11 @@ impl NotebookPathDeleted {
 
 impl NotebookPathInvalidated {
     pub fn new(notebook_id: String, relative_path: String) -> Self {
-        Self { change_id: uuid::Uuid::new_v4().to_string(), notebook_id, relative_path }
+        Self {
+            change_id: uuid::Uuid::new_v4().to_string(),
+            notebook_id,
+            relative_path,
+        }
     }
 
     pub fn emit(&self, app: &tauri::AppHandle) {
@@ -142,8 +156,11 @@ impl NotebookPathInvalidated {
 impl NotebookPathMove {
     pub fn new(notebook_id: String, previous: String, next: String, directory: bool) -> Self {
         Self {
-            change_id: uuid::Uuid::new_v4().to_string(), notebook_id,
-            previous_relative_path: previous, relative_path: next, directory,
+            change_id: uuid::Uuid::new_v4().to_string(),
+            notebook_id,
+            previous_relative_path: previous,
+            relative_path: next,
+            directory,
         }
     }
 

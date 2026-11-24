@@ -81,7 +81,11 @@ impl RemoveCoalescer {
 
     #[cfg(test)]
     fn contains_for_test(&self, notebook_id: &str, path: &Path) -> bool {
-        self.inner.pending.lock().unwrap().contains_key(&(notebook_id.to_string(), path.to_path_buf()))
+        self.inner
+            .pending
+            .lock()
+            .unwrap()
+            .contains_key(&(notebook_id.to_string(), path.to_path_buf()))
     }
 
     #[cfg(test)]
@@ -135,7 +139,12 @@ fn spawn_worker(
         };
 
         for pending in expired {
-            PathNoteEventProcessor::unregister_and_emit(&app, &memo_file, &pending.ctx, &pending.path);
+            PathNoteEventProcessor::unregister_and_emit(
+                &app,
+                &memo_file,
+                &pending.ctx,
+                &pending.path,
+            );
         }
     });
 }

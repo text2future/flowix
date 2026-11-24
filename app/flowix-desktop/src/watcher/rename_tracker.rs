@@ -64,7 +64,11 @@ impl RenameTracker {
             if !self.roots.contains(&root) {
                 continue;
             }
-            for (path, identity) in seed.known.iter().filter(|(path, _)| path.starts_with(&root)) {
+            for (path, identity) in seed
+                .known
+                .iter()
+                .filter(|(path, _)| path.starts_with(&root))
+            {
                 // Keep observations made by live events while the baseline was
                 // collected off-thread.
                 self.known.entry(path.clone()).or_insert(*identity);
@@ -78,7 +82,11 @@ impl RenameTracker {
             }
         }
     }
-    fn add_root_while(&mut self, root: &NotebookWatchContext, keep_running: &impl Fn() -> bool) -> bool {
+    fn add_root_while(
+        &mut self,
+        root: &NotebookWatchContext,
+        keep_running: &impl Fn() -> bool,
+    ) -> bool {
         self.register_root(root);
         let policy = FileManagementPolicy::from_notebook_root(&root.root);
         for entry in walkdir::WalkDir::new(&root.root)
@@ -96,12 +104,9 @@ impl RenameTracker {
                 return false;
             }
             if entry.file_type().is_dir()
-                || entry
-                    .path()
-                    .extension()
-                    .is_some_and(|ext| {
-                        ext.eq_ignore_ascii_case("md") || ext.eq_ignore_ascii_case("markdown")
-                    })
+                || entry.path().extension().is_some_and(|ext| {
+                    ext.eq_ignore_ascii_case("md") || ext.eq_ignore_ascii_case("markdown")
+                })
                 || resource_kind_for_path(entry.path()).is_some()
             {
                 self.observe(entry.path());
@@ -114,9 +119,11 @@ impl RenameTracker {
         let roots = &self.roots;
         let belongs_to_watched_root = |path: &Path| roots.iter().any(|base| path.starts_with(base));
         self.known.retain(|path, _| belongs_to_watched_root(path));
-        self.known_directories.retain(|path| belongs_to_watched_root(path));
+        self.known_directories
+            .retain(|path| belongs_to_watched_root(path));
         self.pending.retain(|path, _| belongs_to_watched_root(path));
-        self.pending_removals.retain(|path, _| belongs_to_watched_root(path));
+        self.pending_removals
+            .retain(|path, _| belongs_to_watched_root(path));
     }
     fn observe(&mut self, path: &Path) {
         if let Some(identity) = filesystem_identity(path) {
@@ -133,11 +140,10 @@ impl RenameTracker {
     pub fn correlate(&mut self, event: Event) -> Event {
         self.correlate_with_path_history(event).0
     }
-    pub fn correlate_with_path_history(
-        &mut self,
-        event: Event,
-    ) -> (Event, HashMap<PathBuf, bool>) {
-        let expired: Vec<_> = self.pending_removals.iter()
+    pub fn correlate_with_path_history(&mut self, event: Event) -> (Event, HashMap<PathBuf, bool>) {
+        let expired: Vec<_> = self
+            .pending_removals
+            .iter()
             .filter(|(_, time)| time.elapsed() >= Duration::from_millis(450))
             .map(|(path, _)| path.clone())
             .collect();
@@ -146,9 +152,11 @@ impl RenameTracker {
             self.known.remove(&path);
             self.known_directories.remove(&path);
         }
-        let mut history: HashMap<PathBuf, bool> = event.paths.iter().map(|path| {
-            (path.clone(), self.known.contains_key(path))
-        }).collect();
+        let mut history: HashMap<PathBuf, bool> = event
+            .paths
+            .iter()
+            .map(|path| (path.clone(), self.known.contains_key(path)))
+            .collect();
         let (event, renamed_to) = self.correlate_inner(event);
         // A correlated rename reuses an existing filesystem identity, so the
         // new path counts as "known" and must not surface as a created file.
@@ -160,8 +168,10 @@ impl RenameTracker {
     fn correlate_inner(&mut self, event: Event) -> (Event, Option<PathBuf>) {
         self.pending
             .retain(|_, (_, time)| time.elapsed() < Duration::from_secs(2));
-        if matches!(event.kind, EventKind::Modify(ModifyKind::Name(RenameMode::Both)))
-            && event.paths.len() == 2
+        if matches!(
+            event.kind,
+            EventKind::Modify(ModifyKind::Name(RenameMode::Both))
+        ) && event.paths.len() == 2
         {
             let old = &event.paths[0];
             let new = &event.paths[1];
@@ -199,9 +209,12 @@ impl RenameTracker {
                     let old = &candidates[0];
                     self.pending.remove(old);
                     self.rebase_known(old, path);
-                    return (Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::Both)))
-                        .add_path(old.clone())
-                        .add_path(path.clone()), None);
+                    return (
+                        Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::Both)))
+                            .add_path(old.clone())
+                            .add_path(path.clone()),
+                        None,
+                    );
                 }
             }
         }
@@ -223,9 +236,7 @@ impl RenameTracker {
                 let candidates: Vec<_> = self
                     .known
                     .iter()
-                    .filter(|(old, old_identity)| {
-                        **old_identity == identity && !old.exists()
-                    })
+                    .filter(|(old, old_identity)| **old_identity == identity && !old.exists())
                     .map(|(old, _)| old.clone())
                     .collect();
                 if candidates.len() == 1 {
@@ -299,14 +310,17 @@ mod tests {
         tracker.observe(&old.join("note.md"));
         std::fs::rename(&old, &middle).unwrap();
         let paired = Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::Both)))
-            .add_path(old.clone()).add_path(middle.clone());
+            .add_path(old.clone())
+            .add_path(middle.clone());
         tracker.correlate(paired);
         assert!(tracker.was_directory(&middle));
         assert!(tracker.known.contains_key(&middle.join("note.md")));
         std::fs::rename(&middle, &final_path).unwrap();
         tracker.correlate(event(RenameMode::From, &middle));
-        assert_eq!(tracker.correlate(event(RenameMode::To, &final_path)).paths,
-            vec![middle, final_path]);
+        assert_eq!(
+            tracker.correlate(event(RenameMode::To, &final_path)).paths,
+            vec![middle, final_path]
+        );
     }
 
     #[test]
@@ -320,8 +334,8 @@ mod tests {
         tracker.observe(&old);
         std::fs::rename(&old, &new).unwrap();
 
-        let created = Event::new(EventKind::Create(notify::event::CreateKind::File))
-            .add_path(new.clone());
+        let created =
+            Event::new(EventKind::Create(notify::event::CreateKind::File)).add_path(new.clone());
         let (event, history) = tracker.correlate_with_path_history(created);
         assert_eq!(event.paths, vec![new.clone()]);
         assert_eq!(history[&new], true);
@@ -357,8 +371,8 @@ mod tests {
         std::fs::copy(&old, &copy).unwrap();
         std::fs::remove_file(&old).unwrap();
 
-        let created = Event::new(EventKind::Create(notify::event::CreateKind::File))
-            .add_path(copy.clone());
+        let created =
+            Event::new(EventKind::Create(notify::event::CreateKind::File)).add_path(copy.clone());
         let (_, history) = tracker.correlate_with_path_history(created);
         assert_eq!(history[&copy], false);
     }
@@ -373,8 +387,8 @@ mod tests {
         tracker.observe(&old);
         std::fs::rename(&old, &new).unwrap();
 
-        let modified = Event::new(EventKind::Modify(notify::event::ModifyKind::Any))
-            .add_path(new.clone());
+        let modified =
+            Event::new(EventKind::Modify(notify::event::ModifyKind::Any)).add_path(new.clone());
         let (_, history) = tracker.correlate_with_path_history(modified);
         assert_eq!(history[&new], true);
     }

@@ -311,7 +311,7 @@ export class FrontmatterPropertyEditor {
       const renderOptions = () => {
         triggerValue.replaceChildren(selectedValue
           ? createOptionChip(selectedValue)
-          : createElement('span', 'text-[var(--muted-foreground)]', this.t('document.properties.select.placeholder')));
+          : createElement('span', 'text-[var(--input-placeholder)]', this.t('document.properties.select.placeholder')));
         menu.replaceChildren();
         options.forEach((optionValue) => {
           const option = createElement('button', 'frontmatter-property__edit-option-item');
@@ -624,7 +624,7 @@ export class FrontmatterPropertyEditor {
             if (selected.size > 0) {
               [...selected].forEach((optionValue) => triggerValue.append(createOptionChip(optionValue, true)));
             } else {
-              triggerValue.append(createElement('span', 'text-[var(--muted-foreground)]', this.t('document.properties.select.placeholder')));
+              triggerValue.append(createElement('span', 'text-[var(--input-placeholder)]', this.t('document.properties.select.placeholder')));
             }
             menu.replaceChildren();
             configuredOptions.forEach((optionValue) => {

@@ -1,6 +1,8 @@
 'use client';
 
-import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
+import { PopupSurface } from '@shared/ui/popup-scroll-area';
 import {
   ArrowDownUp,
   ArrowDown,
@@ -15,6 +17,7 @@ import {
   ListOrdered,
   MoreHorizontal,
   PanelsTopLeft,
+  Share2,
 } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
@@ -29,51 +32,82 @@ import {
 import type { FolderTreeSort } from './use-folder-tree';
 import type { TableViewType } from '@features/multidimensional-table/public/create-api';
 import { MEMO_CREATE_VIEW_OPTIONS } from './memo-create-view-options';
+import { NoteShareControl } from '@features/document/public/header-api';
+
+const noDocumentToFlush = async () => true;
 
 export function getPopupOriginRect(target: HTMLElement): DOMRect {
   const rect = (target.closest('[role="menu"]') ?? target).getBoundingClientRect();
   return new DOMRect(rect.left, rect.top, 0, 0);
 }
 
-function useViewportSubmenuPosition(open: boolean) {
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const contentRef = useRef<HTMLDivElement | null>(null);
-  const [style, setStyle] = useState<CSSProperties>({ left: '100%', top: 0 });
-
+/** Portal the submenu outside the parent menu's scrolling viewport. */
+function SectionSubmenu({ label, icon, trailing, children }: {
+  label: ReactNode; icon: ReactNode; trailing?: ReactNode; children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const popup = useRef<HTMLDivElement>(null);
+  const timer = useRef<number | null>(null);
+  const focusFirst = useRef(false);
+  const cancelClose = () => { if (timer.current !== null) window.clearTimeout(timer.current); timer.current = null; };
+  const scheduleClose = () => { cancelClose(); timer.current = window.setTimeout(() => { setOpen(false); timer.current = null; }, 160); };
+  useEffect(() => () => cancelClose(), []);
+  const align = useCallback(() => {
+    if (!trigger.current) return;
+    const rect = trigger.current.getBoundingClientRect();
+    const width = Math.min(176, Math.max(0, window.innerWidth - 8));
+    const height = Math.min(popup.current?.scrollHeight ?? 220, Math.max(0, window.innerHeight - 8));
+    const left = window.innerWidth - rect.right < width + 4
+      ? Math.max(4, rect.left - width) : Math.min(rect.right, window.innerWidth - width - 4);
+    const top = Math.max(4, Math.min(rect.top, window.innerHeight - height - 4));
+    setPosition((old) => old?.left === left && old.top === top ? old : { left, top });
+  }, []);
+  const show = () => { cancelClose(); align(); setOpen(true); };
   useLayoutEffect(() => {
     if (!open) return;
-    const updatePosition = () => {
-      const trigger = triggerRef.current;
-      const content = contentRef.current;
-      if (!trigger || !content) return;
-      const triggerRect = trigger.getBoundingClientRect();
-      const width = content.offsetWidth || 176;
-      const height = content.scrollHeight;
-      const opensLeft = window.innerWidth - triggerRect.right < width + 8;
-      const top = Math.max(4, Math.min(triggerRect.top, window.innerHeight - height - 4));
-      setStyle({
-        left: opensLeft ? undefined : '100%',
-        right: opensLeft ? '100%' : undefined,
-        top: top - triggerRect.top,
-      });
+    let frame = 0;
+    const started = performance.now();
+    const update = (now: number) => {
+      align();
+      if (now - started < 250) frame = requestAnimationFrame(update);
     };
-    updatePosition();
-    const frame = window.requestAnimationFrame(updatePosition);
-    const observer = typeof ResizeObserver === 'undefined' || !contentRef.current
-      ? null
-      : new ResizeObserver(updatePosition);
-    if (observer && contentRef.current) observer.observe(contentRef.current);
-    window.addEventListener('resize', updatePosition);
-    window.addEventListener('scroll', updatePosition, true);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      observer?.disconnect();
-      window.removeEventListener('resize', updatePosition);
-      window.removeEventListener('scroll', updatePosition, true);
-    };
+    frame = requestAnimationFrame(update);
+    window.addEventListener('resize', align);
+    window.addEventListener('scroll', align, true);
+    return () => { cancelAnimationFrame(frame); window.removeEventListener('resize', align); window.removeEventListener('scroll', align, true); };
+  }, [align, open]);
+  useLayoutEffect(() => {
+    if (!open || !focusFirst.current) return;
+    focusFirst.current = false;
+    popup.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus({ preventScroll: true });
   }, [open]);
-
-  return { triggerRef, contentRef, style };
+  return <div className="relative" onMouseEnter={cancelClose} onMouseLeave={scheduleClose}>
+    <button type="button" ref={trigger} aria-haspopup="menu" aria-expanded={open}
+      className="group flex h-7 w-full items-center justify-between rounded-lg px-2 text-left text-sm text-[var(--foreground)] hover:bg-[var(--hover-bg)] focus-visible:bg-[var(--hover-bg)]"
+      onMouseEnter={show} onClick={show} onMouseDown={(event) => event.preventDefault()}
+      onKeyDown={(event) => { if (event.key === 'ArrowRight') { event.preventDefault(); event.stopPropagation(); focusFirst.current = true; show(); if (open) popup.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus({ preventScroll: true }); } }}>
+      <span className="flex min-w-0 items-center gap-2">{icon}{label}</span>
+      <span className="flex items-center gap-1 text-xs text-[var(--muted-foreground)]">{trailing}<ChevronRight className="h-3.5 w-3.5" aria-hidden="true" /></span>
+    </button>
+    {open && position && createPortal(<PopupSurface scrollable scrollerClassName="space-y-0.5" ref={popup}
+      data-flowix-menu-child="" role="menu" onMouseEnter={cancelClose} onMouseLeave={scheduleClose}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape' || event.key === 'ArrowLeft') {
+          event.preventDefault(); event.stopPropagation(); setOpen(false); trigger.current?.focus({ preventScroll: true });
+        } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+          const items = [...(popup.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])];
+          if (!items.length) return;
+          event.preventDefault(); event.stopPropagation();
+          const index = items.indexOf(document.activeElement as HTMLButtonElement);
+          const next = event.key === 'ArrowDown' ? (index + 1) % items.length : (index <= 0 ? items.length - 1 : index - 1);
+          items[next]?.focus({ preventScroll: true });
+        }
+      }}
+      className="fixed z-[151] w-[176px] rounded-xl border border-[var(--border-popup)] bg-[var(--card)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]"
+      style={{ ...position, maxWidth: 'calc(100vw - 8px)', maxHeight: 'calc(100vh - 8px)' }}>{children}</PopupSurface>, document.body)}
+  </div>;
 }
 
 export interface NotebookTreeSectionMenuProps {
@@ -93,6 +127,7 @@ export interface NotebookTreeSectionMenuProps {
   onSort?: (sort: FolderTreeSort) => void;
   onCustomizeDisplay?: (anchorRect: DOMRect) => void;
   onConfigureAgentConversationCount?: () => void;
+  sharePath?: string;
 }
 
 export function NotebookTreeSectionMenu({
@@ -112,27 +147,18 @@ export function NotebookTreeSectionMenu({
   onSort,
   onCustomizeDisplay,
   onConfigureAgentConversationCount,
+  sharePath,
 }: NotebookTreeSectionMenuProps) {
   const { t } = useI18n();
-  const [sortSubmenuOpen, setSortSubmenuOpen] = useState(false);
-  const [createSubmenuOpen, setCreateSubmenuOpen] = useState(false);
-  const [importSubmenuOpen, setImportSubmenuOpen] = useState(false);
-  const createSubmenuPosition = useViewportSubmenuPosition(createSubmenuOpen);
-  const importSubmenuPosition = useViewportSubmenuPosition(importSubmenuOpen);
-  const sortSubmenuPosition = useViewportSubmenuPosition(sortSubmenuOpen);
+  const [shareRequest, setShareRequest] = useState(0);
   const itemClassName = 'group h-7 items-center justify-start gap-2 rounded-lg px-2 py-0 text-left hover:bg-[var(--hover-bg)] focus-visible:bg-[var(--hover-bg)] disabled:cursor-not-allowed disabled:opacity-40';
   const hasActionsAfterMovement = Boolean(
     onCreateNote || onCreateFolder || onCreateTable || onCreateMediaLibrary || onCreateWorkDocuments || onImportFiles || onImportFolder || (sort && onSort),
   );
 
   return (
-    <DropdownMenu onOpenChange={(open) => {
-      if (!open) {
-        setCreateSubmenuOpen(false);
-        setImportSubmenuOpen(false);
-        setSortSubmenuOpen(false);
-      }
-    }}>
+    <>
+    <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
@@ -166,125 +192,38 @@ export function NotebookTreeSectionMenu({
           </DropdownMenuItem>
         )}
         {(onCreateTable || onCreateMediaLibrary || onCreateWorkDocuments) && (
-          <div
-            className="relative"
-            onMouseEnter={() => setCreateSubmenuOpen(true)}
-            onMouseLeave={() => setCreateSubmenuOpen(false)}
-          >
-            <button
-              type="button"
-              ref={createSubmenuPosition.triggerRef}
-              className={cn(itemClassName, 'flex w-full items-center justify-between text-sm')}
-              onClick={() => setCreateSubmenuOpen((open) => !open)}
-              onMouseDown={(event) => event.preventDefault()}
-            >
-              <span className="flex items-center gap-2">
-                <DatabasePlus className="h-3.5 w-3.5" aria-hidden="true" />
-                {t('memo.create.newView')}
-              </span>
-              <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
-            </button>
-            {createSubmenuOpen && (
-              // 点击触发的子菜单加入场动画; 下方两个 hover 展开的子菜单不加
-              // ── 指针扫过兄弟行时会频繁挂载, 每次都播动画会闪。
-              <div ref={createSubmenuPosition.contentRef} style={{ ...createSubmenuPosition.style, maxWidth: 'calc(100vw - 8px)', maxHeight: 'calc(100vh - 8px)', overflowY: 'auto', transformOrigin: 'top left' }} className="flowix-popover-enter absolute w-[176px] space-y-0.5 rounded-xl border border-[var(--border-popup)] bg-[var(--card)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
-                {onCreateTable && MEMO_CREATE_VIEW_OPTIONS.map(({ type, labelKey }) => (
-                  <DropdownMenuItem key={type} onClick={() => onCreateTable(type)} className={itemClassName}>
-                    {t(labelKey)}
-                    <span className="ml-auto text-xs text-[var(--muted-foreground)] opacity-50">{t('memo.create.note')}</span>
-                  </DropdownMenuItem>
-                ))}
-                {onCreateMediaLibrary && (
-                  <DropdownMenuItem onClick={onCreateMediaLibrary} className={itemClassName}>
-                    <span>{t('memo.create.mediaLibraryMenuLabel')}</span>
-                    <span className="ml-auto text-xs text-[var(--muted-foreground)] opacity-50">
-                      {t('memo.create.assetShort')}
-                    </span>
-                  </DropdownMenuItem>
-                )}
-                {onCreateWorkDocuments && (
-                  <DropdownMenuItem onClick={onCreateWorkDocuments} className={itemClassName}>
-                    <span>{t('memo.create.workDocumentsMenuLabel')}</span>
-                    <span className="ml-auto text-xs text-[var(--muted-foreground)] opacity-50">
-                      {t('memo.create.assetShort')}
-                    </span>
-                  </DropdownMenuItem>
-                )}
-              </div>
-            )}
-          </div>
+          <SectionSubmenu label={t('memo.create.newView')} icon={<DatabasePlus className="h-3.5 w-3.5" aria-hidden="true" />}>
+            {onCreateTable && MEMO_CREATE_VIEW_OPTIONS.map(({ type, labelKey }) => (
+              <DropdownMenuItem key={type} onClick={() => onCreateTable(type)} className={itemClassName}>
+                {t(labelKey)}<span className="ml-auto text-xs text-[var(--muted-foreground)] opacity-50">{t('memo.create.note')}</span>
+              </DropdownMenuItem>
+            ))}
+            {onCreateMediaLibrary && <DropdownMenuItem onClick={onCreateMediaLibrary} className={itemClassName}>{t('memo.create.mediaLibraryMenuLabel')}<span className="ml-auto text-xs text-[var(--muted-foreground)] opacity-50">{t('memo.create.assetShort')}</span></DropdownMenuItem>}
+            {onCreateWorkDocuments && <DropdownMenuItem onClick={onCreateWorkDocuments} className={itemClassName}>{t('memo.create.workDocumentsMenuLabel')}<span className="ml-auto text-xs text-[var(--muted-foreground)] opacity-50">{t('memo.create.assetShort')}</span></DropdownMenuItem>}
+          </SectionSubmenu>
         )}
         {(onImportFiles || onImportFolder) && (
-          <div className="relative" onMouseEnter={() => setImportSubmenuOpen(true)} onMouseLeave={() => setImportSubmenuOpen(false)}>
-            <button
-              type="button"
-              ref={importSubmenuPosition.triggerRef}
-              onClick={() => setImportSubmenuOpen((open) => !open)}
-              onMouseDown={(event) => event.preventDefault()}
-              className={cn(itemClassName, 'flex w-full items-center text-sm')}
-            >
-              <Download className="h-3.5 w-3.5" aria-hidden="true" />
-              {t('memo.fileTree.import')}
-              <ChevronRight className="ml-auto h-3.5 w-3.5" aria-hidden="true" />
-            </button>
-            {importSubmenuOpen && (
-              <div
-                ref={importSubmenuPosition.contentRef}
-                style={importSubmenuPosition.style}
-                className="absolute z-50 w-[156px] space-y-0.5 rounded-xl border border-[var(--border-popup)] bg-[var(--card)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]"
-              >
-                {onImportFiles && <DropdownMenuItem onClick={onImportFiles} className={itemClassName}>{t('memo.fileTree.importFiles')}</DropdownMenuItem>}
-                {onImportFolder && <DropdownMenuItem onClick={onImportFolder} className={itemClassName}>{t('memo.fileTree.importFolder')}</DropdownMenuItem>}
-              </div>
-            )}
-          </div>
+          <SectionSubmenu label={t('memo.fileTree.import')} icon={<Download className="h-3.5 w-3.5" aria-hidden="true" />}>
+            {onImportFiles && <DropdownMenuItem onClick={onImportFiles} className={itemClassName}>{t('memo.fileTree.importFiles')}</DropdownMenuItem>}
+            {onImportFolder && <DropdownMenuItem onClick={onImportFolder} className={itemClassName}>{t('memo.fileTree.importFolder')}</DropdownMenuItem>}
+          </SectionSubmenu>
         )}
         {sort && onSort && (
-          <div
-            className="relative"
-            onMouseEnter={() => setSortSubmenuOpen(true)}
-            onMouseLeave={() => setSortSubmenuOpen(false)}
-          >
-            <button
-              type="button"
-              ref={sortSubmenuPosition.triggerRef}
-              className={cn(itemClassName, 'memo-navigation-submenu-trigger flex w-full items-center justify-between text-sm')}
-              onClick={() => setSortSubmenuOpen(true)}
-              onMouseDown={(event) => event.preventDefault()}
-            >
-              <span className="flex items-center gap-2">
-                <ArrowDownUp className="h-3.5 w-3.5" aria-hidden="true" />
-                {t('memo.list.sortLabel')}
-              </span>
-              <span className="flex items-center gap-1 text-xs text-[var(--muted-foreground)]">
-                {t(sort === 'createdAt' ? 'memo.list.sortCreated' : sort === 'updatedAt' ? 'memo.list.sortUpdated' : sort === 'filenameAsc' ? 'memo.list.sortFilenameAsc' : 'memo.list.sortFilenameDesc')}
-                <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
-              </span>
-            </button>
-            {sortSubmenuOpen && (
-              <div ref={sortSubmenuPosition.contentRef} style={{ ...sortSubmenuPosition.style, maxWidth: 'calc(100vw - 8px)', maxHeight: 'calc(100vh - 8px)', overflowY: 'auto' }} className="absolute w-[176px] space-y-0.5 rounded-xl border border-[var(--border-popup)] bg-[var(--card)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
-                {([
-                  ['createdAt', 'memo.list.sortCreated'],
-                  ['updatedAt', 'memo.list.sortUpdated'],
-                  ['filenameAsc', 'memo.list.sortFilenameAsc'],
-                  ['filenameDesc', 'memo.list.sortFilenameDesc'],
-                ] as const).map(([value, label]) => (
-                  <DropdownMenuItem
-                    key={value}
-                    onClick={() => onSort(value)}
-                    className={cn(
-                      'memo-navigation-submenu-item memo-navigation-submenu-item--neutral-hover mention-note-item !grid !grid-cols-[minmax(0,1fr)_auto] !gap-3 cursor-pointer hover:bg-[var(--hover-bg)] focus-visible:bg-[var(--hover-bg)] focus-visible:outline-none',
-                      sort === value && 'is-selected',
-                    )}
-                  >
-                    <span>{t(label)}</span>
-                    {sort === value && <Check className="h-4 w-4 text-[var(--brand)]" aria-hidden="true" />}
-                  </DropdownMenuItem>
-                ))}
-              </div>
-            )}
-          </div>
+          <SectionSubmenu label={t('memo.list.sortLabel')} icon={<ArrowDownUp className="h-3.5 w-3.5" aria-hidden="true" />}
+            trailing={t(sort === 'createdAt' ? 'memo.list.sortCreated' : sort === 'updatedAt' ? 'memo.list.sortUpdated' : sort === 'filenameAsc' ? 'memo.list.sortFilenameAsc' : 'memo.list.sortFilenameDesc')}>
+            {([
+              ['createdAt', 'memo.list.sortCreated'], ['updatedAt', 'memo.list.sortUpdated'],
+              ['filenameAsc', 'memo.list.sortFilenameAsc'], ['filenameDesc', 'memo.list.sortFilenameDesc'],
+            ] as const).map(([value, label]) => <DropdownMenuItem key={value} onClick={() => onSort(value)}
+              className={cn('memo-navigation-submenu-item memo-navigation-submenu-item--neutral-hover mention-note-item !grid !grid-cols-[minmax(0,1fr)_auto] !gap-3 cursor-pointer hover:bg-[var(--hover-bg)] focus-visible:bg-[var(--hover-bg)] focus-visible:outline-none', sort === value && 'is-selected')}>
+              <span>{t(label)}</span>{sort === value && <Check className="h-4 w-4 text-[var(--brand)]" aria-hidden="true" />}
+            </DropdownMenuItem>)}
+          </SectionSubmenu>
         )}
+        {sharePath && <DropdownMenuItem onClick={() => setShareRequest((value) => value + 1)} className={itemClassName}>
+          <Share2 className="h-3.5 w-3.5" aria-hidden="true" />
+          {t('document.share.menuAction')}
+        </DropdownMenuItem>}
         {(hasActionsAfterMovement || onCustomizeDisplay || onHideSection || onConfigureAgentConversationCount) && <DropdownMenuSeparator />}
         {onConfigureAgentConversationCount && (
           <DropdownMenuItem onClick={onConfigureAgentConversationCount} className={itemClassName}>
@@ -308,5 +247,8 @@ export function NotebookTreeSectionMenu({
         )}
       </DropdownMenuContent>
     </DropdownMenu>
+    {sharePath && <NoteShareControl key={sharePath} filePath={sharePath} kind="folder" flushDocument={noDocumentToFlush}
+      iconButtonClass="" hideTrigger openRequest={shareRequest} />}
+    </>
   );
 }

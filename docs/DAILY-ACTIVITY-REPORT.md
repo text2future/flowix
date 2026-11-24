@@ -1,7 +1,7 @@
 # 桌面端「日活跃」上报（Windows / macOS）
 
 > 一句话：**本地 04:00 为界，跨过就报一次；报之前先在本地算清楚，不跨日不发请求。**
-> 覆盖"产品开着过夜、隔天继续用也不重启"这个场景，改动只在客户端。
+> 覆盖"产品开着过夜、隔天继续用也不重启"这个场景；客户端负责调度，Supabase 负责保存每日记录。
 
 ---
 
@@ -90,36 +90,47 @@
 
 ---
 
-## 5. 服务端（待做，独立仓库）
+## 5. 服务端（`flowix-supabase`）
+
+`register-device` 接受可选 `activity`，通过仅 `service_role` 可执行的
+`register_device_and_activity` 数据库函数原子写入设备登记和日活。旧客户端不带该字段时，
+仍正常登记设备并刷新 `last_seen_at`。客户端角色不能直接读取或写入登记表、日活表；
+Edge Function 也不查询行数据，成功时只返回固定 `{ "ok": true }`。
+
+日活表为 `public.device_activity`，主键 `(device_id, activity_day)`，外键关联
+`device_registrations(device_id)`。同一天重复上报只保留一行并递增 `report_count`，
+更新 `last_reported_at`、平台和版本。
 
 ```sql
 create table if not exists public.device_activity (
-  device_id         uuid        not null references public.devices(id) on delete cascade,
+  device_id         uuid        not null references public.device_registrations(device_id) on delete cascade,
   activity_day      date        not null,
   first_reported_at timestamptz not null default now(),
   last_reported_at  timestamptz not null default now(),
-  report_count      int         not null default 1,
-  os                text,
-  app_version       text,
+  report_count      int         not null default 1 check (report_count > 0),
+  report_trigger    text        not null check (report_trigger in ('launch', 'rollover')),
+  os                text        not null,
+  app_version       text        not null,
   primary key (device_id, activity_day)
 );
 create index if not exists device_activity_day_idx on public.device_activity (activity_day);
 ```
 
-edge function 三行关键逻辑：
+数据库写入函数与 Edge Function 的职责：
 
 ```ts
-// 1) 设备 upsert 照旧，顺带刷新 last_seen_at
-// 2) 有 activity 就写日活（同一天重复上报只加计数）
-//    ON CONFLICT (device_id, activity_day) DO UPDATE
-//      SET report_count = device_activity.report_count + 1,
-//          last_reported_at = now(),
-//          os = excluded.os, app_version = excluded.app_version
-// 3) 日 key 用客户端传入的值；若要防篡改，可与服务端算的 UTC+8 04:00 日 key 比对，
-//    偏差超过 1 天时只记入独立列、不覆盖 activity_day
+// Edge Function 只校验并转发输入，不直接读写 REST 表：
+await supabase.rpc("register_device_and_activity", {
+  p_device_id, p_os, p_arch, p_app_version, p_installed_at,
+  p_activity_day, p_activity_trigger,
+});
+// 数据库函数在单个事务中 upsert 登记，然后按 (device_id, activity_day)
+// 幂等 upsert 日活。函数返回 void，不把任何表数据带回客户端。
 ```
 
 查询：
+
+以下统计 SQL 仅供拥有数据库管理权限的运营查询，不提供给桌面客户端或公开 API。
 
 ```sql
 -- DAU

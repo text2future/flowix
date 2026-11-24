@@ -20,7 +20,8 @@ impl MemoFile {
         notebook_id: Option<&str>,
     ) -> std::io::Result<Vec<MemoTag>> {
         let now = chrono::Utc::now().timestamp_millis();
-        Ok(self.read_used_tag_ids_for_notebook_id(notebook_id)?
+        Ok(self
+            .read_used_tag_ids_for_notebook_id(notebook_id)?
             .into_iter()
             .map(|name| MemoTag {
                 id: name.clone(),
@@ -66,7 +67,8 @@ impl MemoFile {
     pub fn read_all_memos_for_notebook_id(&self, notebook_id: Option<&str>) -> Vec<Memo> {
         let resolved_id = self.notebook_id_for_index(notebook_id);
         let policy = self.file_management_policy(&resolved_id);
-        let root = self.get_notebook_config_by_id(&resolved_id)
+        let root = self
+            .get_notebook_config_by_id(&resolved_id)
             .map(|config| std::path::PathBuf::from(config.path))
             .unwrap_or_default();
         let list = match self.read_index_for_notebook_id(notebook_id) {
@@ -76,7 +78,11 @@ impl MemoFile {
         Self::memos_from_index(list, &policy, &root)
     }
 
-    fn memos_from_index(list: super::types::MemoIndexFile, policy: &super::FileManagementPolicy, root: &std::path::Path) -> Vec<Memo> {
+    fn memos_from_index(
+        list: super::types::MemoIndexFile,
+        policy: &super::FileManagementPolicy,
+        root: &std::path::Path,
+    ) -> Vec<Memo> {
         let mut memos: Vec<Memo> = list
             .memos
             .iter()
@@ -255,7 +261,9 @@ impl MemoFile {
         list.memos
             .into_iter()
             .filter(|e| !e.relative_path.is_empty())
-            .filter(|entry| !policy.is_index_hidden_at(&base, std::path::Path::new(&entry.relative_path)))
+            .filter(|entry| {
+                !policy.is_index_hidden_at(&base, std::path::Path::new(&entry.relative_path))
+            })
             .map(|entry| {
                 let path = super::notebook_path_from_relative(&base, &entry.relative_path)
                     .unwrap_or_else(|_| base.join(&entry.filename));
@@ -266,9 +274,16 @@ impl MemoFile {
     }
 
     /// Read one memo and markdown body from the current notebook only.
-    pub fn read_current_memo_with_body(&self, relative_path: &str) -> Option<(MemoIndexEntry, String)> {
+    pub fn read_current_memo_with_body(
+        &self,
+        relative_path: &str,
+    ) -> Option<(MemoIndexEntry, String)> {
         let list = self.read_index()?;
-        let entry = list.memos.iter().find(|e| e.relative_path == relative_path)?.clone();
+        let entry = list
+            .memos
+            .iter()
+            .find(|e| e.relative_path == relative_path)?
+            .clone();
         let base = self.get_memo_base();
         let path = super::notebook_path_from_relative(&base, &entry.relative_path)
             .unwrap_or_else(|_| base.join(&entry.filename));

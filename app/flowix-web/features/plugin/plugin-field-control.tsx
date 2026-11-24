@@ -35,7 +35,7 @@ export function PluginFieldControl({
   onAgentTypeChange: (value: AgentTypeKey) => void;
 }) {
   const id = `plugin-${field.id}`;
-  const className = 'rounded-lg border border-[var(--border)] bg-[var(--background)] p-2 text-sm outline-none focus:border-[var(--brand)]';
+  const className = 'rounded-lg border border-[var(--border)] bg-[var(--background)] p-2 text-sm outline-none placeholder:text-[var(--input-placeholder)] focus:border-[var(--input-ring)]';
   const options = field.options?.length
     ? field.options
     : agentOptions.map((item) => ({ value: item.id, label: item.name }));
@@ -116,7 +116,7 @@ export function PluginFieldControl({
       value={String(value ?? '')}
       onChange={(event) => onChange(event.target.value)}
       placeholder={field.placeholder || '请输入'}
-      className="min-h-36 resize-y rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-sm outline-none focus:border-[var(--brand)]"
+      className="min-h-36 resize-y rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-sm outline-none placeholder:text-[var(--input-placeholder)] focus:border-[var(--input-ring)]"
       required={field.required}
     />
   );

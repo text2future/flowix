@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo } from 'react';
 
 import type { AgentTypeKey } from '@/types/agent';
 import { useI18n } from '@/lib/i18n';
-import { windows } from '@platform/tauri/client';
 import { openPaymentDialog } from '@features/cloud-billing/public/payment-dialog';
+import { openCloudLoginDialog } from '@features/preferences/public/cloud-login-dialog';
 import { useAgentCloudAccessStore } from '@features/agent/store/agent-cloud-access-store';
 import { useAgentDataStore } from '@features/agent/store/agent-data-store';
 import { createCloudAccessCard, type CloudAccessCard } from './cloud-access-card';
@@ -40,13 +40,6 @@ export function CloudAccessNotice({ accessKey, agentType, mount }: CloudAccessNo
   const { t } = useI18n();
   const entries = useAgentCloudAccessStore((state) => state.entries);
   const authenticated = useAgentDataStore((state) => !!state.piCloudAccountId);
-  const accessKeyRef = useRef<string | null>(accessKey);
-  accessKeyRef.current = accessKey;
-
-  const clear = (): void => {
-    const key = accessKeyRef.current;
-    if (key) useAgentCloudAccessStore.getState().clearAccess(key);
-  };
 
   const parts = useMemo(() => {
     const wrapper = document.createElement('div');
@@ -55,8 +48,7 @@ export function CloudAccessNotice({ accessKey, agentType, mount }: CloudAccessNo
     const card: CloudAccessCard = createCloudAccessCard({
       t: (key) => t(key),
       onSignIn: () => {
-        clear();
-        void windows.openPreferences('cloudSync');
+        void openCloudLoginDialog();
       },
       onBuyCredits: () => {
         void openPaymentDialog('credits');
