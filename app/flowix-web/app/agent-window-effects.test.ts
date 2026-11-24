@@ -308,7 +308,6 @@ describe('AgentWindowEffects', () => {
       authStatus: 'authenticated' as const,
       account: {
         user: { id: 'user-1', email: 'member@example.com', displayName: 'Member', region: 'mainland' as const },
-        protocolEpoch: 3 as const,
       },
     };
     await act(async () => mocks.cloudStateHandler?.(signedIn));

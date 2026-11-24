@@ -44,7 +44,6 @@ export interface CloudState {
   authError?: string | null;
   account?: {
     user: CloudUser;
-    protocolEpoch: 3;
   } | null;
   membership?: CloudMembership | null;
   membershipStatus?: 'unknown' | 'refreshing' | 'verified' | 'error';
