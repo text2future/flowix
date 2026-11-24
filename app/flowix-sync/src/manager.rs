@@ -168,7 +168,10 @@ mod tests {
     #[test]
     fn undo_with_no_paths_touches_nothing() {
         let (_directory, manager) = manager();
-        manager.store.save_path_states("nb", &[state("a.md")]).unwrap();
+        manager
+            .store
+            .save_path_states("nb", &[state("a.md")])
+            .unwrap();
         manager.restore_paths("nb", &[]).unwrap();
         assert_eq!(manager.store.snapshot("nb").unwrap().states.len(), 1);
         assert!(manager.store.pending_stamps("nb").unwrap().is_empty());
@@ -179,4 +182,3 @@ mod account_api;
 mod engine;
 
 pub use engine::{PassInput, V4_CREDENTIAL_RENEWAL_MARGIN_MS};
-
