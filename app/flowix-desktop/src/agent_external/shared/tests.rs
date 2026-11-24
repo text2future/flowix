@@ -430,9 +430,8 @@ async fn cancelled_start_rejects_a_late_child() {
     // failed with `NotFound` under parallel runs. Absolute paths remove the
     // dependency entirely: the child only has to exist, not be findable.
     #[cfg(windows)]
-    let mut command = tokio::process::Command::new(
-        std::env::var_os("COMSPEC").unwrap_or_else(|| "cmd".into()),
-    );
+    let mut command =
+        tokio::process::Command::new(std::env::var_os("COMSPEC").unwrap_or_else(|| "cmd".into()));
     #[cfg(windows)]
     command.args(["/C", "exit", "0"]);
     #[cfg(not(windows))]
@@ -531,14 +530,13 @@ async fn stopping_slot_blocks_new_run_and_is_visible_to_queries() {
 #[tokio::test]
 async fn stop_run_keeps_slot_until_process_exit_is_confirmed() {
     let registry = ExternalRunRegistry::new("claude", "ClaudeCli");
-    let child = tokio::process::Command::new(
-        std::env::var_os("COMSPEC").unwrap_or_else(|| "cmd".into()),
-    )
-    .args(["/C", "ping -n 20 127.0.0.1 >nul"])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .expect("spawn long-running command");
+    let child =
+        tokio::process::Command::new(std::env::var_os("COMSPEC").unwrap_or_else(|| "cmd".into()))
+            .args(["/C", "ping -n 20 127.0.0.1 >nul"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("spawn long-running command");
     registry
         .insert(
             "thread_1".to_string(),

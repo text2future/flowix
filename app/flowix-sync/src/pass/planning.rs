@@ -387,7 +387,7 @@ fn defer_mass_deletion(
                 defer_mass(&mut plan.pending_deletions, &item.path, server_now_millis);
                 SyncAction::Defer(Defer {
                     path: item.path,
-                    reason: DeferReason::MassDeletion,
+                    reason: DeferReason::MassDeletionLocal,
                 })
             }
             SyncAction::WriteTombstone(item) => {
@@ -395,7 +395,7 @@ fn defer_mass_deletion(
                 defer_mass(&mut plan.pending_deletions, &item.path, server_now_millis);
                 SyncAction::Defer(Defer {
                     path: item.path,
-                    reason: DeferReason::MassDeletion,
+                    reason: DeferReason::MassDeletionRemote,
                 })
             }
             other => other,
@@ -469,9 +469,24 @@ mod mass_deletion_tests {
         assert_eq!(
             plan.actions
                 .iter()
-                .filter(|action| action.kind_tag() == "defer:mass-deletion")
+                .filter(|action| action.kind_tag().starts_with("defer:mass-deletion"))
                 .count(),
             20
+        );
+        assert_eq!(
+            plan.actions
+                .iter()
+                .filter(|action| action.kind_tag() == "defer:mass-deletion-remote")
+                .count(),
+            10,
+            "the paths the cloud still had are the ones that would be published"
+        );
+        assert_eq!(
+            plan.actions
+                .iter()
+                .filter(|action| action.kind_tag() == "defer:mass-deletion-local")
+                .count(),
+            10
         );
         assert_eq!(
             plan.actions

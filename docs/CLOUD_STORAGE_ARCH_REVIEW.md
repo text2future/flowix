@@ -226,10 +226,72 @@ let PassCredentials { credentials, quota: _, resolver } =
 
 覆盖面：4 条新用例，包含两个方向（远端墓碑 → 删本地；本地删文件夹 → 写墓碑）与「确认后照常执行」。
 
-## 十一、验证状态（Step 1 – Step 4）
+## 十一、Step 5：批量删除改成「问一次」而不是「永远挡着」（已完成）
 
-- `cargo test -p flowix-sync` → **195 passed / 0 failed / 0 ignored**，integration 3 passed。`#[ignore]` 清零。
-- `cargo test -p flowix-desktop --lib` → **851 passed / 7 ignored**，1 个既有环境敏感用例（`cancelled_start_rejects_a_late_child` 起 `true` 子进程，并行时报 NotFound，单独跑通过）。
+Step 4 把「整轮失败」换成了「暂缓」，但暂缓没有出口：桌面端把 `allow_mass_deletion` 恒设为
+`false`，用户看到「删除已暂停」之后什么也做不了，删除永远不落地。产品上的结论是：
+
+> 删除就同步删除。只有「一次删掉一半以上」需要问一次。
+
+### 1. 阈值（含最小数量）
+
+`pass/planning.rs`：`deletions >= 20` **且** `deletions * 2 >= known_paths` 才提示。两个条件必须同时
+满足，所以「删掉笔记本里 20% 的一个文件夹」不会打扰用户——日常删除不受影响。
+
+### 2. 两个方向，两种后果
+
+闸门对两个方向都生效，因为它们删的是不同的副本：
+
+| `DeferReason` | 触发场景 | 继续同步会 | 撤销时数据从哪来 |
+|---|---|---|---|
+| `MassDeletionRemote` | 本机少了一批文件，云端还有 | 删除云端副本（其他设备唯一的来源） | 云端 → 本机（`download:new`） |
+| `MassDeletionLocal` | 云端已删了一批，本机还有 | 删除本机文件 | 本机 → 云端（`upload:resurrect`） |
+
+方向决定文案，也决定「撤销」的方向；`Defer.path` 保留了路径，桌面侧据此按方向计数。
+
+### 3. 撤销为什么是「丢掉状态行」
+
+`SyncManager::restore_paths` 只做两件事：删掉这些路径的 `v4_path_state` 行、把它们所在的目录塞进
+`v4_pending_stamp`。丢掉行之后，两条分支各自给出正确结果：
+
+- 本机没有该文件 → `(None, Observed(object))` 且 `baseline == None` → 下载回来；
+- 本机还有该文件、远端是墓碑 → `deleted_after_our_last_sync == false` → `upload:Resurrect` 复活。
+
+这不是巧合：`reconcile_tombstone` 把「没有基线」解释成「无法主张这是删除」，两个方向共用同一判断。
+重开目录是必需的，否则目录戳没动，下一轮根本不会看这些路径。
+
+### 4. 确认是一次性的
+
+`SyncManager::allow_next_mass_deletion` 把笔记本 id 放进一个内存集合，`pass()` 取用即删：
+
+- 不持久化——重启后没人能对上一次看到的批次负责；
+- 按 notebook 分——在一个笔记本上确认，不等于授权另一个；
+- 一次性——一次「确认」不会变成长期许可。
+
+### 5. 桌面与 UI
+
+- `PassSummary` 带 `MassDeletion { local, remote, paths }`；`CloudSyncStatus` 暴露
+  `massDeletionLocal` / `massDeletionRemote`；
+- 新命令 `cloud_resolve_mass_deletion(notebookId, restore)`：`false` 是确认、`true` 是撤销，两者都会
+  立刻触发一轮同步，不等 10 秒轮询；
+- `features/shell/components/status-bar/mass-deletion-dialog.tsx`：标题「大量文档被删除，继续云同步？」，
+  按方向给出后果句，附「确认删除后，被删除内容不可恢复」，两个按钮「撤销删除」/「确认」；
+- 关闭对话框等于「暂不决定」，同一批次不会再自动弹（按 `notebookId + 两个计数` 记住），计数变化才会再问。
+
+### 6. 性能：删除路径没有新增工作
+
+`delete_folder` / `delete_file` 是纯本地操作（`spawn_blocking` + `remove_dir_all` + 索引对账），不调用
+同步代码。闸门与对话框都在之后的 pass 与状态推送里，删除耗时不受影响。
+
+## 十二、验证状态（Step 1 – Step 5）
+
+- `cargo test -p flowix-sync` → **201 passed / 0 failed / 0 ignored**，integration 3 passed。`#[ignore]` 清零。
+- `cargo test -p flowix-desktop --lib` → **852 passed / 0 failed / 7 ignored**。上一轮那个环境敏感用例已修：
+  `cancelled_start_rejects_a_late_child` 原来用 `Command::new("true")`，会撞上别的用例把 `PATH` 改成空串的
+  窗口；改成 `/bin/sh -c "exit 0"`（Windows 用 `%COMSPEC%`）后连跑 4 轮全绿。
+- 前端：`tsc --noEmit`、`eslint` 干净；新增的 `mass-deletion-dialog.test.tsx` 4 passed；
+  `features/shell` 全量 72 passed，唯一失败是 `use-document-titlebar-props.test.tsx`（与云同步无关、
+  工作区未改动的既有失败）。
 - `cargo check -p flowix-sync --all-targets`、`cargo check -p flowix-desktop --all-targets` 通过。
 - `cargo clippy -p flowix-sync --all-targets` → 8 条，全是既有的 `too_many_arguments` / `type_complexity` / `enum_variant_size` / `derivable_impls`。
 - 新写的代码 `rustfmt --check` 干净；文件里剩下的格式差异都是之前恢复时留下的（import 顺序、行末空行）。

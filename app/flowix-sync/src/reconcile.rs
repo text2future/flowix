@@ -345,14 +345,23 @@ pub enum DeferReason {
     /// publishing cannot, so planning an upload would only produce a 403 on
     /// every pass.
     ReadOnly,
-    /// The batch would delete a large share of the notebook in one pass.
+    /// The batch would delete a large share of the notebook in one pass, and
+    /// the deletions run cloud -> device: the cloud already recorded them, so
+    /// applying them removes local files.
     ///
     /// From inside a single pass a deliberate bulk delete and a broken scan or
     /// listing look identical, so the deletions wait for a caller that has
     /// asked the user. Everything else in the plan still runs; without this
     /// the whole pass failed and the notebook stopped syncing until the user
     /// put the files back.
-    MassDeletion,
+    ///
+    /// Which way the batch points decides what "undo" means and how the prompt
+    /// reads: here the local copies are at stake, so undo has to upload them
+    /// back instead of downloading.
+    MassDeletionLocal,
+    /// A large local disappearance about to be published: applying it removes
+    /// the cloud copies that are the other devices' only remaining source.
+    MassDeletionRemote,
 }
 
 impl SyncAction {
@@ -377,7 +386,8 @@ impl SyncAction {
                 DeferReason::RemoteUnknown => "defer:remote-unknown",
                 DeferReason::GracePeriod => "defer:grace",
                 DeferReason::ReadOnly => "defer:read-only",
-                DeferReason::MassDeletion => "defer:mass-deletion",
+                DeferReason::MassDeletionLocal => "defer:mass-deletion-local",
+                DeferReason::MassDeletionRemote => "defer:mass-deletion-remote",
             },
         }
     }

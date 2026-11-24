@@ -439,7 +439,7 @@ async fn mass_remote_deletion_is_deferred_and_keeps_every_baseline() {
             .plan
             .actions
             .iter()
-            .all(|action| action.kind_tag() == "defer:mass-deletion"));
+            .all(|action| action.kind_tag().starts_with("defer:mass-deletion")));
         assert_eq!(
             prepared.plan.pending_deletions.len(),
             20,
@@ -496,6 +496,87 @@ async fn deleting_a_folder_locally_defers_instead_of_writing_twenty_tombstones()
         .states
         .values()
         .all(|state| state.pending_since.is_some()));
+}
+
+/// "Undo" on the device that deleted the files: the rows are gone (see
+/// `SyncManager::restore_paths`), the cloud still has the objects, and the next
+/// pass has to treat them as files it has never seen. Without this the batch
+/// would be re-planned as the same 20 tombstones on every pass forever.
+#[tokio::test]
+async fn undoing_a_bulk_deletion_downloads_the_cloud_copies_back() {
+    let credentials = credentials();
+    let (_temp, store) = store_bound_to(&credentials);
+    let mut bucket = FakeBucket::new();
+    let mut paths = Vec::new();
+    for n in 0..20 {
+        let path = format!("folder/{n}.md");
+        bucket = bucket.file(&path, 8, NOW - MINUTE);
+        paths.push(path);
+    }
+
+    let prepared = plan_pass(
+        &mut bucket,
+        &credentials,
+        &store,
+        &pass_request(&[], true),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(prepared.plan.stats.uploads, 0);
+    assert_eq!(prepared.plan.stats.deletes + prepared.plan.stats.tombstones, 0);
+    assert_eq!(
+        prepared
+            .plan
+            .actions
+            .iter()
+            .filter(|action| action.kind_tag() == "download:new")
+            .count(),
+        20
+    );
+}
+
+/// "Undo" on the device that only received the tombstones: the local files are
+/// what survived, so dropping the rows has to make the pass publish them again
+/// instead of deleting them. A resurrect is the only action that puts a live
+/// object back over a tombstone.
+#[tokio::test]
+async fn undoing_a_received_bulk_deletion_uploads_the_local_copies_back() {
+    let credentials = credentials();
+    let (_temp, store) = store_bound_to(&credentials);
+    let mut bucket = FakeBucket::new();
+    let mut paths = Vec::new();
+    for n in 0..20 {
+        let path = format!("folder/{n}.md");
+        bucket = bucket.tombstone(&path, NOW);
+        paths.push(path);
+    }
+    let scanned = scan(
+        &paths
+            .iter()
+            .map(|path| (path.as_str(), 8, 1_000))
+            .collect::<Vec<_>>(),
+    );
+    let prepared = plan_pass(
+        &mut bucket,
+        &credentials,
+        &store,
+        &pass_request(&scanned, true),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(prepared.plan.stats.deletes + prepared.plan.stats.tombstones, 0);
+    assert_eq!(
+        prepared
+            .plan
+            .actions
+            .iter()
+            .filter(|action| action.kind_tag() == "upload:resurrect")
+            .count(),
+        20,
+        "the local copies must be published back, not deleted"
+    );
 }
 
 /// The point of deferring is that nothing is destroyed while the question is

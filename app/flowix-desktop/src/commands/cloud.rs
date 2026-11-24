@@ -85,6 +85,12 @@ pub struct CloudSyncStatus {
     /// untrusted — a deletion needs all three to be trustworthy.
     pub allows_deletes: Option<bool>,
     pub deletion_deferred: Option<bool>,
+    /// Paths the pass held back because applying the batch would delete this
+    /// device's copies (the cloud already recorded the deletions).
+    pub mass_deletion_local: Option<usize>,
+    /// Paths the pass held back because applying the batch would delete the
+    /// cloud copies, leaving no other source for them.
+    pub mass_deletion_remote: Option<usize>,
 }
 
 impl CloudSyncStatus {
@@ -106,6 +112,8 @@ impl CloudSyncStatus {
             writable: None,
             allows_deletes: None,
             deletion_deferred: None,
+            mass_deletion_local: None,
+            mass_deletion_remote: None,
         }
     }
 }
@@ -936,6 +944,40 @@ pub async fn cloud_sync_now(
     app: AppHandle,
 ) -> Result<CloudSyncResult, String> {
     coordinator::sync_now(notebook_id, app).await
+}
+
+/// Answers the bulk-deletion prompt for one notebook.
+///
+/// `restore = false` is "continue": the next pass applies the batch the user
+/// just saw. `restore = true` is "undo": the paths are forgotten, which puts
+/// them back from whichever side still has them — a path deleted here is
+/// downloaded from the cloud, a path deleted in the cloud is uploaded again.
+/// Either way a pass is kicked off immediately, because the answer is only
+/// useful if it lands before the next ten-second poll.
+#[tauri::command]
+pub async fn cloud_resolve_mass_deletion(
+    notebook_id: String,
+    restore: bool,
+    app: AppHandle,
+) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    if restore {
+        let paths = path_sync_runner::latest_summary(&notebook_id)
+            .map(|summary| summary.mass_deletion.paths)
+            .unwrap_or_default();
+        if paths.is_empty() {
+            // The batch is gone (another pass already resolved it, or the app
+            // restarted). Nothing to undo — but do not report a sync either.
+            return Err("CLOUD_MASS_DELETION_GONE".to_string());
+        }
+        state
+            .cloud_sync
+            .restore_paths(&notebook_id, &paths)
+            .map_err(cloud_error)?;
+    } else {
+        state.cloud_sync.allow_next_mass_deletion(&notebook_id);
+    }
+    coordinator::sync_now(Some(notebook_id), app).await.map(|_| ())
 }
 
 #[tauri::command]

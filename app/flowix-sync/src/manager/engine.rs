@@ -55,7 +55,11 @@ pub struct PassInput<'a> {
     pub on_progress: Option<&'a ProgressObserver<'a>>,
     /// The hourly sweep: list `f/` recursively instead of trusting the stamps.
     pub force: bool,
-    /// The user confirmed a bulk delete, so this pass may apply it.
+    /// The caller already has the user's answer for a bulk delete.
+    ///
+    /// The desktop asks through [`SyncManager::allow_next_mass_deletion`]
+    /// instead, which cannot leak across notebooks or passes; this field is for
+    /// callers that hold the answer directly (tests, the CLI).
     pub allow_mass_deletion: bool,
 }
 
@@ -827,13 +831,18 @@ impl SyncManager {
             credentials: &credentials,
             credential_resolver: &resolver,
         };
+        // A confirmation the user gave through the UI lives here rather than in
+        // `PassInput`, so it cannot be spent on a different notebook's pass and
+        // cannot outlive the batch it was given for.
+        let allow_mass_deletion =
+            input.allow_mass_deletion || self.take_mass_deletion_allowance(input.notebook_id);
         let request = PassRequest {
             notebook_id: input.notebook_id,
             device_id: input.device_id,
             scanned: input.scanned,
             force: input.force,
             quota: quota.as_ref(),
-            allow_mass_deletion: input.allow_mass_deletion,
+            allow_mass_deletion,
         };
         let mut env = PassEnv {
             source: &mut source,

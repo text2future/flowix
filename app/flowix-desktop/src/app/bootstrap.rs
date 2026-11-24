@@ -788,6 +788,7 @@ pub fn run() {
             commands::cloud::cloud_create_checkout,
             commands::cloud::cloud_submit_feedback,
             commands::cloud::cloud_sync_now,
+            commands::cloud::cloud_resolve_mass_deletion,
             commands::cloud::cloud_create_note_share_link,
             commands::cloud::cloud_create_folder_share_link,
             commands::cloud::list_local_path_archives,

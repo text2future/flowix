@@ -37,6 +37,8 @@ pub(super) fn emit_activity_status(
             status.writable = Some(summary.writable);
             status.allows_deletes = Some(summary.allows_deletes);
             status.deletion_deferred = Some(summary.deletion_deferred);
+            status.mass_deletion_local = Some(summary.mass_deletion.local);
+            status.mass_deletion_remote = Some(summary.mass_deletion.remote);
         }
         #[cfg(debug_assertions)]
         {

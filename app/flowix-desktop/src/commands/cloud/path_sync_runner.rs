@@ -44,12 +44,33 @@ const SWEEP_INTERVAL_MS: i64 = 60 * 60 * 1_000;
 /// Scoped local and manual requests bypass this gate.
 const MIN_INTERVAL_MS: i64 = super::coordinator::CLOUD_POLL_INTERVAL.as_millis() as i64;
 
+/// A bulk deletion the pass refused to apply on its own.
+///
+/// Kept per direction because the two are different questions for the user:
+/// `local` means the cloud already deleted these paths and applying the batch
+/// wipes this device's copies; `remote` means they are gone from disk here and
+/// applying it wipes the cloud copies other devices still depend on.
+#[derive(Debug, Default, Clone)]
+pub(crate) struct MassDeletion {
+    pub local: usize,
+    pub remote: usize,
+    /// Everything held back, so "undo" can act on exactly this batch.
+    pub paths: Vec<String>,
+}
+
+impl MassDeletion {
+    pub(crate) fn total(&self) -> usize {
+        self.local + self.remote
+    }
+}
+
 /// One notebook's last pass, for the status payload.
 #[derive(Debug, Clone)]
 pub(crate) struct PassSummary {
     pub writable: bool,
     pub allows_deletes: bool,
     pub deletion_deferred: bool,
+    pub mass_deletion: MassDeletion,
     /// When the pass finished, so a stale summary is not reported as this run's.
     pub at_millis: i64,
 }
@@ -92,6 +113,32 @@ pub(crate) fn summary_since(notebook_id: &str, started_at: i64) -> Option<PassSu
         .get(notebook_id)
         .filter(|summary| summary.at_millis >= started_at)
         .cloned()
+}
+
+/// The last pass for this notebook, whatever run it belonged to.
+///
+/// The UI needs this to undo a batch the user is looking at, and that batch may
+/// have been produced by a poll that finished before the current activity.
+pub(crate) fn latest_summary(notebook_id: &str) -> Option<PassSummary> {
+    lock(summaries()).get(notebook_id).cloned()
+}
+
+/// The bulk deletion this plan held back, split by which side it would erase.
+fn mass_deletion_of(plan: &flowix_sync::reconcile::ReconcilePlan) -> MassDeletion {
+    use flowix_sync::reconcile::{DeferReason, SyncAction};
+    let mut summary = MassDeletion::default();
+    for action in &plan.actions {
+        let SyncAction::Defer(defer) = action else {
+            continue;
+        };
+        match defer.reason {
+            DeferReason::MassDeletionLocal => summary.local += 1,
+            DeferReason::MassDeletionRemote => summary.remote += 1,
+            _ => continue,
+        }
+        summary.paths.push(defer.path.clone());
+    }
+    summary
 }
 
 /// `stat`-only view of one notebook, keyed the way the object store keys it.
@@ -450,10 +497,12 @@ pub(crate) async fn run_passes(
                                 if matches!(
                                     defer.reason,
                                     flowix_sync::reconcile::DeferReason::GracePeriod
-                                        | flowix_sync::reconcile::DeferReason::MassDeletion
+                                        | flowix_sync::reconcile::DeferReason::MassDeletionLocal
+                                        | flowix_sync::reconcile::DeferReason::MassDeletionRemote
                                 )
                         )
                     }),
+                    mass_deletion: mass_deletion_of(&report.plan),
                     at_millis: Utc::now().timestamp_millis(),
                 },
             );
@@ -781,6 +830,7 @@ mod tests {
                 writable: true,
                 allows_deletes: true,
                 deletion_deferred: false,
+                mass_deletion: MassDeletion::default(),
                 at_millis: 1_700_000_000_500,
             },
         );

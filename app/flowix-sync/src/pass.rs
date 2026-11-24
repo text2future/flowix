@@ -337,7 +337,7 @@ pub struct PassRequest<'a> {
     ///
     /// A pass cannot tell a deliberate "delete this folder" from a scan or a
     /// listing that silently lost half the notebook, so the first such batch is
-    /// deferred (`defer:mass-deletion`) and stays pending until this flag says
+    /// deferred (`defer:mass-deletion-*`) and stays pending until this flag says
     /// the question was asked. The engine never sets it on its own.
     pub allow_mass_deletion: bool,
 }
