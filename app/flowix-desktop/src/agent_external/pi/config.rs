@@ -937,13 +937,19 @@ pub fn save_cloud_credential(
         default_model_id
     };
     let cloud_base = format!("{api_base}/v1/ai");
+    let model_base = match credential.model_base_url.as_deref() {
+        Some("https://ai-cn.flowix.cc/v1/ai") if api_base == "https://cloud.flowix.cc" => {
+            "https://ai-cn.flowix.cc/v1/ai".to_string()
+        }
+        _ => cloud_base,
+    };
     save(
         PiProviderConfig {
             id: provider_id,
             display_name: "Flowix Cloud".into(),
             icon_url: provider_icon_url,
             api: "openai-completions".into(),
-            base_url: cloud_base,
+            base_url: model_base,
             source: Some("flowix-cloud".into()),
             api_key: Some(credential.api_key),
             credential_configured: true,
