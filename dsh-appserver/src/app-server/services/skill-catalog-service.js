@@ -257,7 +257,12 @@ export class SkillCatalogService {
         })
         .catch(error => {
           const message = error instanceof Error ? error.message : String(error)
-          if (error?.code === 'ERR_MODULE_NOT_FOUND' && message.includes("'@deepseek-ai/dsh-api-session-controller'")) {
+          // Node reports the missing package as ERR_MODULE_NOT_FOUND; Vite-based
+          // runners (vitest 2.x SSR) resolve the dynamic import at transform time
+          // and surface it as "Failed to load url … Does the file exist?" instead.
+          // Treat both shapes as "package not installed" and fall back to the
+          // registry-backed compatibility path.
+          if (message.includes('@deepseek-ai/dsh-api-session-controller')) {
             return undefined
           }
           throw error
