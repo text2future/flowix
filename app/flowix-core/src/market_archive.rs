@@ -17,11 +17,45 @@ use url::Url;
 /// the URL authority.
 pub fn is_market_archive_origin(url: &Url) -> bool {
     (url.scheme() == "https"
-        && matches!(url.host_str(), Some("skills.flowix.cc" | "flowix.cc"))
+        && matches!(url.host_str(), Some("skills.flowix.cc" | "flowix.cc" | "cloud.flowix.cc" | "staging-cloud.flowix.cc"))
         && url.port_or_known_default() == Some(443))
         || (cfg!(debug_assertions)
             && url.scheme() == "http"
             && matches!(url.host_str(), Some("localhost" | "127.0.0.1")))
+}
+
+/// Accept the existing static-site archive path and the versioned Cloud route.
+/// The Cloud path pins region, semantic version and SHA-256 so the installer
+/// never follows a mutable object URL.
+pub fn is_market_archive_path(url: &Url, collection: &str, id: &str) -> bool {
+    if url.path() == format!("/{collection}/archives/{id}.zip") {
+        return true;
+    }
+    let parts = url.path().trim_start_matches('/').split('/').collect::<Vec<_>>();
+    if parts.len() != 9
+        || parts[0] != "v1"
+        || parts[1] != "market"
+        || parts[2] != "resources"
+        || !matches!(parts[3], "mainland" | "non_mainland")
+        || parts[4] != collection
+        || parts[5] != id
+        || parts[6] != "archives"
+    {
+        return false;
+    }
+    let version = parts[7];
+    let mut version_parts = version.splitn(3, '.');
+    let major = version_parts.next().unwrap_or_default();
+    let minor = version_parts.next().unwrap_or_default();
+    let patch_and_suffix = version_parts.next().unwrap_or_default();
+    let patch = patch_and_suffix.split(|character| character == '-' || character == '+').next().unwrap_or_default();
+    if ![major, minor, patch].iter().all(|part| {
+        !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit())
+    }) || version.bytes().any(|byte| !(byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'+')))
+    {
+        return false;
+    }
+    parts[8].len() == 64 && parts[8].bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 #[cfg(test)]

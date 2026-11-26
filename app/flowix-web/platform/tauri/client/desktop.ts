@@ -468,7 +468,7 @@ export const product = {
 };
 
 export const skillMarketUi = {
-  ensure: (language: 'zh-CN' | 'en-US') => invoke<{ entryPath: string; cached: boolean }>('ensure_skill_market_ui', { language }),
+  ensure: (language: 'zh-CN' | 'en-US') => invoke<{ entryPath: string; cached: boolean; apiBaseUrl: string }>('ensure_skill_market_ui', { language }),
 };
 
 export interface PluginManifest {

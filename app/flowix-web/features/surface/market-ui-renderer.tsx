@@ -31,6 +31,7 @@ export function MarketUiRenderer({ view, context }: { view: MarketUiView; contex
     void skillMarketUi.ensure(language).then(result => {
       if (!active) return;
       const entry = marketUiAssetUrl(files.toAssetUrl(result.entryPath));
+      entry.searchParams.set('marketApiBase', result.apiBaseUrl);
       if (view === 'templates') entry.searchParams.set('view', 'templates');
       setPage({ key: requestKey, url: entry.href, ready: result.cached, loaded: false, failed: false });
     }).catch(error => {

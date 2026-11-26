@@ -33,6 +33,24 @@ export function marketInstallFailure(error: unknown): { code: string } {
   return { code: 'installation_failed' };
 }
 
+function validArchiveUrl(raw: unknown, contentOrigin: string, kind: 'skill' | 'template', id: string): raw is string {
+  if (raw === `${contentOrigin}/${kind === 'skill' ? 'skills' : 'templates'}/archives/${id}.zip`) return true;
+  if (typeof raw !== 'string') return false;
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== 'https:' || !['cloud.flowix.cc', 'staging-cloud.flowix.cc'].includes(url.hostname)
+      || url.port || url.username || url.password || url.search || url.hash) return false;
+    const parts = url.pathname.slice(1).split('/');
+    const collection = kind === 'skill' ? 'skills' : 'templates';
+    return parts.length === 9
+      && parts[0] === 'v1' && parts[1] === 'market' && parts[2] === 'resources'
+      && ['mainland', 'non_mainland'].includes(parts[3])
+      && parts[4] === collection && parts[5] === id && parts[6] === 'archives'
+      && /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(parts[7])
+      && /^[0-9a-f]{64}$/i.test(parts[8]);
+  } catch { return false; }
+}
+
 /** Transport-independent installation dispatch. All replies preserve request and notebook IDs. */
 export async function handleMarketInstall(data: unknown, ports: MarketInstallPorts): Promise<void> {
   if (!isRecord(data)) return;
@@ -50,9 +68,10 @@ export async function handleMarketInstall(data: unknown, ports: MarketInstallPor
   const id = typeof item?.id === 'string' ? item.id : '';
   const displayName = typeof item?.displayName === 'string' ? item.displayName.trim() : '';
   const archive = isRecord(item?.archive) ? item.archive : null;
+  const archiveUrl = archive?.url;
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id) || id.length > 64 || !displayName || displayName.length > 200
-    || archive?.url !== `${ports.contentOrigin}/${kind === 'skill' ? 'skills' : 'templates'}/archives/${id}.zip`
-    || (kind === 'skill' && !validSource(archive.source))) {
+    || !validArchiveUrl(archiveUrl, ports.contentOrigin, kind, id)
+    || (kind === 'skill' && !validSource(archive?.source))) {
     respond({ success: false, code: 'invalid_package' }); return;
   }
   const notebook = ports.getSelectedNotebook();
@@ -63,9 +82,9 @@ export async function handleMarketInstall(data: unknown, ports: MarketInstallPor
   if (!ports.isActive()) return;
   try {
     if (kind === 'skill') {
-      await ports.installSkill(notebook.path, id, { url: archive.url, source: archive.source as ProjectSkillSource | undefined | null });
+      await ports.installSkill(notebook.path, id, { url: archiveUrl, source: archive!.source as ProjectSkillSource | undefined | null });
     } else {
-      await ports.installTemplate(notebook.path, id, { url: archive.url });
+      await ports.installTemplate(notebook.path, id, { url: archiveUrl });
     }
 
   } catch (error) {

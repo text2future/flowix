@@ -58,6 +58,7 @@ struct MarketUiEntrypoints {
 pub struct SkillMarketUiPage {
     pub entry_path: String,
     pub cached: bool,
+    pub api_base_url: String,
 }
 
 pub async fn ensure_entry_path(
@@ -65,12 +66,14 @@ pub async fn ensure_entry_path(
     root: std::path::PathBuf,
     language: &str,
 ) -> Result<SkillMarketUiPage, String> {
+    let api_base_url = cloud_base.trim_end_matches('/').to_string();
     // A valid local page never waits for the network or an in-flight update.
     if let Some(version) = read_current_version(&root) {
         refresh_in_background(cloud_base, root.clone(), version.clone());
         return Ok(SkillMarketUiPage {
             entry_path: entry_path(&root, &version, language),
             cached: true,
+            api_base_url,
         });
     }
 
@@ -83,6 +86,7 @@ pub async fn ensure_entry_path(
     Ok(SkillMarketUiPage {
         entry_path: entry_path(&root, &version, language),
         cached: false,
+        api_base_url,
     })
 }
 

@@ -59,7 +59,7 @@ pub fn validate_template_archive_request(
         || url.password().is_some()
         || url.query().is_some()
         || url.fragment().is_some()
-        || url.path() != format!("/templates/archives/{id}.zip")
+        || !crate::market_archive::is_market_archive_path(&url, "templates", id)
     {
         return Err("Notebook template ZIP must come from the Flowix Skill Market".to_string());
     }

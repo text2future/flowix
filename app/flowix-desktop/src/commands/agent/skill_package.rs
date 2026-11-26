@@ -77,7 +77,7 @@ pub(super) fn validate_skill_archive_request(
         || url.password().is_some()
         || url.query().is_some()
         || url.fragment().is_some()
-        || url.path() != format!("/skills/archives/{name}.zip")
+        || !flowix_core::market_archive::is_market_archive_path(&url, "skills", name)
     {
         return Err("Skill ZIP must come from the Flowix Skill Market".to_string());
     }
