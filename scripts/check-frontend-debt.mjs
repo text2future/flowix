@@ -62,7 +62,7 @@ const MAX_NEW_FILE_LINES = 1000;
 // 按上面的测试文件先例对齐实测，非待拆逻辑。
 const FROZEN_FILES = {
   'features/multidimensional-table/table-document-view.tsx': 1804,
-  'features/agent/thread-card/settings/external-agent-settings-controller.ts': 2367,
+  'features/agent/thread-card/settings/external-agent-settings-controller.ts': 2332,
   'lib/i18n/messages.en-US.ts': { lines: 2371, exempt: true },
   'lib/i18n/messages.zh-CN.ts': { lines: 2345, exempt: true },
   'features/preferences/sections/agent.tsx': 2085,

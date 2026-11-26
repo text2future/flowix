@@ -78,17 +78,18 @@ fn apple_registration_body(
 #[derive(Clone)]
 pub struct CloudClient {
     base_url: String,
-    http: reqwest::Client,
+    http: crate::http::HttpClient,
 }
 
 impl CloudClient {
     pub fn new(base_url: impl Into<String>) -> Result<Self, SyncError> {
-        let http = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .build()?;
         Ok(Self {
             base_url: base_url.into().trim_end_matches('/').to_string(),
-            http,
+            http: crate::http::HttpClient::new(|| {
+                reqwest::Client::builder()
+                    .timeout(std::time::Duration::from_secs(30))
+                    .build()
+            }),
         })
     }
 
@@ -99,17 +100,50 @@ impl CloudClient {
         token: Option<&str>,
         body: Option<serde_json::Value>,
     ) -> Result<T, SyncError> {
-        let mut request = self
-            .http
-            .request(method, format!("{}{}", self.base_url, path));
-        if let Some(token) = token {
-            request = request.bearer_auth(token);
-        }
-        if let Some(body) = body {
-            request = request.json(&body);
-        }
-        let response = request.send().await?;
+        let response = self
+            .dispatch(method, path, token, body.as_ref(), &[])
+            .await?;
         Self::decode(response).await
+    }
+
+    /// Sends one request, rebuilding the underlying client once when the
+    /// failure looks like a stale system-proxy snapshot (see [`crate::http`]).
+    ///
+    /// The request is rebuilt from its parts on every attempt rather than
+    /// cloned: the bodies on this path are small JSON values, and rebuilding
+    /// keeps the same retry shape available to future streaming bodies.
+    async fn dispatch(
+        &self,
+        method: Method,
+        path: &str,
+        token: Option<&str>,
+        body: Option<&serde_json::Value>,
+        extra_headers: &[(&str, &str)],
+    ) -> Result<reqwest::Response, SyncError> {
+        for attempt in 0..2 {
+            let mut request = self
+                .http
+                .get()
+                .request(method.clone(), format!("{}{}", self.base_url, path));
+            if let Some(token) = token {
+                request = request.bearer_auth(token);
+            }
+            for (name, value) in extra_headers {
+                request = request.header(*name, *value);
+            }
+            if let Some(body) = body {
+                request = request.json(body);
+            }
+            match request.send().await {
+                Ok(response) => return Ok(response),
+                Err(error) if attempt == 0 && crate::http::is_stale_snapshot_error(&error) => {
+                    self.http.rebuild();
+                    continue;
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+        unreachable!("the stale-snapshot retry returns after at most two attempts")
     }
 
     pub(crate) async fn create_note_share_link(
@@ -199,16 +233,17 @@ impl CloudClient {
         idempotency_key: &str,
     ) -> Result<CloudCheckout, SyncError> {
         let response = self
-            .http
-            .post(format!("{}/v2/billing/checkout", self.base_url))
-            .bearer_auth(access_token)
-            .header("Idempotency-Key", idempotency_key)
-            .json(&json!({
-                "productId": product_id,
-                "quantity": quantity,
-                "successUrl": "flowix://billing/success",
-            }))
-            .send()
+            .dispatch(
+                Method::POST,
+                "/v2/billing/checkout",
+                Some(access_token),
+                Some(&json!({
+                    "productId": product_id,
+                    "quantity": quantity,
+                    "successUrl": "flowix://billing/success",
+                })),
+                &[("Idempotency-Key", idempotency_key)],
+            )
             .await?;
         Self::decode::<DataEnvelope<CloudCheckout>>(response)
             .await
@@ -522,10 +557,13 @@ impl CloudClient {
         refresh_token: &str,
     ) -> Result<(), SyncError> {
         let response = self
-            .http
-            .post(format!("{}/v1/auth/logout/refresh", self.base_url))
-            .json(&json!({ "refreshToken": refresh_token }))
-            .send()
+            .dispatch(
+                Method::POST,
+                "/v1/auth/logout/refresh",
+                None,
+                Some(&json!({ "refreshToken": refresh_token })),
+                &[],
+            )
             .await?;
         if response.status().is_success() {
             Ok(())

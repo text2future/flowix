@@ -29,5 +29,5 @@ unicode-normalization = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["rt", "test-util"] }
+tokio = { workspace = true, features = ["rt", "test-util", "net", "io-util"] }
 tempfile = { workspace = true }

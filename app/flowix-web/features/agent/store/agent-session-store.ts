@@ -6,17 +6,9 @@ import {
   subscribeWithSelector,
 } from "zustand/middleware";
 import { getAdjacentContent } from "@features/workspace/public/adjacent-content-api";
-import type {
-  AgentMessageAttachment,
-  AgentChunk,
-  AgentEvent,
-  AgentTypeKey,
-  RunInfo,
-  RuntimeConfig,
-} from "@/types/agent";
+import type { AgentTypeKey } from "@/types/agent";
 import { agentClient } from "@features/agent/store/agent-client";
 import { DEFAULT_AGENT_TYPE_KEY } from "@/lib/agent-types";
-import { type ThreadProjection } from "@features/agent/store/session-reducer";
 import { STORAGE_KEYS } from "@/lib/constants";
 import {
   getAgentType,
@@ -63,33 +55,31 @@ import { createAgentSessionStateStorage } from "@features/agent/store/window-ses
 import { withRunPhase } from "@features/agent/store/thread-run-phase";
 import { USER_STOPPED_REASON } from "@features/agent/store/run-lifecycle";
 import { installAgentSessionRuntimeBridges } from "@features/agent/store/agent-session-runtime-bridges";
-import { DEFAULT_AGENT_SESSION_META } from "@features/agent/store/session-state";
-import { rehydrateSessionMeta } from "@features/agent/store/session-persistence";
 import {
   createSessionMetaSlice,
-  type SessionMetaSlice,
 } from "@features/agent/store/session-meta-slice";
 import {
   createProjectionSlice,
-  type ProjectionSlice,
 } from "@features/agent/store/projection-slice";
 import {
   createConversationSlice,
-  type ConversationSlice,
 } from "@features/agent/store/conversation-slice";
 import {
   createThreadHistorySlice,
-  type ThreadHistorySlice,
 } from "@features/agent/store/thread-history-slice";
 import {
   createThreadLifecycleSlice,
-  type ThreadLifecycleSlice,
 } from "@features/agent/store/thread-lifecycle-slice";
 import {
   createFollowUpQueueSlice,
   isProjectionWorking,
-  type FollowUpQueueSlice,
 } from "@features/agent/store/follow-up-queue-slice";
+import type { AgentSessionStore } from "@features/agent/store/agent-session-store-types";
+import {
+  mergeAgentSessionPersisted,
+  migrateAgentSessionPersisted,
+  partializeAgentSessionMeta,
+} from "@features/agent/store/agent-session-persist";
 
 export {
   DEFAULT_AGENT_SESSION_META,
@@ -108,44 +98,9 @@ const RUN_MISSING_FROM_SNAPSHOT_REASON = "missing_from_snapshot";
 const STOP_RETRY_DEDUPE_MS = 1500;
 const lastStopRequestAt = new Map<string, number>();
 const logger = createLogger("agent-session-store");
-export interface AgentSessionStore
-  extends SessionMetaSlice,
-    ProjectionSlice,
-    ConversationSlice,
-    ThreadHistorySlice,
-    ThreadLifecycleSlice,
-    FollowUpQueueSlice {
-  sendMessageToThread: (
-    threadId: string,
-    content: string,
-    typeKey?: AgentTypeKey,
-    options?: {
-      instanceId?: string;
-      conversationTitle?: string;
-      currentNoteContent?: string;
-      isFirstMessage?: boolean;
-      runtimeConfig?: RuntimeConfig | null;
-      imagePaths?: string[];
-      attachments?: AgentMessageAttachment[];
-      displayContent?: string;
-      runId?: string;
-      /** Composer transactions must distinguish rejection from acceptance. */
-      rejectOnFailure?: boolean;
-    },
-  ) => Promise<void>;
-  stopStream: () => Promise<void>;
-  stopThreadRun: (threadId: string, runId?: string) => Promise<void>;
-  dispatchAgentEvent: (event: AgentEvent) => void;
-  flushAgentEventBuffer: () => void;
-  dispatchAgentChunk: (chunk: AgentChunk) => void;
-  reconcileRunningRunsFromSnapshot: (
-    running: Record<string, RunInfo>,
-    requestProjections?: Readonly<Record<string, ThreadProjection>>,
-  ) => void;
-  reconcileRunningRuns: () => Promise<Record<string, RunInfo>>;
-}
 
 export type { PendingSteeringMessage } from "@features/agent/store/follow-up-queue-slice";
+export type { AgentSessionStore } from "@features/agent/store/agent-session-store-types";
 
 
 export const useAgentSessionStore = create<AgentSessionStore>()(
@@ -662,22 +617,9 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
       name: STORAGE_KEYS.AGENT_SESSION,
       version: 2,
       storage: createJSONStorage(() => createAgentSessionStateStorage()),
-      migrate: (persisted) => ({
-        ...(persisted as Record<string, unknown>),
-        sessionMeta: rehydrateSessionMeta(persisted),
-      }),
-      partialize: (state) => ({
-        sessionMeta: {
-          ...state.sessionMeta,
-          threadLists: DEFAULT_AGENT_SESSION_META.threadLists,
-          lastRunningRunsReconciledAt:
-            DEFAULT_AGENT_SESSION_META.lastRunningRunsReconciledAt,
-        },
-      }),
-      merge: (persisted, current) => ({
-        ...current,
-        sessionMeta: rehydrateSessionMeta(persisted),
-      }),
+      migrate: migrateAgentSessionPersisted,
+      partialize: partializeAgentSessionMeta,
+      merge: mergeAgentSessionPersisted,
     },
     ),
   ),

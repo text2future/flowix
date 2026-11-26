@@ -147,7 +147,7 @@ async fn remote_delete_does_not_remove_an_edit_after_archive() {
         device_id: "device",
     };
     let outcome = apply(
-        &reqwest::Client::new(),
+        &crate::http::HttpClient::pinned(reqwest::Client::new()),
         &context,
         &store,
         &plan_of(vec![SyncAction::DeleteLocal(DeleteLocal {
@@ -302,7 +302,7 @@ async fn download_that_became_a_tombstone_preserves_local_bytes_and_baseline() {
         backup: None,
     })]);
     let outcome = apply(
-        &reqwest::Client::new(),
+        &crate::http::HttpClient::pinned(reqwest::Client::new()),
         &context,
         &local,
         &plan,
@@ -343,7 +343,7 @@ async fn tombstone_replaced_before_head_does_not_remove_baseline() {
         expected_etag: Some("\"v1\"".into()),
     })]);
     let outcome = apply(
-        &reqwest::Client::new(),
+        &crate::http::HttpClient::pinned(reqwest::Client::new()),
         &context,
         &local,
         &plan,
@@ -388,7 +388,7 @@ async fn a_rejected_conditional_tombstone_keeps_the_path_pending() {
         expected_etag: Some("\"v1\"".into()),
     })]);
     let outcome = apply(
-        &reqwest::Client::new(),
+        &crate::http::HttpClient::pinned(reqwest::Client::new()),
         &context,
         &local,
         &plan,
@@ -428,7 +428,7 @@ async fn a_tombstone_without_an_observed_etag_is_refused_locally() {
         expected_etag: None,
     })]);
     let outcome = apply(
-        &reqwest::Client::new(),
+        &crate::http::HttpClient::pinned(reqwest::Client::new()),
         &context,
         &local,
         &plan,
@@ -476,7 +476,7 @@ async fn interrupted_or_corrupt_download_leaves_local_state_untouched() {
             backup: None,
         })]);
         let outcome = apply(
-            &reqwest::Client::new(),
+            &crate::http::HttpClient::pinned(reqwest::Client::new()),
             &context,
             &local,
             &plan,
@@ -492,7 +492,7 @@ async fn interrupted_or_corrupt_download_leaves_local_state_untouched() {
         assert_eq!(outcome.failures.len(), 1);
         assert!(local.archived.lock().unwrap().is_empty());
         let retry = apply(
-            &reqwest::Client::new(),
+            &crate::http::HttpClient::pinned(reqwest::Client::new()),
             &context,
             &local,
             &plan,
@@ -593,7 +593,7 @@ async fn delete_archives_then_removes_and_drops_the_row() {
         device_id: "mac-7f3a",
     };
     let outcome = apply(
-        &reqwest::Client::new(),
+        &crate::http::HttpClient::pinned(reqwest::Client::new()),
         &context,
         &store,
         &plan,
@@ -630,7 +630,7 @@ async fn excluded_remote_path_is_rejected_before_local_delete_or_archive() {
         device_id: "mac-7f3a",
     };
     let outcome = apply(
-        &reqwest::Client::new(),
+        &crate::http::HttpClient::pinned(reqwest::Client::new()),
         &context,
         &store,
         &plan,
@@ -672,7 +672,7 @@ fn a_failing_action_is_recorded_without_aborting_the_pass() {
         device_id: "mac-7f3a",
     };
     let outcome = runtime.block_on(apply(
-        &reqwest::Client::new(),
+        &crate::http::HttpClient::pinned(reqwest::Client::new()),
         &context,
         &store,
         &plan,
@@ -706,7 +706,7 @@ fn deferring_costs_nothing_and_reports_success() {
         device_id: "mac-7f3a",
     };
     let outcome = runtime.block_on(apply(
-        &reqwest::Client::new(),
+        &crate::http::HttpClient::pinned(reqwest::Client::new()),
         &context,
         &store,
         &plan,
@@ -819,7 +819,7 @@ async fn independent_uploads_overlap_and_checkpoint_each_completion() {
     let mut checkpoints = Vec::new();
     let sizes = BTreeMap::from([("a.md".to_string(), 4), ("b.md".to_string(), 4)]);
     let outcome = apply_with_checkpoint_and_sizes(
-        &reqwest::Client::new(),
+        &crate::http::HttpClient::pinned(reqwest::Client::new()),
         &context,
         &local,
         &plan,
@@ -905,7 +905,7 @@ async fn downloads_overlap_but_apply_and_checkpoint_in_plan_order() {
     let mut checkpoints = Vec::new();
     let sizes = BTreeMap::from([("a.md".to_string(), 4), ("b.md".to_string(), 4)]);
     let outcome = apply_with_checkpoint_and_sizes(
-        &reqwest::Client::new(),
+        &crate::http::HttpClient::pinned(reqwest::Client::new()),
         &context,
         &local,
         &plan,
@@ -953,7 +953,7 @@ async fn failed_download_does_not_block_an_independent_success() {
     );
     let mut checkpoints = 0;
     let outcome = apply_with_checkpoint(
-        &reqwest::Client::new(),
+        &crate::http::HttpClient::pinned(reqwest::Client::new()),
         &context,
         &local,
         &plan,
@@ -1012,7 +1012,7 @@ async fn download_preserves_edit_made_while_request_is_in_flight() {
         backup: None,
     })]);
     let outcome = apply(
-        &reqwest::Client::new(),
+        &crate::http::HttpClient::pinned(reqwest::Client::new()),
         &context,
         local.as_ref(),
         &plan,
@@ -1084,7 +1084,7 @@ async fn large_or_unknown_uploads_do_not_overlap_other_uploads() {
             sizes.insert("a.md".into(), TRANSFER_BATCH_BYTES + 1);
         }
         let outcome = apply_with_checkpoint_and_sizes(
-            &reqwest::Client::new(),
+            &crate::http::HttpClient::pinned(reqwest::Client::new()),
             &context,
             &local,
             &plan,

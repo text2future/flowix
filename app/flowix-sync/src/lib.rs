@@ -9,6 +9,7 @@ mod blocking;
 mod client;
 mod environment;
 mod error;
+pub mod http;
 mod manager;
 mod models;
 pub mod object_store;
@@ -25,6 +26,7 @@ pub use account::{AccountService, PendingLogout};
 pub use client::CloudClient;
 pub use environment::{default_cloud_environment, CloudEnvironment};
 pub use error::{FailureKind, SyncError};
+pub use http::HttpClient;
 pub use manager::SyncManager;
 pub use manager::{PassInput, V4_CREDENTIAL_RENEWAL_MARGIN_MS};
 pub use models::{

@@ -338,7 +338,7 @@ const TRANSFER_BATCH_BYTES: u64 = 16 * 1024 * 1024;
 /// Executes `plan`. Never returns an error: everything that failed is in
 /// [`ApplyOutcome::failures`], so the pass can still persist what succeeded.
 pub async fn apply(
-    http: &reqwest::Client,
+    http: &crate::http::HttpClient,
     context: &ApplyContext<'_>,
     local: &dyn LocalStore,
     plan: &ReconcilePlan,
@@ -352,7 +352,7 @@ pub async fn apply(
 /// The callback is synchronous so cancellation cannot occur between an action
 /// completing and its checkpoint being recorded.
 pub async fn apply_with_checkpoint(
-    http: &reqwest::Client,
+    http: &crate::http::HttpClient,
     context: &ApplyContext<'_>,
     local: &dyn LocalStore,
     plan: &ReconcilePlan,
@@ -368,7 +368,7 @@ pub async fn apply_with_checkpoint(
 /// Unknown and individually large files run alone to avoid multiplying memory
 /// pressure from the buffered S3 implementation.
 pub(crate) async fn apply_with_checkpoint_and_sizes(
-    http: &reqwest::Client,
+    http: &crate::http::HttpClient,
     context: &ApplyContext<'_>,
     local: &dyn LocalStore,
     plan: &ReconcilePlan,
@@ -414,7 +414,7 @@ pub(crate) struct ApplyOptions<'a> {
 }
 
 pub(crate) async fn apply_with_progress(
-    http: &reqwest::Client,
+    http: &crate::http::HttpClient,
     context: &ApplyContext<'_>,
     local: &dyn LocalStore,
     plan: &ReconcilePlan,
@@ -746,7 +746,7 @@ fn display_path(snapshot: &LocalSnapshot, key: &str) -> String {
 }
 
 async fn upload_one(
-    http: &reqwest::Client,
+    http: &crate::http::HttpClient,
     context: &ApplyContext<'_>,
     local: &dyn LocalStore,
     snapshot: &LocalSnapshot,

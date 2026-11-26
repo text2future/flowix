@@ -64,35 +64,16 @@ import {
   createPlusIcon,
   createTrashIcon,
 } from "@features/agent/thread-card/agent-thread-card-icons";
-import type { ComposerSlashSkill } from "@features/agent/thread-card/composer/composer-slash-command-controller";
 import { isFlowixCloudModelOption } from "@features/agent/thread-card/settings/model-picker/pi-model-picker";
 import type { AgentModelOption } from "@features/agent/thread-card/settings/model-picker/model-picker-types";
 import { renderModelSettingsBody } from "@features/agent/thread-card/settings/external-agent-model-settings";
-
-const PI_THINKING_OPTIONS = [
-  { id: "off", label: "Off" },
-  { id: "minimal", label: "Minimal" },
-  { id: "low", label: "Low" },
-  { id: "medium", label: "Medium" },
-  { id: "high", label: "High" },
-  { id: "xhigh", label: "Extra High" },
-  { id: "max", label: "Max" },
-] as const;
-
-/** Efforts a Codex composer can select; `off`/`minimal` only exist for other runtimes. */
-type CodexComposerEffort = Extract<
-  AgentCodexReasoningEffort,
-  "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
->;
-
-const CODEX_COMPOSER_EFFORT_LABEL_KEYS = {
-  low: "agent.reasoningDepth.composer.low",
-  medium: "agent.reasoningDepth.composer.medium",
-  high: "agent.reasoningDepth.composer.high",
-  xhigh: "agent.reasoningDepth.composer.xhigh",
-  max: "agent.reasoningDepth.composer.max",
-  ultra: "agent.reasoningDepth.composer.ultra",
-} satisfies Record<CodexComposerEffort, I18nKey>;
+import type { ExternalAgentSettingsControllerOptions } from "./external-agent-settings-options";
+import {
+  CODEX_COMPOSER_EFFORT_LABEL_KEYS,
+  PI_THINKING_OPTIONS,
+  type CodexComposerEffort,
+} from "./external-agent-settings-helpers";
+import { ModelCatalogLoadTracker } from "./external-agent-model-catalog-state";
 
 const CODEX_SETTINGS_POPOVER_WIDTH_PX = 212;
 const CODEX_SETTINGS_POPOVER_MAX_HEIGHT_PX = 280;
@@ -107,47 +88,6 @@ const CLAUDE_MODEL_OPTIONS: AgentModelOption[] = [
   { id: "claude-sonnet-5", label: "claude-sonnet-5" },
   { id: "claude-haiku-4-5", label: "claude-haiku-4-5" },
 ];
-
-export interface ExternalAgentSettingsControllerOptions {
-  popover: HTMLDivElement;
-  getTypeKey: () => AgentTypeKey;
-  /**
-   * 返回当前卡片绑定的 instanceId ── 用于把 model/permission/reasoning
-   * 控件读写路由到 instance.runtimeConfig 快照,
-   * 实现"不同 Agent Thread Card 不共享配置"。如果 undefined (如编辑器临时预览),
-   * 则退化为全局 useAgentSessionStore 行为, 不影响现有 fallback 路径。
-   */
-  getInstanceId: () => string | undefined;
-  getLanguage: () => AppLanguage;
-  getEmptyStatePresentation: () => AgentEmptyStatePresentation; // 形态变了必须重建空状态, 故参与复用判定
-  t: (key: I18nKey, params?: I18nParams) => string;
-  isDestroyed: () => boolean;
-  isRunning?: () => boolean;
-  consumeOutsidePointer?: (event: PointerEvent) => void;
-  onPopoverStateChange?: (
-    open: boolean,
-    anchor: HTMLButtonElement | null,
-  ) => void;
-  /**
-   * 点击常用笔记卡片时的动作 ── 把该笔记作为行内引用注入 composer 输入框
-   * (而不是打开笔记)。由宿主 (thread card view / 独立对话) 接到
-   * `ComposerController.insertMemoReference`。
-   */
-  onSelectFeaturedNote?: (ref: { id: string; filename: string; title: string; notebookId?: string; relativePath?: string }) => void;
-  /** Expanded empty-state prompt chips seed the shared composer without sending. */
-  onSelectEmptyPrompt?: (prompt: string) => void;
-  /** Expanded empty-state skill chips use the same token insertion as the slash menu. */
-  onSelectEmptySkill?: (skill: ComposerSlashSkill) => void;
-  /** Opens the shared slash picker with all commands and skills. */
-  onOpenEmptySkills?: () => void;
-  /**
-   * 仓库列表增删后的轻提示。 由宿主注入而不是直接 import toast, 让本
-   * controller 保持对 UI 反馈层的解耦 (测试里也可以只断言调用)。
-   */
-  toast?: (kind: "success" | "error" | "info", message: string) => void;
-  /** A Cloud model cannot run yet: the host shows its sign-in notice. */
-  onCloudAccessBlocked?: (kind: CloudAccessKind) => void;
-}
 
 export class ExternalAgentSettingsController {
   private readonly popover: HTMLDivElement;
@@ -199,10 +139,7 @@ export class ExternalAgentSettingsController {
   private piModelsLoadFailed = false;
   private localSupportedModelsTypeKey: AgentTypeKey | null = null;
   private localSupportedModels: AgentModelOption[] = [];
-  // 模型目录正在拉取的 agent 类型（仅当无可用缓存时置位）。显式区分
-  // "加载中 / 加载完成但为空 / 加载失败"，加载期间按钮与弹层显示
-  // "正在读取模型"，避免把未就绪的数据误渲染成结果。
-  private modelCatalogLoadInFlight: AgentTypeKey | null = null;
+  private readonly modelCatalogLoadTracker = new ModelCatalogLoadTracker();
   private readonly unlistenCodexSettings: UnlistenFn;
   private readonly unlistenPiCatalog: () => void;
   private readonly emptyState: AgentEmptyStateController;
@@ -463,7 +400,7 @@ export class ExternalAgentSettingsController {
           this.localSupportedModelsTypeKey = typeKey;
           this.localSupportedModels = [];
         }
-        this.endModelCatalogLoad(typeKey);
+        this.modelCatalogLoadTracker.end(typeKey);
         this.refreshEmptySettings();
         if (this.open && this.kind === "model") {
           this.renderPopover();
@@ -489,7 +426,7 @@ export class ExternalAgentSettingsController {
           this.localSupportedModelsTypeKey = "pi";
           this.localSupportedModels = [];
         }
-        this.endModelCatalogLoad("pi");
+        this.modelCatalogLoadTracker.end("pi");
         this.refreshEmptySettings();
         if (this.open && this.kind === "model") {
           this.renderPopover();
@@ -500,20 +437,8 @@ export class ExternalAgentSettingsController {
 
   /** 拉取开始且无缓存可用 → 进入加载态并立即刷新按钮文案。 */
   private beginModelCatalogLoad(typeKey: AgentTypeKey): void {
-    if (this.modelCatalogLoadInFlight === typeKey) return;
-    this.modelCatalogLoadInFlight = typeKey;
+    this.modelCatalogLoadTracker.begin(typeKey);
     this.refreshEmptySettings();
-  }
-
-  private endModelCatalogLoad(typeKey: AgentTypeKey): void {
-    if (this.modelCatalogLoadInFlight === typeKey) {
-      this.modelCatalogLoadInFlight = null;
-    }
-  }
-
-  private isModelCatalogLoading(): boolean {
-    return this.modelCatalogLoadInFlight !== null
-      && this.modelCatalogLoadInFlight === this.getTypeKey();
   }
 
   private applyModelCatalog(
@@ -522,7 +447,7 @@ export class ExternalAgentSettingsController {
     options: { renderPopover?: boolean } = {},
   ): void {
     if (this.isDestroyed() || this.getTypeKey() !== typeKey) return;
-    this.endModelCatalogLoad(typeKey);
+    this.modelCatalogLoadTracker.end(typeKey);
     // Pi's session-aware store is authoritative, including an empty directory
     // after logout. A late promise must not revive the controller's old copy.
     if (typeKey === "pi") catalog = useAgentDataStore.getState().agents.pi.catalog.models;
@@ -1871,7 +1796,7 @@ export class ExternalAgentSettingsController {
       selection.id !== "inherit" &&
       !(this.getTypeKey() === "pi" && !selection.id) &&
       // 加载中目录尚未就绪，不合成"未知模型"尾行，让弹层显示加载态。
-      !this.isModelCatalogLoading() &&
+      !this.modelCatalogLoadTracker.isCurrentLoading(this.getTypeKey()) &&
       !missingPiCloudModel &&
       !options.some((option) =>
         option.id === selection.id
@@ -1892,7 +1817,7 @@ export class ExternalAgentSettingsController {
 
   private getCurrentExternalModelLabel(): string {
     // 加载中优先于一切结果态，避免用未就绪的数据伪造选中值。
-    if (this.isModelCatalogLoading()) {
+    if (this.modelCatalogLoadTracker.isCurrentLoading(this.getTypeKey())) {
       return this.t("agent.model.loading");
     }
 
@@ -1940,7 +1865,7 @@ export class ExternalAgentSettingsController {
   } {
     const label = this.getCurrentExternalModelLabel();
     // 加载中不拼接 reasoning 后缀（"正在读取模型… · high" 是噪音）。
-    if (!label || !this.supportsRuntimeSetting("reasoning") || this.isModelCatalogLoading()) {
+    if (!label || !this.supportsRuntimeSetting("reasoning") || this.modelCatalogLoadTracker.isCurrentLoading(this.getTypeKey())) {
       return { text: label, model: label };
     }
     if (this.getTypeKey() === "codex") {
@@ -2047,7 +1972,7 @@ export class ExternalAgentSettingsController {
       options,
       loadedOptions: this.getLoadedModelOptions(),
       piModelsLoadFailed: this.piModelsLoadFailed,
-      modelsLoading: this.isModelCatalogLoading(),
+      modelsLoading: this.modelCatalogLoadTracker.isCurrentLoading(this.getTypeKey()),
       showEmptyState: this.shouldShowPiModelEmptyState(),
       supportsReasoning: this.supportsRuntimeSetting("reasoning"),
       t: (key) => this.t(key),

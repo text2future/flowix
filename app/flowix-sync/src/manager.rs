@@ -33,7 +33,7 @@ pub struct SyncManager {
     mass_deletion_allowed: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
     /// Object storage is not the control plane: a single object can be large
     /// and a slow uplink must not be cut off at the API client's 30 seconds.
-    http: reqwest::Client,
+    http: crate::http::HttpClient,
 }
 
 impl SyncManager {
@@ -53,11 +53,12 @@ impl SyncManager {
             directory_cache: Arc::new(tokio::sync::Mutex::new(Default::default())),
             remote: Arc::new(std::sync::Mutex::new(Default::default())),
             mass_deletion_allowed: Arc::new(std::sync::Mutex::new(Default::default())),
-            http: reqwest::Client::builder()
-                .connect_timeout(std::time::Duration::from_secs(10))
-                .read_timeout(std::time::Duration::from_secs(300))
-                .build()
-                .unwrap_or_default(),
+            http: crate::http::HttpClient::new(|| {
+                reqwest::Client::builder()
+                    .connect_timeout(std::time::Duration::from_secs(10))
+                    .read_timeout(std::time::Duration::from_secs(300))
+                    .build()
+            }),
         }
     }
 }

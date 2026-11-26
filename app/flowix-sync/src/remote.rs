@@ -192,7 +192,7 @@ impl S3Remote {
     /// write permissions or the consistency guarantees required for syncing.
     pub async fn check_read_access(
         &self,
-        http: &reqwest::Client,
+        http: &crate::http::HttpClient,
         access_key_id: &str,
         secret_access_key: &str,
     ) -> Result<(), SyncError> {

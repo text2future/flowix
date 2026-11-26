@@ -270,7 +270,11 @@ pub async fn cloud_check_custom_s3(
 
     input
         .remote
-        .check_read_access(&reqwest::Client::new(), &access_key_id, &secret_access_key)
+        .check_read_access(
+            &flowix_sync::HttpClient::new(|| Ok(reqwest::Client::new())),
+            &access_key_id,
+            &secret_access_key,
+        )
         .await
         .map_err(sync_error)
 }
@@ -285,7 +289,7 @@ pub async fn cloud_save_custom_s3_profile(
             .profile
             .remote
             .check_read_access(
-                &reqwest::Client::new(),
+                &flowix_sync::HttpClient::new(|| Ok(reqwest::Client::new())),
                 &input.access_key_id,
                 &input.secret_access_key,
             )

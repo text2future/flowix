@@ -2,7 +2,8 @@ import cursorOutlineSvg from "@/assets/cursor-outline.svg?raw";
 import folderOutlineSvg from "@/assets/folder-outline.svg?raw";
 import shieldAlertOutlineSvg from "@/assets/shield-alert-outline.svg?raw";
 import shieldCheckOutlineSvg from "@/assets/shield-check-outline.svg?raw";
-import type { AgentPermissionMode } from "@/types/agent";
+import type { AgentPermissionMode, AgentCodexReasoningEffort } from "@/types/agent";
+import type { I18nKey } from "@/lib/i18n";
 import type { AgentModelOption } from "@features/agent/thread-card/settings/model-picker/model-picker-types";
 
 export function createComposerWorkspaceIcon(): SVGSVGElement | null {
@@ -81,3 +82,28 @@ export function sameModelOptions(
       && JSON.stringify(model.reasoningEfforts) === JSON.stringify(candidate.reasoningEfforts);
   });
 }
+
+export const PI_THINKING_OPTIONS = [
+  { id: "off", label: "Off" },
+  { id: "minimal", label: "Minimal" },
+  { id: "low", label: "Low" },
+  { id: "medium", label: "Medium" },
+  { id: "high", label: "High" },
+  { id: "xhigh", label: "Extra High" },
+  { id: "max", label: "Max" },
+] as const;
+
+/** Efforts a Codex composer can select; `off`/`minimal` only exist for other runtimes. */
+export type CodexComposerEffort = Extract<
+  AgentCodexReasoningEffort,
+  "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
+>;
+
+export const CODEX_COMPOSER_EFFORT_LABEL_KEYS = {
+  low: "agent.reasoningDepth.composer.low",
+  medium: "agent.reasoningDepth.composer.medium",
+  high: "agent.reasoningDepth.composer.high",
+  xhigh: "agent.reasoningDepth.composer.xhigh",
+  max: "agent.reasoningDepth.composer.max",
+  ultra: "agent.reasoningDepth.composer.ultra",
+} satisfies Record<CodexComposerEffort, I18nKey>;

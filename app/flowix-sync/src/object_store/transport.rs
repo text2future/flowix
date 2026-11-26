@@ -23,23 +23,44 @@ pub(crate) struct BufferedObjectResponse {
 /// Sends a signed request and retries exactly once when S3 explicitly reports
 /// an expired temporary token. Permission failures and ordinary 403/400
 /// responses pass through unchanged.
+///
+/// Also retries exactly once when the send fails at the connect stage, which
+/// is what a stale system-proxy snapshot looks like after a VPN toggle (see
+/// [`crate::http`]): the client is rebuilt, then the request is rebuilt
+/// against it through `build` — re-signing is harmless and streaming bodies
+/// are re-materialized, which is why the client reaches the closure as a
+/// parameter instead of being captured.
 pub(crate) async fn send_with_credential_renewal<F>(
+    http: &crate::http::HttpClient,
     resolver: &dyn CredentialResolver,
     category: &'static str,
     operation: &'static str,
     mut build: F,
 ) -> Result<BufferedObjectResponse, SyncError>
 where
-    F: FnMut(&ObjectStoreCredentials, DateTime<Utc>) -> Result<reqwest::RequestBuilder, SyncError>,
+    F: FnMut(
+        &reqwest::Client,
+        &ObjectStoreCredentials,
+        DateTime<Utc>,
+    ) -> Result<reqwest::RequestBuilder, SyncError>,
 {
     let mut credentials = resolver.resolve(resolver.now().timestamp_millis()).await?;
-    for attempt in 0..2 {
-        let request = build(&credentials, resolver.now())?;
+    // One renewal and one rebuild may combine: connect-stage failure, then an
+    // expired token on the retried request. Three attempts covers both.
+    let mut renewed = false;
+    let mut rebuilt = false;
+    for _attempt in 0..3 {
+        let request = build(&http.get(), &credentials, resolver.now())?;
         let mut measurement = crate::telemetry::RequestMeasurement::start(category, operation);
         let mut response = match request.send().await {
             Ok(response) => response,
             Err(error) => {
                 measurement.finish(false);
+                if !rebuilt && crate::http::is_stale_snapshot_error(&error) {
+                    rebuilt = true;
+                    http.rebuild();
+                    continue;
+                }
                 return Err(error.into());
             }
         };
@@ -77,12 +98,13 @@ where
         }
         measurement.finish(status.is_success() || status.as_u16() == 404);
         drop(measurement);
-        if attempt == 0 && is_expired_token_response(status, &body) {
-            let renewed = resolver
+        if !renewed && is_expired_token_response(status, &body) {
+            renewed = true;
+            let refreshed = resolver
                 .refresh_after_rejection(resolver.now().timestamp_millis(), &credentials)
                 .await?;
-            if !credentials.same_signing_material(&renewed) {
-                credentials = renewed;
+            if !credentials.same_signing_material(&refreshed) {
+                credentials = refreshed;
                 continue;
             }
         }
@@ -93,7 +115,7 @@ where
             body,
         });
     }
-    unreachable!("the renewal loop returns after at most two attempts")
+    unreachable!("the renewal and rebuild loop returns after at most three attempts")
 }
 
 pub(crate) fn is_expired_token_response(status: reqwest::StatusCode, body: &[u8]) -> bool {

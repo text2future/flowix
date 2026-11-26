@@ -460,7 +460,7 @@ mod tests {
             .map(|f| ScannedLocalFile::new(f.display_path, f.size, f.mtime_millis).unwrap())
             .collect::<Vec<_>>();
         let state = SyncStore::new(temp.path().join("sync.db")).unwrap();
-        let http = reqwest::Client::new();
+        let http = flowix_sync::HttpClient::pinned(reqwest::Client::new());
         let now = chrono::Utc::now();
         let mut source = DirectSource {
             http: &http,
@@ -670,7 +670,7 @@ mod tests {
             .map(|f| ScannedLocalFile::new(f.display_path, f.size, f.mtime_millis).unwrap())
             .collect::<Vec<_>>();
         let state = SyncStore::new(temp.path().join("sync.db")).unwrap();
-        let http = reqwest::Client::new();
+        let http = flowix_sync::HttpClient::pinned(reqwest::Client::new());
         let now = chrono::Utc::now();
         let mut source = DirectSource {
             http: &http,
@@ -739,7 +739,7 @@ mod tests {
             serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
         assert_eq!(credential.backend_id, "r2-staging");
         assert_eq!(credential.bucket, "r2-flowix-cloud-staging-user-blobs");
-        let http = reqwest::Client::new();
+        let http = flowix_sync::HttpClient::pinned(reqwest::Client::new());
         let mut source = DirectSource {
             http: &http,
             credentials: &credential,
@@ -814,7 +814,7 @@ mod tests {
         let (b_dir, b_memo, b) = fixture();
         let a_state = SyncStore::new(a_dir.path().join("sync.db")).unwrap();
         let b_state = SyncStore::new(b_dir.path().join("sync.db")).unwrap();
-        let http = reqwest::Client::new();
+        let http = flowix_sync::HttpClient::pinned(reqwest::Client::new());
         a.write("notes/hello.md", "# Hello 世界\n".as_bytes())
             .unwrap();
         a.write("attachments/picture.png", &[0, 1, 2, 255]).unwrap();

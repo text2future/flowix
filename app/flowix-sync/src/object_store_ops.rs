@@ -38,7 +38,7 @@ pub struct DownloadedObject {
 /// `content_hash` is the `sha256:<hex>` of `body`; it travels as object
 /// metadata so a later pass (or a `HEAD`) can compare without downloading.
 pub async fn upload(
-    http: &reqwest::Client,
+    http: &crate::http::HttpClient,
     credential_resolver: &dyn CredentialResolver,
     key: &str,
     body: bytes::Bytes,
@@ -51,7 +51,7 @@ pub async fn upload(
 /// renewal, and a `Bytes` clone is a refcount bump where a `&[u8]` would force
 /// a full copy of the object per attempt.
 pub(crate) async fn upload_with_progress<G>(
-    http: &reqwest::Client,
+    http: &crate::http::HttpClient,
     credential_resolver: &dyn CredentialResolver,
     key: &str,
     body: bytes::Bytes,
@@ -91,7 +91,7 @@ pub(crate) async fn upload_with_progress<G>(
 /// Writes the zero-byte deletion marker. The key stays, which is what keeps
 /// "deleted in the cloud" and "never uploaded" distinguishable (§5).
 pub async fn write_tombstone(
-    http: &reqwest::Client,
+    http: &crate::http::HttpClient,
     credential_resolver: &dyn CredentialResolver,
     key: &str,
     etag: &str,
@@ -130,15 +130,16 @@ pub async fn write_tombstone(
 
 /// `None` means the key does not exist (404), which is evidence, not an error.
 pub async fn head(
-    http: &reqwest::Client,
+    http: &crate::http::HttpClient,
     credential_resolver: &dyn CredentialResolver,
     key: &str,
 ) -> Result<Option<RemoteObject>, SyncError> {
     let response = send_with_credential_renewal(
+        http,
         credential_resolver,
         crate::telemetry::category(key),
         "head",
-        |credentials, now| {
+        |http, credentials, now| {
             let scoped = credentials.scoped_key(key);
             let signed = sign_request(
                 credentials,
@@ -179,15 +180,16 @@ pub async fn head(
 
 /// `None` means the key does not exist.
 pub async fn download(
-    http: &reqwest::Client,
+    http: &crate::http::HttpClient,
     credential_resolver: &dyn CredentialResolver,
     key: &str,
 ) -> Result<Option<DownloadedObject>, SyncError> {
     let response = send_with_credential_renewal(
+        http,
         credential_resolver,
         crate::telemetry::category(key),
         "get",
-        |credentials, now| {
+        |http, credentials, now| {
             let scoped = credentials.scoped_key(key);
             let signed = sign_request(
                 credentials,
@@ -225,7 +227,7 @@ pub async fn download(
 }
 
 async fn put(
-    http: &reqwest::Client,
+    http: &crate::http::HttpClient,
     credential_resolver: &dyn CredentialResolver,
     key: &str,
     body: bytes::Bytes,
@@ -247,7 +249,7 @@ async fn put(
 /// All headers participate in the SigV4 signature and reach the wire through
 /// `SignedRequest`; callers can include metadata and conditional headers.
 pub async fn put_object(
-    http: &reqwest::Client,
+    http: &crate::http::HttpClient,
     credential_resolver: &dyn CredentialResolver,
     key: &str,
     body: bytes::Bytes,
@@ -258,10 +260,11 @@ pub async fn put_object(
     let mut headers = vec![("content-type".to_string(), content_type.to_string())];
     headers.extend(metadata.iter().cloned());
     let response = send_with_credential_renewal(
+        http,
         credential_resolver,
         crate::telemetry::category(key),
         "put",
-        |credentials, now| {
+        |http, credentials, now| {
             let scoped = credentials.scoped_key(key);
             let signed = sign_request(
                 credentials,
@@ -422,7 +425,8 @@ mod tests {
         });
         let mut credentials = credentials();
         credentials.endpoint = endpoint;
-        let http = reqwest::Client::builder().no_proxy().build().unwrap();
+        let http =
+            crate::http::HttpClient::pinned(reqwest::Client::builder().no_proxy().build().unwrap());
         put_object(
             &http,
             &credentials,
@@ -471,7 +475,8 @@ mod tests {
         });
         let mut credential = credentials();
         credential.endpoint = endpoint;
-        let http = reqwest::Client::builder().no_proxy().build().unwrap();
+        let http =
+            crate::http::HttpClient::pinned(reqwest::Client::builder().no_proxy().build().unwrap());
         let progress = Arc::new(move || {
             counter.fetch_add(1, Ordering::SeqCst);
         });
@@ -564,4 +569,3 @@ mod tests {
         assert_eq!(cos.meta_header("contenthash"), "x-cos-meta-contenthash");
     }
 }
-

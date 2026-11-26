@@ -395,9 +395,13 @@ mod tests {
             refreshed,
             refresh_calls: AtomicUsize::new(0),
         };
-        let http = reqwest::Client::new();
-        let response =
-            send_with_credential_renewal(&resolver, "other", "list", |credentials, now| {
+        let http = crate::http::HttpClient::pinned(reqwest::Client::new());
+        let response = send_with_credential_renewal(
+            &http,
+            &resolver,
+            "other",
+            "list",
+            |http, credentials, now| {
                 let query = Vec::new();
                 let signed = sign_get(credentials, &query, now)?;
                 let mut request = http.get(&signed.url);
@@ -405,9 +409,10 @@ mod tests {
                     request = request.header(name, value);
                 }
                 Ok(request.header("x-test-credential", &credentials.access_key_id))
-            })
-            .await
-            .unwrap();
+            },
+        )
+        .await
+        .unwrap();
         server.join().unwrap();
 
         assert!(response.status.is_success());

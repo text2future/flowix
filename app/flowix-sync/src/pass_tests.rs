@@ -483,7 +483,7 @@ async fn deleting_a_folder_locally_defers_instead_of_writing_twenty_tombstones()
     }
     store.save_path_states(NB, &states).unwrap();
     let local = MemoryLocal::new(&[]);
-    let http = reqwest::Client::new();
+    let http = crate::http::HttpClient::pinned(reqwest::Client::new());
     let mut env = PassEnv {
         source: &mut bucket,
         http: &http,
@@ -619,7 +619,7 @@ async fn a_deferred_mass_deletion_leaves_the_local_files_alone() {
             .collect::<Vec<_>>(),
     );
     let local = MemoryLocal::new(&paths.iter().map(String::as_str).collect::<Vec<_>>());
-    let http = reqwest::Client::new();
+    let http = crate::http::HttpClient::pinned(reqwest::Client::new());
     let mut env = PassEnv {
         source: &mut bucket,
         http: &http,
@@ -672,7 +672,7 @@ async fn a_confirmed_mass_deletion_is_applied() {
     }
     store.save_path_states(NB, &states).unwrap();
     let local = MemoryLocal::new(&scanned.iter().map(|f| f.key.as_str()).collect::<Vec<_>>());
-    let http = reqwest::Client::new();
+    let http = crate::http::HttpClient::pinned(reqwest::Client::new());
     let mut env = PassEnv {
         source: &mut bucket,
         http: &http,
@@ -1157,7 +1157,7 @@ async fn a_confirmed_remote_deletion_executes_and_drops_its_row() {
         .stamp("notes", NOW);
     let scanned = scan(&[("notes/a.md", 8, 1_000)]);
     let request = pass_request(&scanned, false);
-    let http = reqwest::Client::new();
+    let http = crate::http::HttpClient::pinned(reqwest::Client::new());
     let local = MemoryLocal::new(&["notes/a.md"]);
 
     let mut env = PassEnv {
@@ -1209,7 +1209,7 @@ async fn quiet_pass_does_not_signal_a_transfer() {
     let mut bucket = FakeBucket::new();
     let scanned = scan(&[]);
     let request = pass_request(&scanned, false);
-    let http = reqwest::Client::new();
+    let http = crate::http::HttpClient::pinned(reqwest::Client::new());
     let local = MemoryLocal::new(&[]);
     let mut env = PassEnv {
         source: &mut bucket,
@@ -1264,7 +1264,7 @@ async fn cancellation_keeps_completed_action_checkpoint() {
         backup: None,
     }));
     let local = MemoryLocal::new(&["notes/a.md"]);
-    let http = reqwest::Client::new();
+    let http = crate::http::HttpClient::pinned(reqwest::Client::new());
     let mut env = PassEnv {
         source: &mut bucket,
         http: &http,
@@ -1309,7 +1309,7 @@ async fn interrupted_publish_retries_queued_stamp_after_read_only_pass() {
         reason: UploadReason::New,
     })];
     let local = MemoryLocal::new(&["notes/a.md"]);
-    let http = reqwest::Client::new();
+    let http = crate::http::HttpClient::pinned(reqwest::Client::new());
     let mut env = PassEnv {
         source: &mut bucket,
         http: &http,
@@ -1370,7 +1370,7 @@ async fn failed_stamp_remains_queued_until_a_later_success() {
         .unwrap();
     bucket.fail_put = true;
     let local = MemoryLocal::new(&[]);
-    let http = reqwest::Client::new();
+    let http = crate::http::HttpClient::pinned(reqwest::Client::new());
     let mut env = PassEnv {
         source: &mut bucket,
         http: &http,
@@ -1731,7 +1731,7 @@ async fn read_only_proxy_executes_the_tombstone_and_drops_the_state_row() {
     };
     let mut bucket = FakeBucket::new().file("notes/a.md", 8, NOW - MINUTE);
     let local = MemoryLocal::new(&[]);
-    let http = reqwest::Client::new();
+    let http = crate::http::HttpClient::pinned(reqwest::Client::new());
     let mut env = PassEnv {
         source: &mut bucket,
         http: &http,
@@ -1819,7 +1819,7 @@ async fn a_failed_proxy_deletion_stays_pending_and_retries() {
     };
     let mut bucket = FakeBucket::new().file("notes/a.md", 8, NOW - MINUTE);
     let local = MemoryLocal::new(&[]);
-    let http = reqwest::Client::new();
+    let http = crate::http::HttpClient::pinned(reqwest::Client::new());
     let mut env = PassEnv {
         source: &mut bucket,
         http: &http,
@@ -2029,7 +2029,7 @@ async fn direct_source_heads_overlap_and_keep_input_order() {
     });
     let mut credentials = credentials();
     credentials.endpoint = endpoint;
-    let http = reqwest::Client::new();
+    let http = crate::http::HttpClient::pinned(reqwest::Client::new());
     let mut source = DirectSource {
         http: &http,
         credentials: &credentials,
@@ -2091,7 +2091,7 @@ async fn direct_source_enumerates_independent_directories_in_parallel() {
     });
     let mut credentials = credentials();
     credentials.endpoint = endpoint;
-    let http = reqwest::Client::new();
+    let http = crate::http::HttpClient::pinned(reqwest::Client::new());
     let mut source = DirectSource {
         http: &http,
         credentials: &credentials,

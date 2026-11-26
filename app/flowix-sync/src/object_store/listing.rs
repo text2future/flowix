@@ -73,17 +73,18 @@ pub(crate) fn list_query(
 /// whole notebook and the L1 gate would lose its point (§4.1). The `s/`
 /// listing wants the recursive form, so it passes `None`.
 pub async fn list_prefix(
-    http: &reqwest::Client,
+    http: &crate::http::HttpClient,
     credential_resolver: &dyn CredentialResolver,
     prefix: &str,
     cursor: Option<&str>,
     delimiter: Option<&str>,
 ) -> Result<ListPage, SyncError> {
     let response = send_with_credential_renewal(
+        http,
         credential_resolver,
         crate::telemetry::category(prefix),
         "list",
-        |credentials, now| {
+        |http, credentials, now| {
             let query = list_query(credentials, prefix, cursor, delimiter);
             let signed = sign_get(credentials, &query, now)?;
             let mut request = http.get(&signed.url);

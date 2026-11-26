@@ -122,7 +122,7 @@ pub trait ObjectSource: Send {
 /// Production [`ObjectSource`]: direct SigV4 against the bucket, no Worker in
 /// the data path (§8).
 pub struct DirectSource<'a> {
-    pub http: &'a reqwest::Client,
+    pub http: &'a crate::http::HttpClient,
     pub credentials: &'a ObjectStoreCredentials,
     pub credential_resolver: &'a dyn CredentialResolver,
 }
@@ -410,7 +410,7 @@ impl PassReport {
 /// Everything the pass writes to, bundled so the entry point stays readable.
 pub struct PassEnv<'a> {
     pub source: &'a mut dyn ObjectSource,
-    pub http: &'a reqwest::Client,
+    pub http: &'a crate::http::HttpClient,
     pub credentials: &'a ObjectStoreCredentials,
     pub credential_resolver: &'a dyn CredentialResolver,
     pub store: &'a SyncStore,
