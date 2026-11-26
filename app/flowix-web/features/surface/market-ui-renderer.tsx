@@ -30,6 +30,7 @@ export function MarketUiRenderer({ view, context }: { view: MarketUiView; contex
     return () => { active = false; unlisten(); };
   }, []);
   const userRegion = cloudState?.authenticated ? cloudState.account?.user.region : null;
+  const cloudReady = cloudState !== undefined;
   const marketRegion = userRegion === 'mainland' || userRegion === 'non_mainland'
     ? userRegion : clientRegion === 'mainland' ? 'mainland' : 'non_mainland';
   const [attempt, setAttempt] = useState(0);
@@ -44,7 +45,7 @@ export function MarketUiRenderer({ view, context }: { view: MarketUiView; contex
   const retry = useCallback(() => setAttempt(value => value + 1), []);
 
   useEffect(() => {
-    if (cloudState === undefined) return;
+    if (!cloudReady) return;
     let active = true;
     setPage({ key: requestKey, url: null, ready: false, loaded: false, failed: false });
     void skillMarketUi.ensure(language).then(result => {
@@ -60,7 +61,7 @@ export function MarketUiRenderer({ view, context }: { view: MarketUiView; contex
       setPage({ key: requestKey, url: null, ready: false, loaded: false, failed: true });
     });
     return () => { active = false; };
-  }, [requestKey, language, view, marketRegion, cloudState === undefined]);
+  }, [requestKey, language, view, marketRegion, cloudReady]);
 
   const markReady = useCallback(() => {
     setPage(value => value.key === requestKey ? { ...value, ready: true, failed: false } : value);
