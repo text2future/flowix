@@ -16,13 +16,14 @@ let host: HTMLDivElement;
 let root: Root;
 const context = { host: 'column-1' as const, viewId: 'market', focused: true, readOnly: false, policy: surfaceRenderPolicy('column-1', 'market') };
 const path = '/Users/demo/skill-market-ui/prod/versions/1.0.0/index.html';
-const installedPage = { entryPath: path, cached: false };
+type PreparedMarketUi = Awaited<ReturnType<typeof skillMarketUi.ensure>>;
+const installedPage: PreparedMarketUi = { entryPath: path, cached: false, apiBaseUrl: 'https://example.test/api' };
 beforeEach(() => { vi.clearAllMocks(); host = document.createElement('div'); document.body.append(host); root = createRoot(host); });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
 
 it.each(['skills', 'templates'] as const)('shows a content spinner before preparing %s and until the iframe loads', async view => {
-  let finish!: (page: { entryPath: string; cached: boolean }) => void;
-  vi.mocked(skillMarketUi.ensure).mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+  let finish!: (page: PreparedMarketUi) => void;
+  vi.mocked(skillMarketUi.ensure).mockReturnValueOnce(new Promise(resolve => { finish = page => resolve(page); }));
   await act(async () => root.render(<MarketUiRenderer view={view} context={context} />));
   expect(host.querySelector('[role="status"]')).not.toBeNull();
   expect(host.querySelector('iframe')).toBeNull();
