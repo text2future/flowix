@@ -224,7 +224,7 @@ function AccountSettingsPanel() {
   const resumeCheckout = async (order: CloudOrder) => {
     setResumingOrderId(order.id);
     try {
-      const checkout = await cloud.createCheckout(order.productId);
+      const checkout = await cloud.createCheckout(order.productId, order.quantity ?? 1);
       if (checkout.checkoutUrl.startsWith('weixin://')) {
         setWechatCheckout(checkout);
       } else if (checkout.checkoutUrl) {

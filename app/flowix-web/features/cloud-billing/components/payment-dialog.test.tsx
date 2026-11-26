@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   refreshMembership: vi.fn(),
   getAiCreditBalance: vi.fn(),
   listSubscriptions: vi.fn(),
+  toastError: vi.fn(),
 }));
 
 vi.mock('@platform/tauri/client', () => ({
@@ -29,6 +30,7 @@ vi.mock('@platform/tauri/client', () => ({
   listenToCloudStateChanges: undefined,
 }));
 vi.mock('@platform/tauri/opener', () => ({ openUrl: mocks.openUrl }));
+vi.mock('@/lib/toast', () => ({ toast: { error: mocks.toastError, success: vi.fn() } }));
 vi.mock('../public/ai-membership-purchase', () => ({
   watchAiMembershipPurchase: vi.fn().mockResolvedValue(() => {}),
 }));
@@ -125,6 +127,12 @@ afterEach(() => {
 });
 
 describe('PaymentDialog', () => {
+  it('loads products without waiting for account refresh', async () => {
+    mocks.refreshMembership.mockReturnValue(new Promise(() => {}));
+    await render();
+    expect(mocks.listProducts).toHaveBeenCalledOnce();
+    expect(productNames()).toHaveLength(2);
+  });
   it('keeps storage purchases blocked when order status cannot be loaded and allows retry', async () => {
     mocks.listBillingOrders.mockRejectedValueOnce(new Error('offline')).mockResolvedValue([]);
     await render('membership');
@@ -135,17 +143,30 @@ describe('PaymentDialog', () => {
     await act(async () => retry!.click());
     expect(storage().querySelector<HTMLButtonElement>('.payment-dialog__purchase')?.disabled).toBe(false);
   });
-  it('blocks a storage purchase while an order is pending and permits it after confirmation', async () => {
-    mocks.listBillingOrders.mockResolvedValue([{ id: 'ord_1', status: 'pending' }]);
+  it('allows storage checkout when an AI order is pending', async () => {
+    mocks.listBillingOrders.mockResolvedValue([{ id: 'ord_1', productId: AI.id, status: 'pending', quantity: 3 }]);
     await render('membership');
     const storage = () => productElements().find((element) => element.classList.contains('payment-dialog__product--storage'))!;
-    expect(storage().querySelector<HTMLButtonElement>('.payment-dialog__purchase')?.disabled).toBe(true);
-    expect(storage().textContent).toContain('preferences.cloud.order.pendingCheckout');
-    await act(async () => root.unmount());
-    container.remove();
-    mocks.listBillingOrders.mockResolvedValue([{ id: 'ord_1', status: 'paid' }]);
-    await render('membership');
     expect(storage().querySelector<HTMLButtonElement>('.payment-dialog__purchase')?.disabled).toBe(false);
+    await act(async () => storage().querySelector<HTMLButtonElement>('.payment-dialog__purchase')!.click());
+    expect(mocks.createCheckout).toHaveBeenCalledWith(STORAGE.id, 1);
+  });
+  it('resumes a pending AI order using its original quantity', async () => {
+    mocks.listBillingOrders.mockResolvedValue([{ id: 'ord_1', productId: AI.id, status: 'pending', quantity: 3 }]);
+    mocks.createCheckout.mockResolvedValue({ checkoutUrl: 'weixin://wxpay/example', qrCodeSvg: '<svg/>', orderId: 'ord_1', status: 'pending' });
+    await render('credits');
+    expect(document.querySelector('.payment-dialog__quantity-stepper output')?.textContent).toBe('3');
+    expect(document.querySelector<HTMLButtonElement>('[aria-label="billing.dialog.quantityIncrease"]')?.disabled).toBe(true);
+    await act(async () => document.querySelector<HTMLButtonElement>('.payment-dialog__purchase')!.click());
+    expect(mocks.createCheckout).toHaveBeenCalledWith(AI.id, 3);
+    expect(document.querySelector('img[alt="billing.dialog.wechatQrAlt"]')).not.toBeNull();
+  });
+  it('allows a pending storage order to be resumed', async () => {
+    mocks.listBillingOrders.mockResolvedValue([{ id: 'ord_1', productId: STORAGE.id, status: 'pending', quantity: 1 }]);
+    await render();
+    const storage = productElements().find((element) => element.classList.contains('payment-dialog__product--storage'))!;
+    await act(async () => storage.querySelector<HTMLButtonElement>('.payment-dialog__purchase')!.click());
+    expect(mocks.createCheckout).toHaveBeenCalledWith(STORAGE.id, 1);
   });
   it('shows both entitlement kinds in one list, classified by entitlementKind', async () => {
     await render('membership');
@@ -194,6 +215,14 @@ describe('PaymentDialog', () => {
     expect(mocks.createCheckout).toHaveBeenCalledWith('ai-monthly', 1);
     expect(mocks.openUrl).toHaveBeenCalledWith('https://pay.example/1');
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('shows checkout errors as a toast instead of an inline catalog error', async () => {
+    mocks.createCheckout.mockRejectedValue(new Error('checkout failed'));
+    await render('credits');
+    await act(async () => document.querySelector<HTMLButtonElement>('.payment-dialog__purchase')!.click());
+    expect(mocks.toastError).toHaveBeenCalledWith('errors.friendly.checkout');
+    expect(document.querySelector('.payment-dialog__state--error')).toBeNull();
   });
 
   it('updates the total and purchases the selected AI quantity', async () => {

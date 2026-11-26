@@ -30,7 +30,7 @@ const zhCN = {
     "billing.dialog.wechatUnavailable": "大陆商品暂未接入微信支付，暂时无法购买。",
     "billing.dialog.wechatPending": "微信支付暂未开放",
     "billing.dialog.wechatPurchase": "微信支付",
-    "billing.dialog.wechatPriceChanged": "已有订单的金额与当前价格不同，请先关闭原微信订单后再试。",
+    "billing.dialog.wechatPriceChanged": "已有订单的金额与当前价格不同，请等待原订单失效后再试。",
     "billing.dialog.wechatTitle": "微信扫码完成支付",
     "billing.dialog.wechatInstructions": "请使用微信扫描二维码完成支付，支付后点击刷新查看结果。",
     "billing.dialog.wechatRefresh": "刷新支付状态",

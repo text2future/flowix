@@ -7,7 +7,7 @@ import claudeIcon from '@/assets/agent-icons/claude.svg';
 import deepseekIcon from '@/assets/agent-icons/deepseek.svg';
 import geminiIcon from '@/assets/icon-gemini.svg';
 
-import { cloud, type CloudCheckout, type CloudProduct } from '@platform/tauri/client';
+import { cloud, type CloudCheckout, type CloudOrder, type CloudProduct } from '@platform/tauri/client';
 import { openUrl } from '@platform/tauri/opener';
 import { cloudSyncErrorMessage } from '@platform/tauri/errors';
 import { useI18n } from '@/lib/i18n';
@@ -92,7 +92,7 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
   const [products, setProducts] = useState<CloudProduct[] | null>(() => getImmediateBillingProducts());
   const [error, setError] = useState<string | null>(null);
   const [buyingId, setBuyingId] = useState<string | null>(null);
-  const [hasPendingOrder, setHasPendingOrder] = useState<boolean | null>(null);
+  const [orders, setOrders] = useState<CloudOrder[] | null>(null);
   const [orderCheckFailed, setOrderCheckFailed] = useState(false);
   const [orderCheckAttempt, setOrderCheckAttempt] = useState(0);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
@@ -126,9 +126,9 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
   useEffect(() => {
     let mounted = true;
     setOrderCheckFailed(false);
-    setHasPendingOrder(null);
+    setOrders(null);
     void cloud.listBillingOrders().then((orders) => {
-      if (mounted) setHasPendingOrder(orders.some((order) => order.status === 'pending'));
+      if (mounted) setOrders(orders);
     }).catch(() => { if (mounted) setOrderCheckFailed(true); });
     return () => { mounted = false; };
   }, [orderCheckAttempt]);
@@ -159,7 +159,10 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && !buyingRef.current) {
         event.stopPropagation();
-        if (wechatCheckout) setWechatCheckout(null);
+        if (wechatCheckout) {
+          setWechatCheckout(null);
+          setOrderCheckAttempt((attempt) => attempt + 1);
+        }
         else onClose();
       }
     };
@@ -184,7 +187,7 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
     ?? displayProducts[0]?.id;
 
   const buy = async (product: CloudProduct, quantity: number) => {
-    if (buyingRef.current || (isMembershipProduct(product) && hasPendingOrder !== false)) return;
+    if (buyingRef.current || orders === null) return;
     buyingRef.current = true;
     setBuyingId(product.id);
     let stopWatchingMembership: (() => void) | undefined;
@@ -214,7 +217,7 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
         onClose();
       }
     } catch (value) {
-      setError(cloudSyncErrorMessage(value, t, 'errors.friendly.checkout'));
+      toast.error(cloudSyncErrorMessage(value, t, 'errors.friendly.checkout'));
     } finally {
       buyingRef.current = false;
       setBuyingId(null);
@@ -279,7 +282,8 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
                   const credits = creditsOf(product);
                   const cycle = cycleLabelKey(product);
                   const features = product.entitlement?.features ?? {};
-                  const quantity = isMembershipProduct(product) ? 1 : (quantities[product.id] ?? 1);
+                  const pendingOrder = orders?.find((order) => order.status === 'pending' && order.productId === product.id);
+                  const quantity = isMembershipProduct(product) ? 1 : (pendingOrder?.quantity ?? quantities[product.id] ?? 1);
                   // Classification comes from the catalog's entitlementKind
                   // (with a legacy feature fallback), never from the credit
                   // denomination alone. `credits` is only a display amount.
@@ -359,7 +363,7 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
                               <button
                                 type="button"
                                 aria-label={t('billing.dialog.quantityDecrease')}
-                                disabled={buyingId !== null || quantity <= 1}
+                                disabled={buyingId !== null || orders === null || !!pendingOrder || quantity <= 1}
                                 onClick={() => setQuantities((current) => ({
                                   ...current, [product.id]: Math.max(1, (current[product.id] ?? 1) - 1),
                                 }))}
@@ -368,7 +372,7 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
                               <button
                                 type="button"
                                 aria-label={t('billing.dialog.quantityIncrease')}
-                                disabled={buyingId !== null || quantity >= 10}
+                                disabled={buyingId !== null || orders === null || !!pendingOrder || quantity >= 10}
                                 onClick={() => setQuantities((current) => ({
                                   ...current, [product.id]: Math.min(10, (current[product.id] ?? 1) + 1),
                                 }))}
@@ -386,7 +390,7 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
                             (isCurrent || isCoveredByLifetime) && 'payment-dialog__purchase--current',
                           )}
                           data-payment-initial-focus={product.id === initialFocusProductId ? '' : undefined}
-                          disabled={isCurrent || isCoveredByLifetime || buyingId !== null || (isStoragePlan && hasPendingOrder !== false)}
+                          disabled={isCurrent || isCoveredByLifetime || buyingId !== null || orders === null}
                           onClick={() => void buy(product, quantity)}
                         >
                           {buyingId === product.id && <Loader2 className="absolute right-3 h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
@@ -398,10 +402,7 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
                                 ? 'billing.dialog.wechatPurchase'
                                 : 'billing.dialog.purchase')}
                         </button>
-                        {isStoragePlan && hasPendingOrder === true && (
-                          <p role="status">{t('preferences.cloud.order.pendingCheckout')}</p>
-                        )}
-                        {isStoragePlan && orderCheckFailed && (
+                        {orderCheckFailed && (
                           <div role="alert">
                             <span>{t('errors.friendly.ordersLoad')}</span>{' '}
                             <button type="button" onClick={() => setOrderCheckAttempt((attempt) => attempt + 1)}>
@@ -564,6 +565,7 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
       <Dialog open={wechatCheckout !== null} onOpenChange={(open) => {
         if (!open) {
           setWechatCheckout(null);
+          setOrderCheckAttempt((attempt) => attempt + 1);
         }
       }}>
         <DialogContent aria-labelledby="wechat-payment-dialog-title" className="max-w-sm">
@@ -586,6 +588,7 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
                 type="button"
                 onClick={() => {
                   setWechatCheckout(null);
+                  setOrderCheckAttempt((attempt) => attempt + 1);
                 }}
               >
                 {t('billing.dialog.wechatClose')}

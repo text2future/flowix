@@ -32,7 +32,7 @@ const enUS: Record<keyof typeof zhCN, string> = {
     "billing.dialog.wechatUnavailable": "WeChat Pay is not available yet, so mainland products cannot be purchased.",
     "billing.dialog.wechatPending": "WeChat Pay is not available yet",
     "billing.dialog.wechatPurchase": "Pay with WeChat",
-    "billing.dialog.wechatPriceChanged": "Your existing order has a different price. Close the original WeChat order before trying again.",
+    "billing.dialog.wechatPriceChanged": "Your existing order has a different price. Wait for it to expire before trying again.",
     "billing.dialog.wechatTitle": "Scan with WeChat to pay",
     "billing.dialog.wechatInstructions": "Scan the QR code with WeChat, then refresh to check your payment.",
     "billing.dialog.wechatRefresh": "Refresh payment status",

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { CloudSyncSection } from './cloud-sync';
 
 const mocks = vi.hoisted(() => ({
-  listBillingOrders: vi.fn(), listSubscriptions: vi.fn(), checkBillingOrder: vi.fn(), listProducts: vi.fn(),
+  listBillingOrders: vi.fn(), listSubscriptions: vi.fn(), checkBillingOrder: vi.fn(), listProducts: vi.fn(), createCheckout: vi.fn(),
   refreshMembership: vi.fn(), success: vi.fn(), info: vi.fn(), error: vi.fn(),
   getAiCreditBalance: vi.fn(),
   membershipAccess: { active: false, lifetime: false, loading: false },
@@ -14,6 +14,7 @@ vi.mock('@platform/tauri/client', () => ({ cloud: {
   listBillingOrders: mocks.listBillingOrders,
   listSubscriptions: mocks.listSubscriptions,
   checkBillingOrder: mocks.checkBillingOrder,
+  createCheckout: mocks.createCheckout,
   listProducts: mocks.listProducts,
   getAiCreditBalance: mocks.getAiCreditBalance,
 } }));
@@ -122,6 +123,18 @@ it('refreshes membership after a confirmed payment', async () => {
   expect(mocks.refreshMembership).toHaveBeenCalledOnce();
   expect(mocks.success).toHaveBeenCalledWith('preferences.cloud.order.confirmed');
   expect(mocks.listBillingOrders).toHaveBeenCalledTimes(2);
+});
+
+it('continues a pending order with its original quantity', async () => {
+  mocks.listBillingOrders.mockResolvedValue([{ id: 'ord_1', productId: 'ai', productName: 'AI', quantity: 3, amount: 300, currency: 'CNY', status: 'pending', createdAt: 0 }]);
+  mocks.createCheckout.mockResolvedValue({ orderId: 'ord_1', checkoutUrl: 'https://pay.example/1' });
+  await act(async () => root.render(<CloudSyncSection />));
+  const orders = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'preferences.cloud.order.title');
+  await act(async () => orders!.click());
+  const resume = Array.from(document.body.querySelectorAll('button')).find((button) => button.textContent === 'preferences.cloud.order.continuePayment');
+  expect(resume).toBeDefined();
+  await act(async () => resume!.click());
+  expect(mocks.createCheckout).toHaveBeenCalledWith('ai', 3);
 });
 
 it('shows the localized rate limit message and keeps retry available', async () => {
