@@ -18,6 +18,55 @@ impl SyncStore {
             );
             "#,
         )?;
+        // Older installations stored the user ID only in payload_json. Run the
+        // check and upgrade under one write transaction so concurrent app
+        // processes cannot both attempt the ALTER, and a failed backfill leaves
+        // the original database intact.
+        let transaction = rusqlite::Transaction::new_unchecked(
+            connection,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
+        let has_user_id = {
+            let mut columns = transaction.prepare("PRAGMA table_info(cloud_account)")?;
+            let names = columns.query_map([], |row| row.get::<_, String>(1))?;
+            names
+                .collect::<Result<Vec<_>, _>>()?
+                .iter()
+                .any(|name| name == "user_id")
+        };
+        if !has_user_id {
+            let payload = transaction
+                .query_row(
+                    "SELECT payload_json FROM cloud_account WHERE singleton = 1",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()?;
+            let user_id = payload
+                .as_deref()
+                .map(|payload| {
+                    let account: CloudAccount = serde_json::from_str(payload).map_err(|error| {
+                        SyncError::InvalidState(format!("migrate stored cloud account: {error}"))
+                    })?;
+                    if account.user.id.is_empty() {
+                        return Err(SyncError::InvalidState(
+                            "migrate stored cloud account: missing user ID".into(),
+                        ));
+                    }
+                    Ok(account.user.id)
+                })
+                .transpose()?;
+            transaction.execute_batch(
+                "ALTER TABLE cloud_account ADD COLUMN user_id TEXT NOT NULL DEFAULT '';",
+            )?;
+            if let Some(user_id) = user_id {
+                transaction.execute(
+                    "UPDATE cloud_account SET user_id = ? WHERE singleton = 1",
+                    [user_id],
+                )?;
+            }
+        }
+        transaction.commit()?;
         Ok(())
     }
 
@@ -110,4 +159,3 @@ fn clear_path_sync_state(transaction: &rusqlite::Transaction<'_>) -> Result<(), 
     )?;
     Ok(())
 }
-

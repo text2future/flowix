@@ -125,6 +125,73 @@ impl SyncStore {
 mod storage_rebuild_tests {
     use super::*;
 
+    fn legacy_account_db(path: &std::path::Path, payload: Option<&str>) {
+        let connection = Connection::open(path).unwrap();
+        connection.execute_batch("CREATE TABLE cloud_account (singleton INTEGER PRIMARY KEY CHECK(singleton = 1), payload_json TEXT NOT NULL, updated_at INTEGER NOT NULL);").unwrap();
+        if let Some(payload) = payload {
+            connection
+                .execute("INSERT INTO cloud_account VALUES (1, ?1, 123)", [payload])
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn legacy_account_schema_upgrades_and_preserves_identity() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("sync.db");
+        let payload = r#"{"user":{"id":"old-user","email":"test@example.com","displayName":"Test","region":"mainland"}}"#;
+        legacy_account_db(&path, Some(payload));
+        let store = SyncStore::new(&path).unwrap();
+        assert_eq!(store.account().unwrap().unwrap().user.id, "old-user");
+        store.initialize_schema().unwrap();
+        let connection = Connection::open(&path).unwrap();
+        let row: (String, String, i64) = connection
+            .query_row(
+                "SELECT user_id, payload_json, updated_at FROM cloud_account",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(row, ("old-user".into(), payload.into(), 123));
+        drop(connection);
+        let mut account = store.account().unwrap().unwrap();
+        account.user.id = "new-user".into();
+        store.save_account(&account).unwrap();
+        assert_eq!(store.account().unwrap().unwrap().user.id, "new-user");
+    }
+
+    #[test]
+    fn empty_legacy_account_schema_accepts_login() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("sync.db");
+        legacy_account_db(&path, None);
+        let store = SyncStore::new(&path).unwrap();
+        let account = serde_json::from_str(
+            r#"{"user":{"id":"new-user","email":"test@example.com","displayName":"Test"}}"#,
+        )
+        .unwrap();
+        store.save_account(&account).unwrap();
+        assert_eq!(store.account().unwrap().unwrap().user.id, "new-user");
+    }
+
+    #[test]
+    fn invalid_legacy_account_does_not_partially_migrate() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("sync.db");
+        legacy_account_db(&path, Some("invalid json"));
+        assert!(SyncStore::new(&path).is_err());
+        let connection = Connection::open(&path).unwrap();
+        let payload: String = connection
+            .query_row("SELECT payload_json FROM cloud_account", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(payload, "invalid json");
+        assert!(connection
+            .prepare("SELECT user_id FROM cloud_account")
+            .is_err());
+    }
+
     #[test]
     fn deferred_store_initializes_on_first_use_and_coalesces_concurrent_readers() {
         let temp = tempfile::tempdir().unwrap();
@@ -225,4 +292,3 @@ mod storage_rebuild_tests {
         assert!(store.session_restore_blocked().unwrap());
     }
 }
-

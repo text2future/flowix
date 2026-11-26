@@ -17,6 +17,8 @@ export interface SettingsStore {
   appview: AppViewState;
   memoListVisible: boolean;
   propertiesVisible: boolean;
+  lastAccountEmail: string;
+  setLastAccountEmail: (email: string) => void;
   setReasoningCollapsed: (collapsed: boolean) => void;
   toggleReasoningCollapsed: () => void;
   setAppViewMode: (mode: AppViewMode) => void;
@@ -36,6 +38,15 @@ export const useSettingsStore = create<SettingsStore>()(
       },
       memoListVisible: true,
       propertiesVisible: false,
+      lastAccountEmail: '',
+      setLastAccountEmail: (email) => {
+        const normalizedEmail = email.trim().slice(0, 254);
+        set({
+          lastAccountEmail: normalizedEmail.includes('@')
+            ? normalizedEmail.toLowerCase()
+            : '',
+        });
+      },
       setReasoningCollapsed: (collapsed) => set({ reasoningCollapsed: collapsed }),
       toggleReasoningCollapsed: () =>
         set((state) => ({ reasoningCollapsed: !state.reasoningCollapsed })),
@@ -57,6 +68,7 @@ export const useSettingsStore = create<SettingsStore>()(
         appview: state.appview,
         memoListVisible: state.memoListVisible,
         propertiesVisible: state.propertiesVisible,
+        lastAccountEmail: state.lastAccountEmail,
       }),
     }
   )

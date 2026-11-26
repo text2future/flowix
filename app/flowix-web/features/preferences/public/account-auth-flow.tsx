@@ -8,6 +8,7 @@ import { toast } from '@/lib/toast';
 import { cloudSyncErrorMessage, hasTauriErrorCode } from '@platform/tauri/errors';
 import { subscribe } from '@platform/tauri/event-bus';
 import { cloud, type CloudState } from '@platform/tauri/client';
+import { useSettingsStore } from '@/lib/store/settings-store';
 import { openUrl } from '@platform/tauri/opener';
 import { Button } from '@shared/ui/button';
 import { Input } from '@shared/ui/input';
@@ -49,14 +50,16 @@ export function AccountAuthFlow({
   const emailLanguage = region === 'mainland' ? 'zh-CN' : 'en-US';
   const legalUrls = FLOWIX_LEGAL_URLS[emailLanguage];
   const { state, loadError, applyState, loading } = useCloudAccountState();
+  const rememberAccountEmail = useSettingsStore((current) => current.setLastAccountEmail);
+  const rememberedEmail = useSettingsStore.getState().lastAccountEmail;
   const [view, setView] = useState<AccountAuthView>('choices');
   const [busy, setBusy] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
   const [restoreAccountOpen, setRestoreAccountOpen] = useState(false);
-  const [loginIdentifier, setLoginIdentifier] = useState('');
+  const [loginIdentifier, setLoginIdentifier] = useState(rememberedEmail);
   const [loginPassword, setLoginPassword] = useState('');
   const [loginPasswordVisible, setLoginPasswordVisible] = useState(false);
-  const [registrationEmail, setRegistrationEmail] = useState('');
+  const [registrationEmail, setRegistrationEmail] = useState(rememberedEmail);
   const [registrationPassword, setRegistrationPassword] = useState('');
   const [registrationPasswordVisible, setRegistrationPasswordVisible] = useState(false);
   const [registrationCode, setRegistrationCode] = useState('');
@@ -84,6 +87,11 @@ export function AccountAuthFlow({
   useEffect(() => {
     if (state?.authenticated) reportAuthenticated(state);
   }, [state, reportAuthenticated]);
+
+  useEffect(() => {
+    const email = state?.authenticated ? state.account?.user.email : undefined;
+    if (email) rememberAccountEmail(email);
+  }, [state?.authenticated, state?.account?.user.email, rememberAccountEmail]);
 
   useEffect(() => subscribe<string>('cloud-google-auth-error', (message) => {
     toast.error(cloudSyncErrorMessage(message, t));
@@ -133,9 +141,12 @@ export function AccountAuthFlow({
 
   const loginWithCredentials = async (restoreDeleted = false) => {
     if (busy || !loginIdentifier.trim() || !loginPassword) return;
+    const email = loginIdentifier.trim();
+    if (email.includes('@')) rememberAccountEmail(email);
     setBusy(true);
     try {
-      const next = await cloud.login(loginIdentifier.trim(), loginPassword, restoreDeleted);
+      const next = await cloud.login(email, loginPassword, restoreDeleted);
+      rememberAccountEmail(next.account?.user.email ?? email);
       applyState(next);
       setLoginPassword('');
       setRestoreAccountOpen(false);
@@ -182,6 +193,7 @@ export function AccountAuthFlow({
         registrationEmail.trim(), registrationPassword, registrationDisplayNameFromEmail(registrationEmail), emailLanguage,
       );
       setRegistrationEmail(result.email);
+      rememberAccountEmail(result.email);
       setRegistrationCode('');
       setRegistrationResendDeadline(Date.now() + result.resendAfterSeconds * 1000);
       setRegistrationClock(Date.now());
@@ -232,6 +244,7 @@ export function AccountAuthFlow({
     setRegistrationNotice(null);
     try {
       const next = await cloud.confirmRegistration(registrationEmail.trim(), registrationCode, registrationPassword);
+      rememberAccountEmail(next.account?.user.email ?? registrationEmail);
       applyState(next);
       setRegistrationPassword('');
       setRegistrationCode('');
@@ -268,6 +281,7 @@ export function AccountAuthFlow({
     try {
       const result = await cloud.requestPasswordResetCode(passwordResetEmail.trim(), emailLanguage);
       setPasswordResetEmail(passwordResetEmail.trim().toLowerCase());
+      rememberAccountEmail(passwordResetEmail);
       setPasswordResetCode('');
       setPasswordResetResendDeadline(Date.now() + result.resendAfterSeconds * 1000);
       setPasswordResetClock(Date.now());
@@ -302,6 +316,7 @@ export function AccountAuthFlow({
     try {
       await cloud.confirmPasswordResetCode(passwordResetEmail.trim(), passwordResetCode, passwordResetPassword);
       setLoginIdentifier(passwordResetEmail.trim());
+      rememberAccountEmail(passwordResetEmail);
       setLoginPassword('');
       setPasswordResetPassword('');
       setPasswordResetConfirmPassword('');
@@ -461,7 +476,7 @@ export function AccountAuthFlow({
           <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); void loginWithCredentials(); }}>
             <label className="block">
               <span className="sr-only">{t('preferences.cloud.email')}</span>
-              <Input className="h-10 rounded-xl bg-[var(--card)] px-4 text-base placeholder:text-[var(--input-placeholder)]" value={loginIdentifier} onChange={(event) => setLoginIdentifier(event.target.value)} placeholder={t('preferences.cloud.email')} autoComplete="username" autoFocus required />
+              <Input type="email" maxLength={254} className="h-10 rounded-xl bg-[var(--card)] px-4 text-base placeholder:text-[var(--input-placeholder)]" value={loginIdentifier} onChange={(event) => setLoginIdentifier(event.target.value)} placeholder={t('preferences.cloud.email')} autoComplete="email" autoFocus required />
             </label>
             <div>
               <label htmlFor="cloud-login-password" className="sr-only">{t('preferences.cloud.password')}</label>
