@@ -16,7 +16,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
-import { ChevronRight, Columns2, Copy, FolderOpen, Loader2, MapPin, MoreHorizontal, Pencil, Pin, Trash2 } from 'lucide-react';
+import { ChevronRight, Columns2, Copy, FolderOpen, Loader2, MapPin, MoreHorizontal, Pencil, Pin, Share2, Trash2 } from 'lucide-react';
 
 import { toast } from '@/lib/toast';
 import { cn, displayTitleFromFilename } from '@/lib/utils';
@@ -40,6 +40,7 @@ import { treeEntryPresentation } from '@features/content/public/tree-entry-api';
 import type { PinnedTreeItem } from './use-notebook-pinned-notes';
 import { TreeIconPicker } from './tree-icon-picker';
 import { setDocumentProperties } from '@features/document/public/path-properties';
+import { NoteShareControl } from '@features/document/public/header-api';
 import { notes, product, type DocTreeItem } from '@platform/tauri/client';
 import { logNativeContextMenuError } from '@platform/tauri/native-context-menu';
 import type { TableViewType } from '@features/multidimensional-table/public/create-api';
@@ -49,6 +50,8 @@ const TREE_MENU_CLASS =
 
 const TREE_MENU_ITEM_CLASS =
   'h-7 items-center justify-start rounded-lg px-2 py-0 text-left transition-colors hover:bg-[var(--hover-bg)]';
+
+const noDocumentToFlush = async () => true;
 
 const TREE_EDGE_GUTTER = 6;
 const INDENT_PER_LEVEL = 20;
@@ -306,6 +309,8 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
     })();
   }, [item.fullPath, t]);
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
+  const [shareRequest, setShareRequest] = useState(0);
+  const [shareOpen, setShareOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(
     isFolder || !isExtensionlessDocument ? item.name : displayTitleFromFilename(item.name),
@@ -317,6 +322,7 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
   const [deleting, setDeleting] = useState(false);
 
   const keepsVirtualRowAlive = contextMenuOpen
+    || shareOpen
     || renaming
     || renameSaving
     || confirmDelete
@@ -769,6 +775,12 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
             {t('memo.fileTree.reveal')}
           </ContextMenuItem>
         )}
+        {isFolder && (
+          <ContextMenuItem onClick={() => { setShareOpen(true); setShareRequest((value) => value + 1); }} className={TREE_MENU_ITEM_CLASS}>
+            <Share2 className="mr-2 h-4 w-4" aria-hidden="true" />
+            {t('document.share.menuAction')}
+          </ContextMenuItem>
+        )}
         {isFolder && item.indexExcluded !== true && onSetDefaultFolder && (
           <ContextMenuSubmenu
             label={t('memo.fileTree.folderUsageSubmenu')}
@@ -839,6 +851,8 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
         </>}
       </ContextMenuContent>
       </ContextMenu>
+      {isFolder && shareRequest > 0 && <NoteShareControl key={item.fullPath} filePath={item.fullPath} kind="folder" flushDocument={noDocumentToFlush}
+        iconButtonClass="" hideTrigger openRequest={shareRequest} onOpenChange={setShareOpen} onRequestFailed={() => setShareRequest(0)} />}
       <Dialog open={confirmDelete} onOpenChange={(open) => { if (!open && !deleting) setConfirmDelete(false); }}>
         <DialogContent>
           <DialogHeader>

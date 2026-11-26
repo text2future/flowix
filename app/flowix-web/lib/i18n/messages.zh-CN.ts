@@ -2222,6 +2222,8 @@ const zhCN = {
     "document.share.syncRequired": "这篇笔记尚未同步到 Flowix Cloud。请先同步后再分享",
     "document.share.tooLarge": "笔记超过了可分享的大小上限",
     "document.share.officialOnly": "分享链接只支持官方云端存储",
+    "document.share.notebookUnavailable": "无法确定文件夹所属的空间，请重试",
+    "document.share.invalidFolder": "此文件夹无法同步，不能创建分享链接",
     "document.share.createFailed": "创建分享链接失败，请稍后重试",
     "document.share.storageFailed": "云端存储读取失败，请稍后重试；如果问题持续，请联系支持人员",
     "document.share.authFailed": "登录状态已失效，请重新登录后重试",

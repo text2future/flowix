@@ -10,6 +10,7 @@ import { openPaymentDialog } from '@features/cloud-billing/public/payment-dialog
 import { getWorkspaceMemoState } from '@features/memo/public/workspace-api';
 import { notebookRelativeDirectoryPath } from '@/lib/path';
 import { useI18n } from '@/lib/i18n';
+import { toast } from '@/lib/toast';
 import { Button } from '@shared/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@shared/ui/dialog';
 import { Tooltip } from '@shared/ui/tooltip';
@@ -21,10 +22,13 @@ interface NoteShareControlProps {
   kind?: 'note' | 'folder';
   openRequest?: number;
   hideTrigger?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  onRequestFailed?: () => void;
 }
 
 function shareErrorMessage(error: unknown, t: ReturnType<typeof useI18n>['t']): string {
   const message = error instanceof Error ? error.message : String(error);
+  if (message.includes('CLOUD_SHARE_INVALID_FOLDER')) return t('document.share.invalidFolder');
   if (message.includes('NOTE_NOT_SYNCED') || message.includes('FOLDER_NOT_SYNCED') || message.includes('CLOUD_SHARE_SYNC_REQUIRED')) {
     return t('document.share.syncRequired');
   }
@@ -56,10 +60,11 @@ function shareErrorMessage(error: unknown, t: ReturnType<typeof useI18n>['t']): 
   return result;
 }
 
-export function NoteShareControl({ filePath, flushDocument, iconButtonClass, kind = 'note', openRequest = 0, hideTrigger = false }: NoteShareControlProps) {
+export function NoteShareControl({ filePath, flushDocument, iconButtonClass, kind = 'note', openRequest = 0, hideTrigger = false, onOpenChange, onRequestFailed }: NoteShareControlProps) {
   const { t, language } = useI18n();
   const urlInputId = useId();
   const [notebook, setNotebook] = useState<{ id: string; relativePath: string; sourcePath: string } | null>(null);
+  const [resolutionFailed, setResolutionFailed] = useState(false);
   const [step, setStep] = useState<'login' | 'membership' | 'sync' | 'storage' | null>(null);
   const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -73,9 +78,16 @@ export function NoteShareControl({ filePath, flushDocument, iconButtonClass, kin
   const [copyError, setCopyError] = useState<string | null>(null);
   const handledRequest = useRef(0);
 
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (open || wasOpen.current) onOpenChange?.(open);
+    wasOpen.current = open;
+  }, [open, onOpenChange]);
+
   useEffect(() => {
     let cancelled = false;
     setNotebook(null);
+    setResolutionFailed(false);
     if (kind === 'note' && !/\.(?:md|markdown)$/iu.test(filePath)) return () => { cancelled = true; };
     void (async () => {
       const initialState = getWorkspaceMemoState();
@@ -87,7 +99,9 @@ export function NoteShareControl({ filePath, flushDocument, iconButtonClass, kin
           return relativePath === null ? [] : [{ id: candidate.id, path: candidate.path, relativePath }];
         })
         .sort((left, right) => right.path.length - left.path.length)[0];
-      if (owner && !cancelled) setNotebook({ id: owner.id, relativePath: owner.relativePath, sourcePath: filePath });
+      if (cancelled) return;
+      if (owner) setNotebook({ id: owner.id, relativePath: owner.relativePath, sourcePath: filePath });
+      else setResolutionFailed(true);
     })();
     return () => { cancelled = true; };
   }, [filePath, kind]);
@@ -164,6 +178,14 @@ export function NoteShareControl({ filePath, flushDocument, iconButtonClass, kin
     setOpen(true);
     if (!creating && (!url || !expiresAt || expiresAt <= Date.now())) void createLink();
   }, [openRequest, notebook, filePath, creating, url, expiresAt, createLink]);
+
+  useEffect(() => {
+    if (!resolutionFailed || !openRequest || openRequest === handledRequest.current) return;
+    handledRequest.current = openRequest;
+    onOpenChange?.(false);
+    toast.error(t('document.share.notebookUnavailable'));
+    onRequestFailed?.();
+  }, [resolutionFailed, openRequest, onOpenChange, onRequestFailed, t]);
 
   const copyLink = async () => {
     if (!url) return;

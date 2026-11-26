@@ -2244,6 +2244,8 @@ const enUS: Record<keyof typeof zhCN, string> = {
     "document.share.syncRequired": "This note is not synced to Flowix Cloud yet. Sync it before sharing",
     "document.share.tooLarge": "This note exceeds the size limit for sharing",
     "document.share.officialOnly": "Sharing links require official cloud storage",
+    "document.share.notebookUnavailable": "Could not find the folder’s access space. Please try again",
+    "document.share.invalidFolder": "This folder cannot be synced or shared",
     "document.share.createFailed": "Could not create a share link. Please retry later",
     "document.share.storageFailed": "Cloud storage could not be read. Retry later, or contact support if the problem persists",
     "document.share.authFailed": "Your session has expired. Sign in again and retry",

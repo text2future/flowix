@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { NoteShareControl } from './note-share-control';
 
 const mocks = vi.hoisted(() => ({
+  toast: vi.fn(), notebooks: [{ id: 'book', path: '/book' }] as { id: string; path: string }[], loadNotebooks: vi.fn(),
   access: vi.fn(), state: vi.fn(), notebook: vi.fn(), enable: vi.fn(), sync: vi.fn(), link: vi.fn(), folderLink: vi.fn(), save: vi.fn(),
 }));
 vi.mock('@platform/tauri/client/cloud', () => ({
@@ -14,7 +15,8 @@ vi.mock('@platform/tauri/client/cloud', () => ({
 vi.mock('@platform/tauri/client', () => ({ windows: { openPreferences: vi.fn() } }));
 vi.mock('@features/preferences/public/cloud-login-dialog', () => ({ openCloudLoginDialog: vi.fn() }));
 vi.mock('@features/cloud-billing/public/payment-dialog', () => ({ openPaymentDialog: vi.fn() }));
-vi.mock('@features/memo/public/workspace-api', () => ({ getWorkspaceMemoState: () => ({ notebooks: [{ id: 'book', path: '/book' }] }) }));
+vi.mock('@features/memo/public/workspace-api', () => ({ getWorkspaceMemoState: () => ({ notebooks: mocks.notebooks, loadNotebooks: mocks.loadNotebooks }) }));
+vi.mock('@/lib/toast', () => ({ toast: { error: mocks.toast } }));
 vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string, params?: { id?: string }) => params?.id ? `${key}:${params.id}` : key, language: 'en-US' }) }));
 vi.mock('@shared/ui/tooltip', () => ({ Tooltip: ({ children }: { children: ReactNode }) => children }));
 vi.mock('@shared/ui/dialog', () => ({
@@ -30,6 +32,8 @@ let root: Root;
 let host: HTMLDivElement;
 beforeEach(async () => {
   vi.resetAllMocks();
+  mocks.notebooks = [{ id: 'book', path: '/book' }];
+  mocks.loadNotebooks.mockResolvedValue(undefined);
   mocks.access.mockResolvedValue({ target: 'official', canUpload: true });
   mocks.state.mockResolvedValue({ authenticated: true, syncAccess: { canUpload: true } });
   mocks.notebook.mockResolvedValue({ enabled: true });
@@ -102,4 +106,21 @@ it('continues sync after closing the dialog and shows the resulting link when re
   await act(async () => { host.querySelector('button')!.click(); });
   expect(host.querySelector('input')?.value).toBe('https://example.com/share');
   expect(mocks.link).toHaveBeenCalledOnce();
+});
+
+
+it('reports an unsupported folder after the backend rejects it', async () => {
+  mocks.folderLink.mockRejectedValue(new Error('CLOUD_SHARE_INVALID_FOLDER'));
+  await act(async () => root.render(<NoteShareControl filePath="/book/node_modules" kind="folder" hideTrigger openRequest={1} flushDocument={mocks.save} iconButtonClass="" />));
+  expect(host.textContent).toContain('document.share.invalidFolder');
+});
+
+it('reports an unresolved notebook and releases the pending request', async () => {
+  mocks.notebooks = [];
+  mocks.loadNotebooks.mockRejectedValue(new Error('offline'));
+  const onOpenChange = vi.fn();
+  await act(async () => root.render(<NoteShareControl filePath="/missing/folder" kind="folder" hideTrigger openRequest={1} onOpenChange={onOpenChange} flushDocument={mocks.save} iconButtonClass="" />));
+  expect(mocks.toast).toHaveBeenCalledWith('document.share.notebookUnavailable');
+  expect(onOpenChange).toHaveBeenCalledWith(false);
+  expect(mocks.sync).not.toHaveBeenCalled();
 });
