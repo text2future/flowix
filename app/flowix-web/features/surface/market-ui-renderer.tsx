@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { LoaderCircle } from 'lucide-react';
-import { files, skillMarketUi } from '@platform/tauri/client';
-import { useI18n } from '@/lib/i18n';
+import { cloud, files, listenToCloudStateChanges, skillMarketUi, type CloudState } from '@platform/tauri/client';
+import { useI18n, useRegionStore } from '@/lib/i18n';
 import { createLogger } from '@/lib/logger';
 import { marketUiAssetUrl, type MarketUiView } from '@shared/lib/market-ui-url';
 import { connectWebFrameScrollbar } from '@shared/ui/web-frame-scrollbar';
@@ -14,8 +14,26 @@ const logger = createLogger('market-ui');
 /** The view opens before native resource preparation; its loading belongs to the content area. */
 export function MarketUiRenderer({ view, context }: { view: MarketUiView; context: WorkspaceSurfaceRenderContext }) {
   const { t, language } = useI18n();
+  const clientRegion = useRegionStore(state => state.region);
+  const [cloudState, setCloudState] = useState<CloudState | null | undefined>(undefined);
+  useEffect(() => {
+    let active = true;
+    let revision = -1;
+    const receive = (next: CloudState) => {
+      if (!active || next.revision < revision) return;
+      revision = next.revision;
+      setCloudState(next);
+    };
+    const refresh = () => { void cloud.getState().then(receive).catch(() => { if (active && revision < 0) setCloudState(null); }); };
+    const unlisten = listenToCloudStateChanges(receive, { onListenerReady: refresh });
+    refresh();
+    return () => { active = false; unlisten(); };
+  }, []);
+  const userRegion = cloudState?.authenticated ? cloudState.account?.user.region : null;
+  const marketRegion = userRegion === 'mainland' || userRegion === 'non_mainland'
+    ? userRegion : clientRegion === 'mainland' ? 'mainland' : 'non_mainland';
   const [attempt, setAttempt] = useState(0);
-  const requestKey = `${language}:${view}:${attempt}`;
+  const requestKey = `${language}:${view}:${marketRegion}:${attempt}`;
   const [page, setPage] = useState<{ key: string; url: string | null; ready: boolean; loaded: boolean; failed: boolean }>({ key: requestKey, url: null, ready: false, loaded: false, failed: false });
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const current = page.key === requestKey;
@@ -26,12 +44,14 @@ export function MarketUiRenderer({ view, context }: { view: MarketUiView; contex
   const retry = useCallback(() => setAttempt(value => value + 1), []);
 
   useEffect(() => {
+    if (cloudState === undefined) return;
     let active = true;
     setPage({ key: requestKey, url: null, ready: false, loaded: false, failed: false });
     void skillMarketUi.ensure(language).then(result => {
       if (!active) return;
       const entry = marketUiAssetUrl(files.toAssetUrl(result.entryPath));
       entry.searchParams.set('marketApiBase', result.apiBaseUrl);
+      entry.searchParams.set('marketRegion', marketRegion);
       if (view === 'templates') entry.searchParams.set('view', 'templates');
       setPage({ key: requestKey, url: entry.href, ready: result.cached, loaded: false, failed: false });
     }).catch(error => {
@@ -40,7 +60,7 @@ export function MarketUiRenderer({ view, context }: { view: MarketUiView; contex
       setPage({ key: requestKey, url: null, ready: false, loaded: false, failed: true });
     });
     return () => { active = false; };
-  }, [requestKey, language, view]);
+  }, [requestKey, language, view, marketRegion, cloudState === undefined]);
 
   const markReady = useCallback(() => {
     setPage(value => value.key === requestKey ? { ...value, ready: true, failed: false } : value);
