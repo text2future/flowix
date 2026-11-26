@@ -10,7 +10,7 @@ use crate::apply::{object_key, ApplyFailure, FailureKind};
 use crate::error::SyncError;
 use crate::object_store::ObjectStoreCredentials;
 use crate::reconcile::{
-    dir_of, directories_to_scan, reconcile, Defer, DeferReason, ReconcilePlan, RemoteListing,
+    dir_of, directories_to_scan, reconcile, Defer, DeferReason, DeleteLocal, ReconcilePlan, RemoteListing,
     SyncAction,
 };
 use crate::state::{build_local_view, credential_fingerprint, LocalSnapshot, NotebookState};
@@ -358,6 +358,10 @@ pub async fn plan_pass(
             .into_iter()
             .map(|action| match action {
                 SyncAction::Upload(upload) => {
+                    if listing.observed.get(&upload.path).is_some_and(|object| object.tombstone) {
+                        plan.stats.deletes += 1;
+                        return SyncAction::DeleteLocal(DeleteLocal { path: upload.path });
+                    }
                     blocked += 1;
                     SyncAction::Defer(Defer {
                         path: upload.path,
@@ -391,6 +395,7 @@ pub async fn plan_pass(
         request.allow_mass_deletion,
         server_now_millis,
     );
+    defer_oversized_uploads(&mut plan, &local_view, request.max_upload_file_bytes);
 
     Ok(PassPlan {
         server_now_millis,
@@ -405,6 +410,56 @@ pub async fn plan_pass(
         allows_deletes,
         writable,
     })
+}
+
+fn defer_oversized_uploads(
+    plan: &mut ReconcilePlan,
+    local_view: &crate::reconcile::LocalView,
+    maximum_bytes: Option<u64>,
+) {
+    let Some(maximum_bytes) = maximum_bytes else {
+        return;
+    };
+    let sizes: std::collections::BTreeMap<&str, u64> = local_view
+        .files
+        .iter()
+        .map(|file| (file.path.as_str(), file.size))
+        .collect();
+    let mut deferred = 0usize;
+    plan.actions = std::mem::take(&mut plan.actions)
+        .into_iter()
+        .map(|action| match action {
+            SyncAction::Upload(upload)
+                if sizes
+                    .get(upload.path.as_str())
+                    .is_some_and(|size| *size > maximum_bytes) =>
+            {
+                deferred += 1;
+                SyncAction::Defer(Defer {
+                    path: upload.path,
+                    reason: DeferReason::FileTooLarge,
+                })
+            }
+            other => other,
+        })
+        .collect();
+    if deferred == 0 {
+        return;
+    }
+
+    plan.stats.uploads = plan.stats.uploads.saturating_sub(deferred);
+    plan.stats.deferred += deferred;
+    // Stamps are only needed for writes that remain in the plan. Avoid
+    // publishing a stamp for a directory whose only file upload was deferred.
+    plan.touch_dirs = plan
+        .actions
+        .iter()
+        .filter_map(|action| match action {
+            SyncAction::Upload(upload) => Some(dir_of(&upload.path).to_string()),
+            SyncAction::WriteTombstone(tombstone) => Some(dir_of(&tombstone.path).to_string()),
+            _ => None,
+        })
+        .collect();
 }
 
 /// Below this many deletions a pass never asks for confirmation, whatever the

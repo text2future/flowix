@@ -345,6 +345,9 @@ pub enum DeferReason {
     /// publishing cannot, so planning an upload would only produce a 403 on
     /// every pass.
     ReadOnly,
+    /// A local file is larger than the selected remote's per-file upload cap.
+    /// It stays local and is reconsidered on the next pass.
+    FileTooLarge,
     /// The batch would delete a large share of the notebook in one pass, and
     /// the deletions run cloud -> device: the cloud already recorded them, so
     /// applying them removes local files.
@@ -386,6 +389,7 @@ impl SyncAction {
                 DeferReason::RemoteUnknown => "defer:remote-unknown",
                 DeferReason::GracePeriod => "defer:grace",
                 DeferReason::ReadOnly => "defer:read-only",
+                DeferReason::FileTooLarge => "defer:file-too-large",
                 DeferReason::MassDeletionLocal => "defer:mass-deletion-local",
                 DeferReason::MassDeletionRemote => "defer:mass-deletion-remote",
             },
@@ -898,4 +902,3 @@ mod simulation;
 #[cfg(test)]
 #[path = "reconcile_tests.rs"]
 mod tests;
-

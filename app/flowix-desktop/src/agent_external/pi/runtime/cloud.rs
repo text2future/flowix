@@ -132,6 +132,39 @@ impl PiRpcManager {
         Ok(Some(generation))
     }
 
+    /// Prepare the account credential used by web search even when the active
+    /// Pi model comes from a user-owned provider. Web search is a separate
+    /// Flowix Cloud tool and does not depend on the selected model provider.
+    pub(super) async fn ensure_web_search_credential(
+        &self,
+        app: &tauri::AppHandle,
+        api_base: &str,
+    ) -> Result<Option<u64>, String> {
+        if api_base.is_empty() {
+            return Ok(None);
+        }
+        let cloud_sync = self.cloud_or_err()?.sync().clone();
+        if !cloud_sync
+            .state()
+            .map_err(|error| error.to_string())?
+            .authenticated
+        {
+            return Ok(None);
+        }
+        let generation = cloud_sync.ai_credential_session_generation();
+        let mut cached_generation = self.cloud_credential_generation.lock().await;
+        if *cached_generation == Some(generation)
+            && super::super::config::cloud_model_credential_key()?.is_some()
+        {
+            return Ok(Some(generation));
+        }
+
+        self.create_and_save_cloud_credential(app, api_base, &cloud_sync, generation)
+            .await?;
+        *cached_generation = Some(generation);
+        Ok(Some(generation))
+    }
+
     pub(super) async fn create_and_save_cloud_credential(
         &self,
         app: &tauri::AppHandle,

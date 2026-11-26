@@ -2,9 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import type { ChatMessage } from "@/types";
 import { files } from "@platform/tauri/client";
 import {
+  appendRenderedAgentMessagesToTail,
   createRenderedAgentMessageList,
+  getRenderedAgentItems,
   isCurrentTurnMessage,
   isLastMessageInTurnAndAssistant,
+  patchLastRenderedAgentMessage,
   shouldShowMessageActions,
   type AgentThreadCardMessageRenderContext,
 } from "@features/agent/thread-card/messages/message-list-renderer";
@@ -671,5 +674,67 @@ describe("continuous tool group rendering", () => {
         ".agent-thread-card__tool-group-completed-tools .agent-thread-card__message-tool-toggle",
       ),
     ).toBeNull();
+  });
+});
+
+describe("incremental message action sync", () => {
+  function mount(messages: ChatMessage[], isLoading = false) {
+    const { list } = createRenderedAgentMessageList(messages, context(isLoading));
+    const body = document.createElement("div");
+    body.append(list);
+    return {
+      body,
+      list,
+      cache: { list, refs: getRenderedAgentItems(messages, isLoading) },
+    };
+  }
+
+  it("moves actions to the appended row and drops them from the previous tail", () => {
+    const first = [message("user-1", "user"), message("assistant-1", "assistant")];
+    const { body, list, cache } = mount(first);
+    expect(
+      list.children[1].querySelector(".agent-thread-card__message-actions"),
+    ).not.toBeNull();
+
+    const next = [...first, message("assistant-2", "assistant")];
+    const refs = appendRenderedAgentMessagesToTail(next, {
+      body,
+      cache,
+      context: context(),
+      afterRender: () => undefined,
+    });
+
+    expect(refs).not.toBeNull();
+    expect(
+      list.children[1].querySelector(".agent-thread-card__message-actions"),
+    ).toBeNull();
+    expect(
+      list.children[2].querySelector(".agent-thread-card__message-actions"),
+    ).not.toBeNull();
+  });
+
+  it("adds actions to the tail when streaming finishes", () => {
+    const streaming: ChatMessage[] = [
+      message("user-1", "user"),
+      { ...message("assistant-1", "assistant"), content: "partial", isCompleted: false },
+    ];
+    const { body, list, cache } = mount(streaming, true);
+    expect(list.querySelector(".agent-thread-card__message-actions")).toBeNull();
+
+    const settled: ChatMessage[] = [
+      streaming[0],
+      { ...streaming[1], content: "partial answer", isCompleted: true },
+    ];
+    const refs = patchLastRenderedAgentMessage(settled, {
+      body,
+      cache,
+      context: context(),
+      afterRender: () => undefined,
+    });
+
+    expect(refs).not.toBeNull();
+    expect(
+      list.children[1].querySelector(".agent-thread-card__message-actions"),
+    ).not.toBeNull();
   });
 });

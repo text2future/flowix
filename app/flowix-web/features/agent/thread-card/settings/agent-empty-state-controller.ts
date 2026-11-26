@@ -6,7 +6,7 @@ import { requestSkillMarketUi } from "@shared/lib/skill-market-ui-request";
 import { NOTEBOOK_SKILLS_CHANGED_EVENT } from "@features/agent/services/notebook-skills-events";
 import type { ComposerSlashSkill } from "../composer/composer-slash-command-controller";
 import { preferredComposerSkillName } from "../composer/composer-skill-token";
-import { createChevronIcon } from "../agent-thread-card-icons";
+import { createMoreHorizontalIcon } from "../agent-thread-card-icons";
 import { disposeEmptyState, registerEmptyStateLifecycle } from "../messages/empty-state-lifecycle";
 import { createExternalAgentEmptyIcon } from "./external-agent-settings";
 import { FeaturedNotesController, type FeaturedNoteReference } from "./featured-notes-controller";
@@ -354,11 +354,7 @@ export class AgentEmptyStateController {
     moreButton.className = "agent-thread-card__empty-skill agent-thread-card__empty-skill--more";
     moreButton.setAttribute("aria-label", this.t("agent.empty.skills.more"));
     moreButton.setAttribute("aria-haspopup", "listbox");
-    const moreTitle = document.createElement("span");
-    moreTitle.className = "agent-thread-card__empty-skill-title";
-    moreTitle.textContent = this.t("agent.empty.skills.more");
-    moreTitle.append(createChevronIcon("down"));
-    moreButton.append(moreTitle);
+    moreButton.append(createMoreHorizontalIcon());
     moreButton.addEventListener("click", (event) => {
       event.stopPropagation();
       this.options.onOpenEmptySkills?.();

@@ -64,6 +64,9 @@ export function cloudSyncErrorMessage(error: unknown, t: Translate, fallback: I1
   if (hasTauriErrorCode(error, 'CHECKOUT_PRICE_CHANGED')) {
     return t('billing.dialog.wechatPriceChanged');
   }
+  if (hasTauriErrorCode(error, 'CLOUD_NOTEBOOK_FOLDER_EXISTS')) {
+    return t('notebook.cloudImport.folderExists');
+  }
   const paymentErrorCode = /\b(?:WECHAT_[A-Z_0-9]+|CHECKOUT_RESULT_UNKNOWN|PAYMENTS_NOT_CONFIGURED)\b/.exec(message)?.[0];
   if (fallback === 'errors.friendly.checkout' && paymentErrorCode) {
     return `${t('errors.friendly.checkout')} (${paymentErrorCode})`;

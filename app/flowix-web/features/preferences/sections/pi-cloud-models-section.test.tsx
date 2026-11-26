@@ -11,6 +11,12 @@ const mocks = vi.hoisted(() => ({
   toastSuccess: vi.fn(),
 }));
 
+const loadedCredits = {
+  data: { balanceMicrocredits: 1_000_000, monthlyBalanceMicrocredits: 500_000,
+    permanentBalanceMicrocredits: 500_000, monthlyExpiresAt: null },
+  status: 'ready' as const, error: null, updatedAt: 1,
+};
+
 vi.mock('@platform/tauri/client', () => ({
   cloud: {
     getAiCreditBalance: mocks.getAiCreditBalance,
@@ -65,4 +71,29 @@ it('refreshes the Cloud model catalog before reloading the local Pi catalog', as
   expect(mocks.refreshPiModelProvider.mock.invocationCallOrder[0])
     .toBeLessThan(mocks.refreshAgentModelCatalog.mock.invocationCallOrder[0]);
   expect(mocks.getAiCreditBalance).toHaveBeenCalledTimes(2);
+});
+
+it('shows spendable credits even when the AI membership is inactive', async () => {
+  await act(async () => root.render(<PiCloudModelsSection authenticated membershipStatus="inactive" aiCredits={loadedCredits} />));
+  expect(container.textContent).toContain('1.00');
+  expect(container.textContent).toContain('0.50');
+});
+
+it('displays a shared snapshot while refreshing, then the updated balance', async () => {
+  await act(async () => root.render(<PiCloudModelsSection authenticated aiCredits={{ ...loadedCredits, status: 'refreshing' }} />));
+  expect(container.textContent).toContain('1.00');
+  expect(container.textContent).toContain('preferences.cloud.membershipLoading');
+  await act(async () => root.render(<PiCloudModelsSection authenticated aiCredits={{ ...loadedCredits,
+    data: { ...loadedCredits.data, balanceMicrocredits: 7_000_000 } }} />));
+  expect(mocks.getAiCreditBalance).toHaveBeenCalledTimes(1);
+  expect(container.textContent).toContain('7.00');
+});
+
+it('does not show a previous balance as current after a failed refresh', async () => {
+  await act(async () => root.render(<PiCloudModelsSection authenticated aiCredits={loadedCredits} />));
+  await act(async () => root.render(<PiCloudModelsSection authenticated aiCredits={{
+    data: null, status: 'error', error: 'offline', updatedAt: null,
+  }} />));
+  expect(container.textContent).not.toContain('1.00');
+  expect(container.textContent).toContain('preferences.pi.cloudCreditsUnavailable');
 });

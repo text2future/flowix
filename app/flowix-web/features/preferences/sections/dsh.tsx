@@ -306,6 +306,59 @@ function DshSetupPage({
   );
 }
 
+export function DshInstallDialogContent() {
+  const { t } = useI18n();
+  const [status, setStatus] = useState<DshIntegrationStatus | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
+
+  const refreshStatus = useCallback(async () => {
+    setStatusError(null);
+    try {
+      setStatus(await dshIntegration.status());
+    } catch (value) {
+      setStatusError(friendlyErrorMessage(value, t, 'errors.friendly.dshLoad'));
+    }
+  }, [t]);
+
+  useEffect(() => {
+    void refreshStatus();
+    return subscribe('dsh-runtime-status-changed', () => {
+      void refreshStatus();
+    });
+  }, [refreshStatus]);
+
+  if (status === null) {
+    return (
+      <div className="flex min-h-[280px] items-center justify-center px-8 py-12 text-center">
+        <div className="space-y-3">
+          {!statusError && <Loader2 className="mx-auto h-7 w-7 flowix-spin text-[var(--primary)]" />}
+          <p role={statusError ? 'alert' : 'status'} className="text-sm text-[var(--muted-foreground)]">
+            {statusError ?? t('preferences.dsh.setup.loading')}
+          </p>
+          {statusError && (
+            <Button type="button" size="sm" variant="outline" onClick={() => void refreshStatus()}>
+              {t('preferences.dsh.setup.retry')}
+            </Button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (status.installed && status.appServerProfileInstalled && !status.appServerProfileUpdateAvailable) {
+    return (
+      <div className="flex min-h-[280px] flex-col items-center justify-center gap-3 px-8 py-12 text-center">
+        <Check className="size-8 text-[var(--success)]" aria-hidden="true" />
+        <p role="status" className="text-sm text-[var(--foreground)]">
+          {t('preferences.dsh.appServer.installSuccess')}
+        </p>
+      </div>
+    );
+  }
+
+  return <DshSetupPage status={status} onStatusChanged={setStatus} />;
+}
+
 
 function GeneralTab({ status }: { status: DshIntegrationStatus }) {
   const { t } = useI18n();

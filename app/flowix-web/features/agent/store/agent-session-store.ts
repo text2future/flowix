@@ -10,7 +10,6 @@ import type {
   AgentMessageAttachment,
   AgentChunk,
   AgentEvent,
-  AgentRunState,
   AgentTypeKey,
   RunInfo,
   RuntimeConfig,
@@ -62,6 +61,7 @@ import { translate } from "@/lib/i18n";
 import { createLogger } from "@/lib/logger";
 import { createAgentSessionStateStorage } from "@features/agent/store/window-session-storage";
 import { withRunPhase } from "@features/agent/store/thread-run-phase";
+import { USER_STOPPED_REASON } from "@features/agent/store/run-lifecycle";
 import { installAgentSessionRuntimeBridges } from "@features/agent/store/agent-session-runtime-bridges";
 import { DEFAULT_AGENT_SESSION_META } from "@features/agent/store/session-state";
 import { rehydrateSessionMeta } from "@features/agent/store/session-persistence";
@@ -99,6 +99,14 @@ export {
 
 const RUNNING_RUN_OPTIMISTIC_GRACE_MS = 3000;
 const RUN_MISSING_FROM_SNAPSHOT_REASON = "missing_from_snapshot";
+/**
+ * A second Stop while the first one is still in flight is harmless, but the
+ * `stopping` phase must never become a permanent lockout. Pi keeps reporting
+ * `stopping` for as long as its stop reason is set — including when the RPC
+ * process never settles — so this only dedupes double clicks.
+ */
+const STOP_RETRY_DEDUPE_MS = 1500;
+const lastStopRequestAt = new Map<string, number>();
 const logger = createLogger("agent-session-store");
 export interface AgentSessionStore
   extends SessionMetaSlice,
@@ -372,20 +380,20 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
           const projectionBeforeStop = get().threadProjections[threadId];
           const activeRunIdBeforeStop = projectionBeforeStop?.runs.activeRunId;
           if (activeRunIdBeforeStop &&
-            projectionBeforeStop?.runs.runs[activeRunIdBeforeStop]?.phase === "stopping") return;
+            projectionBeforeStop?.runs.runs[activeRunIdBeforeStop]?.phase === "stopping" &&
+            Date.now() - (lastStopRequestAt.get(threadId) ?? 0) < STOP_RETRY_DEDUPE_MS) return;
+          lastStopRequestAt.set(threadId, Date.now());
           const pendingCodexCommandRunId =
             projectionBeforeStop?.runs.codexCommand?.status === "pending"
               ? projectionBeforeStop.runs.codexCommand.runId
               : undefined;
           if (runId && runId !== activeRunIdBeforeStop && runId !== pendingCodexCommandRunId) return;
           let targetRunId: string | undefined;
-          let previousPhase: AgentRunState["phase"];
           get().updateThreadRuns(threadId, (projection) => {
             const candidate = runId ?? projection.runs.activeRunId ?? undefined;
             if (!candidate || !projection.runs.runs[candidate]) return projection.runs;
             targetRunId = candidate;
             const run = projection.runs.runs[candidate];
-            previousPhase = run.phase;
             recordAgentStopRequested(threadId, candidate, run.agentType);
             return withRunPhase(projection, candidate, "stopping").runs;
           });
@@ -397,30 +405,78 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
             );
             let stopRunId = targetRunId ??
               (type.id === "codex" ? pendingCodexCommandRunId : undefined);
+            // Address the stop to the runtime that owns this run, not to the
+            // thread's bound type. After a reload the binding can be missing or
+            // stale, and a stop sent to the wrong runtime is a silent no-op:
+            // that runtime has no such run, answers false, and the card keeps
+            // showing "running" with a Stop button that never does anything.
+            let stopRuntimeId: AgentTypeKey = targetRunId
+              ? projectionBeforeStop?.runs.runs[targetRunId]?.agentType ?? type.id
+              : type.id;
             if (!stopRunId) {
               const running = await agentClient.runningThreads();
-              const candidate = Object.entries(running).find(([reportedThreadId, info]) =>
-                (reportedThreadId === threadId || info.pendingThreadId === threadId) &&
-                (!info.agentType || info.agentType === type.id));
-              stopRunId = candidate?.[1].runId;
+              // Prefer the run of the thread's own runtime, but do not ignore a
+              // run another runtime reports for this thread: the card shows one
+              // conversation, so Stop must reach whatever is running in it.
+              const candidates = Object.entries(running).filter(
+                ([reportedThreadId, info]) =>
+                  reportedThreadId === threadId || info.pendingThreadId === threadId,
+              );
+              const preferred = candidates.find(
+                ([, info]) => !info.agentType || info.agentType === type.id,
+              );
+              const target = preferred ?? candidates[0];
+              stopRunId = target?.[1].runId;
+              if (target?.[1].agentType) {
+                stopRuntimeId = normalizeAgentTypeKey(target[1].agentType);
+              }
               if (!stopRunId) return;
             }
-            accepted = await agentClient.stopChatStream(threadId, type.id, stopRunId);
-            if (accepted && type.id !== "codex" && (!runId || !activeRunIdBeforeStop || runId === activeRunIdBeforeStop)) {
+            accepted = await agentClient.stopChatStream(threadId, stopRuntimeId, stopRunId);
+            if (accepted && stopRuntimeId !== "codex" && (!runId || !activeRunIdBeforeStop || runId === activeRunIdBeforeStop)) {
               get().clearPendingSteeringMessages(threadId);
             }
           } catch (err) {
             logger.error("Failed to stop stream", { error: String(err) });
           } finally {
-            if (!accepted && targetRunId) {
+            if (!accepted) {
               try {
                 const running = await agentClient.runningThreads();
-                const reported = Object.entries(running).find(([reportedThreadId, info]) =>
-                  info.runId === targetRunId &&
-                  (reportedThreadId === threadId || info.pendingThreadId === threadId));
-                if (reported && reported[1].phase !== "stopping") {
-                  get().updateThreadRuns(threadId, (projection) =>
-                    withRunPhase(projection, targetRunId!, reported[1].phase ?? previousPhase, "stopping").runs);
+                const reported = targetRunId
+                  ? Object.entries(running).find(([reportedThreadId, info]) =>
+                      info.runId === targetRunId &&
+                      (reportedThreadId === threadId || info.pendingThreadId === threadId))
+                  : undefined;
+                if (reported && targetRunId) {
+                  const stopTargetRunId = targetRunId;
+                  // Still aborting: keep the honest "stopping" phase. The
+                  // composer keeps Stop clickable while stopping, so this is a
+                  // status, not a lock — a rejected stop can always be retried.
+                  if (reported[1].phase && reported[1].phase !== "stopping") {
+                    get().updateThreadRuns(threadId, (projection) =>
+                      withRunPhase(projection, stopTargetRunId, reported[1].phase!, "stopping").runs);
+                  }
+                } else if (targetRunId) {
+                  // Nothing is running any more: the run ended while this view
+                  // was disconnected (a WebView reload drops the terminal
+                  // event), or the runtime never had it. Do not leave the
+                  // conversation pinned to "running" — no later click can stop
+                  // a run the runtime no longer owns.
+                  const projection = get().threadProjections[threadId];
+                  get().dispatchAgentEvent({
+                    kind: "stream_end",
+                    agentType:
+                      projection?.runs.runs[targetRunId]?.agentType ??
+                      projection?.runs.lastRun?.agentType ??
+                      getAgentType(
+                        get().sessionMeta.threadTypes[threadId] ??
+                          get().sessionMeta.activeAgentTypeKey,
+                      ).id,
+                    threadId,
+                    runId: targetRunId,
+                    timestamp: Date.now(),
+                    reason: USER_STOPPED_REASON,
+                  });
                 }
               } catch (error) {
                 logger.warn("Could not confirm run state after stop request", { error: String(error) });

@@ -47,7 +47,6 @@ import {
 } from '@features/agent/thread-card/composer';
 import { NotePickerController } from '@features/agent/thread-card/note/note-picker-controller';
 import { ExternalAgentSettingsController } from '@features/agent/thread-card/settings/external-agent-settings-controller';
-import { NotebookAgentSettingsDialogController } from '@features/agent/thread-card/settings/notebook-agent-settings-dialog';
 import { AgentConversationSurfaceController } from '@features/agent/thread-card/surface/agent-conversation-surface-controller';
 import { createExternalAgentRuntimeHandle } from '@features/agent/services/external-agent-runtime-service';
 import { ensureAgentConversationDetailThread, needsAgentConversationInitialization } from '@features/agent/components/agent-conversation-detail-submit';
@@ -239,7 +238,6 @@ function AgentConversationDetailContent({
   const composerAttachmentsControllerRef = useRef<ComposerAttachmentController | null>(null);
   const externalSettingsRef = useRef<ExternalAgentSettingsController | null>(null);
   const addMenuRef = useRef<ComposerAddMenuController | null>(null);
-  const notebookAgentSettingsDialogRef = useRef<NotebookAgentSettingsDialogController | null>(null);
   const surfaceRef = useRef<AgentConversationSurfaceController | null>(null);
   const draftRef = useRef<string | null>(null);
   const destroyedRef = useRef(false);
@@ -736,24 +734,6 @@ function AgentConversationDetailContent({
       attachments: composerAttachmentsController,
       t: (key) => tRef.current(key),
       isDestroyed: () => destroyedRef.current,
-      openNotebookAgentSettings: () => {
-        const runtimeConfig = instanceRef.current?.runtimeConfig;
-        const snapshot = runtimeConfig?.workspaceSnapshot;
-        const notebookId = runtimeConfig?.notebookId
-          ?? snapshot?.notebookId
-          ?? instanceRef.current?.source.notebookId
-          ?? null;
-        const snapshotNotebookPath = snapshot?.notebookPath?.trim();
-        const notebookPath = snapshotNotebookPath
-          || (notebookId
-            ? useNoteStore.getState().notebooks.find((item) => item.id === notebookId)?.path
-            : undefined)
-          || useNoteStore.getState().selectedNotebook?.path;
-        if (notebookPath) {
-          notebookAgentSettingsDialogRef.current ??= new NotebookAgentSettingsDialogController();
-          notebookAgentSettingsDialogRef.current.open(notebookPath);
-        }
-      },
     });
     messagesControllerRef.current = messageController;
     composerControllerRef.current = composerController;
@@ -791,8 +771,6 @@ function AgentConversationDetailContent({
       notePicker.dispose();
       addMenu.dispose();
       externalSettings.dispose();
-      notebookAgentSettingsDialogRef.current?.close();
-      notebookAgentSettingsDialogRef.current = null;
       externalSettingsRef.current = null;
       disposeAgentComposerDom(composerParts);
       inputRef.current = null;

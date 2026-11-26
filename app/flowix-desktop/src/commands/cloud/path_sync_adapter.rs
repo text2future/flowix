@@ -482,6 +482,7 @@ mod tests {
             scanned: &scanned,
             force: true,
             quota: None,
+            max_upload_file_bytes: None,
             allow_mass_deletion: false,
         };
         assert!(run_pass(&mut env, &request, now).await.is_err());
@@ -691,6 +692,7 @@ mod tests {
             scanned: &scanned,
             force: true,
             quota: None,
+            max_upload_file_bytes: None,
             allow_mass_deletion: false,
         };
         let start = std::time::Instant::now();
@@ -849,6 +851,7 @@ mod tests {
                 scanned: &scanned,
                 force: true,
                 quota: None,
+                max_upload_file_bytes: None,
                 allow_mass_deletion: false,
             };
             let report = run_pass(&mut env, &request, now).await.unwrap();
@@ -930,6 +933,7 @@ mod tests {
                 scanned: &scanned,
                 force: true,
                 quota: None,
+                max_upload_file_bytes: None,
                 allow_mass_deletion: false,
             };
             let report = run_pass(&mut env, &request, now).await.unwrap();

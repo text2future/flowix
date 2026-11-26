@@ -398,7 +398,11 @@ async fn a_rejected_conditional_tombstone_keeps_the_path_pending() {
     .await;
     let requests = server.join().unwrap();
 
-    assert_eq!(requests.len(), 1, "a rejected PUT is never followed by a HEAD");
+    assert_eq!(
+        requests.len(),
+        1,
+        "a rejected PUT is never followed by a HEAD"
+    );
     assert!(outcome.removed.is_empty());
     assert_eq!(outcome.failures.len(), 1);
     assert_eq!(outcome.failures[0].kind, FailureKind::Transient);

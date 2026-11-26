@@ -294,6 +294,12 @@ export interface ChatMessage {
   toolName?: string;
   toolAgentType?: AgentTypeKey;
   toolData?: string;
+  /**
+   * Provider-reported tool failure. `undefined` means the runtime did not say,
+   * so display code must fall back to its content heuristics. An explicit
+   * `false` keeps an empty-but-successful result from being shown as failed.
+   */
+  toolError?: boolean;
   toolInput?: Record<string, unknown>;
   toolDisplay?: AgentToolDisplay;
   toolCalls?: ToolCall[];
@@ -314,6 +320,9 @@ export type AgentMessageType =
   /** Provider commentary/progress item. It remains a normal transcript row. */
   | "agent-commentary"
   | "context-compaction"
+  /** Pi fork/branch summary. Same quiet treatment as compaction, but a branch
+   * summary must not claim the context was compacted. */
+  | "branch-summary"
   | "goal-round"
   | "goal-complete"
   | "goal-blocked"

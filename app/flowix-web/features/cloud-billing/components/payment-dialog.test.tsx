@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   openUrl: vi.fn(),
   listBillingOrders: vi.fn(),
   refreshMembership: vi.fn(),
+  getAiCreditBalance: vi.fn(),
   listSubscriptions: vi.fn(),
 }));
 
@@ -19,6 +20,7 @@ vi.mock('@platform/tauri/client', () => ({
     createCheckout: mocks.createCheckout,
     listBillingOrders: mocks.listBillingOrders,
     refreshMembership: mocks.refreshMembership,
+    getAiCreditBalance: mocks.getAiCreditBalance,
     listSubscriptions: mocks.listSubscriptions,
   },
   // `product-catalog.ts` probes both of these at module load time. A vitest
@@ -27,9 +29,13 @@ vi.mock('@platform/tauri/client', () => ({
   listenToCloudStateChanges: undefined,
 }));
 vi.mock('@platform/tauri/opener', () => ({ openUrl: mocks.openUrl }));
-vi.mock('@/lib/i18n', () => {
+vi.mock('../public/ai-membership-purchase', () => ({
+  watchAiMembershipPurchase: vi.fn().mockResolvedValue(() => {}),
+}));
+vi.mock('@/lib/i18n', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/i18n')>();
   const t = (key: string) => key;
-  return { useI18n: () => ({ t }) };
+  return { ...actual, useI18n: () => ({ t }) };
 });
 
 import { PaymentDialog } from './payment-dialog';
@@ -108,6 +114,7 @@ beforeEach(() => {
   mocks.openUrl.mockResolvedValue(undefined);
   mocks.listBillingOrders.mockResolvedValue([]);
   mocks.refreshMembership.mockResolvedValue({ active: false });
+  mocks.getAiCreditBalance.mockResolvedValue({});
   mocks.listSubscriptions.mockResolvedValue([]);
 });
 
@@ -118,6 +125,28 @@ afterEach(() => {
 });
 
 describe('PaymentDialog', () => {
+  it('keeps storage purchases blocked when order status cannot be loaded and allows retry', async () => {
+    mocks.listBillingOrders.mockRejectedValueOnce(new Error('offline')).mockResolvedValue([]);
+    await render('membership');
+    const storage = () => productElements().find((element) => element.classList.contains('payment-dialog__product--storage'))!;
+    expect(storage().querySelector<HTMLButtonElement>('.payment-dialog__purchase')?.disabled).toBe(true);
+    expect(storage().textContent).toContain('errors.friendly.ordersLoad');
+    const retry = Array.from(storage().querySelectorAll('button')).find((button) => button.textContent === 'preferences.cloud.retry');
+    await act(async () => retry!.click());
+    expect(storage().querySelector<HTMLButtonElement>('.payment-dialog__purchase')?.disabled).toBe(false);
+  });
+  it('blocks a storage purchase while an order is pending and permits it after confirmation', async () => {
+    mocks.listBillingOrders.mockResolvedValue([{ id: 'ord_1', status: 'pending' }]);
+    await render('membership');
+    const storage = () => productElements().find((element) => element.classList.contains('payment-dialog__product--storage'))!;
+    expect(storage().querySelector<HTMLButtonElement>('.payment-dialog__purchase')?.disabled).toBe(true);
+    expect(storage().textContent).toContain('preferences.cloud.order.pendingCheckout');
+    await act(async () => root.unmount());
+    container.remove();
+    mocks.listBillingOrders.mockResolvedValue([{ id: 'ord_1', status: 'paid' }]);
+    await render('membership');
+    expect(storage().querySelector<HTMLButtonElement>('.payment-dialog__purchase')?.disabled).toBe(false);
+  });
   it('shows both entitlement kinds in one list, classified by entitlementKind', async () => {
     await render('membership');
     expect(productNames()).toEqual([
@@ -157,14 +186,32 @@ describe('PaymentDialog', () => {
 
   it('starts a checkout and closes', async () => {
     const onClose = await render('credits');
-    const buy = document.body.querySelector<HTMLButtonElement>('.payment-dialog__product button');
+    const buy = document.body.querySelector<HTMLButtonElement>('.payment-dialog__purchase');
     await act(async () => {
       buy!.click();
       await Promise.resolve();
     });
-    expect(mocks.createCheckout).toHaveBeenCalledWith('ai-monthly');
+    expect(mocks.createCheckout).toHaveBeenCalledWith('ai-monthly', 1);
     expect(mocks.openUrl).toHaveBeenCalledWith('https://pay.example/1');
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('updates the total and purchases the selected AI quantity', async () => {
+    await render('credits');
+    const decrease = document.querySelector<HTMLButtonElement>('[aria-label="billing.dialog.quantityDecrease"]')!;
+    const increase = document.querySelector<HTMLButtonElement>('[aria-label="billing.dialog.quantityIncrease"]')!;
+    expect(decrease.disabled).toBe(true);
+    await act(async () => {
+      increase.click();
+      increase.click();
+    });
+    expect(document.querySelector('.payment-dialog__quantity-stepper output')?.textContent).toBe('3');
+    expect(decrease.disabled).toBe(false);
+    expect(document.querySelector('.payment-dialog__amount')?.textContent).toBe('$30');
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>('.payment-dialog__purchase')!.click();
+    });
+    expect(mocks.createCheckout).toHaveBeenCalledWith('ai-monthly', 3);
   });
 
   it('opens WeChat QR in a separate dialog and returns to the plans on escape', async () => {
@@ -174,13 +221,13 @@ describe('PaymentDialog', () => {
     });
     const onClose = await render('credits');
     await act(async () => {
-      document.body.querySelector<HTMLButtonElement>('.payment-dialog__product button')!.click();
+      document.body.querySelector<HTMLButtonElement>('.payment-dialog__purchase')!.click();
     });
     const qr = document.querySelector<HTMLImageElement>('img[alt="billing.dialog.wechatQrAlt"]');
     expect(qr?.closest('[role="dialog"]')?.getAttribute('aria-labelledby')).toBe('wechat-payment-dialog-title');
     expect(qr?.closest('.payment-dialog')).toBeNull();
     expect(document.body.textContent).not.toContain('weixin://wxpay/example');
-    expect(mocks.listBillingOrders).not.toHaveBeenCalled();
+    expect(mocks.listBillingOrders).toHaveBeenCalledOnce();
     expect(mocks.openUrl).not.toHaveBeenCalled();
     act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
     expect(onClose).not.toHaveBeenCalled();
@@ -191,10 +238,10 @@ describe('PaymentDialog', () => {
     mocks.createCheckout.mockResolvedValue({ checkoutUrl: 'weixin://wxpay/example', qrCodeSvg: '<svg/>', orderId: 'o1', status: 'pending' });
     mocks.listBillingOrders.mockResolvedValue([{ id: 'o1', status: 'paid' }]);
     await render('credits');
-    await act(async () => { document.body.querySelector<HTMLButtonElement>('.payment-dialog__product button')!.click(); });
+    await act(async () => { document.body.querySelector<HTMLButtonElement>('.payment-dialog__purchase')!.click(); });
     const refresh = Array.from(document.querySelectorAll('button')).find((button) => button.textContent === 'billing.dialog.wechatRefresh');
     await act(async () => { refresh!.click(); });
-    expect(mocks.listBillingOrders).toHaveBeenCalledOnce();
+    expect(mocks.listBillingOrders).toHaveBeenCalledTimes(2);
     expect(document.body.textContent).toContain('billing.dialog.wechatPaid');
     expect(document.querySelector('img[alt="billing.dialog.wechatQrAlt"]')).toBeNull();
   });
@@ -202,7 +249,7 @@ describe('PaymentDialog', () => {
   it.each(['missing', 'image error'])('recreates a failed QR locally without opening a new order (%s)', async (failure) => {
     mocks.createCheckout.mockResolvedValue({ checkoutUrl: 'weixin://wxpay/example', qrCodeSvg: failure === 'missing' ? undefined : '<svg/>', orderId: 'o1', status: 'pending' });
     await render('credits');
-    await act(async () => { document.body.querySelector<HTMLButtonElement>('.payment-dialog__product button')!.click(); });
+    await act(async () => { document.body.querySelector<HTMLButtonElement>('.payment-dialog__purchase')!.click(); });
     if (failure === 'image error') {
       act(() => { document.querySelector<HTMLImageElement>('img[alt="billing.dialog.wechatQrAlt"]')!.dispatchEvent(new Event('error')); });
     }

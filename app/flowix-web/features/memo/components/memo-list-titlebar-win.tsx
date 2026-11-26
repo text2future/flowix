@@ -3,6 +3,7 @@
 import { SidebarToggleIcon } from '@shared/icons/sidebar-toggle-icon';
 import { Tooltip } from '@shared/ui/tooltip';
 import { useI18n } from '@/lib/i18n';
+import { CloudSyncStatusIndicator } from '@features/shell/public/system-api';
 import searchIcon from '@/assets/search.svg?raw';
 import { NotebookIconMenu } from './notebook-icon-menu';
 import type { Notebook } from '../store';
@@ -28,13 +29,16 @@ export function MemoListTitlebarWin({
       data-tauri-drag-region
       className="relative h-[var(--window-titlebar-height)] px-3 shrink-0 flex items-center justify-between gap-1"
     >
-      <div className="flex items-center">
+      <div className="flex items-center gap-0.5">
         {!isPreview && selectedNotebook && (
-          <NotebookIconMenu
-            onOpenPreferences={onOpenPreferences}
-            buttonClassName="h-6 w-6 [-webkit-app-region:no-drag]"
-            productIconClassName="-translate-x-[3px]"
-          />
+          <>
+            <NotebookIconMenu
+              onOpenPreferences={onOpenPreferences}
+              buttonClassName="h-6 w-6 [-webkit-app-region:no-drag]"
+              productIconClassName="-translate-x-[3px]"
+            />
+            <CloudSyncStatusIndicator notebookId={selectedNotebook.id} />
+          </>
         )}
       </div>
       <div className="flex items-center gap-4">

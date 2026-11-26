@@ -769,12 +769,7 @@ fn local_delete_preserves_remote_update_and_conditions_unchanged_deletion() {
     );
     assert_eq!(tags(&changed), vec!["write-tombstone"]);
     remote.etag = Some("etag-1".into());
-    let unchanged = plan(
-        &view,
-        &RemoteListing::with_dirs([remote], []),
-        &[],
-        NOW,
-    );
+    let unchanged = plan(&view, &RemoteListing::with_dirs([remote], []), &[], NOW);
     let SyncAction::WriteTombstone(item) = &unchanged.actions[0] else {
         panic!("a local deletion must publish a tombstone")
     };

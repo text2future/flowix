@@ -26,9 +26,8 @@ fn mock_backend_round_trip() {
 
 #[test]
 fn db_backend_round_trip_against_real_sqlite() {
-    // 真实 DbBackend + 临时 db 文件, 验证建表 / upsert / query / delete 全链路。
-    // 显式走 DbBackend：macOS 上 `SecretStore::new` 会选 Keychain，
-    // 单测不应写真实钥匙串。
+    // Encrypted DbBackend + 临时 db 文件, 验证建表 / upsert / query / delete 全链路。
+    // Use a temporary encrypted SQLite database instead of user config.
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("default.db");
     let store = SecretStore::with_backend(Box::new(DbBackend::new(&db_path)));
@@ -104,51 +103,96 @@ fn database_permissions_are_restricted_before_storing_secrets() {
 }
 
 #[test]
-fn migration_moves_rows_into_the_backend_and_clears_the_table() {
+fn legacy_plaintext_migration_waits_for_wal_readers_then_cleans_up() {
     let directory = tempfile::tempdir().unwrap();
-    let db_path = directory.path().join("default.db");
-    let db = DbBackend::new(&db_path);
-    db.save("anthropic::default", "sk-1").unwrap();
-    db.save("flowix-cloud::default", "rt-2").unwrap();
-
-    let target = MockBackend::new(KeyBackend::Keychain);
-    assert_eq!(migrate_db_secrets(&db_path, &target).unwrap(), 2);
-
-    // db 表已清空（secure_delete 下删除即粉碎），新后端读得到值。
-    assert!(db.load("anthropic::default").unwrap().is_none());
-    assert!(db.load("flowix-cloud::default").unwrap().is_none());
+    let path = directory.path().join("local.db");
+    let reader = Connection::open(&path).unwrap();
+    reader
+        .execute_batch(
+            "PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0;
+         CREATE TABLE secret_kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+         INSERT INTO secret_kv VALUES ('account', 'legacy-secret');
+         BEGIN; SELECT value FROM secret_kv;",
+        )
+        .unwrap();
+    let backend = DbBackend::new_shared_database(&path);
     assert_eq!(
-        target.load("anthropic::default").unwrap().unwrap().expose(),
-        "sk-1"
+        backend.load("account").unwrap().unwrap().expose(),
+        "legacy-secret"
     );
+    let check = Connection::open(&path).unwrap();
+    let pending: bool = check
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM secret_store_metadata WHERE key='legacy_wal_cleanup')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(pending);
+    drop(check);
+    reader.execute_batch("ROLLBACK").unwrap();
+    drop(reader);
     assert_eq!(
-        target
-            .load("flowix-cloud::default")
-            .unwrap()
-            .unwrap()
-            .expose(),
-        "rt-2"
+        backend.load("account").unwrap().unwrap().expose(),
+        "legacy-secret"
     );
-
-    // 幂等：残留行搬完后再跑是 no-op。
-    assert_eq!(migrate_db_secrets(&db_path, &target).unwrap(), 0);
+    let check = Connection::open(&path).unwrap();
+    let (stored, pending): (String, bool) = check.query_row(
+        "SELECT value, EXISTS(SELECT 1 FROM secret_store_metadata WHERE key='legacy_wal_cleanup') FROM secret_kv WHERE key='account'",
+        [], |row| Ok((row.get(0)?, row.get(1)?)),
+    ).unwrap();
+    assert!(stored.starts_with(ENCRYPTED_SECRET_PREFIX));
+    assert!(!pending);
 }
 
 #[test]
-fn migration_failure_keeps_rows_in_the_database() {
+fn initialized_store_reads_during_an_unrelated_wal_write() {
     let directory = tempfile::tempdir().unwrap();
-    let db_path = directory.path().join("default.db");
-    let db = DbBackend::new(&db_path);
-    db.save("anthropic::default", "sk-1").unwrap();
-
-    let mut target = MockBackend::new(KeyBackend::Keychain);
-    target.fail_unavailable = true;
-    assert!(migrate_db_secrets(&db_path, &target).is_err());
-    // 行还在 db 里：迁移失败的兜底是继续用 db 后端，凭据不能丢。
+    let path = directory.path().join("local.db");
+    let connection = Connection::open(&path).unwrap();
+    connection
+        .execute_batch("PRAGMA journal_mode=WAL; CREATE TABLE unrelated (value TEXT);")
+        .unwrap();
+    let store = DbBackend::new_shared_database(&path);
+    store.save("account", "secret").unwrap();
+    connection
+        .execute_batch("BEGIN IMMEDIATE; INSERT INTO unrelated VALUES ('pending');")
+        .unwrap();
+    // S3 calls construct a fresh backend for each read.
+    let reopened = DbBackend::new_shared_database(&path);
     assert_eq!(
-        db.load("anthropic::default").unwrap().unwrap().expose(),
-        "sk-1"
+        reopened.load("account").unwrap().unwrap().expose(),
+        "secret"
     );
+    connection.execute_batch("ROLLBACK").unwrap();
+}
+
+#[test]
+fn rebuilt_database_is_initialized_again_in_the_same_process() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("default.db");
+    let backend = DbBackend::new(&path);
+    backend.save("old", "secret").unwrap();
+    std::fs::write(&path, b"not a database").unwrap();
+    assert!(backend.load("old").unwrap().is_none());
+    backend.save("new", "new-secret").unwrap();
+    assert_eq!(backend.load("new").unwrap().unwrap().expose(), "new-secret");
+}
+
+#[test]
+fn missing_or_wrong_key_never_overwrites_existing_secrets() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("default.db");
+    let backend = DbBackend::new(&path);
+    backend.save("account", "secret").unwrap();
+    let key_path = sidecar_key_path(&path);
+    let original_key = std::fs::read(&key_path).unwrap();
+    std::fs::remove_file(&key_path).unwrap();
+    assert!(backend.save("account", "replacement").is_err());
+    std::fs::write(&key_path, [7; ENCRYPTION_KEY_BYTES]).unwrap();
+    assert!(backend.save("account", "replacement").is_err());
+    std::fs::write(&key_path, original_key).unwrap();
+    assert_eq!(backend.load("account").unwrap().unwrap().expose(), "secret");
 }
 
 #[test]

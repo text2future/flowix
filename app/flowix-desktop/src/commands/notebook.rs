@@ -131,7 +131,7 @@ fn create_notebook_registry(
     create_notebook_registry_with_id(name, path, icon, None, memo_file)
 }
 
-fn default_notebook_path_without_create(name: &str) -> Result<PathBuf, String> {
+fn safe_notebook_folder_name(name: &str) -> Result<String, String> {
     let safe_name: String = name
         .chars()
         .map(|ch| {
@@ -147,6 +147,11 @@ fn default_notebook_path_without_create(name: &str) -> Result<PathBuf, String> {
     if safe_name.is_empty() {
         return Err("INVALID_NAME".to_string());
     }
+    Ok(safe_name.to_string())
+}
+
+fn default_notebook_path_without_create(name: &str) -> Result<PathBuf, String> {
+    let safe_name = safe_notebook_folder_name(name)?;
     let documents = dirs::document_dir()
         .or_else(|| dirs::home_dir().map(|home| home.join("Documents")))
         .ok_or_else(|| "DOCUMENTS_DIR_UNAVAILABLE".to_string())?;
@@ -280,6 +285,18 @@ fn cloud_restore_directory_is_empty(path: &Path) -> Result<bool, String> {
         return Ok(false);
     }
     Ok(true)
+}
+
+fn cleanup_empty_cloud_notebook_directory(path: &Path) {
+    let Ok(metadata) = std::fs::symlink_metadata(path) else {
+        return;
+    };
+    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        return;
+    }
+    if cloud_restore_directory_is_empty(path).unwrap_or(false) {
+        let _ = std::fs::remove_dir(path);
+    }
 }
 
 fn notify_notebook_workspace_changed(app: &AppHandle) {
@@ -678,15 +695,16 @@ pub fn get_notebook_import_status(
         .and_then(|imports| imports.get(&notebook_id).cloned())
 }
 
-/// Register an empty local mount for a Cloud notebook while preserving the
-/// Cloud notebook's immutable identity. Unlike ordinary notebook creation,
-/// this path intentionally skips onboarding seeding and background disk import
-/// so the first synchronization starts from a clean local snapshot.
+/// Register a local mount for a Cloud notebook beneath the selected parent
+/// directory while preserving the Cloud notebook's immutable identity. The
+/// notebook gets its own child directory named after it; this path intentionally
+/// skips onboarding seeding and background disk import so the first sync starts
+/// from a clean local snapshot.
 #[tauri::command]
 pub fn create_notebook_from_cloud(
     id: String,
     name: String,
-    path: String,
+    parent_path: String,
     icon: Option<String>,
     activate: Option<bool>,
     state: State<AppState>,
@@ -696,24 +714,62 @@ pub fn create_notebook_from_cloud(
     if trimmed_name.is_empty() {
         return Err("INVALID_NAME".to_string());
     }
-    let trimmed_path = path.trim();
-    if trimmed_path.is_empty() {
+    let trimmed_parent_path = parent_path.trim();
+    if trimmed_parent_path.is_empty() {
         return Err("INVALID_PATH".to_string());
     }
     if !is_valid_notebook_id(&id) {
         return Err("INVALID_NOTEBOOK_ID".to_string());
     }
 
-    let directory = Path::new(trimmed_path);
-    if !directory.is_dir() {
+    let parent_directory = Path::new(trimmed_parent_path);
+    if !parent_directory.is_dir() {
         return Err("PATH_MISSING".to_string());
     }
-    if !cloud_restore_directory_is_empty(directory)? {
-        return Err("PATH_NOT_EMPTY".to_string());
+    let folder_name = safe_notebook_folder_name(trimmed_name)?;
+    let directory = parent_directory.join(folder_name);
+    match std::fs::create_dir(&directory) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            return Err("CLOUD_NOTEBOOK_FOLDER_EXISTS".to_string());
+        }
+        Err(error) => return Err(format!("PATH_CREATE_FAILED: {error}")),
     }
+    let notebook_path = match (|| {
+        let metadata = std::fs::symlink_metadata(&directory)
+            .map_err(|error| format!("PATH_READ_FAILED: {error}"))?;
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            return Err("CLOUD_NOTEBOOK_FOLDER_EXISTS".to_string());
+        }
+        if !cloud_restore_directory_is_empty(&directory)? {
+            return Err("CLOUD_NOTEBOOK_FOLDER_EXISTS".to_string());
+        }
+        directory
+            .to_str()
+            .map(str::to_owned)
+            .ok_or_else(|| "PATH_INVALID_UTF8".to_string())
+    })() {
+        Ok(path) => path,
+        Err(error) => {
+            cleanup_empty_cloud_notebook_directory(&directory);
+            return Err(error);
+        }
+    };
     let config = {
         let memo_file = write_lock(&state.memo_file, "memo_file");
-        create_notebook_registry_with_id(trimmed_name, trimmed_path, icon, Some(&id), &memo_file)?
+        match create_notebook_registry_with_id(
+            trimmed_name,
+            &notebook_path,
+            icon,
+            Some(&id),
+            &memo_file,
+        ) {
+            Ok(config) => config,
+            Err(error) => {
+                cleanup_empty_cloud_notebook_directory(&directory);
+                return Err(error);
+            }
+        }
     };
     notify_notebook_workspace_changed(&app);
     if activate.unwrap_or(true) {
@@ -1274,7 +1330,7 @@ mod tests {
     }
 
     #[test]
-    fn cloud_restore_requires_an_empty_directory() {
+    fn cloud_restore_cleanup_treats_finder_metadata_as_empty() {
         let root = temp_root();
         let notebook_dir = root.join("Restore");
         fs::create_dir_all(&notebook_dir).expect("create notebook dir");

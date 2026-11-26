@@ -95,6 +95,75 @@ describe("Pi history message identity", () => {
     expect(rows[0]).toMatchObject({ role: "tool", toolCallId: "interrupted-call", isCompleted: false });
   });
 
+  it("does not leave an interrupted tool call running forever", () => {
+    const rows = parsePiHistoryMessages("thread", [{
+      role: "assistant",
+      content: [{ type: "toolCall", id: "aborted-call", name: "bash", arguments: {} }],
+      stopReason: "aborted",
+      _pi_session_message_id: "assistant-entry",
+    }]);
+    // A history replay must never resurrect the spinner for a call that can
+    // no longer produce a result.
+    expect(rows[0]).toMatchObject({ isLoading: false, isCompleted: false });
+  });
+
+  it("never restores a running tool row from history, even for a tail toolUse turn", () => {
+    // An interrupted turn keeps `stopReason: "toolUse"` on its tail assistant
+    // entry, so a missing result cannot be read as "still executing". A row
+    // revived as loading here would also mark the whole conversation as running
+    // (`isAgentThreadWorking`) with no run left to stop.
+    const rows = parsePiHistoryMessages("thread", [{
+      role: "assistant",
+      content: [{ type: "toolCall", id: "running-call", name: "bash", arguments: {} }],
+      stopReason: "toolUse",
+      _pi_session_message_id: "assistant-entry",
+    }]);
+    expect(rows[0]).toMatchObject({ isLoading: false, isCompleted: false });
+  });
+
+  it("carries Pi's tool failure flag instead of relying on the error prefix", () => {
+    const [failed, succeeded] = parsePiHistoryMessages("thread", [
+      {
+        role: "assistant",
+        content: [
+          { type: "toolCall", id: "call-failed", name: "read", arguments: { path: "missing" } },
+          { type: "toolCall", id: "call-ok", name: "write", arguments: { path: "a" } },
+        ],
+        stopReason: "toolUse",
+        _pi_session_message_id: "assistant-entry",
+      },
+      { role: "toolResult", toolCallId: "call-failed", content: [], isError: true },
+      { role: "toolResult", toolCallId: "call-ok", content: [], isError: false },
+    ]);
+    expect(failed).toMatchObject({ toolError: true, content: "[error] Tool failed" });
+    // An intentional empty result is a success, not a failure.
+    expect(succeeded).toMatchObject({ toolError: false, content: "" });
+  });
+
+  it("renders compaction as a control row and branch summaries as their own kind", () => {
+    const rows = parsePiHistoryMessages("thread", [
+      { role: "compactionSummary", summary: "older turns", _pi_session_message_id: "compaction-entry" },
+      { role: "branchSummary", summary: "fork seed", _pi_session_message_id: "branch-entry" },
+    ]);
+    expect(rows.map(({ role, messageType }) => [role, messageType])).toEqual([
+      ["system", "context-compaction"],
+      ["system", "branch-summary"],
+    ]);
+  });
+
+  it("preserves the compacted context order and retained messages", () => {
+    const rows = parsePiHistoryMessages("thread", [
+      { role: "compactionSummary", summary: "Earlier work summarized", _pi_session_message_id: "compact" },
+      { role: "user", content: "Retained question", _pi_session_message_id: "kept" },
+      { role: "assistant", content: [{ type: "text", text: "Later answer" }], _pi_session_message_id: "reply" },
+    ]);
+    expect(rows.map(({ role, content, messageId }) => ({ role, content, messageId }))).toEqual([
+      { role: "system", content: "Earlier work summarized", messageId: "compact" },
+      { role: "user", content: "Retained question", messageId: "kept" },
+      { role: "assistant", content: "Later answer", messageId: "reply" },
+    ]);
+  });
+
   it("uses the native entry id for bash history rows", () => {
     const messages = parsePiHistoryMessages("thread-1", [{
       role: "bashExecution",

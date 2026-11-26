@@ -38,6 +38,7 @@ export function samePagination(
 ): boolean {
   return left.initialStatus === right.initialStatus &&
     left.initialError === right.initialError &&
+    left.deferredPiHistory === right.deferredPiHistory &&
     left.oldestSequence === right.oldestSequence &&
     left.snapshotSequence === right.snapshotSequence &&
     left.nextCursor === right.nextCursor &&

@@ -222,9 +222,22 @@ function messageTimestamp(sourceTimestamp?: number): string {
  * 同时把上一条未完成的 reasoning 行 `isCompleted=true` 收尾 ── assistant
  * 接 reasoning 是常规 Pattern, 不收尾会留着"思考中"视觉残留。
  */
+/**
+ * Block ordering is only meaningful once rows carry a native parent id and a
+ * content index (a committed Pi/Codex message with several blocks). Live
+ * deltas have neither: the pending row is already in arrival order and every
+ * `orderPiMessageBlocks` pass would just rebuild a group Map over the whole
+ * transcript for nothing. Gate on the two fields the sorter actually reads.
+ */
+function shouldOrderPiBlocks(metadata: MessageChunkMetadata): boolean {
+  return metadata.adoptPendingId === true &&
+    metadata.blockIndex !== undefined &&
+    (metadata.nativeMessageId !== undefined || metadata.parentMessageId !== undefined);
+}
+
 export function applyTextChunk(st: MessageProjection, text: string, metadata: MessageChunkMetadata = {}): MessageProjection {
   const result = applyTextChunkInternal(st, text, metadata);
-  return metadata.adoptPendingId ? { ...result, messages: orderPiMessageBlocks(result.messages) } : result;
+  return shouldOrderPiBlocks(metadata) ? { ...result, messages: orderPiMessageBlocks(result.messages) } : result;
 }
 
 function applyTextChunkInternal(
@@ -427,7 +440,7 @@ function applyTextSnapshotAsNewMessage(
  */
 export function applyReasoningChunk(st: MessageProjection, text: string, metadata: MessageChunkMetadata = {}): MessageProjection {
   const result = applyReasoningChunkInternal(st, text, metadata);
-  return metadata.adoptPendingId ? { ...result, messages: orderPiMessageBlocks(result.messages) } : result;
+  return shouldOrderPiBlocks(metadata) ? { ...result, messages: orderPiMessageBlocks(result.messages) } : result;
 }
 
 function applyReasoningChunkInternal(

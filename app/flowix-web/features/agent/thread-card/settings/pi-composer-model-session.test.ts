@@ -230,6 +230,16 @@ describe("Pi composer model dropdown Cloud session updates", () => {
     return { store, popover, toast };
   }
 
+  it("limits the Pi model picker to 398px when there is enough space above", async () => {
+    const { popover } = await openPicker();
+    const button = document.querySelector<HTMLElement>(".agent-composer__model")!;
+    vi.spyOn(button, "getBoundingClientRect").mockReturnValue({
+      top: 600, bottom: 630, left: 10, right: 110, width: 100, height: 30, x: 10, y: 600, toJSON: () => ({}),
+    });
+    controller!.schedulePosition();
+    await vi.waitFor(() => expect(popover.style.maxHeight).toBe("398px"));
+  });
+
   it("loads the public catalog without creating credentials when logged out", async () => {
     useAgentDataStore.getState().setPiCloudAccount(null, 50);
     getCloudState.mockResolvedValueOnce({ revision: 50, authenticated: false } as CloudState);
@@ -295,7 +305,7 @@ describe("Pi composer model dropdown Cloud session updates", () => {
     expect(refreshAgentModelCatalog).toHaveBeenCalledWith("pi");
     expect(getAiCreditBalance).not.toHaveBeenCalled();
     expect(popover.querySelector(".agent-pi-model-picker__category-label")?.textContent)
-      .toBe("agent.pi.modelSection.custom");
+      .toBe("agent.pi.modelSection.advanced");
     const memberModelButton = popover.querySelector<HTMLButtonElement>(".agent-pi-model-picker__item");
     expect(memberModelButton?.textContent).toContain("Member model");
     expect(controller?.isOpen).toBe(true);
@@ -396,6 +406,101 @@ describe("Pi composer model dropdown Cloud session updates", () => {
     await loadPiCloudModelCatalog();
     expect(refreshPiModelProviderAtStartup).toHaveBeenCalledTimes(2);
     expect(useAgentDataStore.getState().loadState.piCloudModels.status).toBe("ready");
+  });
+
+  describe("composer trigger label states", () => {
+    function mountTrigger(): { button: HTMLButtonElement } {
+      controller = new ExternalAgentSettingsController({
+        popover: document.createElement("div"),
+        getTypeKey: () => "pi",
+        getInstanceId: () => undefined,
+        getLanguage: () => "zh-CN",
+        getEmptyStatePresentation: () => "inline-card",
+        t: (key) => {
+          const labels: Record<string, string> = {
+            "agent.model.title": "模型",
+            "agent.model.loading": "正在读取模型",
+            "agent.model.noneFound": "未找到模型",
+            "agent.model.loadFailed": "模型加载失败",
+            "preferences.pi.cloudTitle": "会员模型",
+            "agent.pi.modelSection.custom": "自定义",
+            "agent.pi.modelSection.mineEmpty": "添加自定义模型",
+            "agent.pi.modelSection.recommended": "推荐",
+            "agent.pi.modelSection.advanced": "高级",
+            "agent.error.membershipRequired": "需要会员",
+          };
+          return labels[key] ?? key;
+        },
+        isDestroyed: () => false,
+        toast: vi.fn(),
+      });
+      const button = controller.createComposerModelButton();
+      if (!button) throw new Error("composer model button missing");
+      document.body.append(button);
+      return { button };
+    }
+
+    it("shows the loading label while the catalog is in flight, then the display name", async () => {
+      useAgentDataStore.getState().setPiCloudAccount("user-1", 5);
+      useAgentDataStore.getState().setModelCatalog("pi", { items: [], updatedAt: 0 });
+      let releaseCatalog!: () => void;
+      loadAgentModelCatalog.mockImplementationOnce(async () => {
+        await new Promise<void>((resolve) => { releaseCatalog = resolve; });
+        const catalog: AgentModelCatalog = {
+          items: [{
+            id: "member-model",
+            label: "Member model",
+            providerId: "flowix-cloud-member",
+            providerName: "Flowix Cloud",
+          }],
+          defaultModel: "member-model",
+          defaultProviderId: "flowix-cloud-member",
+          updatedAt: Date.now(),
+        };
+        useAgentDataStore.getState().setModelCatalog("pi", catalog);
+        return catalog;
+      });
+
+      const { button } = mountTrigger();
+      controller!.loadDefaultModel();
+      // 加载中不得伪造选中值，也不能提前落到空态文案。
+      expect(button.textContent).toContain("正在读取模型");
+      expect(button.textContent).not.toContain("未找到模型");
+
+      await vi.waitFor(() => expect(releaseCatalog).toBeTypeOf("function"));
+      releaseCatalog();
+      await vi.waitFor(() => expect(button.textContent).toContain("Member model"));
+      expect(button.textContent).not.toContain("正在读取模型");
+    });
+
+    it("shows the not-found label only after an empty directory finished loading", async () => {
+      useAgentDataStore.getState().setPiCloudAccount("user-1", 5);
+      useAgentDataStore.getState().setModelCatalog("pi", { items: [], updatedAt: 0 });
+      loadAgentModelCatalog.mockImplementationOnce(async () => {
+        const catalog: AgentModelCatalog = { items: [], updatedAt: Date.now() };
+        useAgentDataStore.getState().setModelCatalog("pi", catalog);
+        return catalog;
+      });
+
+      const { button } = mountTrigger();
+      controller!.loadDefaultModel();
+      expect(button.textContent).toContain("正在读取模型");
+
+      await vi.waitFor(() => expect(button.textContent).toContain("未找到模型"));
+      expect(button.textContent).not.toContain("正在读取模型");
+    });
+
+    it("shows the failure label when the catalog load rejects without cache", async () => {
+      useAgentDataStore.getState().setPiCloudAccount("user-1", 5);
+      useAgentDataStore.getState().setModelCatalog("pi", { items: [], updatedAt: 0 });
+      refreshPiModelProviderAtStartup.mockRejectedValueOnce(new Error("offline"));
+
+      const { button } = mountTrigger();
+      controller!.loadDefaultModel();
+      expect(button.textContent).toContain("正在读取模型");
+
+      await vi.waitFor(() => expect(button.textContent).toContain("模型加载失败"));
+    });
   });
 
 });

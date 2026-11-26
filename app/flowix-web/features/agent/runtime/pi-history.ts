@@ -178,6 +178,15 @@ export function parsePiHistoryMessages(
           const callId = row.block.id;
           const result = resultsByCallId.get(callId);
           const output = result ? toolResultText(result) : "";
+          // History replay must never restore a "running" tool row. Whether a
+          // missing result means "still executing" or "was interrupted" cannot
+          // be decided from the session file: an interrupted turn keeps
+          // `stopReason: "toolUse"` on the tail assistant entry, so the
+          // heuristic produced a row that spun forever after a refresh — and
+          // because `isAgentThreadWorking` counts loading tool rows, the whole
+          // conversation stayed stuck in "running" with nothing left to stop.
+          // Run liveness is owned by the run projection (`agent_running_threads`
+          // + live chunks); the row itself only reports what history can prove.
           append({
             id: callId,
             piBlockIndex: row.order,
@@ -190,7 +199,8 @@ export function parsePiHistoryMessages(
             toolAgentType: "pi",
             toolInput: record(row.block.arguments) ?? {},
             toolData: output,
-            isLoading: result === undefined,
+            toolError: result ? result.isError === true : undefined,
+            isLoading: false,
             isCompleted: result !== undefined,
           });
         }
@@ -201,6 +211,7 @@ export function parsePiHistoryMessages(
     if (role === "bashExecution") {
       const command = typeof message.command === "string" ? message.command : "";
       const output = bashExecutionText(message);
+      const exitCode = typeof message.exitCode === "number" ? message.exitCode : null;
       append({
         id: messageId, role: "tool", content: output, timestamp: time,
         toolCallId: messageId,
@@ -209,6 +220,7 @@ export function parsePiHistoryMessages(
         toolAgentType: "pi",
         toolInput: { command },
         toolData: output,
+        toolError: message.cancelled === true || (exitCode !== null && exitCode !== 0),
         isLoading: false,
         isCompleted: true,
       });
@@ -227,8 +239,15 @@ export function parsePiHistoryMessages(
       const summary = typeof message.summary === "string" ? message.summary : "";
       if (summary) {
         append({
-          id: messageId, role: "assistant", messageType: "context-compaction",
-          content: summary, timestamp: time,
+          id: messageId,
+          // Compaction is a runtime control row, exactly like the same event
+          // in Codex/DSH. Rendering it as an assistant answer made the summary
+          // look like model output; a fork/branch summary must not claim the
+          // context was compacted.
+          role: "system",
+          messageType: role === "branchSummary" ? "branch-summary" : "context-compaction",
+          content: summary,
+          timestamp: time,
         });
       }
     }

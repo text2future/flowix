@@ -46,13 +46,28 @@ export function createStreamingBuffer(
   return {
     append(event) {
       const previous = buffered[buffered.length - 1];
+      /*
+       * Merge only deltas that belong to the same rendered row:
+       * - messageId / messageType / messagePhase: different provider rows.
+       * - sourceSubsequence: Pi's native content index. Two text blocks of one
+       *   Pi message must stay separate rows, otherwise the merged batch would
+       *   land on the first block and the second block's text would be stitched
+       *   into it with the wrong piBlockIndex.
+       * So a merge carries the *first* event's sourceSequence/timestamp, which
+       * keeps the row anchored where the message actually started.
+       */
       if (
         previous && previous.kind === event.kind &&
         previous.threadId === event.threadId &&
         previous.runId === event.runId &&
         previous.agentType === event.agentType &&
         previous.messageId === event.messageId &&
-        previous.contentMode === "delta" && event.contentMode === "delta"
+        previous.messageType === event.messageType &&
+        previous.messagePhase === event.messagePhase &&
+        previous.sourceSubsequence === event.sourceSubsequence &&
+        // `undefined` contentMode means "append" in the reducer, so only an
+        // explicit snapshot must break the run.
+        previous.contentMode !== "snapshot" && event.contentMode !== "snapshot"
       ) {
         buffered[buffered.length - 1] = { ...previous, text: previous.text + event.text };
       } else {

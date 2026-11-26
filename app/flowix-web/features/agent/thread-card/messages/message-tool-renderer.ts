@@ -249,6 +249,18 @@ export function createAgentThreadCardToolMessageParts(options: {
   name.className = "agent-thread-card__message-tool-name";
   name.textContent = messageView.toolLabel;
 
+  const leading: HTMLElement[] = [iconWrap, name];
+  if (message.toolError === true) {
+    // A tool that did not succeed earns a quiet inline note, not an alert.
+    // The detailed failure text stays inside the expandable payload, so a
+    // failed read/search does not take over the transcript.
+    const note = document.createElement("span");
+    note.className = "agent-thread-card__message-tool-error-note";
+    note.textContent = translate(context.language, "agent.tools.failed");
+    note.title = translate(context.language, "agent.tools.failedHint");
+    leading.push(note);
+  }
+
   if (message.messageType === "codex-custom-tool") {
     // Custom tool inputs can be arbitrary text or structured payloads. Keep
     // them in the raw expandable view instead of treating tools named `exec`
@@ -264,7 +276,7 @@ export function createAgentThreadCardToolMessageParts(options: {
       outputLabel: translate(context.language, "agent.tools.output"),
       outputText: message.toolData || message.content || undefined,
     });
-    return [iconWrap, name, content];
+    return [...leading, content];
   }
 
   const command = parseAgentCommandInput(message.toolInput);
@@ -287,7 +299,7 @@ export function createAgentThreadCardToolMessageParts(options: {
       expandedContent: details,
       includeInput: false,
     });
-    return [iconWrap, name, content];
+    return [...leading, content];
   }
 
   const mcpToolName = getMcpToolName(message);
@@ -302,10 +314,10 @@ export function createAgentThreadCardToolMessageParts(options: {
     getDisplayExpanded: context.getDisplayExpanded,
     setDisplayExpanded: context.setDisplayExpanded,
   });
-  if (!mcpToolName) return [iconWrap, name, content];
+  if (!mcpToolName) return [...leading, content];
 
   const concreteName = document.createElement("span");
   concreteName.className = "agent-thread-card__message-tool-concrete-name";
   concreteName.textContent = mcpToolName;
-  return [iconWrap, name, concreteName, content];
+  return [...leading, concreteName, content];
 }

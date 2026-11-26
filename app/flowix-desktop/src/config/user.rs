@@ -719,8 +719,7 @@ impl UserConfigStore {
         let is_dev_build = option_env!("FLOWIX_DEV_MODE") == Some("1");
         let dev_secret_db_path = secret_db_dir.join(DEV_SECRET_DB_NAME);
         let secrets = if is_dev_build {
-            // Dev credentials stay isolated from production and never enter
-            // Keychain, whose code-signature ACL changes after dev rebuilds.
+            // Keep development credentials isolated from production credentials.
             SecretStore::new_database(&dev_secret_db_path)
         } else {
             SecretStore::new(secret_db_dir.join(DEFAULT_SECRET_DB_NAME))

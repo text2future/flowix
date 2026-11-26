@@ -5,8 +5,8 @@
 
 use super::{
     attach_pi_session_message_ids, pi_active_branch_entries, pi_rpc_message_id,
-    pi_tools_for_permission_mode, receive_rpc_response, run_startup_cloud_credential_refresh_once,
-    run_startup_cloud_refresh_once, CloudRefreshResults,
+    pi_tool_result_value, pi_tools_for_permission_mode, receive_rpc_response,
+    run_startup_cloud_credential_refresh_once, run_startup_cloud_refresh_once, CloudRefreshResults,
 };
 use crate::agent_external::pi::shell::{PiCapabilities, ShellKind};
 use serde_json::json;
@@ -419,6 +419,37 @@ fn pi_history_message_ids_follow_the_current_branch_and_exact_messages() {
 }
 
 #[test]
+fn pi_history_matches_compaction_summary_before_retained_messages() {
+    let retained = json!({"role":"user","content":"retained","timestamp":1});
+    let reply = json!({"role":"assistant","content":"reply","timestamp":2});
+    let entries = vec![
+        json!({"type":"message","id":"old","parentId":null,"message":{"role":"user","content":"compressed","timestamp":0}}),
+        json!({"type":"message","id":"kept","parentId":"old","message":retained}),
+        json!({"type":"compaction","id":"compact","parentId":"kept","summary":"older turns","timestamp":"2026-11-25T16:48:26.405Z","firstKeptEntryId":"kept","tokensBefore":112437}),
+        json!({"type":"message","id":"reply","parentId":"compact","message":reply}),
+    ];
+    let mut messages = vec![
+        json!({"role":"compactionSummary","summary":"older turns","tokensBefore":112437,"timestamp":1795625306405_i64}),
+        retained,
+        reply,
+    ];
+    attach_pi_session_message_ids(&mut messages, &entries, Some("reply"))
+        .expect("compressed context should reconcile");
+    assert_eq!(messages.iter().map(|m| m["_pi_session_message_id"].as_str().unwrap()).collect::<Vec<_>>(), vec!["compact", "kept", "reply"]);
+    assert_eq!(messages.len(), 3);
+}
+
+#[test]
+fn pi_history_rejects_summary_from_another_branch() {
+    let entries = vec![
+        json!({"type":"message","id":"root","parentId":null,"message":{"role":"user","content":"root"}}),
+        json!({"type":"compaction","id":"other","parentId":"root","summary":"summary","timestamp":"2026-11-25T16:48:26.405Z"}),
+    ];
+    let mut messages = vec![json!({"role":"compactionSummary","summary":"summary","timestamp":1795625306405_i64})];
+    assert!(attach_pi_session_message_ids(&mut messages, &entries, Some("root")).is_err());
+}
+
+#[test]
 fn pi_history_does_not_silently_accept_unmatched_renderable_messages() {
     let mut messages = vec![json!({
         "role": "assistant",
@@ -430,4 +461,47 @@ fn pi_history_does_not_silently_accept_unmatched_renderable_messages() {
         .expect_err("history identity mismatch must be surfaced");
 
     assert!(error.contains("could not be reconciled with native ids"));
+}
+
+#[test]
+fn pi_tool_results_are_flattened_into_one_display_payload() {
+    let envelope = json!({
+        "content": [
+            {"type": "text", "text": "line one"},
+            {"type": "text", "text": "line two"}
+        ],
+        "details": {"truncated": false}
+    });
+
+    assert_eq!(
+        pi_tool_result_value(Some(&envelope), false),
+        json!({"content": "line one\nline two", "is_error": false})
+    );
+    assert_eq!(
+        pi_tool_result_value(Some(&envelope), true),
+        json!({"content": "line one\nline two", "is_error": true})
+    );
+}
+
+#[test]
+fn pi_tool_results_keep_image_blocks_visible_and_tolerate_missing_results() {
+    let envelope = json!({
+        "content": [
+            {"type": "image", "data": "AAAA", "mimeType": "image/png"},
+            {"type": "text", "text": "screenshot"}
+        ]
+    });
+
+    assert_eq!(
+        pi_tool_result_value(Some(&envelope), false),
+        json!({"content": "[Image attachment]\nscreenshot", "is_error": false})
+    );
+    assert_eq!(
+        pi_tool_result_value(None, false),
+        json!({"content": "", "is_error": false})
+    );
+    assert_eq!(
+        pi_tool_result_value(Some(&json!("plain output")), false),
+        json!({"content": "plain output", "is_error": false})
+    );
 }

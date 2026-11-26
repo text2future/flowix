@@ -7,6 +7,7 @@ import { ChevronRight, Loader2, Plus, X } from 'lucide-react';
 import { PencilSimpleIcon, TrashSimpleIcon } from '@phosphor-icons/react';
 import {
   piModels,
+  listenToUserConfigChanges,
   type PiModelCatalog,
   type PiModelEntryConfig,
   type PiProviderConfig,
@@ -17,9 +18,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Field, SectionHeader, FIELD_INPUT_CLASS } from '@features/preferences/sections/primitives';
 import { useI18n } from '@/lib/i18n';
 import { toast } from '@/lib/toast';
-import { useAgentDataStore } from '@features/agent/store/agent-data-store';
+import { useAgentDataStore } from '@features/agent/public/pi-preferences-api';
 import { PiMcpSettings } from '@features/preferences/sections/pi-mcp-settings';
 import { useCloudAccountState } from '@features/preferences/hooks/use-cloud-account-state';
+import {
+  checkWebSearchAccess,
+  PI_FEATURES_CHANGED_EVENT,
+  type WebSearchAccessResult,
+} from '@features/agent/public/pi-settings-api';
+import { openCloudLoginDialog } from '@features/preferences/public/cloud-login-dialog';
 
 type Draft = Omit<PiProviderConfig, 'credentialConfigured'>;
 const CUSTOM_PROVIDER = '__pi_custom_provider__';
@@ -97,44 +104,81 @@ export function PiSettingsSection() {
   const [error, setError] = useState<string | null>(null);
   const [providerCatalog, setProviderCatalog] = useState<PiModelCatalog | null>(null);
   const [providerCatalogError, setProviderCatalogError] = useState<string | null>(null);
-  const [features, setFeatures] = useState({ toolSearch: false });
+  const [features, setFeatures] = useState({ toolSearch: false, webSearch: false });
   const codeMode = useAgentDataStore((state) => state.agents.pi.user.mode === 'code');
   const modeLoad = useAgentDataStore((state) => state.loadState.piMode);
   const modeLoaded = modeLoad.status === 'ready';
   const initializePiMode = useAgentDataStore((state) => state.initializePiMode);
   const [featuresLoading, setFeaturesLoading] = useState(true);
   const [featuresSaving, setFeaturesSaving] = useState(false);
+  const [featureOperation, setFeatureOperation] = useState<'checkingWebSearch' | 'saving' | null>(null);
   const [featuresError, setFeaturesError] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
-    void piModels.getFeatures()
-      .then((value) => {
-        if (cancelled) return;
-        setFeatures({ toolSearch: value.toolSearch });
-      })
-      .catch((error) => {
-        if (!cancelled) setFeaturesError(friendlyErrorMessage(error, t, 'errors.friendly.piLoad'));
-      })
-      .finally(() => { if (!cancelled) setFeaturesLoading(false); });
-    return () => { cancelled = true; };
-  }, []);
+    const loadFeatures = () => {
+      void piModels.getFeatures()
+        .then((value) => {
+          if (cancelled) return;
+          setFeatures({ toolSearch: value.toolSearch, webSearch: value.webSearch });
+          setFeaturesError(null);
+        })
+        .catch((error) => {
+          if (!cancelled) setFeaturesError(friendlyErrorMessage(error, t, 'errors.friendly.piLoad'));
+        })
+        .finally(() => { if (!cancelled) setFeaturesLoading(false); });
+    };
+    loadFeatures();
+    window.addEventListener(PI_FEATURES_CHANGED_EVENT, loadFeatures);
+    const unlisten = listenToUserConfigChanges((kind) => { if (kind === 'pi_config') loadFeatures(); });
+    return () => {
+      cancelled = true;
+      window.removeEventListener(PI_FEATURES_CHANGED_EVENT, loadFeatures);
+      unlisten();
+    };
+  }, [t]);
   useEffect(() => {
     void initializePiMode().catch(() => undefined);
   }, [initializePiMode]);
-  const setFeature = async (key: 'codeMode' | 'toolSearch', value: boolean) => {
+  const setFeature = async (key: 'codeMode' | 'toolSearch' | 'webSearch', value: boolean) => {
     if (key === 'codeMode') {
       if (!modeLoaded) return;
       useAgentDataStore.getState().setUserPreference('pi', { mode: value ? 'code' : 'writing' });
       return;
     }
-    const next = { ...features, [key]: value };
-    setFeatures(next);
     setFeaturesSaving(true);
-    try { await piModels.saveFeatures(next); }
-    catch (error) {
-      setFeatures(features);
-      toast.error(friendlyErrorMessage(error, t, 'errors.friendly.piSave'));
-    } finally { setFeaturesSaving(false); }
+    setFeatureOperation(key === 'webSearch' && value ? 'checkingWebSearch' : 'saving');
+    let nextFeatures: typeof features | null = null;
+    try {
+      if (key === 'webSearch' && value) {
+        let access: WebSearchAccessResult;
+        try {
+          access = await checkWebSearchAccess();
+        } catch (error) {
+          toast.error(friendlyErrorMessage(error, t, 'errors.friendly.piLoad'));
+          return;
+        }
+        if (!access.allowed) {
+          if (access.reason === 'signed_out') {
+            toast.error(t('preferences.pi.webSearchLoginRequired'));
+            void openCloudLoginDialog();
+          } else {
+            toast.error(t('preferences.pi.webSearchNoCredits'));
+          }
+          return;
+        }
+        setFeatureOperation('saving');
+      }
+
+      nextFeatures = { ...features, [key]: value };
+      setFeatures(nextFeatures);
+      await piModels.saveFeatures({ [key]: value });
+    } catch (error) {
+      if (nextFeatures) setFeatures(features);
+      toast.error(friendlyErrorMessage(error, t, nextFeatures ? 'errors.friendly.piSave' : 'errors.friendly.piLoad'));
+    } finally {
+      setFeaturesSaving(false);
+      setFeatureOperation(null);
+    }
   };
 
   const reload = useCallback(async () => {
@@ -418,12 +462,60 @@ export function PiSettingsSection() {
 
   return (
     <div className="space-y-5">
-      <section className="space-y-3">
+      <div className="space-y-5">
+        <SectionHeader title={t('preferences.pi.featuresTitle')} />
+        <div className="space-y-2">
+          {featuresError && <p role="alert" className="text-xs text-[var(--destructive)]">{featuresError}</p>}
+          {([
+            ['codeMode', t('preferences.pi.codeMode')],
+            ['toolSearch', t('preferences.pi.toolSearch')],
+            ['webSearch', t('preferences.pi.webSearch')],
+          ] as const).map(([key, label]) => (
+            <div key={key} className="flex items-center justify-between gap-3 rounded-xl border border-[var(--divider)] bg-[var(--card)] p-3 text-sm">
+              <span>{label}</span>
+              <div className="flex shrink-0 items-center gap-2">
+                {key === 'webSearch' && (
+                  <span className="rounded-full bg-[var(--primary)]/10 px-2 py-0.5 text-[10px] font-medium leading-4 text-[var(--primary)]">
+                    {t('preferences.pi.webSearchMemberAvailable')}
+                  </span>
+                )}
+                {key === 'codeMode' && !modeLoaded ? (
+                  modeLoad.error ? (
+                    <div className="flex items-center gap-2">
+                      <span role="alert" className="text-xs text-[var(--destructive)]">{t('preferences.agent.loadFailed')}</span>
+                      <Button type="button" variant="outline" className="h-7 rounded-lg" onClick={() => void initializePiMode().catch(() => undefined)}>{t('error.retry')}</Button>
+                    </div>
+                  ) : <Loader2 className="size-4 flowix-spin text-[var(--muted-foreground)]" />
+                ) : <button
+                  type="button"
+                  role="switch"
+                  aria-label={label}
+                  aria-checked={key === 'codeMode' ? codeMode : features[key]}
+                  disabled={(key === 'toolSearch' || key === 'webSearch') && (featuresLoading || featuresSaving || Boolean(featuresError))}
+                  onClick={() => void setFeature(key, !(key === 'codeMode' ? codeMode : features[key]))}
+                  className={`relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${(key === 'codeMode' ? codeMode : features[key]) ? 'bg-[var(--primary)]' : 'bg-[var(--muted)]'}`}
+                >
+                  <span className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-[var(--card)] shadow-sm transition-transform ${(key === 'codeMode' ? codeMode : features[key]) ? 'translate-x-4' : 'translate-x-0'}`} />
+                </button>}
+              </div>
+            </div>
+          ))}
+          {featureOperation && (
+            <p role="status" aria-live="polite" className="flex items-center gap-2 px-1 text-xs text-[var(--muted-foreground)]">
+              <Loader2 className="size-3.5 flowix-spin" aria-hidden="true" />
+              {t(featureOperation === 'checkingWebSearch'
+                ? 'preferences.pi.webSearchChecking'
+                : 'preferences.pi.featureSaving')}
+            </p>
+          )}
+        </div>
+      </div>
+      <section className="space-y-3" style={{ marginTop: '36px' }}>
         <SectionHeader title={t('preferences.pi.byokTitle')} />
         {loading && <div className="flex justify-center py-8"><Loader2 className="size-5 flowix-spin" /></div>}
         {error && <p className="text-sm text-[var(--destructive)]">{error}</p>}
         {!loading && !error && byokProviders.length === 0 && !draft && (
-          <div className="rounded-lg border border-dashed border-[var(--divider)] px-4 py-6 text-center text-sm text-[var(--muted-foreground)]">
+          <div className="px-4 py-3 text-center text-sm text-[var(--muted-foreground)]">
             {t('preferences.pi.byokEmpty')}
           </div>
         )}
@@ -464,41 +556,9 @@ export function PiSettingsSection() {
           </article>
         ))}
 
-      {draft && editingId === null && renderProviderForm()}
-      <Button type="button" variant="outline" className="h-8 gap-0.5" style={{ marginTop: '10px' }} onClick={() => beginEdit()} disabled={busy || Boolean(draft)}><Plus className="size-3.5" />{t('preferences.pi.byokAdd')}</Button>
+        {draft && editingId === null && renderProviderForm()}
+        <Button type="button" variant="outline" className="h-8 gap-0.5" style={{ marginTop: '10px' }} onClick={() => beginEdit()} disabled={busy || Boolean(draft)}><Plus className="size-3.5" />{t('preferences.pi.byokAdd')}</Button>
       </section>
-      <div className="space-y-5" style={{ marginTop: '36px' }}>
-        <SectionHeader title={t('preferences.pi.featuresTitle')} />
-        <div className="space-y-2">
-          {featuresError && <p role="alert" className="text-xs text-[var(--destructive)]">{featuresError}</p>}
-          {([
-            ['codeMode', t('preferences.pi.codeMode')],
-            ['toolSearch', t('preferences.pi.toolSearch')],
-          ] as const).map(([key, label]) => (
-            <div key={key} className="flex items-center justify-between gap-3 rounded-xl border border-[var(--divider)] bg-[var(--card)] p-3 text-sm">
-              <span>{label}</span>
-              {key === 'codeMode' && !modeLoaded ? (
-                modeLoad.error ? (
-                  <div className="flex items-center gap-2">
-                    <span role="alert" className="text-xs text-[var(--destructive)]">{t('preferences.agent.loadFailed')}</span>
-                    <Button type="button" variant="outline" className="h-7 rounded-lg" onClick={() => void initializePiMode().catch(() => undefined)}>{t('error.retry')}</Button>
-                  </div>
-                ) : <Loader2 className="size-4 flowix-spin text-[var(--muted-foreground)]" />
-              ) : <button
-                type="button"
-                role="switch"
-                aria-label={label}
-                aria-checked={key === 'codeMode' ? codeMode : features[key]}
-                disabled={key === 'toolSearch' && (featuresLoading || featuresSaving || Boolean(featuresError))}
-                onClick={() => void setFeature(key, !(key === 'codeMode' ? codeMode : features[key]))}
-                className={`relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${(key === 'codeMode' ? codeMode : features[key]) ? 'bg-[var(--primary)]' : 'bg-[var(--muted)]'}`}
-              >
-                <span className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-[var(--card)] shadow-sm transition-transform ${(key === 'codeMode' ? codeMode : features[key]) ? 'translate-x-4' : 'translate-x-0'}`} />
-              </button>}
-            </div>
-          ))}
-        </div>
-      </div>
       <div className="space-y-5" style={{ marginTop: '36px' }}>
         <PiMcpSettings />
       </div>

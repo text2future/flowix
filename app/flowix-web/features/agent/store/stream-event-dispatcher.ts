@@ -142,17 +142,17 @@ export function createStreamEventDispatcher(
     }
 
     // text / reasoning 走 rAF 缓冲.
+    //
+    // 只有 snapshot 必须同步落地 (它替换整段内容, 顺序错了会丢字)。携带
+    // messageId / sourceSequence 的 delta 同样可以缓冲: 每个非文本事件
+    // (tool / final / error / stream_end / user_message / session_resolved) 都
+    // 会先 flushSync, 所以块边界与 source order 不会跨事件重排; 缓冲只是把
+    // 同一帧内的 N 次归约合并成 1 次。Pi 与 Codex 的每个 delta 都带 id, 之前
+    // 被强制同步, 于是 rAF 缓冲对这两个主 runtime 实际失效。
     switch (event.kind) {
       case "text_delta": {
         if (event.text === "") return;
-        if (
-          event.messageId ||
-          event.contentMode === "snapshot" ||
-          // Legacy Claude envelope ids are intentionally removed by the
-          // mapper. Apply their ordered deltas synchronously so source order
-          // metadata survives database replay and tool boundaries.
-          event.sourceSequence !== undefined
-        ) {
+        if (event.contentMode === "snapshot") {
           streamingBuffer.flushSync();
           ports.dispatch(event);
           return;
@@ -161,7 +161,7 @@ export function createStreamEventDispatcher(
         return;
       }
       case "reasoning_delta": {
-        if (event.messageId || event.contentMode === "snapshot") {
+        if (event.contentMode === "snapshot") {
           streamingBuffer.flushSync();
           ports.dispatch(event);
           return;
@@ -189,7 +189,9 @@ export function createStreamEventDispatcher(
         // stream_start / usage 无需 flush.
         break;
       case "codex_command":
+      case "dsh_command":
       case "user_message":
+        // Timeline markers: they must land after the text that preceded them.
         streamingBuffer.flushSync();
         break;
     }

@@ -35,6 +35,7 @@ const LEGACY_TAB_REDIRECTS: Readonly<Record<string, ActiveSettingsTab>> = {
 	agent: 'aiAgent',
 	modelConfig: 'aiAgent',
 	agents: 'aiAgent',
+	dsh: 'aiAgent',
 };
 
 function normalizeInitialTab(tab: string): ActiveSettingsTab | null {

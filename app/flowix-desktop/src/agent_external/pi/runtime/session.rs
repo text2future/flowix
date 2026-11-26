@@ -22,6 +22,64 @@ use super::super::shell;
 use super::super::skill_resources;
 use super::super::AGENT_TYPE;
 
+const PI_WEB_TOOLS_EXTENSION: &str = r#"
+import { Type } from "typebox";
+
+const base = process.env.FLOWIX_WEB_TOOLS_BASE;
+const token = process.env.FLOWIX_WEB_TOOLS_TOKEN;
+
+async function callTool(path, body, signal) {
+  const response = await fetch(`${base}${path}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+    signal,
+  });
+  const text = await response.text();
+  if (response.ok) return { content: [{ type: "text", text }], details: {} };
+  let message = text;
+  try {
+    message = JSON.parse(text)?.error?.message ?? text;
+  } catch {}
+  return {
+    content: [{ type: "text", text: `Error: HTTP ${response.status}: ${message}` }],
+    details: {},
+    isError: true,
+  };
+}
+
+export default function (pi) {
+  pi.registerTool({
+    name: "web_search",
+    label: "Web search",
+    description: "Search the web and return structured results (title, url, snippet, summary).",
+    parameters: Type.Object({
+      query: Type.String({ minLength: 1, maxLength: 128 }),
+      count: Type.Optional(Type.Integer({ minimum: 1, maximum: 50 })),
+      need_content: Type.Optional(Type.Boolean()),
+    }),
+    async execute(_id, params, signal) {
+      return callTool("/tools/search", params, signal);
+    },
+  });
+
+  pi.registerTool({
+    name: "web_fetch",
+    label: "Web fetch",
+    description: "Fetch a web page and return its content as Markdown.",
+    parameters: Type.Object({
+      url: Type.String({ minLength: 1 }),
+    }),
+    async execute(_id, params, signal) {
+      return callTool("/tools/fetch", params, signal);
+    },
+  });
+}
+"#;
+
 impl PiRpcManager {
     pub async fn delete_session(&self, thread_id: &str) -> Result<bool, String> {
         self.history_snapshots
@@ -119,7 +177,24 @@ impl PiRpcManager {
         if config.tool_search {
             tools.push("tool_search".into());
         }
+        if config.web_tools.is_some() {
+            tools.push("web_search".into());
+            tools.push("web_fetch".into());
+        }
         let tools = tools.join(",");
+        let web_tools_extension = config
+            .web_tools
+            .as_ref()
+            .map(|web| {
+                // Each thread has its own startup lock. Put the generated
+                // extension in that thread's session directory so concurrent
+                // Pi startups cannot truncate a file another process loads.
+                let path = session_dir.join(".flowix-web-tools-extension.ts");
+                std::fs::write(&path, PI_WEB_TOOLS_EXTENSION)
+                    .map(|()| (path, web))
+                    .map_err(|error| format!("cannot write Pi web tools extension: {error}"))
+            })
+            .transpose()?;
         command
             .args(["--mode", "rpc", "--session-dir"])
             .arg(&session_dir)
@@ -159,6 +234,13 @@ impl PiRpcManager {
         }
         if let Some(thinking) = config.thinking.as_deref() {
             command.args(["--thinking", thinking]);
+        }
+        if let Some((extension_path, web)) = &web_tools_extension {
+            command
+                .arg("--extension")
+                .arg(extension_path)
+                .env("FLOWIX_WEB_TOOLS_BASE", &web.base_url)
+                .env("FLOWIX_WEB_TOOLS_TOKEN", &web.token);
         }
         crate::agent_external::shared::configure_unix_process_group(&mut command);
         crate::process_window::hide_command_window(&mut command);
@@ -614,6 +696,7 @@ impl PiRpcManager {
             tools: "read".into(),
             code_mode: false,
             tool_search: false,
+            web_tools: None,
             provider: None,
             model: None,
             cloud_auth_generation: None,

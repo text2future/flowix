@@ -41,7 +41,6 @@ import { createFullscreenIcon } from "@features/agent/thread-card/agent-thread-c
 import { createAgentThreadCardDom } from "@features/agent/thread-card/view/agent-thread-card-dom-factory";
 import { AgentThreadCardChromeController } from "@features/agent/thread-card/chrome";
 import { ExternalAgentSettingsController } from "@features/agent/thread-card/settings/external-agent-settings-controller";
-import { NotebookAgentSettingsDialogController } from "@features/agent/thread-card/settings/notebook-agent-settings-dialog";
 import { NotePickerController, type MemoRef } from "@features/agent/thread-card/note/note-picker-controller";
 import { FullscreenLayoutController } from "@features/agent/thread-card/fullscreen/fullscreen-layout-controller";
 import {
@@ -193,7 +192,6 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
   private externalSettingsLoadedTypeKey: AgentTypeKey | null = null;
   private notePicker: NotePickerController;
   private composerAddMenu: ComposerAddMenuController;
-  private notebookAgentSettingsDialog = new NotebookAgentSettingsDialogController();
   private isCreating = false;
   private isDestroyed = false;
   private disposeBodyScrollbar: () => void = () => {};
@@ -605,10 +603,6 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
       closeSettingsSubmenu: (anchor) =>
         this.externalAgentSettings.closeComposerSettingsPopover(anchor),
       consumeOutsidePointer: consumeEditorPopoverDismissPointer,
-      openNotebookAgentSettings: () => {
-        const notebookPath = this.notebookPath;
-        if (notebookPath) this.notebookAgentSettingsDialog.open(notebookPath);
-      },
     });
     this.runtime = new AgentThreadCardRuntimeController({
       getCurrentThreadId: () => this.threadId,
@@ -888,7 +882,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     return getAgentConversationRuntimeCwd(this.instance) ?? null;
   }
 
-  /** Project AI settings always operate on the registered notebook root. */
+  /** Resolve the notebook root registered to this conversation. */
   private get notebookPath(): string | null {
     const instance = this.instance;
     const runtimeConfig = instance?.runtimeConfig;
@@ -1997,7 +1991,6 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     this.externalAgentSettings.dispose();
     this.notePicker.dispose();
     this.composerAddMenu.dispose();
-    this.notebookAgentSettingsDialog.close();
     this.fullscreenLayout.dispose();
     this.visibilityObserver?.disconnect();
     this.visibilityObserver = null;

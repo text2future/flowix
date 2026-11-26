@@ -63,6 +63,7 @@ impl AccountService {
                     .write()
                     .unwrap_or_else(|p| p.into_inner());
                 account_entitlement.membership = None;
+                account_entitlement.updated_at = None;
                 account_entitlement.status = CloudEntitlementStatus::Error;
                 account_entitlement.error = Some(error.to_string());
                 auth.revision = auth.revision.saturating_add(1);
@@ -81,6 +82,7 @@ impl AccountService {
             .write()
             .unwrap_or_else(|p| p.into_inner());
         account_entitlement.membership = Some(membership.clone());
+        account_entitlement.updated_at = Some(chrono::Utc::now().timestamp_millis());
         account_entitlement.status = CloudEntitlementStatus::Verified;
         account_entitlement.error = None;
         auth.revision = auth.revision.saturating_add(1);

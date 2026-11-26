@@ -246,6 +246,109 @@ fn entitlement() -> Value {
 }
 
 #[tokio::test]
+async fn ai_credit_snapshot_refreshes_and_clears_on_failure_and_logout() {
+    let fail = Arc::new(AtomicBool::new(false));
+    let server_fail = fail.clone();
+    let server = Server::new(move |path| match path {
+        "/v1/auth/login" => (200, json!({"data": {"session": session("first"), "user": user("first")}})),
+        "/v1/account/ai-credits" if server_fail.load(Ordering::SeqCst) =>
+            (503, json!({"error": {"code": "UNAVAILABLE", "message": "offline"}})),
+        "/v1/account/ai-credits" => (200, json!({"data": {"balanceMicrocredits": 1_000_000}})),
+        _ => panic!("unexpected request {path}"),
+    });
+    let directory = tempfile::tempdir().unwrap();
+    let manager = AccountService::new(&server.url, directory.path().join("sync.db")).unwrap();
+    manager.login("first@example.test", "password").await.unwrap();
+    manager.ai_credit_balance().await.unwrap();
+    let ready = manager.state().unwrap();
+    assert_eq!(ready.ai_credits.status, CloudAiCreditStatus::Ready);
+    assert_eq!(ready.ai_credits.data.unwrap().balance_microcredits, 1_000_000);
+    assert!(ready.ai_credits.updated_at.is_some());
+    fail.store(true, Ordering::SeqCst);
+    assert!(manager.ai_credit_balance().await.is_err());
+    let failed = manager.state().unwrap();
+    assert_eq!(failed.ai_credits.status, CloudAiCreditStatus::Error);
+    assert!(failed.ai_credits.data.is_none());
+    assert!(failed.revision > ready.revision);
+    let _pending = manager.begin_logout();
+    assert_eq!(manager.state().unwrap().ai_credits.status, CloudAiCreditStatus::Unknown);
+    assert!(manager.ai_credit_balance().await.is_err());
+    assert_eq!(manager.state().unwrap().ai_credits.status, CloudAiCreditStatus::Unknown);
+}
+
+#[tokio::test]
+async fn simultaneous_ai_credit_requests_share_a_refresh_and_preserve_the_snapshot() {
+    let (release, gate) = std::sync::mpsc::channel();
+    let gate = Mutex::new(gate);
+    let requests = Arc::new(AtomicUsize::new(0));
+    let counted = requests.clone();
+    let server = Server::new(move |path| match path {
+        "/v1/auth/login" => (200, json!({"data": {"session": session("first"), "user": user("first")}})),
+        "/v1/account/ai-credits" => {
+            if counted.fetch_add(1, Ordering::SeqCst) == 1 {
+                gate.lock().unwrap().recv_timeout(Duration::from_secs(2)).unwrap();
+            }
+            (200, json!({"data": {"balanceMicrocredits": 1_000_000}}))
+        },
+        _ => panic!("unexpected request {path}"),
+    });
+    let directory = tempfile::tempdir().unwrap();
+    let manager = AccountService::new(&server.url, directory.path().join("sync.db")).unwrap();
+    manager.login("first@example.test", "password").await.unwrap();
+    manager.ai_credit_balance().await.unwrap();
+    let worker = manager.clone();
+    let first = tokio::spawn(async move { worker.ai_credit_balance().await });
+    wait_for(|| requests.load(Ordering::SeqCst) == 2).await;
+    let state = manager.state().unwrap();
+    assert_eq!(state.ai_credits.status, CloudAiCreditStatus::Refreshing);
+    assert_eq!(state.ai_credits.data.unwrap().balance_microcredits, 1_000_000);
+    let second = manager.ai_credit_balance();
+    tokio::pin!(second);
+    tokio::select! {
+        _ = &mut second => panic!("refresh completed before the response was released"),
+        _ = tokio::time::sleep(Duration::from_millis(10)) => {}
+    }
+    release.send(()).unwrap();
+    assert!(first.await.unwrap().is_ok());
+    assert!(second.await.is_ok());
+    assert_eq!(requests.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn ai_credit_response_from_previous_session_cannot_update_new_account() {
+    let (release, gate) = std::sync::mpsc::channel();
+    let gate = Mutex::new(gate);
+    let requests = Arc::new(AtomicUsize::new(0));
+    let counted = requests.clone();
+    let logins = AtomicUsize::new(0);
+    let server = Server::new(move |path| match path {
+        "/v1/auth/login" => {
+            let id = if logins.fetch_add(1, Ordering::SeqCst) == 0 { "first" } else { "second" };
+            (200, json!({"data": {"session": session(id), "user": user(id)}}))
+        },
+        "/v1/account/ai-credits" => {
+            counted.fetch_add(1, Ordering::SeqCst);
+            gate.lock().unwrap().recv_timeout(Duration::from_secs(2)).unwrap();
+            (200, json!({"data": {"balanceMicrocredits": 1_000_000}}))
+        },
+        _ => panic!("unexpected request {path}"),
+    });
+    let directory = tempfile::tempdir().unwrap();
+    let manager = AccountService::new(&server.url, directory.path().join("sync.db")).unwrap();
+    manager.login("first@example.test", "password").await.unwrap();
+    let previous = manager.clone();
+    let request = tokio::spawn(async move { previous.ai_credit_balance().await });
+    wait_for(|| requests.load(Ordering::SeqCst) == 1).await;
+    manager.login("second@example.test", "password").await.unwrap();
+    release.send(()).unwrap();
+    assert!(request.await.unwrap().is_err());
+    let state = manager.state().unwrap();
+    assert_eq!(state.account.unwrap().user.id, "second");
+    assert_eq!(state.ai_credits.status, CloudAiCreditStatus::Unknown);
+    assert!(state.ai_credits.data.is_none());
+}
+
+#[tokio::test]
 async fn failed_membership_refresh_invalidates_shared_access_until_a_successful_retry() {
     let fail = Arc::new(AtomicBool::new(false));
     let server_fail = fail.clone();
@@ -643,6 +746,7 @@ async fn account_service_verifies_entitlement_immediately_after_login() {
             json!({"data": {"session": session("service"), "user": user("service")}}),
         ),
         "/v2/entitlements/current" => (200, entitlement()),
+        "/v1/account/ai-credits" => (200, json!({"data": {"balanceMicrocredits": 100}})),
         _ => panic!("unexpected request {path}"),
     });
     let directory = tempfile::tempdir().unwrap();

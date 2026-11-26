@@ -90,7 +90,6 @@ pub struct CloudStorageSettings {
     pub profiles: Vec<CloudStorageProfile>,
 }
 
-
 impl UserConfigStore {
     /// Dev Cloud selection has its own file so changing the dev endpoint never
     /// changes the production app's shared preference.json.
@@ -480,7 +479,6 @@ impl UserConfigStore {
     ) -> Result<(), UserConfigError> {
         self.delete_provider_secret(Self::cloud_dev_secret_provider(environment))
     }
-
 }
 
 fn custom_s3_profile_secret_provider(profile_id: &str) -> String {
@@ -516,4 +514,3 @@ fn dev_cloud_environment_file_path(config_dir: &Path) -> PathBuf {
         .join(BOOT_DIR_NAME)
         .join(DEV_CLOUD_ENVIRONMENT_FILE_NAME)
 }
-

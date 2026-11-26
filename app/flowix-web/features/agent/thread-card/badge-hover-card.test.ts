@@ -7,11 +7,12 @@ const cloudMocks = vi.hoisted(() => ({
   getState: vi.fn(),
   getAiCreditBalance: vi.fn(),
 }));
-vi.mock("@platform/tauri/client", () => ({ cloud: cloudMocks }));
+vi.mock("@platform/tauri/client", () => ({ cloud: cloudMocks, listenToCloudStateChanges: () => () => {} }));
 
 vi.mock("@features/agent/store/agent-data-store", () => ({
   useAgentDataStore: (selector: (state: unknown) => unknown) => selector({ agents: { pi: { catalog: { models: { items: [
     { id: "flowix-cn-1/gpt-6.1-terra", providerId: "flowix-cloud-member", source: "flowix-cloud", label: "GPT-6.1 Terra" },
+    { id: "flowix-cn-2/deepseek-v4.1-flash-1017", providerId: "flowix-cloud-member", source: "flowix-cloud", label: "DeepSeek V4.1 Flash" },
   ] } } } } }),
 }));
 
@@ -74,21 +75,48 @@ describe("BadgeHoverCard", () => {
     await act(async () => root.unmount());
   });
 
+  it("renders the Cloud display name for a routed official model", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(createElement(BadgeHoverCard, {
+      agentType: "pi", model: "flowix-cloud-member/flowix-cn-2/deepseek-v4.1-flash-1017",
+    })));
+    expect(host.textContent).toContain("DeepSeek V4.1 Flash");
+    expect(host.textContent).not.toContain("flowix-cn-2");
+    expect(host.textContent).not.toContain("flowix-cloud-member");
+    await act(async () => root.unmount());
+  });
+
   it("loads and refreshes Pi member credits", async () => {
     cloudMocks.getState.mockResolvedValue({ authenticated: true });
-    cloudMocks.getAiCreditBalance.mockResolvedValueOnce({ balanceMicrocredits: 1_250_000 })
-      .mockResolvedValueOnce({ balanceMicrocredits: 2_500_000 });
+    cloudMocks.getAiCreditBalance.mockResolvedValueOnce({
+      balanceMicrocredits: 1_000_000_000, monthlyBalanceMicrocredits: 500_000_000,
+    }).mockResolvedValueOnce({
+      balanceMicrocredits: 2_000_000_000, monthlyBalanceMicrocredits: 1_250_000_000,
+    }).mockResolvedValueOnce({
+      balanceMicrocredits: 5_000_000_000, monthlyBalanceMicrocredits: 1_250_000_000,
+    });
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
     await act(async () => { root.render(createElement(BadgeHoverCard, { agentType: "pi" })); });
     await act(async () => { host.querySelector<HTMLButtonElement>("[data-open]")!.click(); });
-    expect(host.textContent).toContain("1.25");
+    expect(host.textContent).not.toContain("1,000");
+    expect(host.querySelector<HTMLElement>(".agent-thread-card__credits-share")?.textContent).toBe("25%");
+    expect(host.querySelector<HTMLElement>(".agent-thread-card__credits-share")?.className).toContain("text-[var(--foreground)]");
     await act(async () => {
       host.querySelector<HTMLButtonElement>('[aria-label="preferences.pi.cloudCreditsRefresh"]')!.click();
     });
-    expect(host.textContent).toContain("2.50");
-    expect(cloudMocks.getAiCreditBalance).toHaveBeenCalledTimes(2);
+    expect(host.textContent).not.toContain("2,000");
+    expect(host.querySelector<HTMLElement>(".agent-thread-card__credits-share")?.textContent).toBe("50%");
+    expect(host.querySelector<HTMLElement>(".agent-thread-card__credits-share")?.className).toContain("text-[var(--foreground)]");
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('[aria-label="preferences.pi.cloudCreditsRefresh"]')!.click();
+    });
+    expect(host.querySelector<HTMLElement>(".agent-thread-card__credits-share")?.textContent).toBe("125%");
+    expect(host.querySelector<HTMLElement>(".agent-thread-card__credits-share")?.className).toContain("text-[var(--foreground)]");
+    expect(cloudMocks.getAiCreditBalance).toHaveBeenCalledTimes(3);
     await act(async () => root.unmount());
   });
 

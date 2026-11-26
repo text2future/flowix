@@ -54,7 +54,7 @@ it('uploads an empty image property, persists its relative path, renders its thu
   expect(dialogs.selectFiles).toHaveBeenCalledWith({ accept: 'image/*', multiple: false });
   expect(notebookAssets.saveFromPath).toHaveBeenCalledWith('/source/photo.png', { notebookId: 'image-notebook' });
   expect(parseVisibleFrontmatter(editor!.state.doc.firstChild!.attrs.yamlContent).data.photo)
-    .toBe('attachments/photo.png');
+    .toEqual(['attachments/photo.png']);
   expect(files.readImage).toHaveBeenCalledWith('/notes/attachments/photo.png', '/notes');
   expect(value().querySelector('img')?.getAttribute('src')).toBe('data:image/png;base64,preview');
   expect(document.querySelector('.frontmatter-property__edit-popover')).toBeNull();

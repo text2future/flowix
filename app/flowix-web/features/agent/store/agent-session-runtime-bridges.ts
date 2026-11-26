@@ -38,6 +38,8 @@ export function installAgentSessionRuntimeBridges(store: AgentSessionStoreAccess
     globalThis.setTimeout(() => {
       const latest = store.getState();
       if (latest.threadTombstones[canonicalThreadId]) return;
+      // `reconcileCompletedRun` releases the deferred Pi history read itself;
+      // skipping it here would leave the turn's rows unloaded after a reload.
       void latest.reconcileCompletedRun(agentType, canonicalThreadId, runId);
     }, 300);
   });

@@ -35,18 +35,14 @@ import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n';
 import type { CloudNotebook, ObsidianVaultRecord } from '@platform/tauri/client';
 import {
-  ArrowLeft,
+  ArrowDownToLine,
   Check,
   ChevronDown,
   Cloud,
-  CloudDownload,
   Laptop,
   Loader2,
 } from 'lucide-react';
 import { useExperimentalMode } from '@platform/tauri/use-experimental-mode';
-import { WindowsTitlebarControls } from '@shared/window-titlebar-controls';
-import { isMac } from '@features/shortcuts';
-import { OnboardingTitlebarMac } from '@features/onboarding/onboarding-titlebar-mac';
 import { AccountAuthFlow } from '@features/preferences/public/account-auth-flow';
 
 const NOTEBOOK_DIALOG_THEME_CLASS = '[--onboarding-ink:var(--foreground)] [--onboarding-subtle:var(--muted-foreground)] [--onboarding-panel:color-mix(in_oklch,var(--card)_96%,var(--background))] [--onboarding-line:color-mix(in_oklch,var(--border)_78%,transparent)] [&_button:focus-visible]:outline-2 [&_button:focus-visible]:outline-[var(--ring)] [&_button:focus-visible]:outline-offset-[3px]';
@@ -64,16 +60,15 @@ interface NotebookDialogsProps {
   createNotebookCloudSync: boolean;
   onCreateNotebookCloudSyncChange: (enabled: boolean) => void;
   onCreateNotebookCloudSyncUnavailable: () => void;
-  createMode: 'create' | 'cloud';
+  cloudImportOpen: boolean;
+  onCloudImportOpenChange: (open: boolean) => void;
   remoteNotebooks: CloudNotebook[];
   remoteNotebooksLoading: boolean;
   remoteNotebookSyncingId: string | null;
   obsidianVaults: ObsidianVaultRecord[];
   obsidianVaultsLoading: boolean;
   obsidianVaultsError: boolean;
-  onOpenRemoteNotebooks: () => void;
   onOpenObsidianVaults: () => void;
-  onBackToCreate: () => void;
   onSelectRemoteNotebook: (notebook: CloudNotebook) => void;
   onSelectObsidianVault: (vault: ObsidianVaultRecord) => void;
   onSelectDirectory: () => Promise<void>;
@@ -188,7 +183,8 @@ export function NotebookDialogs({
   createNotebookCloudSync,
   onCreateNotebookCloudSyncChange,
   onCreateNotebookCloudSyncUnavailable,
-  createMode,
+  cloudImportOpen,
+  onCloudImportOpenChange,
   remoteNotebooks,
   remoteNotebooksLoading,
   remoteNotebookSyncingId,
@@ -196,7 +192,6 @@ export function NotebookDialogs({
   obsidianVaultsLoading,
   obsidianVaultsError,
   onOpenObsidianVaults,
-  onBackToCreate,
   onSelectRemoteNotebook,
   onSelectObsidianVault,
   onSelectDirectory,
@@ -237,176 +232,160 @@ export function NotebookDialogs({
       <Dialog open={createOpen} onOpenChange={onCreateOpenChange}>
         <DialogContent
           closeDisabled={isCreatingNotebook}
-          overlayClassName={createMode === 'create' ? NOTEBOOK_FORM_DIALOG_OVERLAY_CLASS : undefined}
+          overlayClassName={NOTEBOOK_FORM_DIALOG_OVERLAY_CLASS}
           aria-busy={isCreatingNotebook}
-          aria-labelledby={createMode === 'create'
-            ? 'flowix-create-notebook-form-title'
-            : undefined}
-          className={cn(
-            createMode === 'create'
-              ? NOTEBOOK_FORM_DIALOG_CONTENT_CLASS
-              : '!fixed !inset-0 !z-[130] !flex !h-dvh !max-h-none !w-full !max-w-none !flex-col !overflow-hidden !rounded-none !bg-[var(--frame-bg)] !p-0 !text-[var(--foreground)] !shadow-none',
-            NOTEBOOK_DIALOG_THEME_CLASS,
-          )}
+          aria-labelledby="flowix-create-notebook-form-title"
+          className={cn(NOTEBOOK_FORM_DIALOG_CONTENT_CLASS, NOTEBOOK_DIALOG_THEME_CLASS)}
         >
-          {createMode !== 'create' && isMac() && <OnboardingTitlebarMac />}
-          {createMode !== 'create' && <WindowsTitlebarControls reserveSpace />}
-          <main className={cn(
-            createMode === 'create'
-              ? NOTEBOOK_FORM_DIALOG_BODY_CLASS
-              : 'relative z-[1] flex min-h-0 w-full flex-1 flex-col overflow-hidden p-0',
-          )}>
-            <div className={cn(
-              createMode === 'create'
-                ? 'mx-auto w-full'
-                : 'mx-auto flex min-h-0 w-full flex-1 flex-col overflow-y-auto overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden max-w-[780px] pb-[104px]',
-            )}>
-              <section className={cn(
-                'w-full',
-                createMode === 'create' ? '' : 'py-[clamp(11px,1.33vw,16px)] pb-4',
-              )}>
-                {createMode === 'cloud' ? (
-                  <>
-                    <div className="max-w-full">
-                      <button
-                        type="button"
-                        onClick={onBackToCreate}
-                        className="mb-[15px] inline-flex items-center gap-[7px] p-0 text-xs text-[var(--onboarding-subtle)] hover:text-[var(--onboarding-ink)]"
-                        aria-label={t('notebook.cloudImport.back')}
-                        title={t('notebook.cloudImport.back')}
-                      >
-                        <ArrowLeft className="h-4 w-4" />
-                        {t('notebook.cloudImport.back')}
-                      </button>
-                      <h1 className="text-[clamp(23px,3.33vw,44px)] font-light leading-[0.98] tracking-[-0.065em] text-[var(--onboarding-ink)]">{t('notebook.cloudImport.title')}</h1>
-                    </div>
-                    <div className="mt-[22px] w-full max-w-[780px]">
-                      {remoteNotebooksLoading ? (
-                        <div className="flex min-h-[180px] items-center justify-center gap-2 text-sm text-[var(--muted-foreground)]">
-                          <Loader2 className="h-4 w-4 flowix-spin" />
-                          {t('notebook.cloudImport.loading')}
-                        </div>
-                      ) : remoteNotebooks.length === 0 ? (
-                        <div className="flex min-h-[180px] items-center justify-center text-sm text-[var(--muted-foreground)]">
-                          {t('notebook.cloudImport.empty')}
-                        </div>
-                      ) : (
-                        <div className="max-h-[min(55vh,560px)] space-y-2 overflow-y-auto pr-1">
-                          {remoteNotebooks.map((notebook) => {
-                            const syncing = remoteNotebookSyncingId === notebook.id;
-                            return (
-                              <div
-                                key={notebook.id}
-                                className="flex w-full items-center gap-3 rounded-lg border border-[var(--border)] px-3 py-2.5"
-                              >
-                                <NotebookIcon
-                                  icon={notebook.icon ?? undefined}
-                                  className="h-8 w-8 shrink-0 rounded-md bg-[var(--muted)] text-xs font-semibold"
-                                />
-                                <span className="min-w-0 flex-1 truncate text-sm">{notebook.name}</span>
-                                {notebook.synced ? (
-                                  <span className="flex shrink-0 items-center gap-1 text-xs text-[var(--muted-foreground)]">
-                                    <Check className="h-3.5 w-3.5" />
-                                    {t('notebook.cloudImport.synced')}
-                                  </span>
-                                ) : (
-                                  <Button
-                                    type="button"
-                                    disabled={remoteNotebookSyncingId !== null}
-                                    onClick={() => onSelectRemoteNotebook(notebook)}
-                                    variant="default" className="shrink-0 gap-1.5"
-                                  >
-                                    {syncing ? (
-                                      <Loader2 className="h-4 w-4 flowix-spin" />
-                                    ) : (
-                                      <CloudDownload className="h-4 w-4" />
-                                    )}
-                                    {t('notebook.cloudImport.sync')}
-                                  </Button>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  </>
-                ) : (
-                  <NotebookCreateForm
-                    variant="dialog"
-                    title="新建笔记本"
-                    formId="flowix-create-notebook-form"
-                    name={newNotebookName}
-                    onNameChange={onNewNotebookNameChange}
-                    nameLabel={t('notebook.create.namePlaceholder')}
-                    namePlaceholder={t('notebook.nameInputPlaceholder')}
-                    pathLabel={t('notebook.create.pathLabel')}
-                    pathLocationLabel={t('notebook.create.pathLocationDevice')}
-                    pathLocationControl={(
-                      <NotebookStorageLocationSelector
-                        checked={createNotebookCloudSync}
-                        available={cloudSyncAvailable}
-                        disabled={isCreatingNotebook}
-                        onChange={onCreateNotebookCloudSyncChange}
-                        onUnavailableClick={onCreateNotebookCloudSyncUnavailable}
-                      />
-                    )}
-                    emptyPathPrimaryPrompt={t('notebook.create.emptyPathPrimaryPrompt')}
-                    emptyPathAlternativePrompt={t('notebook.create.emptyPathAlternativePrompt')}
-                    addFolderLabel={t('notebook.create.addFolder')}
-                    importLabel={t('notebook.create.readAiSpace')}
-                    importWorkBuddyProjectLabel={t('notebook.create.importWorkBuddyProject')}
-                    importCodexProjectLabel={t('notebook.create.importCodexProject')}
-                    onImportProject={(source) => void onImportProjectDirectory(source)}
-                    importObsidianVaultLabel={t('notebook.create.importObsidianVaults')}
-                    obsidianVaults={obsidianVaults}
-                    obsidianVaultsLoading={obsidianVaultsLoading}
-                    obsidianVaultsError={obsidianVaultsError}
-                    onImportObsidianVaults={onOpenObsidianVaults}
-                    onSelectObsidianVault={onSelectObsidianVault}
-                    primaryFolderLabel={t('notebook.create.primaryFolder')}
-                    setPrimaryFolderLabel={t('notebook.create.setPrimaryFolder')}
-                    removeFolderLabel={t('notebook.create.removeFolder')}
-                    selectedPaths={newNotebookPaths}
-                    path={newNotebookPaths[0] ?? ''}
-                    pathPlaceholder={t('notebook.create.pathPlaceholder')}
-                    directoryButtonLabel={t('notebook.create.selectDirectory')}
-                    onSelectDirectory={() => void onSelectDirectory()}
-                    onRemoveDirectory={onRemoveDirectory}
-                    onSetPrimaryDirectory={onSetPrimaryDirectory}
-                    icon={newNotebookIcon}
-                    onIconChange={onNewNotebookIconChange}
-                    disabled={isCreatingNotebook}
-                    onSubmit={onConfirmCreate}
-                  />
-                )}
+          <main className={NOTEBOOK_FORM_DIALOG_BODY_CLASS}>
+            <div className="mx-auto w-full">
+              <section className="w-full">
+                <NotebookCreateForm
+                  variant="dialog"
+                  title="新建笔记本"
+                  formId="flowix-create-notebook-form"
+                  name={newNotebookName}
+                  onNameChange={onNewNotebookNameChange}
+                  nameLabel={t('notebook.create.namePlaceholder')}
+                  namePlaceholder={t('notebook.nameInputPlaceholder')}
+                  pathLabel={t('notebook.create.pathLabel')}
+                  pathLocationLabel={t('notebook.create.pathLocationDevice')}
+                  pathLocationControl={(
+                    <NotebookStorageLocationSelector
+                      checked={createNotebookCloudSync}
+                      available={cloudSyncAvailable}
+                      disabled={isCreatingNotebook}
+                      onChange={onCreateNotebookCloudSyncChange}
+                      onUnavailableClick={onCreateNotebookCloudSyncUnavailable}
+                    />
+                  )}
+                  emptyPathPrimaryPrompt={t('notebook.create.emptyPathPrimaryPrompt')}
+                  emptyPathAlternativePrompt={t('notebook.create.emptyPathAlternativePrompt')}
+                  addFolderLabel={t('notebook.create.addFolder')}
+                  importLabel={t('notebook.create.readAiSpace')}
+                  importWorkBuddyProjectLabel={t('notebook.create.importWorkBuddyProject')}
+                  importCodexProjectLabel={t('notebook.create.importCodexProject')}
+                  onImportProject={(source) => void onImportProjectDirectory(source)}
+                  importObsidianVaultLabel={t('notebook.create.importObsidianVaults')}
+                  obsidianVaults={obsidianVaults}
+                  obsidianVaultsLoading={obsidianVaultsLoading}
+                  obsidianVaultsError={obsidianVaultsError}
+                  onImportObsidianVaults={onOpenObsidianVaults}
+                  onSelectObsidianVault={onSelectObsidianVault}
+                  primaryFolderLabel={t('notebook.create.primaryFolder')}
+                  setPrimaryFolderLabel={t('notebook.create.setPrimaryFolder')}
+                  removeFolderLabel={t('notebook.create.removeFolder')}
+                  selectedPaths={newNotebookPaths}
+                  path={newNotebookPaths[0] ?? ''}
+                  pathPlaceholder={t('notebook.create.pathPlaceholder')}
+                  directoryButtonLabel={t('notebook.create.selectDirectory')}
+                  onSelectDirectory={() => void onSelectDirectory()}
+                  onRemoveDirectory={onRemoveDirectory}
+                  onSetPrimaryDirectory={onSetPrimaryDirectory}
+                  icon={newNotebookIcon}
+                  onIconChange={onNewNotebookIconChange}
+                  disabled={isCreatingNotebook}
+                  onSubmit={onConfirmCreate}
+                />
               </section>
             </div>
-            {createMode === 'create' && <NotebookAgentLibraryHint />}
-            {createMode === 'create' ? (
-              <NotebookCreateFooter
-                variant="dialog"
-                submitTone="brand"
-                formId="flowix-create-notebook-form"
-                disabled={!newNotebookName.trim()}
-                isBusy={isCreatingNotebook}
-                cancelLabel={t('notebook.create.cancel')}
-                onCancel={onCancelCreate}
-              />
-            ) : (
-              <div className="absolute bottom-0 left-0 z-[4] m-0 flex min-h-20 w-full items-center justify-end border-t border-[var(--onboarding-line)] bg-[var(--frame-bg)] px-[clamp(28px,6vw,96px)] pb-[calc(16px+env(safe-area-inset-bottom))] max-[600px]:flex-wrap max-[600px]:gap-2 max-[600px]:px-5 max-[600px]:pb-[calc(12px+env(safe-area-inset-bottom))] pt-4">
-                <div className="mx-auto flex w-full max-w-[780px] items-center justify-end gap-2">
-                  <Button
-                    type="button"
-                    onClick={onCancelCreate}
-                    disabled={isCreatingNotebook}
-                    variant="outline" className="gap-2"
-                  >
-                    {t('notebook.create.cancel')}
-                  </Button>
-                </div>
+            <NotebookAgentLibraryHint />
+            <NotebookCreateFooter
+              variant="dialog"
+              submitTone="brand"
+              formId="flowix-create-notebook-form"
+              disabled={!newNotebookName.trim()}
+              isBusy={isCreatingNotebook}
+              cancelLabel={t('notebook.create.cancel')}
+              onCancel={onCancelCreate}
+            />
+          </main>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={cloudImportOpen} onOpenChange={onCloudImportOpenChange}>
+        <DialogContent
+          closeDisabled={remoteNotebookSyncingId !== null}
+          overlayClassName={NOTEBOOK_FORM_DIALOG_OVERLAY_CLASS}
+          aria-busy={remoteNotebooksLoading || remoteNotebookSyncingId !== null}
+          aria-labelledby="flowix-cloud-notebook-import-title"
+          className={cn(NOTEBOOK_FORM_DIALOG_CONTENT_CLASS, NOTEBOOK_DIALOG_THEME_CLASS)}
+        >
+          <main className={NOTEBOOK_FORM_DIALOG_BODY_CLASS}>
+            <section className="w-full">
+              <h1
+                id="flowix-cloud-notebook-import-title"
+                className={NOTEBOOK_FORM_DIALOG_TITLE_CLASS}
+              >
+                {t('notebook.cloudImport.title')}
+              </h1>
+              <div className="mt-4 w-full">
+                {remoteNotebooksLoading ? (
+                  <div className="flex min-h-[180px] items-center justify-center gap-2 text-sm text-[var(--muted-foreground)]">
+                    <Loader2 className="h-4 w-4 flowix-spin" />
+                    {t('notebook.cloudImport.loading')}
+                  </div>
+                ) : remoteNotebooks.length === 0 ? (
+                  <div className="flex min-h-[180px] items-center justify-center text-sm text-[var(--muted-foreground)]">
+                    {t('notebook.cloudImport.empty')}
+                  </div>
+                ) : (
+                  <div className="max-h-[min(55vh,560px)] space-y-2 overflow-y-auto pr-1">
+                    {remoteNotebooks.map((notebook) => {
+                      const syncing = remoteNotebookSyncingId === notebook.id;
+                      return (
+                        <div
+                          key={notebook.id}
+                          className="flex w-full items-center gap-3 rounded-lg border border-[var(--border)] px-3 py-2.5"
+                        >
+                          <NotebookIcon
+                            icon={notebook.icon ?? undefined}
+                            className="h-8 w-8 shrink-0 rounded-md bg-[var(--muted)] text-xs font-semibold"
+                          />
+                          <span className="min-w-0 flex-1 truncate text-sm">{notebook.name}</span>
+                          {notebook.synced ? (
+                            <span className="flex shrink-0 items-center gap-1 text-xs text-[var(--muted-foreground)]">
+                              <Check className="h-3.5 w-3.5" />
+                              {t('notebook.cloudImport.synced')}
+                            </span>
+                          ) : (
+                            <>
+                              <span className="min-w-0 text-right text-xs leading-4 text-[var(--muted-foreground)]">
+                                {t('notebook.cloudImport.chooseFolderToSync')}
+                              </span>
+                              <Button
+                                type="button"
+                                disabled={remoteNotebookSyncingId !== null}
+                                onClick={() => onSelectRemoteNotebook(notebook)}
+                                variant="default"
+                                size="default"
+                                className="h-8 min-h-8 shrink-0 gap-[3px] px-3"
+                              >
+                                {syncing ? (
+                                  <Loader2 className="h-3 w-3 flowix-spin" />
+                                ) : (
+                                  <ArrowDownToLine className="h-3 w-3" />
+                                )}
+                                {t('notebook.cloudImport.sync')}
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-            )}
+              <div className="mt-5 flex justify-end border-t border-[var(--border)] pt-4">
+                <Button
+                  type="button"
+                  onClick={() => onCloudImportOpenChange(false)}
+                  disabled={remoteNotebookSyncingId !== null}
+                  variant="outline"
+                >
+                  {t('notebook.create.cancel')}
+                </Button>
+              </div>
+            </section>
           </main>
         </DialogContent>
       </Dialog>

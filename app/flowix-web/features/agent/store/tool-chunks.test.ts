@@ -344,6 +344,70 @@ describe("tool chunk idempotency", () => {
     ]);
   });
 
+  it("flattens content-block tool results and marks provider failures", () => {
+    const started = applyToolCallChunk(
+      emptyState(),
+      "pi-call",
+      "read",
+      { path: "a.ts" },
+      "pi",
+    );
+    const completed = applyToolResultChunk(
+      started,
+      "pi-call",
+      "read",
+      {
+        content: [
+          { type: "text", text: "line one" },
+          { type: "text", text: "line two" },
+        ],
+        is_error: false,
+      },
+      "pi",
+    );
+
+    expect(completed.messages[0]).toMatchObject({
+      content: "line one\nline two",
+      toolError: false,
+      isLoading: false,
+    });
+
+    const failed = applyToolResultChunk(
+      started,
+      "pi-call",
+      "read",
+      { content: [{ type: "text", text: "ENOENT" }], is_error: true },
+      "pi",
+    );
+    expect(failed.messages[0]).toMatchObject({
+      content: "[error] ENOENT",
+      toolError: true,
+    });
+  });
+
+  it("does not treat an explicitly successful empty result as a failure", () => {
+    const started = applyToolCallChunk(
+      emptyState(),
+      "pi-write",
+      "write",
+      { path: "a.ts" },
+      "pi",
+    );
+    const completed = applyToolResultChunk(
+      started,
+      "pi-write",
+      "write",
+      { content: [], is_error: false },
+      "pi",
+    );
+
+    expect(completed.messages[0]).toMatchObject({
+      content: "",
+      toolError: false,
+      isLoading: false,
+    });
+  });
+
   it("keeps the started tool name when a result has a generic name", () => {
     const started = applyToolCallChunk(
       emptyState(),

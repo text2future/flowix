@@ -1,9 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::{PassPlan, StateUpdates};
-use crate::reconcile::{dir_of, DirScanRecord, ReconcilePlan, SyncAction};
-use crate::state::{ScannedLocalFile, PathState};
 use crate::apply::ApplyOutcome;
+use crate::reconcile::{dir_of, DirScanRecord, ReconcilePlan, SyncAction};
+use crate::state::{PathState, ScannedLocalFile};
 
 /// Rows to persist. Pure, so the rules below are asserted without a database.
 ///
@@ -119,4 +119,3 @@ fn action_paths(plan: &ReconcilePlan) -> BTreeSet<&str> {
         })
         .collect()
 }
-

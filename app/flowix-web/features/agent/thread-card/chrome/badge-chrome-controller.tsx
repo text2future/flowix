@@ -170,7 +170,7 @@ export class AgentThreadCardBadgeChromeController {
       (threadId ? getResolvedExternalSessionId(threadId) : null);
     const typeKey = this.getTypeKey();
     const preferredPiMode = useAgentDataStore.getState().agents.pi.user.mode;
-    const piCodeMode = preferredPiMode === "code";
+    const piCodeMode = (preferredPiMode ?? "code") === "code";
     const { runId, model, usage } =
       computeAgentThreadCardBadgeData({
         threadState: this.getThreadState(),

@@ -51,7 +51,7 @@ pub async fn pick_notebook_directory(
     {
         return Err("notebook not found".into());
     }
-    let Some(path) = super::dialog::select_directory(app.clone()).await else {
+    let Some(path) = super::dialog::select_directory(app.clone(), None).await else {
         return Ok(None);
     };
     update(&state, &app, &notebook_id, &path, true).map(Some)

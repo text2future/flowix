@@ -105,6 +105,13 @@ export const TOOLS: readonly AgentToolMeta[] = [
     iconPath: TOOL_ICON_PATHS.magnify,
   },
   {
+    // Pi 内置 `find` 与 glob 同族 (按 glob 匹配路径)。不注册时它会回落成
+    // 英文 titleCase 标签 + terminal 图标, 看起来像一条 shell 命令。
+    name: "find",
+    labelKey: "agent.tools.find",
+    iconPath: TOOL_ICON_PATHS.magnify,
+  },
+  {
     name: "grep",
     labelKey: "agent.tools.grep",
     iconPath: TOOL_ICON_PATHS.magnify,

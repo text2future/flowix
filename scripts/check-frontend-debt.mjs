@@ -56,9 +56,13 @@ const MAX_NEW_FILE_LINES = 1000;
 //   （与既有 useTableKanban/useTableFieldEdits 同一形态）、显隐开关与两个状态屏各自成模块、
 //   预设判重下沉到 table-preset-bindings.ts。记录值随实测定为 1804，之后只许下降。
 // 若将来生产文件再超限，唯一合法出路仍是拆分，不得在这里改大数字。
+// 2026-11-26：thread-history.ts 964→931（把 content/identity key 抽到
+// history-message-keys.ts，是拆分把行数降下来）；agent-session-actions.test.ts
+// 3182→3246 只是新增两条 Stop 路由断言（stale binding / 无本地投影），
+// 按上面的测试文件先例对齐实测，非待拆逻辑。
 const FROZEN_FILES = {
   'features/multidimensional-table/table-document-view.tsx': 1804,
-  'features/agent/thread-card/settings/external-agent-settings-controller.ts': 2398,
+  'features/agent/thread-card/settings/external-agent-settings-controller.ts': 2367,
   'lib/i18n/messages.en-US.ts': { lines: 2371, exempt: true },
   'lib/i18n/messages.zh-CN.ts': { lines: 2345, exempt: true },
   'features/preferences/sections/agent.tsx': 2085,
@@ -67,18 +71,17 @@ const FROZEN_FILES = {
   'features/memo/components/notebook-file-tree.test.tsx': 1556,
   'features/memo/components/memo-list.tsx': 1361,
   'features/workspace/use-cases/workspace-navigation.ts': 1356,
-  'features/agent/thread-card/settings/notebook-agent-settings-dialog.tsx': 1276,
   'features/editor/extensions/frontmatter-property.test.ts': 1246,
   'features/editor/extensions/codeblock-shiki/codeblock-shiki-view.ts': 1192,
   'features/editor/extensions/frontmatter-property-editor.ts': 1089,
   'features/shell/main-layout.tsx': 592,
   'features/editor/extensions/frontmatter-node-view.ts': 1084,
-  'features/agent/store/thread-history.ts': 977,
+  'features/agent/store/thread-history.ts': 931,
   'features/editor/markdown-editor.select-all.test.tsx': 1081,
   'features/agent/store/session-reducer/reduce-projection.test.ts': 1020,
-  'features/editor/markdown-editor.tsx': 858,
-  'features/agent/thread-card/agent-thread-card.test.ts': 4483,
-  'features/agent/store/agent-session-actions.test.ts': 3212,
+  'features/editor/markdown-editor.tsx': 810,
+  'features/agent/thread-card/agent-thread-card.test.ts': 4395,
+  'features/agent/store/agent-session-actions.test.ts': 3246,
 };
 
 function countLines(content) {

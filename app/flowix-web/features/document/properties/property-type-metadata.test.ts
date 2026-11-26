@@ -3,7 +3,8 @@ import { Editor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from '@tiptap/markdown';
 import Frontmatter from '@features/editor/extensions/frontmatter';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { useSettingsStore } from '@/lib/store/settings-store';
 import { parseDocument } from 'yaml';
 import { resolvePropertyType } from './property-type';
 import { deleteVisibleFrontmatterProperty, parseVisibleFrontmatter, replaceVisibleFrontmatterProperties, updateVisibleFrontmatterProperty } from './frontmatter-model';
@@ -11,7 +12,15 @@ import { patchDocumentProperties } from '../public/path-properties';
 import { usePropertyPresetStore } from '@features/properties/property-preset-store';
 
 const initialSettings = usePropertyPresetStore.getState().registry;
-afterEach(() => usePropertyPresetStore.setState({ registry: initialSettings }));
+let previousPropertiesVisible: boolean;
+beforeEach(() => {
+  previousPropertiesVisible = useSettingsStore.getState().propertiesVisible;
+  useSettingsStore.setState({ propertiesVisible: true });
+});
+afterEach(() => {
+  usePropertyPresetStore.setState({ registry: initialSettings });
+  useSettingsStore.setState({ propertiesVisible: previousPropertiesVisible });
+});
 const data = (yaml: string) => parseDocument(yaml).toJS();
 
 describe('persisted property types', () => {

@@ -4,7 +4,7 @@ import { friendlyErrorMessage } from '@/lib/friendly-error-message';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Crown, Loader2, RotateCw } from 'lucide-react';
-import { cloud, windows } from '@platform/tauri/client';
+import { cloud, windows, type CloudAiCreditState } from '@platform/tauri/client';
 import { useI18n } from '@/lib/i18n';
 import { toast } from '@/lib/toast';
 import { cn } from '@/lib/utils';
@@ -34,61 +34,58 @@ type AiMembershipStatus = 'active' | 'inactive' | 'unknown';
 
 export function PiCloudModelsSection({
   authenticated,
+  aiCredits,
   membershipStatus = 'unknown',
   membershipLoading = false,
+  membershipRefreshing = false,
 }: {
   authenticated: boolean;
+  aiCredits?: CloudAiCreditState;
   membershipStatus?: AiMembershipStatus;
   membershipLoading?: boolean;
+  membershipRefreshing?: boolean;
 }) {
   const { t, language } = useI18n();
-  const [balanceLoaded, setBalanceLoaded] = useState(false);
-  const [totalBalance, setTotalBalance] = useState<number | null>(null);
-  const [monthlyBalance, setMonthlyBalance] = useState<number | null>(null);
-  const [permanentBalance, setPermanentBalance] = useState<number | null>(null);
-  const [monthlyExpiresAt, setMonthlyExpiresAt] = useState<number | null>(null);
-  const [balanceError, setBalanceError] = useState<string | null>(null);
-  const [balanceLoading, setBalanceLoading] = useState(false);
+  const balance = aiCredits?.data;
+  const balanceLoaded = Boolean(balance || aiCredits?.status === 'error');
+  const totalBalance = balance ? balance.balanceMicrocredits / 1_000_000 : null;
+  const monthlyBalance = balance ? balance.monthlyBalanceMicrocredits / 1_000_000 : null;
+  const permanentBalance = balance ? balance.permanentBalanceMicrocredits / 1_000_000 : null;
+  const monthlyExpiresAt = balance?.monthlyExpiresAt ?? null;
+  const balanceError = aiCredits?.error ?? null;
+  const balanceLoading = aiCredits?.status === 'refreshing';
   const [modelCatalogLoading, setModelCatalogLoading] = useState(false);
-  const balanceRequest = useRef(0);
+  const lastBalanceRefreshAt = useRef(0);
 
   const refreshBalance = useCallback(async (notifyError = false) => {
-    const request = ++balanceRequest.current;
-    if (!authenticated) {
-      setBalanceLoaded(false);
-      setTotalBalance(null);
-      setMonthlyBalance(null);
-      setPermanentBalance(null);
-      setMonthlyExpiresAt(null);
-      setBalanceError(null);
-      setBalanceLoading(false);
-      return;
-    }
-    setBalanceLoading(true);
+    if (!authenticated) return;
+    lastBalanceRefreshAt.current = Date.now();
     try {
-      const result = await cloud.getAiCreditBalance();
-      if (request !== balanceRequest.current) return;
-      setBalanceLoaded(true);
-      setTotalBalance(result.balanceMicrocredits / 1_000_000);
-      setMonthlyBalance(result.monthlyBalanceMicrocredits / 1_000_000);
-      setPermanentBalance(result.permanentBalanceMicrocredits / 1_000_000);
-      setMonthlyExpiresAt(result.monthlyExpiresAt);
-      setBalanceError(null);
+      await cloud.getAiCreditBalance();
     } catch (value) {
-      if (request !== balanceRequest.current) return;
-      setBalanceLoaded(true);
       const message = friendlyErrorMessage(value, t, 'errors.friendly.balanceLoad');
-      setBalanceError(message);
       if (notifyError) toast.error(message);
-    } finally {
-      if (request === balanceRequest.current) setBalanceLoading(false);
     }
   }, [authenticated, t]);
 
   useEffect(() => {
     void refreshBalance();
-    return () => { balanceRequest.current += 1; };
-  }, [refreshBalance, t]);
+  }, [refreshBalance]);
+
+  useEffect(() => {
+    if (!authenticated) return;
+    const refreshIfStale = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (Date.now() - lastBalanceRefreshAt.current < 60_000) return;
+      void refreshBalance();
+    };
+    window.addEventListener('focus', refreshIfStale);
+    document.addEventListener('visibilitychange', refreshIfStale);
+    return () => {
+      window.removeEventListener('focus', refreshIfStale);
+      document.removeEventListener('visibilitychange', refreshIfStale);
+    };
+  }, [authenticated, refreshBalance]);
 
   const refreshBalanceAndModels = useCallback(async () => {
     setModelCatalogLoading(true);
@@ -133,6 +130,12 @@ export function PiCloudModelsSection({
                   ? 'preferences.pi.cloudMembershipNotActive'
                   : 'preferences.pi.cloudMembershipUnknown')}
             </span>}
+            {(membershipRefreshing || balanceLoading || modelCatalogLoading) && !membershipLoading && (
+              <span className="flex items-center gap-1 whitespace-nowrap text-xs text-[var(--muted-foreground)]">
+                <Loader2 className="size-3.5 flowix-spin" aria-hidden="true" />
+                {t('preferences.cloud.membershipLoading')}
+              </span>
+            )}
             <Button
               type="button"
               variant="outline"
@@ -148,19 +151,19 @@ export function PiCloudModelsSection({
             <div className="flex min-w-0 flex-col items-start gap-0.5">
               <div className="flex min-w-0 items-center gap-1">
                 <span className="font-mono text-sm leading-5 font-semibold">
-                  {membershipStatus === 'inactive'
-                    ? '0'
-                    : !balanceLoaded
+                  {!balanceLoaded
                       ? <span aria-hidden="true" className="inline-block h-4 w-16 animate-pulse rounded bg-[var(--muted)] align-middle" />
                       : totalBalance === null
                         ? t('preferences.pi.cloudCreditsUnavailable')
                         : totalBalance.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>
-                <Button
+                <button
                   type="button"
-                  variant="ghost"
-                  size="icon-xs"
-                  className="rounded-full text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                  className={cn(
+                    'inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--muted-foreground)]',
+                    'transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]',
+                    'disabled:cursor-not-allowed disabled:opacity-60',
+                  )}
                   aria-label={t('preferences.pi.cloudCreditsRefresh')}
                   title={t('preferences.pi.cloudCreditsRefresh')}
                   disabled={balanceLoading || modelCatalogLoading}
@@ -169,22 +172,18 @@ export function PiCloudModelsSection({
                   {(balanceLoading || modelCatalogLoading)
                     ? <Loader2 className="size-3 flowix-spin" aria-hidden="true" />
                     : <RotateCw className="size-3" aria-hidden="true" />}
-                </Button>
+                </button>
               </div>
               <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-[var(--muted-foreground)]">
                 <span>{t('preferences.pi.cloudCreditsMonthly')} <span className="font-mono">
-                  {membershipStatus === 'inactive'
-                    ? '0'
-                    : !balanceLoaded
+                  {!balanceLoaded
                       ? <span aria-hidden="true" className="inline-block h-3 w-12 animate-pulse rounded bg-[var(--muted)] align-middle" />
                       : monthlyBalance === null
                         ? t('preferences.pi.cloudCreditsUnavailable')
                         : monthlyBalance.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span></span>
                 <span>{t('preferences.pi.cloudCreditsPermanent')} <span className="font-mono">
-                  {membershipStatus === 'inactive'
-                    ? '0'
-                    : !balanceLoaded
+                  {!balanceLoaded
                       ? <span aria-hidden="true" className="inline-block h-3 w-12 animate-pulse rounded bg-[var(--muted)] align-middle" />
                       : permanentBalance === null
                         ? t('preferences.pi.cloudCreditsUnavailable')
@@ -195,8 +194,10 @@ export function PiCloudModelsSection({
           </div>
           <div className="text-[var(--muted-foreground)]">{t('preferences.pi.cloudCreditsResetDay')}</div>
           <div className="text-sm text-[var(--foreground)]">
-            {!balanceLoaded && membershipStatus !== 'inactive'
+            {!balanceLoaded
               ? <span aria-hidden="true" className="inline-block h-4 w-36 animate-pulse rounded bg-[var(--muted)] align-middle" />
+              : balanceError && totalBalance === null
+                ? t('preferences.pi.cloudCreditsUnavailable')
               : monthlyExpiresAt === null
                 ? t('preferences.pi.cloudCreditsNoResetDate')
                 : t('preferences.pi.cloudCreditsResetAt', formatResetDate(monthlyExpiresAt, language))}

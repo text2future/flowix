@@ -51,6 +51,37 @@ export function insertAgentMessageBySourceOrder(
   return [...messages.slice(0, insertAt), message, ...messages.slice(insertAt)];
 }
 
+/** Re-sort rows that belong to one indexed-block message; other runtimes keep
+ * the array as-is. Callers decide *whether* blocks apply (see
+ * `agent-message-profile`), this only knows *how* to order them. */
+export function reorderIndexedBlocks(
+  messages: ChatMessage[],
+  indexedBlocks: boolean,
+): ChatMessage[] {
+  return indexedBlocks ? orderPiMessageBlocks(messages) : messages;
+}
+
+/**
+ * Place one freshly created row into the transcript.
+ *
+ * - indexed-block runtimes (Pi): append, then re-sort inside the owning
+ *   message so `[text][tool][text]` keeps its block order.
+ * - arrival-order runtimes (Codex items): append, provider order is truth.
+ * - everyone else: insert by source timestamp/sequence.
+ */
+export function placeAgentMessageRow(
+  messages: ChatMessage[],
+  row: ChatMessage,
+  options: { indexedBlocks: boolean; preserveArrivalOrder?: boolean },
+): ChatMessage[] {
+  if (options.indexedBlocks) return orderPiMessageBlocks([...messages, row]);
+  return insertAgentMessageBySourceOrder(
+    messages,
+    row,
+    options.preserveArrivalOrder ?? false,
+  );
+}
+
 /** Sort only blocks belonging to one native Pi message. Other messages keep
  * their arrival/branch positions; no timestamps or run-local sequences mix. */
 export function orderPiMessageBlocks(messages: ChatMessage[]): ChatMessage[] {

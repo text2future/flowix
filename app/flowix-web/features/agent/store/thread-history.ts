@@ -1,17 +1,15 @@
 import { piRowIdentity, reconcilePiTimeline } from "@features/agent/store/pi-message-reconciliation";
-import type { ChatMessage, ThreadListItem } from "@/types";
+import type { ChatMessage } from "@/types";
 import type { AgentTypeKey } from "@/types/agent";
-import { stripSystemBlock } from "@features/agent/message";
 import { createAgentToolDisplay } from "@features/agent/tool-display";
-import { isEmptyAssistantMessage } from "@features/agent/message";
-import {
-  attachHistoryCursor,
-  getAgentHistoryAdapter,
-  readHistoryPageWithCursor,
-  type ThreadHistoryPage,
-} from "@features/agent/store/agent-history-adapters";
 import { messageRenderKey } from "@features/agent/message/render-identity";
 import { completedRunUserMessageId } from "@features/agent/events/message-identity";
+import { getAgentMessageProfile } from "@features/agent/runtime/agent-message-profile";
+import {
+  messageContentStableKey,
+  toolCallIdentityKey,
+  userMessageVisibleKey,
+} from "@features/agent/store/history-message-keys";
 
 import { createLogger } from '@/lib/logger';
 const logger = createLogger('agent/store/thread-history');
@@ -19,71 +17,7 @@ const logger = createLogger('agent/store/thread-history');
  * resulting message count is intentionally variable. */
 export const HISTORY_PAGE_SIZE = 10;
 
-export async function listHistoryThreads(
-  type: AgentTypeKey,
-): Promise<ThreadListItem[]> {
-  return getAgentHistoryAdapter(type).listThreads();
-}
-
-export async function findHistoryThreadInfo(
-  type: AgentTypeKey,
-  threadId: string,
-  currentList: ThreadListItem[],
-): Promise<ThreadListItem | undefined> {
-  return (
-    currentList.find((item) => item.threadId === threadId) ??
-    (await listHistoryThreads(type)).find((item) => item.threadId === threadId)
-  );
-}
-
-export async function getHistoryPage(
-  type: AgentTypeKey,
-  threadId: string,
-  limit: number,
-  cursor?: string,
-): Promise<ThreadHistoryPage> {
-  if (cursor) return readHistoryPageWithCursor(type, threadId, cursor, limit, getAgentHistoryAdapter(type));
-  const page = await getAgentHistoryAdapter(type).getInitialHistory(threadId, limit);
-  return attachHistoryCursor(type, threadId, page);
-}
-
-export function filterRenderableHistoryMessages(
-  messages: ChatMessage[],
-): ChatMessage[] {
-  return messages
-    .filter((m) => !isEmptyAssistantMessage(m))
-    .map((message) => {
-      if (message.role !== "user") return message;
-      const content = stripSystemBlock(message.content || "");
-      return content === message.content ? message : { ...message, content };
-    })
-    .filter((message) => message.role !== "user" || message.content.trim() !== "");
-}
-
-// Cheap content fingerprint used as a Map key for dedup. Two independent
-// FNV-1a 32-bit hashes combined give an effectively 64-bit collision space
-// while walking each string only once with constant per-character work.
-// Replaces JSON.stringify(content) which, on multi-MB assistant responses,
-// allocated several MB of UTF-16 strings per message per streaming flush. Collisions
-// remain theoretically possible but vanishingly unlikely for chat history;
-// the dedup logic treats a collision as "duplicate, skip" which is benign.
-function contentFingerprint(content: string): string {
-  let h1 = 0x811c9dc5;
-  let h2 = 0x9e3779b9;
-  const prime1 = 0x01000193;
-  const prime2 = 0x85ebca6b;
-  for (let i = 0; i < content.length; i += 1) {
-    const c = content.charCodeAt(i);
-    h1 = Math.imul(h1 ^ c, prime1);
-    h2 = Math.imul(h2 ^ c, prime2);
-  }
-  return `${h1 >>> 0}:${h2 >>> 0}`;
-}
-
-function userMessageVisibleKey(message: ChatMessage): string | null {
-  if (message.role !== "user") return null;
-  return `user:visible:${contentFingerprint(stripSystemBlock(message.content || ""))}`;
-}
+export { listHistoryThreads, findHistoryThreadInfo, getHistoryPage, filterRenderableHistoryMessages } from "./history-page";
 
 /**
  * Compatibility fallback for provider histories whose user item id differs
@@ -156,29 +90,6 @@ export function historyConfirmsLiveMessages(
       !persisted.isLoading &&
       (message.role !== "assistant" && message.role !== "reasoning" || persisted.isCompleted === true);
   });
-}
-
-function messageContentStableKey(message: ChatMessage): string | null {
-  if (message.role === "user") return userMessageVisibleKey(message);
-  if (
-    message.role === "assistant" ||
-    message.role === "reasoning" ||
-    message.role === "end"
-  ) {
-    const content = (message.content || "").replace(/\r\n/g, "\n").trim();
-    if (!content) return null;
-    return `${message.role}:${contentFingerprint(content)}`;
-  }
-  if (message.role === "tool" && message.toolCallId) {
-    return `tool:${message.toolCallId}:${contentFingerprint(message.content || "")}`;
-  }
-  return null;
-}
-
-function toolCallIdentityKey(toolCallId: string): string {
-  const marker = ":tool-call:";
-  const markerIndex = toolCallId.lastIndexOf(marker);
-  return markerIndex >= 0 ? toolCallId.slice(markerIndex + marker.length) : toolCallId;
 }
 
 const messageIdentityKey = piRowIdentity;
@@ -288,7 +199,9 @@ export function mergeHistoricalMessages(
 ): ChatMessage[] {
   const hydratedHistorical = hydrateHistoricalMessages(historical, agentType);
   if (existing.length === 0) return hydratedHistorical;
-  if (agentType === "pi") return reuseRenderEquivalentMessageReferences(existing, reconcilePiTimeline(existing, hydratedHistorical, { kind: "snapshot", coverage: "page" }));
+  if (getAgentMessageProfile(agentType).historyMerge === "pi-timeline") {
+    return reuseRenderEquivalentMessageReferences(existing, reconcilePiTimeline(existing, hydratedHistorical, { kind: "snapshot", coverage: "page" }));
+  }
 
   // Codex `thread/turns/list(itemsView: "full")` is already an ordered
   // transcript: turn order and the order of every item inside each turn are
@@ -297,7 +210,7 @@ export function mergeHistoricalMessages(
   // union by timestamp can therefore move a command before the user message
   // that caused it. Keep the provider's historical order intact and append
   // only genuinely live-only rows (normally an in-progress tail).
-  if (agentType === "codex") {
+  if (getAgentMessageProfile(agentType).historyMerge === "codex-items") {
     return mergeCodexHistoryWithLive(hydratedHistorical, existing);
   }
 
@@ -509,6 +422,7 @@ function areMessagesRenderEquivalent(
     toolName: left.toolName,
     toolAgentType: left.toolAgentType,
     toolData: left.toolData,
+    toolError: left.toolError,
     toolInput: left.toolInput,
     toolDisplay: left.toolDisplay,
     toolCalls: left.toolCalls,
@@ -530,6 +444,7 @@ function areMessagesRenderEquivalent(
     toolName: right.toolName,
     toolAgentType: right.toolAgentType,
     toolData: right.toolData,
+    toolError: right.toolError,
     toolInput: right.toolInput,
     toolDisplay: right.toolDisplay,
     toolCalls: right.toolCalls,
@@ -625,6 +540,7 @@ export function areMessagesEquivalent(
       toolName: message.toolName,
       toolAgentType: message.toolAgentType,
       toolData: message.toolData,
+      toolError: message.toolError,
       toolInput: message.toolInput,
       toolDisplay: message.toolDisplay,
       toolCalls: message.toolCalls,
@@ -650,6 +566,7 @@ export function areMessagesEquivalent(
       toolName: other.toolName,
       toolAgentType: other.toolAgentType,
       toolData: other.toolData,
+      toolError: other.toolError,
       toolInput: other.toolInput,
       toolDisplay: other.toolDisplay,
       toolCalls: other.toolCalls,
@@ -679,7 +596,9 @@ export function replaceCompletedRunWithHistory(
 ): ChatMessage[] {
   const history = hydrateHistoricalMessages(historical, agentType);
   if (history.length === 0) return existing;
-  if (agentType === "pi") return reuseRenderEquivalentMessageReferences(existing, reconcilePiTimeline(existing, history, { kind: "snapshot", coverage: "page" }));
+  if (getAgentMessageProfile(agentType).historyMerge === "pi-timeline") {
+    return reuseRenderEquivalentMessageReferences(existing, reconcilePiTimeline(existing, history, { kind: "snapshot", coverage: "page" }));
+  }
   const anchorId = completedRunUserMessageId(agentType, runId);
   const lastIndex = (
     messages: ChatMessage[],
@@ -840,7 +759,7 @@ export function replaceCompletedRunWithHistory(
       reconciledRun.splice(insertAt, 0, assistant);
     }
     const next = [...existing.slice(0, existingAnchor), ...reconciledRun];
-    return agentType === "codex"
+    return getAgentMessageProfile(agentType).historyMerge === "codex-items"
       ? preferLiveMessageReferencesById(existing, next)
       : reuseRenderEquivalentMessageReferences(existing, next);
   }
@@ -890,14 +809,17 @@ export function mergeMessagesForThreadRender({
 
   const hydratedHistory = hydrateHistoricalMessages(history, agentType);
   const hydratedLive = hydrateHistoricalMessages(live, agentType);
+  const profile = getAgentMessageProfile(agentType);
   // The same Codex ordering contract applies to render-time overlays as to
   // initial/completion history reconciliation. Keeping this branch here
   // prevents a later caller from accidentally reintroducing timestamp order
   // after `mergeHistoricalMessages` already preserved provider order.
-  if (agentType === "codex") {
+  if (profile.historyMerge === "codex-items") {
     return mergeCodexHistoryWithLive(hydratedHistory, hydratedLive);
   }
-  if (agentType === "pi") return reuseRenderEquivalentMessageReferences(hydratedLive, reconcilePiTimeline(hydratedLive, hydratedHistory, { kind: "snapshot", coverage: "page" }));
+  if (profile.historyMerge === "pi-timeline") {
+    return reuseRenderEquivalentMessageReferences(hydratedLive, reconcilePiTimeline(hydratedLive, hydratedHistory, { kind: "snapshot", coverage: "page" }));
+  }
   const latestHistoryUser = latestUserIndex(hydratedHistory);
   const latestLiveUser = latestUserIndex(hydratedLive);
   const sameLatestTurn = latestHistoryUser >= 0 && latestLiveUser >= 0 &&
@@ -958,7 +880,9 @@ export function mergeLiveMessagesIntoRenderableMessages(
   if (liveMessages.length === 0) return existingMessages;
   const live = hydrateHistoricalMessages(liveMessages, agentType);
   if (existingMessages.length === 0) return live;
-  if (agentType === "pi") return reuseRenderEquivalentMessageReferences(existingMessages, reconcilePiTimeline(existingMessages, live, { kind: "live-projection" }));
+  if (getAgentMessageProfile(agentType).historyMerge === "pi-timeline") {
+    return reuseRenderEquivalentMessageReferences(existingMessages, reconcilePiTimeline(existingMessages, live, { kind: "live-projection" }));
+  }
 
   const liveById = new Map(
     live.map((message) => [messageIdentityKey(message), message]),

@@ -11,6 +11,8 @@ type PiModelPickerProps = {
   emptyLabel: string;
   personalEmptyLabel: string;
   onAddCustomModel: () => void;
+  recommendedLabel: string;
+  advancedLabel: string;
   createModelItem: (model: AgentModelOption) => HTMLElement;
   onSelectReasoning?: (model: AgentModelOption, level: string) => void;
 };
@@ -46,13 +48,30 @@ function createDetails(model: AgentModelOption, props: PiModelPickerProps): HTML
   const title = document.createElement("strong");
   title.textContent = model.label;
   item.append(title);
+  const tags = model.tags?.map((tag) => tag.trim()).filter(Boolean) ?? [];
+  if (tags.length > 0) {
+    const tagList = document.createElement("div");
+    tagList.className = "agent-pi-model-picker__tags";
+    tagList.setAttribute("aria-label", "模型标签");
+    tags.forEach((tag) => {
+      const tagElement = document.createElement("span");
+      tagElement.className = "agent-pi-model-picker__tag";
+      tagElement.textContent = tag;
+      tagList.append(tagElement);
+    });
+    item.append(tagList);
+  }
   const description = model.description?.trim() || model.subtitle?.trim();
   const text = document.createElement("span");
   text.textContent = description || "暂无模型描述";
   item.append(text);
   if (model.creditMultiplier != null) {
     const rate = document.createElement("span");
-    rate.textContent = `消耗倍率：${model.creditMultiplier.toFixed(2)}x`;
+    rate.textContent = "官价倍率：";
+    const value = document.createElement("span");
+    value.className = "agent-pi-model-picker__multiplier-value";
+    value.textContent = `${model.creditMultiplier.toFixed(2)}x`;
+    rate.append(value);
     item.append(rate);
   }
   if (model.reasoningConfig) {
@@ -78,7 +97,7 @@ function createDetails(model: AgentModelOption, props: PiModelPickerProps): HTML
     item.append(label);
   } else {
     const unavailable = document.createElement("span");
-    unavailable.textContent = "思考强度：未配置";
+    unavailable.textContent = "思考强度：默认";
     item.append(unavailable);
   }
   return item;
@@ -270,8 +289,15 @@ export function createPiModelPicker(props: PiModelPickerProps): HTMLElement {
 
   const panel = document.createElement("div");
   panel.className = "agent-pi-model-picker__panel";
+  const recommendedModels = memberModels.filter((model) => model.recommended);
+  const advancedModels = memberModels.filter((model) => !model.recommended);
+  const advancedSection = createModelCategory(props.advancedLabel, advancedModels, props, "none");
+  advancedSection.classList.add("agent-pi-model-picker__category--advanced");
   panel.append(
-    createModelGroups(memberModels, props, "none"),
+    ...(recommendedModels.length > 0
+      ? [createModelCategory(props.recommendedLabel, recommendedModels, props, "none")]
+      : []),
+    advancedSection,
     createModelCategory(
       props.mineLabel,
       mineModels,

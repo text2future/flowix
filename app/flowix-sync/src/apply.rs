@@ -404,6 +404,9 @@ pub(crate) struct ApplyOptions<'a> {
     /// Per-file size estimates, used only to bound how many transfers run at
     /// once.
     pub sizes: Option<&'a BTreeMap<String, u64>>,
+    /// Hard client-side ceiling checked against bytes read immediately before
+    /// publishing, in case a file grew after the planning scan.
+    pub max_upload_file_bytes: Option<u64>,
     /// Transfer indicator, shared with the batch tracker.
     pub on_transfer: Option<&'a TransferObserver<'a>>,
     /// Progress after each applied action.
@@ -422,6 +425,7 @@ pub(crate) async fn apply_with_progress(
 ) -> ApplyOutcome {
     let ApplyOptions {
         sizes,
+        max_upload_file_bytes,
         on_transfer,
         on_progress,
     } = options;
@@ -493,6 +497,7 @@ pub(crate) async fn apply_with_progress(
                         snapshot,
                         &upload.path,
                         upload.reason,
+                        max_upload_file_bytes,
                         Some(tracker),
                     )
                     .await;
@@ -647,6 +652,7 @@ pub(crate) async fn apply_with_progress(
                 snapshot,
                 &upload.path,
                 upload.reason,
+                max_upload_file_bytes,
                 Some(&tracker),
             )
             .await
@@ -746,6 +752,7 @@ async fn upload_one(
     snapshot: &LocalSnapshot,
     key: &str,
     reason: UploadReason,
+    max_upload_file_bytes: Option<u64>,
     tracker: Option<&TransferTracker<'_>>,
 ) -> Result<PathState, SyncError> {
     let display = display_path(snapshot, key);
@@ -754,6 +761,12 @@ async fn upload_one(
             "{display} disappeared before it could be uploaded"
         )));
     };
+    if max_upload_file_bytes.is_some_and(|maximum| bytes.len() as u64 > maximum) {
+        return Err(SyncError::InvalidState(
+            "file grew beyond the per-file cloud upload limit after scanning; upload was skipped"
+                .into(),
+        ));
+    }
     let hash = content_hash(&bytes);
     let size = bytes.len();
     let remote = object_store_ops::upload_with_progress(

@@ -892,21 +892,6 @@
   cursor: default;
 }
 
-.agent-conversation-surface .agent-thread-card__pi-model-notice:not([hidden]) {
-  display: inline-flex;
-  gap: 3px;
-  cursor: pointer;
-}
-
-.agent-conversation-surface .agent-thread-card__pi-model-notice:hover {
-  background: color-mix(in srgb, var(--primary) 12%, transparent);
-}
-
-.agent-conversation-surface .agent-thread-card__pi-model-notice:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--primary) 55%, transparent);
-  outline-offset: 2px;
-}
-
 .agent-conversation-surface .agent-thread-card__empty--expanded {
   /* Welcome and skill guidance remain in the message flow above the composer. */
   flex: 0 0 auto;
@@ -1159,17 +1144,10 @@
   text-align: center;
 }
 
-.agent-conversation-surface .agent-thread-card__empty-skill--more
-  .agent-thread-card__empty-skill-title {
-  max-width: 100%;
-  gap: 4px;
-  overflow: visible;
-}
-
-.agent-conversation-surface .agent-thread-card__empty-skill--more
-  .agent-thread-card__chevron-icon {
-  width: 12px;
-  height: 12px;
+.agent-conversation-surface .agent-thread-card__empty-skill-more-icon {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
   color: var(--muted-foreground);
 }
 
@@ -1192,31 +1170,64 @@
 .agent-conversation-surface .agent-thread-card__empty-skill-hint {
   grid-column: 1 / -1;
   color: var(--muted-foreground);
-  font-size: 1rem;
+  font-size: 0.875rem;
   line-height: 1.5;
 }
 
 /* Featured notes stay on one horizontal row; arrows page through overflow. */
 .agent-conversation-surface .agent-thread-card__featured-notes {
-  position: absolute;
-  z-index: 4;
-  right: 0;
-  bottom: calc(100% + 8px);
-  left: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
   column-gap: 8px;
-  width: 100%;
   flex: 0 0 auto;
   align-self: stretch;
-  margin: 0;
+  min-width: 0;
+  margin: 0 0 8px;
   padding: 0;
   background-color: var(--agent-bg, var(--document-bg));
   color: var(--foreground);
 }
 
-.agent-conversation-surface .agent-composer > .agent-thread-card__featured-notes {
-  max-width: 100%;
+.agent-conversation-surface .agent-thread-card__featured-notes-viewport {
+  position: relative;
+  min-width: 0;
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.agent-conversation-surface .agent-thread-card__container > .agent-thread-card__featured-notes {
+  grid-column: 1;
+  grid-row: 3;
+  box-sizing: border-box;
+  width: calc(
+    100% - var(--agent-content-inline-inset) - var(--agent-content-inline-inset)
+  );
+  max-width: var(--agent-content-max-width);
+  margin-inline: auto;
+}
+
+.agent-conversation-surface
+  .agent-conversation-detail__composer-stack
+  > .agent-thread-card__featured-notes {
+  box-sizing: border-box;
+  width: calc(
+    100% - var(--agent-content-inline-inset) - var(--agent-content-inline-inset)
+  );
+  max-width: var(--agent-content-max-width);
+  align-self: center;
+  margin: 0 auto 8px;
+}
+
+.agent-conversation-surface .agent-thread-card__container:has(
+  > .agent-thread-card__featured-notes
+) {
+  grid-template-rows: var(--atc-header-h) minmax(0, 1fr) auto auto;
+}
+
+.agent-conversation-surface.agent-thread-card--fullscreen
+  > .agent-thread-card__container:has(> .agent-thread-card__featured-notes) {
+  grid-template-rows: 0 minmax(0, 1fr) auto auto;
 }
 
 /* 弹层与运算符菜单已挂到 document.body, 不再是 .agent-conversation-surface 的后代,
@@ -1225,7 +1236,7 @@
 .agent-conversation-surface .agent-thread-card__featured-notes-header {
   display: flex;
   flex: 0 0 auto;
-  align-items: stretch;
+  align-items: center;
 }
 
 .agent-conversation-surface .agent-thread-card__featured-notes-navigation[hidden],
@@ -1297,15 +1308,14 @@
 .agent-conversation-surface .agent-thread-card__featured-notes-list {
   display: flex;
   min-width: 0;
+  width: 100%;
   flex-direction: row;
   flex-wrap: nowrap;
   align-items: center;
   gap: 8px;
-  grid-column: 1;
-  grid-row: 1;
   overflow-x: auto;
   overscroll-behavior: contain;
-  padding: 1px 4px 8px 1px;
+  padding: 4px 4px 4px 1px;
   scrollbar-width: none;
   scroll-behavior: smooth;
 }
@@ -1341,6 +1351,10 @@
 
 .agent-conversation-surface .agent-thread-card__featured-notes-settings-button {
   gap: 0;
+  min-height: 30px;
+  padding-inline: 10px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--muted) 48%, transparent);
 }
 
 .agent-conversation-surface .agent-thread-card__featured-notes-settings-button:hover,

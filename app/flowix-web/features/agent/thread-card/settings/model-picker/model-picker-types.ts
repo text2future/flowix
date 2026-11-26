@@ -9,7 +9,9 @@ export type AgentModelOption = {
   label: string;
   description?: string;
   subtitle?: string;
+  tags?: string[];
   creditMultiplier?: number;
+  recommended?: boolean;
   reasoningConfig?: { levels: string[]; defaultLevel?: string | null };
   iconUrl?: string;
   reasoningEfforts?: AgentCodexReasoningEffort[];

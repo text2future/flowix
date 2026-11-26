@@ -221,9 +221,12 @@ pub fn get_pi_features() -> Result<crate::agent_external::pi::config::PiFeatures
 
 #[tauri::command]
 pub fn save_pi_features(
-    features: crate::agent_external::pi::config::PiFeatures,
+    features: crate::agent_external::pi::config::PiFeaturesPatch,
+    app: AppHandle,
 ) -> Result<(), String> {
-    pi_model_config::save_features(features)
+    pi_model_config::save_features(features)?;
+    dispatcher::emit_to(&app, USER_CONFIG_CHANGED_EVENT, "pi_config");
+    Ok(())
 }
 
 #[tauri::command]

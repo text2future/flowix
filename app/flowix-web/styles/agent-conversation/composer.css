@@ -266,7 +266,7 @@
   grid-area: actions;
   display: flex;
   align-items: center;
-  gap: 0.1rem;
+  gap: 0.25rem;
   align-self: end;
 }
 
@@ -280,7 +280,7 @@
   max-width: 12rem;
   height: var(--agent-composer-control-size);
   flex: 0 1 auto;
-  padding: 0 0.45rem;
+  padding: 0 0.5rem;
   border: 0;
   border-radius: 10px;
   background: transparent;
@@ -353,10 +353,7 @@
 .agent-conversation-surface .agent-composer__permission .agent-conversation__control-chevron,
 .agent-conversation-surface .agent-composer__model .agent-conversation__control-chevron,
 .agent-conversation-surface .agent-composer__mode .agent-conversation__control-chevron {
-  width: 12px;
-  height: 12px;
-  flex: 0 0 auto;
-  opacity: 1;
+  display: none;
 }
 
 .agent-conversation-surface .agent-composer__workspace-icon {
@@ -544,7 +541,7 @@
   width: 14px;
   height: 14px;
   flex-basis: 14px;
-  stroke-width: 1.2;
+  stroke-width: 1.5;
 }
 
 .agent-composer-slash-menu__icon--project {

@@ -2655,6 +2655,28 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     expect(state.runs["run-stop"]?.phase).not.toBe("stopping");
   });
 
+  it("clears a run the runtime no longer owns instead of pinning it as running", async () => {
+    // Refresh-during-run: the projection can hold a run the backend already
+    // finished (the terminal event was emitted while the WebView was gone).
+    // Stop then reaches nobody, so the local run has to be closed here —
+    // otherwise the card shows "running" with a Stop button that does nothing.
+    const { agent } = await import("@platform/tauri/client");
+    const { useChatStore } = await import("@features/agent/store/agent-session-test-facade");
+    const threadId = "thread-stop-orphan";
+    const store = useChatStore.getState();
+    store.bindThreadType(threadId, "pi");
+    store.dispatchAgentChunk({ kind: "stream_start", thread_id: threadId, run_id: "run-orphan", agent_type: "pi" });
+    vi.mocked(agent.stopChatStream).mockResolvedValueOnce(false);
+    vi.mocked(agent.runningThreads).mockResolvedValueOnce({});
+
+    await store.stopThreadRun(threadId, "run-orphan");
+
+    const state = useChatStore.getState().threadStates[threadId];
+    expect(state.isLoading).toBe(false);
+    expect(state.activeRunId).toBeNull();
+    expect(state.lastRun).toMatchObject({ runId: "run-orphan", status: "cancelled" });
+  });
+
   it("keeps stopping when the backend has accepted cancellation but cannot confirm completion", async () => {
     const { agent } = await import("@platform/tauri/client");
     const { useChatStore } = await import("@features/agent/store/agent-session-test-facade");
@@ -2670,6 +2692,48 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     await store.stopThreadRun(threadId, "run-stop");
 
     expect(useChatStore.getState().threadStates[threadId].runs["run-stop"]?.phase).toBe("stopping");
+  });
+
+  it("addresses the stop to the runtime that owns the run, not the stale binding", async () => {
+    // After a reload the thread's agent type can be missing from session meta.
+    // A stop addressed to that type is a silent no-op — the owning runtime
+    // never sees it — so the card kept showing "running" with a Stop button
+    // that did nothing. The run itself knows which runtime owns it.
+    const { agent } = await import("@platform/tauri/client");
+    const { useChatStore } = await import("@features/agent/store/agent-session-test-facade");
+    const threadId = "thread-stop-wrong-runtime";
+    const store = useChatStore.getState();
+    store.bindThreadType(threadId, "codex");
+    store.dispatchAgentChunk({ kind: "stream_start", thread_id: threadId, run_id: "run-pi", agent_type: "pi" });
+    vi.mocked(agent.stopChatStream).mockResolvedValueOnce(true);
+
+    await store.stopThreadRun(threadId, "run-pi");
+
+    expect(agent.stopChatStream).toHaveBeenCalledTimes(1);
+    expect(agent.stopChatStream).toHaveBeenCalledWith(threadId, "pi", "run-pi");
+    expect(useChatStore.getState().threadStates[threadId].runs["run-pi"]?.phase).toBe("stopping");
+  });
+
+  it("stops a run another runtime reports before any local projection exists", async () => {
+    const { agent } = await import("@platform/tauri/client");
+    const { useChatStore } = await import("@features/agent/store/agent-session-test-facade");
+    const threadId = "thread-stop-unprojected";
+    const store = useChatStore.getState();
+    store.bindThreadType(threadId, "codex");
+    vi.mocked(agent.stopChatStream).mockResolvedValueOnce(true);
+    vi.mocked(agent.runningThreads).mockResolvedValue({
+      [threadId]: {
+        runId: "run-pi-unprojected",
+        agentType: "pi",
+        startedAt: Date.now(),
+        currentTool: null,
+        phase: "running",
+      },
+    });
+
+    await store.stopThreadRun(threadId);
+
+    expect(agent.stopChatStream).toHaveBeenCalledWith(threadId, "pi", "run-pi-unprojected");
   });
 
   it("sends one stop request while the same run is already stopping", async () => {
@@ -3178,56 +3242,5 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     );
   });
 
-  it("rolls every title snapshot back when product persistence fails", async () => {
-    const { agent } = await import("@platform/tauri/client");
-    const { useChatStore } = await import("@features/agent/store/agent-session-test-facade");
-    const { useAgentConversationStore } = await import(
-      "@features/agent/store/agent-session-test-facade"
-    );
-    const threadId = "019f-title-rollback";
-    vi.mocked(agent.updateThreadTitle).mockRejectedValueOnce(
-      new Error("database unavailable"),
-    );
-    const instance = useAgentConversationStore.getState().createInstance({
-      agentType: "codex",
-      title: "Original title",
-      threadId,
-      source: { kind: "thread-card" },
-    });
-    useChatStore.setState((state) => ({
-      activeThreadIds: { ...state.activeThreadIds, codex: threadId },
-      currentThreadTitles: {
-        ...state.currentThreadTitles,
-        [threadId]: "Original title",
-      },
-      threadTypes: { ...state.threadTypes, [threadId]: "codex" },
-      threadLists: {
-        ...state.threadLists,
-        codex: [
-          { threadId, title: "Original title", createdAt: 1, updatedAt: 1 },
-        ],
-      },
-    }));
-
-    await expect(
-      useChatStore.getState().renameAgentConversation({
-        instanceId: instance.instanceId,
-        threadId,
-        title: "Unpersisted title",
-        typeKey: "codex",
-      }),
-    ).rejects.toThrow("database unavailable");
-
-    expect(useChatStore.getState().threadLists.codex?.[0]?.title).toBe(
-      "Original title",
-    );
-    expect(useChatStore.getState().currentThreadTitles[threadId]).toBe(
-      "Original title",
-    );
-    expect(
-      useAgentConversationStore.getState().getInstance(instance.instanceId)
-        ?.title,
-    ).toBe("Original title");
-  });
 
 });

@@ -3,6 +3,7 @@ use serde_json::{json, Map, Value};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::Path;
+use std::sync::Mutex;
 use tauri::{AppHandle, Manager};
 
 use super::runtime::pi_config_dir;
@@ -15,6 +16,8 @@ pub struct PiModelEntry {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subtitle: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub credit_multiplier: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -22,6 +25,8 @@ pub struct PiModelEntry {
     /// Cloud directory rank: larger values are shown first in the picker.
     #[serde(default)]
     pub sort_order: i64,
+    #[serde(default)]
+    pub recommended: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api: Option<String>,
     #[serde(default)]
@@ -82,11 +87,23 @@ pub struct PiModelCatalog {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PiFeatures {
+    #[serde(default)]
     pub tool_search: bool,
+    #[serde(default)]
+    pub web_search: bool,
     /// Read-only input for the one-time frontend preference migration.
     #[serde(skip_deserializing, skip_serializing_if = "Option::is_none")]
     pub legacy_code_mode: Option<bool>,
 }
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PiFeaturesPatch {
+    pub tool_search: Option<bool>,
+    pub web_search: Option<bool>,
+}
+
+static PI_FEATURES_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -117,7 +134,8 @@ pub fn shell_path() -> Result<Option<String>, String> {
         .map(str::to_owned))
 }
 
-pub fn save_features(features: PiFeatures) -> Result<(), String> {
+pub fn save_features(features: PiFeaturesPatch) -> Result<(), String> {
+    let _guard = PI_FEATURES_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let dir = pi_config_dir()?;
     fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
     let path = dir.join("settings.json");
@@ -125,11 +143,17 @@ pub fn save_features(features: PiFeatures) -> Result<(), String> {
     if !settings["flowixFeatures"].is_object() {
         settings["flowixFeatures"] = json!({});
     }
-    settings["flowixFeatures"]["toolSearch"] = json!(features.tool_search);
+    if let Some(value) = features.tool_search {
+        settings["flowixFeatures"]["toolSearch"] = json!(value);
+    }
+    if let Some(value) = features.web_search {
+        settings["flowixFeatures"]["webSearch"] = json!(value);
+    }
     write_json(&path, &settings)
 }
 
 pub fn clear_legacy_code_mode() -> Result<(), String> {
+    let _guard = PI_FEATURES_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let path = pi_config_dir()?.join("settings.json");
     let mut settings = read_json(&path)?;
     let removed = settings
@@ -435,6 +459,11 @@ pub fn list() -> Result<Vec<PiProviderConfig>, String> {
                             .and_then(|item| item.get("subtitle"))
                             .and_then(Value::as_str)
                             .map(str::to_string),
+                        tags: metadata
+                            .and_then(|item| item.get("tags"))
+                            .and_then(Value::as_array)
+                            .map(|tags| tags.iter().filter_map(Value::as_str).map(str::to_string).collect())
+                            .unwrap_or_default(),
                         credit_multiplier: metadata
                             .and_then(|item| item.get("creditMultiplier"))
                             .and_then(Value::as_f64)
@@ -447,6 +476,7 @@ pub fn list() -> Result<Vec<PiProviderConfig>, String> {
                             .and_then(|item| item.get("sortOrder"))
                             .and_then(Value::as_i64)
                             .unwrap_or(0),
+                        recommended: metadata.and_then(|item| item.get("recommended")).and_then(Value::as_bool).unwrap_or(false),
                         api: entry.get("api").and_then(Value::as_str).map(str::to_string),
                         reasoning: entry
                             .get("reasoning")
@@ -603,6 +633,7 @@ pub fn save(mut config: PiProviderConfig, app: &AppHandle) -> Result<(), String>
     );
     write_json(&models_path, &models_json)?;
 
+    let _settings_guard = PI_FEATURES_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let settings_path = dir.join("settings.json");
     let mut settings = read_json(&settings_path)?;
     let mut settings_changed = false;
@@ -635,6 +666,9 @@ pub fn save(mut config: PiProviderConfig, app: &AppHandle) -> Result<(), String>
         {
             metadata.insert("subtitle".into(), json!(subtitle.trim()));
         }
+        if !model.tags.is_empty() {
+            metadata.insert("tags".into(), json!(&model.tags));
+        }
         if let Some(multiplier) = model
             .credit_multiplier
             .filter(|value| value.is_finite() && (0.01..=10.0).contains(value))
@@ -652,6 +686,9 @@ pub fn save(mut config: PiProviderConfig, app: &AppHandle) -> Result<(), String>
         // still letting a rank be cleared on the next credential refresh.
         if model.sort_order != 0 {
             metadata.insert("sortOrder".into(), json!(model.sort_order));
+        }
+        if model.recommended {
+            metadata.insert("recommended".into(), json!(true));
         }
         if let Some(reasoning) = &model.reasoning_config {
             metadata.insert("reasoning".into(), reasoning.clone());
@@ -703,6 +740,7 @@ pub fn save(mut config: PiProviderConfig, app: &AppHandle) -> Result<(), String>
     if settings_changed {
         write_json(&settings_path, &settings)?;
     }
+    drop(_settings_guard);
 
     if let Some(key) = config
         .api_key
@@ -730,6 +768,7 @@ pub fn delete(provider_id: &str) -> Result<(), String> {
         providers.remove(id);
     }
     write_json(&models_path, &models)?;
+    let _settings_guard = PI_FEATURES_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let settings_path = dir.join("settings.json");
     let mut settings = read_json(&settings_path)?;
     let mut settings_changed = false;
@@ -769,6 +808,7 @@ pub fn delete(provider_id: &str) -> Result<(), String> {
     if settings_changed {
         write_json(&settings_path, &settings)?;
     }
+    drop(_settings_guard);
     let auth_path = dir.join("auth.json");
     let mut auth = read_json(&auth_path)?;
     if let Some(auth) = auth.as_object_mut() {
@@ -798,6 +838,26 @@ pub fn legacy_cloud_provider_id(api_base: &str) -> Result<Option<String>, String
         .and_then(Value::as_str)
         .is_some_and(|key| key.starts_with("fai_"));
     Ok((looks_like_cloud_provider && has_cloud_credential).then(|| provider_id.to_string()))
+}
+
+pub fn cloud_model_credential_key() -> Result<Option<String>, String> {
+    let dir = pi_config_dir()?;
+    let settings = read_json(&dir.join("settings.json"))?;
+    let auth = read_json(&dir.join("auth.json"))?;
+    let provider_id = settings
+        .get("flowixCloudProviderId")
+        .and_then(Value::as_str)
+        .filter(|id| !id.trim().is_empty());
+    Ok(provider_id
+        .into_iter()
+        .chain(std::iter::once("flowix-cloud"))
+        .find_map(|id| {
+            auth.get(id)
+                .and_then(|entry| entry.get("key"))
+                .and_then(Value::as_str)
+                .filter(|key| key.starts_with("fai_"))
+                .map(str::to_owned)
+        }))
 }
 
 fn collect_cloud_provider_ids(
@@ -968,11 +1028,13 @@ pub fn save_cloud_credential(
                         subtitle: model
                             .subtitle
                             .filter(|subtitle| !subtitle.trim().is_empty()),
+                        tags: model.tags,
                         credit_multiplier: model
                             .credit_multiplier
                             .filter(|value| value.is_finite() && (0.01..=10.0).contains(value)),
                         icon_url: model.icon_url.filter(|url| !url.trim().is_empty()),
                         sort_order: model.sort_order.unwrap_or(0),
+                        recommended: model.recommended.unwrap_or(false),
                         api: None,
                         reasoning: model
                             .reasoning
@@ -1116,9 +1178,11 @@ pub async fn discover_models(config: PiProviderConfig) -> Result<Vec<PiModelEntr
                     .to_string(),
                 id,
                 subtitle: None,
+                tags: Vec::new(),
                 credit_multiplier: None,
                 icon_url: None,
                 sort_order: entry.get("sort_order").and_then(Value::as_i64).unwrap_or(0),
+                recommended: false,
                 reasoning: false,
                 reasoning_config: None,
                 vision: false,
@@ -1132,7 +1196,15 @@ pub async fn discover_models(config: PiProviderConfig) -> Result<Vec<PiModelEntr
 
 #[cfg(test)]
 mod tests {
-    use super::{collect_cloud_provider_ids, valid_model_ids, PiProviderConfig};
+    use super::{collect_cloud_provider_ids, valid_model_ids, PiFeatures, PiProviderConfig};
+
+    #[test]
+    fn independently_saved_web_search_setting_loads_without_tool_search() {
+        let features: PiFeatures = serde_json::from_value(serde_json::json!({ "webSearch": true }))
+            .expect("partial features");
+        assert!(features.web_search);
+        assert!(!features.tool_search);
+    }
 
     #[test]
     fn only_cloud_providers_can_have_an_empty_catalog() {

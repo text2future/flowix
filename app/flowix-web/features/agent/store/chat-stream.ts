@@ -75,7 +75,7 @@ export async function dispatchChatStream({
     codexServiceTier: preferences.serviceTier,
     instanceRuntimeConfig: preferences,
     defaultFiles,
-    piCodeMode: userDefaults.pi.user.mode === "code",
+    piCodeMode: (userDefaults.pi.user.mode ?? "code") === "code",
     workspaceSnapshot,
   });
   onResolvedProvider?.(preferences.model?.providerId);

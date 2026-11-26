@@ -40,6 +40,8 @@ pub const V4_CREDENTIAL_RENEWAL_MARGIN_MS: i64 = 5 * 60 * 1_000;
 /// The TTL asked of the control plane. Matches the server's default; sent
 /// explicitly so the client never depends on it.
 const V4_CREDENTIAL_TTL_SECONDS: u32 = 900;
+const STANDARD_CLOUD_MAX_UPLOAD_FILE_BYTES: u64 = 10 * 1024 * 1024;
+const LIFETIME_CLOUD_MAX_UPLOAD_FILE_BYTES: u64 = 100 * 1024 * 1024;
 
 /// What one pass needs from its caller.
 pub struct PassInput<'a> {
@@ -323,7 +325,7 @@ struct PassCredentialResolver<'a> {
 }
 
 fn supports_official_deletion_proxy(kind: crate::remote::RemoteKind, scheme: &str) -> bool {
-    kind == crate::remote::RemoteKind::OfficialCloud && scheme == "s3-v4"
+    kind == crate::remote::RemoteKind::OfficialCloud && matches!(scheme, "s3-v4" | "cos-v5")
 }
 
 impl PassCredentialResolver<'_> {
@@ -876,12 +878,33 @@ impl SyncManager {
         // cannot outlive the batch it was given for.
         let allow_mass_deletion =
             input.allow_mass_deletion || self.take_mass_deletion_allowance(input.notebook_id);
+        let max_upload_file_bytes =
+            if self.remote_kind() == crate::remote::RemoteKind::OfficialCloud {
+                let lifetime = self
+                    .account
+                    .membership_snapshot()
+                    .is_some_and(|membership| {
+                        membership
+                            .features
+                            .get("lifetime")
+                            .and_then(serde_json::Value::as_bool)
+                            == Some(true)
+                    });
+                Some(if lifetime {
+                    LIFETIME_CLOUD_MAX_UPLOAD_FILE_BYTES
+                } else {
+                    STANDARD_CLOUD_MAX_UPLOAD_FILE_BYTES
+                })
+            } else {
+                None
+            };
         let request = PassRequest {
             notebook_id: input.notebook_id,
             device_id: input.device_id,
             scanned: input.scanned,
             force: input.force,
             quota: quota.as_ref(),
+            max_upload_file_bytes,
             allow_mass_deletion,
         };
         let mut env = PassEnv {
@@ -1021,13 +1044,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn deletion_proxy_is_limited_to_official_r2() {
+    fn deletion_proxy_is_limited_to_official_storage() {
         use crate::remote::RemoteKind;
         assert!(supports_official_deletion_proxy(
             RemoteKind::OfficialCloud,
             "s3-v4"
         ));
-        assert!(!supports_official_deletion_proxy(
+        assert!(supports_official_deletion_proxy(
             RemoteKind::OfficialCloud,
             "cos-v5"
         ));

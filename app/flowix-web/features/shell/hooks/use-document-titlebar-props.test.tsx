@@ -50,7 +50,7 @@ it.each(['note', 'collection'] as const)('derives primary file-browser %s menus 
       { label: 'note', path, type: 'file' },
     ]);
     if (kind === 'collection') {
-      expect(result!.collectionDisplay).toEqual({ indexPath: path, notebookPath: '/other', notebookId: 'other' });
+      expect(result!.collectionDisplay).toMatchObject({ indexPath: path, notebookPath: '/other', notebookId: 'other' });
     } else {
       expect(result!.document.target?.relativePath).toBe('repo/note.md');
       expect(result!.document.target?.indexable).toBe(true);

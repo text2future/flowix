@@ -1,6 +1,14 @@
 use super::*;
 
 impl AccountService {
+    pub(crate) fn membership_snapshot(&self) -> Option<CloudMembership> {
+        self.account_entitlement
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .membership
+            .clone()
+    }
+
     /// Creates an in-memory session without persistent credentials or notifications.
     pub fn new(api_base: &str, database_path: impl AsRef<Path>) -> Result<Self, SyncError> {
         Self::create(api_base, database_path, None, Arc::new(|_| {}))
@@ -50,11 +58,13 @@ impl AccountService {
             auth: Arc::new(RwLock::new(AuthState::default())),
             account_entitlement: Arc::new(RwLock::new(AccountEntitlementState::default())),
             membership_refresh: Arc::new(tokio::sync::Mutex::new(None)),
+            ai_credits_refresh: Arc::new(tokio::sync::Mutex::new(None)),
             refresh_lock: Arc::new(tokio::sync::Mutex::new(())),
             auth_generation: Arc::new(std::sync::Mutex::new(0)),
             refresh_token_store: token_store,
             credential_retry,
             entitlement_retry: Arc::new(tokio::sync::Notify::new()),
+            ai_credits_retry: Arc::new(tokio::sync::Notify::new()),
             state_notifier,
         };
         manager.initialize_storage()?;
@@ -77,11 +87,13 @@ impl AccountService {
             auth: Arc::new(RwLock::new(auth)),
             account_entitlement: Arc::new(RwLock::new(AccountEntitlementState::default())),
             membership_refresh: Arc::new(tokio::sync::Mutex::new(None)),
+            ai_credits_refresh: Arc::new(tokio::sync::Mutex::new(None)),
             refresh_lock: Arc::new(tokio::sync::Mutex::new(())),
             auth_generation: Arc::new(std::sync::Mutex::new(0)),
             refresh_token_store: token_store,
             credential_retry: Arc::new(tokio::sync::Notify::new()),
             entitlement_retry: Arc::new(tokio::sync::Notify::new()),
+            ai_credits_retry: Arc::new(tokio::sync::Notify::new()),
             state_notifier,
         })
     }
@@ -157,6 +169,8 @@ impl AccountService {
             membership: entitlement.membership.clone(),
             membership_status: entitlement.status,
             membership_error: entitlement.error.clone(),
+            membership_updated_at: entitlement.updated_at,
+            ai_credits: entitlement.ai_credits.clone(),
             sync_access: CloudSyncAccess::resolve(
                 auth.session.is_some(),
                 entitlement.status,

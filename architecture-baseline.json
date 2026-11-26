@@ -57,7 +57,6 @@
     "cross-feature-private:features/agent/thread-card/settings/featured-note-cards.ts|@features/memo/components/notebook-icon",
     "cross-feature-private:features/agent/thread-card/settings/featured-notes-controller.ts|@features/memo/store/note-store",
     "cross-feature-private:features/agent/thread-card/settings/featured-notes-controller.ts|@features/multidimensional-table/parse-table-document",
-    "cross-feature-private:features/agent/thread-card/settings/notebook-agent-settings-dialog.tsx|@features/memo/store/note-store",
     "cross-feature-private:features/agent/use-cases/new-conversation.ts|@features/memo/store/note-store",
     "cross-feature-private:features/collection/folder-collection.ts|@features/media-library/model",
     "cross-feature-private:features/collection/mutations.ts|@features/document/store/external-document-operation",

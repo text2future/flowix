@@ -24,7 +24,9 @@ describe("composer submission policy", () => {
     [{ hasPendingAttachments: true }, "send", true, false],
     [{ isSubmitting: true }, "busy", true, false],
     [{ isAvailable: false }, "send", true, false],
-    [{ isStopping: true, isModelRunning: true }, "busy", true, false],
+    // Stopping stays clickable: a stop can be dropped, and a disabled button
+    // would leave a run that the runtime never confirmed with no way out.
+    [{ isStopping: true, isModelRunning: true }, "stop", false, false],
     [{ isCommandRunning: true }, "busy", true, false],
     [{ isCommandRunning: true, isCommandStoppable: true }, "stop", false, false],
     [{ isModelRunning: true }, "queue", false, true],

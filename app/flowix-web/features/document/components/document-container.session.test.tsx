@@ -21,6 +21,7 @@ import { waitForDocumentCommits } from '../store/document-commit-queue';
 import { EditorView } from '@codemirror/view';
 import { publishAgentLocationRequest, peekAgentLocationRequest } from '../use-cases/agent-location-navigation';
 import * as attachmentIo from '@features/editor/extensions/attachment-link/upload/io';
+import { useSettingsStore } from '@/lib/store/settings-store';
 
 const mocks = vi.hoisted(() => ({
   recoveryRead: vi.fn().mockResolvedValue(null),
@@ -72,6 +73,7 @@ vi.mock('../store/recovery-draft-store', () => ({
 vi.mock('@platform/tauri/window', () => ({ getCurrentWindow: () => ({ label: 'main', listen: async () => () => {} }) }));
 
 let root: Root; let container: HTMLDivElement; let sequence = 0;
+let previousPropertiesVisible: boolean;
 const environment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
 function pasteScreenshot(editor: Editor): ClipboardEvent {
   const event = new Event('paste', { bubbles: true, cancelable: true }) as ClipboardEvent;
@@ -225,6 +227,8 @@ describe('real document container session lifecycle', () => {
     expect(doc.editors.left?.getMarkdown()).toContain('SECOND');
   });
   beforeEach(() => {
+    previousPropertiesVisible = useSettingsStore.getState().propertiesVisible;
+    useSettingsStore.setState({ propertiesVisible: true });
     vi.useFakeTimers(); environment.IS_REACT_ACT_ENVIRONMENT = true;
     vi.mocked(invoke).mockReset().mockResolvedValue(undefined);
     useNoteStore.setState({ notebooks: [], selectedNotebook: null });
@@ -243,6 +247,7 @@ describe('real document container session lifecycle', () => {
   });
   afterEach(async () => {
     await act(async () => { root.unmount(); await vi.advanceTimersByTimeAsync(300); });
+    useSettingsStore.setState({ propertiesVisible: previousPropertiesVisible });
     container.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers();
     environment.IS_REACT_ACT_ENVIRONMENT = false;
   });

@@ -40,6 +40,15 @@ describe("update_plan tool metadata", () => {
   });
 });
 
+describe("Pi tool-family metadata", () => {
+  it("gives Pi's built-in find the file-search label instead of the shell fallback", () => {
+    expect(getToolLabel({ agentType: "pi", toolName: "find" }, "zh-CN")).toBe("查找文件");
+    expect(getToolLabel({ agentType: "pi", toolName: "find" }, "en-US")).toBe("Find Files");
+    expect(getToolIconPath({ agentType: "pi", toolName: "find" }))
+      .toBe(TOOL_ICON_PATHS.magnify);
+  });
+});
+
 describe("Codex tool-family metadata", () => {
   it.each([
     ["mcp_tool_call", "MCP"],

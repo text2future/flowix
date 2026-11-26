@@ -303,19 +303,6 @@ pub async fn cloud_save_custom_s3_profile(
 }
 
 #[tauri::command]
-pub async fn cloud_update_account_region(
-    region: String,
-    state: State<'_, AppState>,
-) -> Result<CloudState, String> {
-    state
-        .cloud_sync
-        .account()
-        .update_account_region(&region)
-        .await
-        .map_err(sync_error)
-}
-
-#[tauri::command]
 pub async fn cloud_request_password_reset_code(
     email: String,
     email_language: String,
@@ -902,13 +889,14 @@ pub async fn cloud_cancel_subscription(
 #[tauri::command]
 pub async fn cloud_create_checkout(
     product_id: String,
+    quantity: Option<u8>,
     state: State<'_, AppState>,
 ) -> Result<CloudCheckout, String> {
     let idempotency_key = format!("desktop-{}", uuid::Uuid::new_v4());
     let checkout_result = state
         .cloud_sync
         .account()
-        .create_checkout(&product_id, &idempotency_key)
+        .create_checkout(&product_id, quantity.unwrap_or(1), &idempotency_key)
         .await;
     checkout_result.map_err(sync_error)
 }

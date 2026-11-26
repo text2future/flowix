@@ -889,6 +889,18 @@ html:not([data-theme="dark"]):not([data-theme="mist"])
   white-space: nowrap;
 }
 
+/* 工具失败标记 ── 低声提示: 跟工具名同一行, 弱化色小字, 不改变行高,
+ * 也不引入告警条/图标色变。详细失败信息仍留在展开区, 避免一次失败
+ * 就把整段对话的视觉重心拉到错误上。 */
+.agent-conversation-surface .agent-thread-card__message-tool-error-note {
+  flex: 0 0 auto;
+  color: color-mix(in srgb, var(--muted-foreground) 72%, var(--destructive));
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
 /* tool-name 不需要水平截断, command-name 需要 ——
  * flex/color/weight 已在上一规则声明, 此处仅追加独有的截断属性 */
 .agent-conversation-surface .agent-thread-card__command-name {

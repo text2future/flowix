@@ -22,6 +22,8 @@ export interface ModelSettingsListContext {
   options: AgentModelOption[];
   loadedOptions: AgentModelOption[];
   piModelsLoadFailed: boolean;
+  /** 模型目录正在拉取且无可用缓存（加载态优先于空态/失败态展示）。 */
+  modelsLoading: boolean;
   showEmptyState: boolean;
   supportsReasoning: boolean;
   t: (key: I18nKey) => string;
@@ -37,13 +39,22 @@ export interface ModelSettingsListContext {
   ) => void;
 }
 
+/**
+ * 列表无内容时的占位文案。优先级：加载中 > 加载失败 > 未找到。
+ * "未找到"语义 = 目录已读取完成且为空（含用户自定义模型在内无任何模型）。
+ */
+function resolveEmptyLabel(ctx: ModelSettingsListContext): string {
+  if (ctx.modelsLoading) return ctx.t("agent.model.loading");
+  return ctx.t(
+    ctx.piModelsLoadFailed ? "agent.model.loadFailed" : "agent.model.noneFound",
+  );
+}
+
 function createModelEmptyItem(
   ctx: ModelSettingsListContext,
 ): HTMLElement {
   return createCodexSettingsItem(
-    ctx.t(
-      ctx.piModelsLoadFailed ? "agent.model.loadFailed" : "agent.model.noneFound",
-    ),
+    resolveEmptyLabel(ctx),
     false,
     () => {},
     undefined,
@@ -97,11 +108,11 @@ function renderPiModels(list: HTMLElement, ctx: ModelSettingsListContext): void 
       selectedProviderId: ctx.currentProviderId,
       memberLabel: ctx.t("preferences.pi.cloudTitle"),
       mineLabel: ctx.t("agent.pi.modelSection.custom"),
-      emptyLabel: ctx.t(
-        ctx.piModelsLoadFailed ? "agent.model.loadFailed" : "agent.model.noneFound",
-      ),
+      emptyLabel: resolveEmptyLabel(ctx),
       personalEmptyLabel: ctx.t("agent.pi.modelSection.mineEmpty"),
       onAddCustomModel: ctx.onAddCustomModel,
+      recommendedLabel: ctx.t("agent.pi.modelSection.recommended"),
+      advancedLabel: ctx.t("agent.pi.modelSection.advanced"),
       createModelItem: (option) => ctx.createModelItem(option),
       onSelectReasoning: ctx.onSelectReasoning,
     }),
@@ -138,7 +149,8 @@ function renderProviderGroups(
 
 function renderFlatModels(list: HTMLElement, ctx: ModelSettingsListContext): void {
   list.append(createSectionLabel(ctx));
-  if (ctx.showEmptyState) {
+  // 有静态 fallback 选项时直接渲染列表；仅当加载中且无任何内容才显示加载占位。
+  if (ctx.showEmptyState || (ctx.modelsLoading && ctx.options.length === 0)) {
     list.append(createModelEmptyItem(ctx));
     return;
   }
@@ -187,7 +199,7 @@ export function renderModelSettingsBody(
   if (ctx.typeKey === "pi") {
     renderPiModels(list, ctx);
   } else if (ctx.typeKey === "dsh") {
-    if (ctx.showEmptyState) {
+    if (ctx.showEmptyState || ctx.modelsLoading) {
       list.append(createSectionLabel(ctx));
       list.append(createModelEmptyItem(ctx));
     } else {

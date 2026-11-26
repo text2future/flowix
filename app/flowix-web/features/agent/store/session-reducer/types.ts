@@ -51,6 +51,8 @@ export interface ThreadProjection {
     initialStatus?: "idle" | "loading" | "ready" | "error";
     /** Last initial history failure, shown with the retry affordance. */
     initialError?: string | null;
+    /** A running Pi conversation opened without loading its native history. */
+    deferredPiHistory?: boolean;
     oldestSequence: number | null;
     nextCursor?: string;
     /** Provider/journal revision that owns oldestSequence and all loaded pages. */

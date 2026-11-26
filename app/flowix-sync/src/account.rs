@@ -6,7 +6,7 @@ use crate::client::CloudClient;
 use crate::error::SyncError;
 use crate::models::{
     AccountDeletionOutcome, AccountDeletionState, AppleAuthChallenge, AppleAuthorization,
-    CloudAccount, CloudAuthStatus, CloudCheckout, CloudEntitlementStatus, CloudMembership,
+    CloudAccount, CloudAiCreditState, CloudAiCreditStatus, CloudAuthStatus, CloudCheckout, CloudEntitlementStatus, CloudMembership,
     CloudOrder, CloudOrderCheck, CloudProduct, CloudState, PasswordResetCodeRequest,
     RefreshTokenStore, RegistrationCodeRequest, RegistrationCodeResend, RuntimeSession,
 };
@@ -20,11 +20,13 @@ pub struct AccountService {
     // Lock auth before account_entitlement to keep aggregate snapshots consistent.
     account_entitlement: Arc<RwLock<AccountEntitlementState>>,
     membership_refresh: Arc<tokio::sync::Mutex<Option<u64>>>,
+    ai_credits_refresh: Arc<tokio::sync::Mutex<Option<u64>>>,
     refresh_lock: Arc<tokio::sync::Mutex<()>>,
     auth_generation: Arc<std::sync::Mutex<u64>>,
     refresh_token_store: Option<Arc<dyn RefreshTokenStore>>,
     credential_retry: Arc<tokio::sync::Notify>,
     entitlement_retry: Arc<tokio::sync::Notify>,
+    ai_credits_retry: Arc<tokio::sync::Notify>,
     state_notifier: Arc<dyn Fn(CloudState) + Send + Sync>,
 }
 
@@ -51,6 +53,8 @@ struct AccountEntitlementState {
     membership: Option<CloudMembership>,
     status: CloudEntitlementStatus,
     error: Option<String>,
+    updated_at: Option<i64>,
+    ai_credits: CloudAiCreditState,
 }
 
 impl Default for AuthState {

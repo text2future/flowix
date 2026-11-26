@@ -142,6 +142,67 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn stale_conversation_snapshot_cannot_detach_pi_thread_from_list() {
+        let manager = ThreadManager::for_tests();
+        seed_conversation(&manager, "pi-active", "pi", Some("nb-visible"), 200).await;
+        let result = manager
+            .upsert_agent_conversation_instance(UpsertAgentConversationInstance {
+                instance_id: "pi-active".into(),
+                agent_type: "pi".into(),
+                initial_title: String::new(),
+                thread_id: None,
+                runtime_config: None,
+                source: AgentConversationSource {
+                    kind: "dedicated".into(),
+                    document_path: None,
+                    relative_path: None,
+                    notebook_id: Some("nb-visible".into()),
+                },
+                created_at: Some(100),
+                updated_at: Some(100),
+            })
+            .await
+            .unwrap();
+        assert_eq!(result.thread_id.as_deref(), Some("thread-pi-active"));
+        let rows = manager
+            .list_agent_conversation_instances_page(Some("nb-visible".into()), None, None, 10)
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].thread_id.as_deref(), Some("thread-pi-active"));
+    }
+
+    #[tokio::test]
+    async fn stale_conversation_snapshot_cannot_rebind_thread_to_another_instance() {
+        let manager = ThreadManager::for_tests();
+        seed_conversation(&manager, "pi-active", "pi", Some("nb-visible"), 200).await;
+        manager
+            .upsert_agent_conversation_instance(UpsertAgentConversationInstance {
+                instance_id: "pi-active".into(),
+                agent_type: "pi".into(),
+                initial_title: String::new(),
+                thread_id: Some("thread-other".into()),
+                runtime_config: None,
+                source: AgentConversationSource {
+                    kind: "dedicated".into(),
+                    document_path: None,
+                    relative_path: None,
+                    notebook_id: Some("nb-visible".into()),
+                },
+                created_at: Some(100),
+                updated_at: Some(100),
+            })
+            .await
+            .unwrap();
+        let rows = manager
+            .list_agent_conversation_instances_page(Some("nb-visible".into()), None, None, 10)
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].thread_id.as_deref(), Some("thread-pi-active"));
+    }
+
+    #[tokio::test]
     async fn conversation_history_excludes_placeholders_but_keeps_untitled_messages() {
         let manager = ThreadManager::for_tests();
         for (id, time) in [

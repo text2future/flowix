@@ -55,6 +55,46 @@ function store(messages: ChatMessage[]) {
 describe("Pi history request fences", () => {
   beforeEach(() => { adapter.getInitialHistory.mockReset(); adapter.getFullHistory.mockReset(); adapter.getPage.mockReset(); });
 
+  it("restores Pi liveness before requesting history in a fresh view", async () => {
+    const get = store([]);
+    Object.assign(get(), { reconcileRunningRuns: async () => {
+      const projection = get().threadProjections.thread;
+      projection.runs = { ...projection.runs, isLoading: true, activeRunId: "run",
+        runs: { run: { runId: "run", agentType: "pi", threadId: "thread",
+          startedAt: 2000, status: "running", phase: "running" } } };
+    } });
+    expect(await get().loadMessages("pi", "thread")).toBe("ready");
+    expect(adapter.getInitialHistory).not.toHaveBeenCalled();
+    expect(get().threadProjections.thread.pagination).toMatchObject({ deferredPiHistory: true, initialStatus: "ready" });
+  });
+
+  it("defers Pi history only while the run is live and releases it when the run settles", async () => {
+    const get = store([]);
+    get().threadProjections.thread = reduceProjection(get().threadProjections.thread, {
+      kind: "text_delta", agentType: "pi", threadId: "thread", runId: "run",
+      timestamp: 2000, sourceSubsequence: 0, contentMode: "delta", text: "new output",
+    });
+    const projection = get().threadProjections.thread;
+    projection.runs = { ...projection.runs, isLoading: true, activeRunId: "run",
+      runs: { ...projection.runs.runs, run: { ...projection.runs.runs.run, runId: "run",
+        agentType: "pi", threadId: "thread", startedAt: 2000, status: "running", phase: "running" } } };
+    expect(await get().loadMessages("pi", "thread")).toBe("ready");
+    expect(adapter.getInitialHistory).not.toHaveBeenCalled();
+    expect(get().threadProjections.thread.pagination).toMatchObject({ deferredPiHistory: true, initialStatus: "ready" });
+    await get().loadMoreMessages("pi", "thread");
+    expect(adapter.getInitialHistory).not.toHaveBeenCalled();
+
+    // The run settles. The deferred read must be released, otherwise the flag
+    // gates every later history read and the turn stays unloaded forever —
+    // which is what a refresh during (or right after) a Pi run used to hit.
+    get().threadProjections.thread.runs.isLoading = false;
+    adapter.getInitialHistory.mockResolvedValueOnce(page([row("saved")], "saved"));
+    await get().reconcileCompletedRun("pi", "thread", "run");
+    expect(adapter.getInitialHistory).toHaveBeenCalledTimes(1);
+    expect(get().threadProjections.thread.pagination.deferredPiHistory).toBeUndefined();
+    expect(get().threadProjections.thread.messages.some((message) => message.content === "saved")).toBe(true);
+  });
+
   it("restores the first turn and second-turn prompt while the second turn keeps streaming after refresh", async () => {
     const get = store([]);
     const pending = deferred<ThreadHistoryPage>();

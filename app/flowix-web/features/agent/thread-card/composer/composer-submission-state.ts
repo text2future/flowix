@@ -50,7 +50,11 @@ export function selectComposerSubmissionState(input: ComposerRuntimeState & {
     (!input.isModelRunning || (kind === "message" && supportsQueue));
 
   let action: ComposerSubmissionState["action"] = "send";
-  if (input.isStopping) action = "busy";
+  // `stopping` stays clickable. A stop request can be dropped (runtime does not
+  // confirm it, WebView reloads mid-abort), and a disabled button would then
+  // leave a stuck run with no way out. Re-sending Stop is idempotent; the store
+  // dedupes rapid double clicks and clears a run the runtime no longer owns.
+  if (input.isStopping) action = "stop";
   else if (input.isCommandStoppable) action = "stop";
   else if (input.isCommandRunning || input.isSubmitting) action = "busy";
   else if (input.isModelRunning) {

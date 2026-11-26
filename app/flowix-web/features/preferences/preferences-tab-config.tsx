@@ -123,12 +123,6 @@ export const PREFERENCE_TAB_GROUPS = [
         ...lazyPreferenceTab(() => import('@features/preferences/sections/pi').then((module) => ({ default: module.PiSettingsSection }))),
       },
       {
-        id: 'dsh', labelKey: 'preferences.tabs.dsh',
-        icon: <AgentIcon typeKey="dsh" alt="" className="w-4 h-4 object-contain" />, contentWidth: 'wide',
-        visibleInProductMenu: false,
-        ...lazyPreferenceTab(() => import('@features/preferences/sections/dsh').then((module) => ({ default: module.DshSettingsSection }))),
-      },
-      {
         id: 'aiAgent', labelKey: 'preferences.tabs.aiAgent',
         icon: <StarFourIcon className="w-4 h-4" weight="regular" />,
         sidebarIcon: <StarFourIcon className={SIDEBAR_ICON_CLASS} weight="fill" />, contentWidth: 'normal',

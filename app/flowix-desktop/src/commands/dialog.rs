@@ -21,12 +21,12 @@ pub(crate) mod upload_sessions;
 // ==================== IPC: 鍘熺敓 dialog ====================
 
 #[tauri::command]
-pub async fn select_directory(app: tauri::AppHandle) -> Option<String> {
+pub async fn select_directory(app: tauri::AppHandle, title: Option<String>) -> Option<String> {
     use tauri_plugin_dialog::DialogExt;
     tokio::task::spawn_blocking(move || {
         app.dialog()
             .file()
-            .set_title("选择笔记本文件夹")
+            .set_title(title.unwrap_or_else(|| "选择笔记本文件夹".to_string()))
             .blocking_pick_folder()
             .map(|p| {
                 let path = Path::new(&p.to_string()).to_path_buf();

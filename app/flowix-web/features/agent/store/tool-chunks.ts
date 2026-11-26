@@ -10,7 +10,16 @@ import {
   truncateToolResultForDisplay,
   truncateToolResultOutputPreview,
 } from "@features/agent/message/display-limits";
-import { insertAgentMessageBySourceOrder, orderPiMessageBlocks } from "@features/agent/store/message-order";
+import {
+  placeAgentMessageRow,
+  reorderIndexedBlocks,
+} from "@features/agent/store/message-order";
+import {
+  getAgentMessageProfile,
+  messageBlockIndex,
+  messageNativeId,
+  type AgentMessageProfile,
+} from "@features/agent/runtime/agent-message-profile";
 import type { MessageChunkMetadata } from "@features/agent/store/message-chunks";
 import {
   codexCustomToolOutputMessageId,
@@ -27,6 +36,20 @@ function toolCallIdsMatch(left: string | undefined, right: string): boolean {
   if (left === right) return true;
   return left?.endsWith(`:tool-call:${right}`) === true ||
     right.endsWith(`:tool-call:${left ?? ""}`);
+}
+
+/** Row id for a tool row that has no provider-supplied id yet. */
+function toolRowId(
+  profile: AgentMessageProfile,
+  callId: string,
+  options: { turnId?: string; customToolOutput?: boolean },
+): string {
+  if (profile.toolRowIdScheme === "codex-turn-item") {
+    return options.customToolOutput
+      ? codexCustomToolOutputMessageId(options.turnId, callId)
+      : codexToolCallMessageId(options.turnId, callId);
+  }
+  return `tool-${callId || Date.now()}`;
 }
 
 /**
@@ -46,15 +69,14 @@ export function applyToolCallChunk(
   metadata: MessageChunkMetadata = {},
 ): MessageProjection {
   const toolInput = normalizeToolInput(input);
-  const messageId = metadata.id ?? (
-    agentType === "codex"
-      ? codexToolCallMessageId(metadata.codexTurnId, id)
-      : `tool-${id || Date.now()}`
-  );
+  const profile = getAgentMessageProfile(agentType);
+  const messageId = metadata.id ?? toolRowId(profile, id, {
+    turnId: metadata.codexTurnId,
+  });
   const toolMessage: ChatMessage = {
     id: messageId,
     renderKey: messageId,
-    messageId: agentType === "pi" || agentType === "codex" ? messageId : undefined,
+    messageId: messageNativeId(profile, messageId),
     role: "tool",
     messageType: metadata.messageType,
     content: "",
@@ -64,7 +86,7 @@ export function applyToolCallChunk(
     sourceSequence: metadata.sourceSequence,
     sourceSubsequence: metadata.sourceSubsequence,
     parentMessageId: metadata.parentMessageId,
-    piBlockIndex: agentType === "pi" ? metadata.sourceSubsequence : undefined,
+    piBlockIndex: messageBlockIndex(profile, metadata.sourceSubsequence),
     toolCallId: id,
     toolName: name,
     toolAgentType: agentType,
@@ -100,17 +122,21 @@ export function applyToolCallChunk(
       sourceSubsequence:
         existing.sourceSubsequence ?? metadata.sourceSubsequence,
       parentMessageId: existing.parentMessageId ?? metadata.parentMessageId,
-      piBlockIndex: existing.piBlockIndex ?? (agentType === "pi" ? metadata.sourceSubsequence : undefined),
+      piBlockIndex: existing.piBlockIndex ??
+        messageBlockIndex(profile, metadata.sourceSubsequence),
       // Replayed/complete events must never reopen an already-finished row.
       isLoading: existing.isLoading === false ? false : true,
     };
     return {
-      messages: agentType === "pi" ? orderPiMessageBlocks(messages) : messages,
+      messages: reorderIndexedBlocks(messages, profile.indexedBlocks),
       pending: { assistantId: null, reasoningId: st.pending.reasoningId },
     };
   }
   return {
-    messages: agentType === "pi" ? orderPiMessageBlocks([...st.messages, toolMessage]) : insertAgentMessageBySourceOrder(st.messages, toolMessage, agentType === "codex" && !!metadata.codexTurnId),
+    messages: placeAgentMessageRow(st.messages, toolMessage, {
+      indexedBlocks: profile.inlineToolRows,
+      preserveArrivalOrder: profile.historyMerge === "codex-items" && !!metadata.codexTurnId,
+    }),
     pending: { assistantId: null, reasoningId: st.pending.reasoningId },
   };
 }
@@ -133,19 +159,18 @@ export function applyToolResultChunk(
   metadata: MessageChunkMetadata = {},
 ): MessageProjection {
   const resultToolName = name && name !== "tool_result" ? name : "";
+  const profile = getAgentMessageProfile(agentType);
   const resultContent = metadata.messageType === "codex-custom-tool"
     ? serializeRawToolPayload(result)
     : summarizeToolResult(result, resultToolName);
+  const resultFailed = toolResultFailed(result, resultContent);
   const hasMatchingCall = st.messages.some(
     (message) => message.role === "tool" && toolCallIdsMatch(message.toolCallId, id),
   );
-  const orphanMessageId = metadata.id ?? (
-    agentType === "codex"
-      ? metadata.messageType === "codex-custom-tool"
-        ? codexCustomToolOutputMessageId(metadata.codexTurnId, id)
-        : codexToolCallMessageId(metadata.codexTurnId, id)
-      : `tool-${id || Date.now()}`
-  );
+  const orphanMessageId = metadata.id ?? toolRowId(profile, id, {
+    turnId: metadata.codexTurnId,
+    customToolOutput: metadata.messageType === "codex-custom-tool",
+  });
   const messages = hasMatchingCall
     ? st.messages.map((m) =>
         m.role === "tool" && toolCallIdsMatch(m.toolCallId, id)
@@ -155,6 +180,7 @@ export function applyToolResultChunk(
               messageType: metadata.messageType ?? m.messageType,
               codexTurnId: m.codexTurnId ?? metadata.codexTurnId,
               toolData: resultContent,
+              toolError: resultFailed,
               // The started event owns the tool identity. Result sources in
               // external runtimes may use a generic/legacy name (for example
               // `tool`), so never replace a known call name at completion.
@@ -172,10 +198,10 @@ export function applyToolResultChunk(
             }
           : m,
       )
-    : insertAgentMessageBySourceOrder(st.messages, {
+    : placeAgentMessageRow(st.messages, {
         id: orphanMessageId,
         renderKey: orphanMessageId,
-        messageId: agentType === "pi" || agentType === "codex" ? orphanMessageId : undefined,
+        messageId: messageNativeId(profile, orphanMessageId),
         role: "tool" as const,
         messageType: metadata.messageType,
         content: resultContent,
@@ -185,10 +211,11 @@ export function applyToolResultChunk(
         sourceSequence: metadata.sourceSequence,
         sourceSubsequence: metadata.sourceSubsequence,
         parentMessageId: metadata.parentMessageId,
-    piBlockIndex: agentType === "pi" ? metadata.sourceSubsequence : undefined,
+        piBlockIndex: messageBlockIndex(profile, metadata.sourceSubsequence),
         toolCallId: id,
         toolName: resultToolName || "unknown_tool",
         toolAgentType: agentType,
+        toolError: resultFailed,
         toolDisplay: createAgentToolDisplay({
           agentType,
           toolName: resultToolName || "unknown_tool",
@@ -196,7 +223,10 @@ export function applyToolResultChunk(
         }),
         toolData: resultContent,
         isLoading: false,
-      }, agentType === "pi" || agentType === "codex" && !!metadata.codexTurnId);
+      }, {
+        indexedBlocks: profile.inlineToolRows,
+        preserveArrivalOrder: profile.historyMerge === "codex-items" && !!metadata.codexTurnId,
+      });
   return {
     messages,
     pending: { assistantId: null, reasoningId: st.pending.reasoningId },
@@ -214,8 +244,22 @@ function serializeRawToolPayload(value: unknown): string {
 }
 
 /**
+ * 判断一条 tool_result 是否失败。优先相信 runtime 显式给的 `is_error`
+ * (`false` 也有效 ── 空输出的成功工具不能因为 content 为空被当成失败),
+ * 缺省时退回 `[error]` 前缀这一历史约定。
+ */
+function toolResultFailed(result: unknown, content: string): boolean {
+  if (result && typeof result === "object" && !Array.isArray(result)) {
+    const declared = (result as Record<string, unknown>).is_error;
+    if (typeof declared === "boolean") return declared;
+  }
+  return /^\s*\[error\]/i.test(content);
+}
+
+/**
  * 把 tool_result 后端响应收缩成单条字符串, 喂给 tool 行 content/toolData。
  * - 简单对象 (只含 content) 直接取 content;含 `is_error` 时加 `[error]` 前缀
+ * - content 为内容块数组 (`[{type:"text",text}]`, Pi/MCP 信封) 时拼接文本块
  * - command-style 含 `exit_code / command / status / output_chars` 等,
  *   提取关键字段 + output 截前 2000 字符 + truncated 标记
  * - 其他结构走 stringify (单条超 4096 字符再截)
@@ -251,6 +295,31 @@ function summarizeToolResult(result: unknown, toolName?: string): string {
   ) {
     const isError = record.is_error === true;
     const content = truncateToolResultForDisplay(record.content);
+    return isError ? `[error] ${content}` : content;
+  }
+
+  // Content-block envelopes (`[{ type: "text", text }]`) reach this layer from
+  // runtimes that forward the provider result verbatim. Joining the text
+  // blocks keeps the live row identical to the persisted history projection
+  // instead of dumping the envelope as JSON.
+  if (
+    Array.isArray(record.content) &&
+    !("exit_code" in record) &&
+    !("command" in record)
+  ) {
+    const text = record.content
+      .map((part) => {
+        if (typeof part === "string") return part;
+        if (!part || typeof part !== "object") return "";
+        const block = part as Record<string, unknown>;
+        if (typeof block.text === "string") return block.text;
+        return block.type === "image" ? "[Image attachment]" : "";
+      })
+      .filter(Boolean)
+      .join("\n");
+    const isError = record.is_error === true;
+    const content = truncateToolResultForDisplay(text);
+    if (!content) return isError ? "[error] Tool failed" : "";
     return isError ? `[error] ${content}` : content;
   }
 

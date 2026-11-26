@@ -191,8 +191,8 @@ const AGENT_RUNTIME_SPECS: Record<AgentId, AgentRuntimeSpec> = {
     typeKey: "pi",
     // Pi RPC has no sandbox prompt, but its built-in tools can be selected with
     // --tools. The permission mode maps to the available tool set in the host;
-    // codemode follows the shared Pi preference across conversations.
-    emptySettings: ["model", "mode", "permission"],
+    // codemode follows the shared Pi preference and is changed in Pi preferences.
+    emptySettings: ["model", "permission"],
     accessOptions: SHARED_ACCESS_OPTIONS,
     modeOptions: PI_MODE_OPTIONS,
     workspace: { selectBeforeFirstRun: false, switchWhileRunning: false, switchBetweenRuns: false, switchRequiresRuntimeRestart: true, preservesConversationSession: true },
@@ -202,7 +202,7 @@ const AGENT_RUNTIME_SPECS: Record<AgentId, AgentRuntimeSpec> = {
         workspacePaths,
         permissionMode: normalizeCodexPermissionMode(permissionMode),
         model: codexModel,
-        codeMode: false,
+        codeMode: true,
       },
     }),
   },
@@ -325,7 +325,7 @@ export function buildAgentRuntimeConfig({
   if (typeKey === "pi" && runtimeConfig.pi) {
     runtimeConfig.pi.providerId = instanceRuntimeConfig?.model?.providerId;
     runtimeConfig.pi.reasoningEffort = instanceRuntimeConfig?.reasoningEffort;
-    runtimeConfig.pi.codeMode = piCodeMode ?? false;
+    runtimeConfig.pi.codeMode = piCodeMode ?? true;
   }
   return runtimeConfig;
 }

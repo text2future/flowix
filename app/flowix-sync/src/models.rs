@@ -121,12 +121,6 @@ pub struct AccountDeletionOutcome {
     pub pending_subscription_cancellations: Vec<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct AccountRegionData {
-    pub region: String,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct AppleAuthChallenge {
@@ -283,6 +277,8 @@ pub struct CloudAiModel {
     #[serde(default)]
     pub subtitle: Option<String>,
     #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
     pub icon_url: Option<String>,
     #[serde(default)]
     pub credit_multiplier: Option<f64>,
@@ -296,6 +292,8 @@ pub struct CloudAiModel {
     /// Optional so credentials issued by older Cloud versions still parse.
     #[serde(default)]
     pub sort_order: Option<i64>,
+    #[serde(default)]
+    pub recommended: Option<bool>,
     #[serde(default)]
     pub reasoning: Option<serde_json::Value>,
 }
@@ -367,10 +365,16 @@ pub struct CloudOrder {
     pub product_id: String,
     pub product_name: String,
     pub amount: i64,
+    #[serde(default = "default_order_quantity")]
+    pub quantity: u8,
     pub currency: String,
     pub status: String,
     pub created_at: i64,
     pub paid_at: Option<i64>,
+}
+
+fn default_order_quantity() -> u8 {
+    1
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -410,12 +414,33 @@ pub struct CloudState {
     pub membership: Option<CloudMembership>,
     pub membership_status: CloudEntitlementStatus,
     pub membership_error: Option<String>,
+    pub membership_updated_at: Option<i64>,
+    pub ai_credits: CloudAiCreditState,
     pub sync_access: crate::account::CloudSyncAccess,
     /// True only for a session created by reviving a deleted account. It stays
     /// true for the lifetime of that session so the UI can explain what
     /// happened once, then never again.
     #[serde(default)]
     pub restored: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudAiCreditState {
+    pub data: Option<CloudAiCreditBalance>,
+    pub status: CloudAiCreditStatus,
+    pub error: Option<String>,
+    pub updated_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CloudAiCreditStatus {
+    #[default]
+    Unknown,
+    Refreshing,
+    Ready,
+    Error,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -590,4 +615,3 @@ mod subscription_tests {
         assert!(subscription.is_annual_membership);
     }
 }
-

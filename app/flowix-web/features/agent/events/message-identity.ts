@@ -1,4 +1,5 @@
 import type { AgentTypeKey } from "@/types/agent";
+import { getAgentMessageProfile } from "@features/agent/runtime/agent-message-profile";
 
 const CANONICAL_EXTERNAL_AGENTS = new Set<AgentTypeKey>([
   "codex",
@@ -19,11 +20,11 @@ export function canonicalAgentMessageId(
     return sourceMessageId;
   }
   if (sourceMessageId.startsWith("msg:")) return sourceMessageId;
-  // Codex item ids and Pi session entry ids are stable across live events and
+  // Provider item ids and session entry ids are stable across live events and
   // history, so wrapping them with runId creates disjoint identities for one
   // row. Keep provider ids unchanged. Errors stay run-scoped because they
   // have no provider message id and distinct failures must remain separate.
-  if ((agentType === "codex" || agentType === "pi") && role !== "error") {
+  if (getAgentMessageProfile(agentType).nativeMessageIds && role !== "error") {
     return sourceMessageId;
   }
   return `msg:${agentType}:${runId}:${role}:${sourceMessageId}`;

@@ -2,11 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, Loader2 } from 'lucide-react';
+import chatgptIcon from '@/assets/agent-icons/chatgpt.svg';
+import claudeIcon from '@/assets/agent-icons/claude.svg';
+import deepseekIcon from '@/assets/agent-icons/deepseek.svg';
+import geminiIcon from '@/assets/icon-gemini.svg';
 
 import { cloud, type CloudCheckout, type CloudProduct } from '@platform/tauri/client';
 import { openUrl } from '@platform/tauri/opener';
 import { cloudSyncErrorMessage } from '@platform/tauri/errors';
 import { useI18n } from '@/lib/i18n';
+import { toast } from '@/lib/toast';
 import { cn } from '@/lib/utils';
 import {
   Dialog,
@@ -29,6 +34,7 @@ import {
 import { getImmediateBillingProducts, loadBillingProducts } from '../public/product-catalog';
 import { useWechatPaymentStatus } from '../public/use-wechat-payment-status';
 import { WechatPaymentIcon, WechatPaymentQr } from '../public/wechat-payment-qr';
+import { watchAiMembershipPurchase } from '../public/ai-membership-purchase';
 
 export interface PaymentDialogProps {
   initialTab: BillingTab;
@@ -49,6 +55,7 @@ const PAYMENT_DIALOG_CONTENT_CLASS = cn(
 
 const PURCHASE_ACTION_CLASS = dialogActionClasses('brand');
 const SECONDARY_ACTION_CLASS = dialogActionClasses('secondary');
+const ZHIPU_ICON_URL = 'https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons/zhipu/default.svg';
 
 function cycleLabelKey(product: CloudProduct): 'billing.dialog.perYear' | 'billing.dialog.perMonth' | 'billing.dialog.perOnce' | 'billing.dialog.onceMonth' | 'billing.dialog.onceYear' | null {
   if (product.billingType === 'one_time') {
@@ -85,12 +92,23 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
   const [products, setProducts] = useState<CloudProduct[] | null>(() => getImmediateBillingProducts());
   const [error, setError] = useState<string | null>(null);
   const [buyingId, setBuyingId] = useState<string | null>(null);
+  const [hasPendingOrder, setHasPendingOrder] = useState<boolean | null>(null);
+  const [orderCheckFailed, setOrderCheckFailed] = useState(false);
+  const [orderCheckAttempt, setOrderCheckAttempt] = useState(0);
+  const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [wechatCheckout, setWechatCheckout] = useState<CloudCheckout | null>(null);
   const [activeSubscriptionIds, setActiveSubscriptionIds] = useState<Set<string>>(() => new Set());
   const [activeMembership, setActiveMembership] = useState<Awaited<ReturnType<typeof cloud.refreshMembership>> | null>(null);
-  const { status: wechatStatus, refresh: refreshWechatStatus } = useWechatPaymentStatus(wechatCheckout?.orderId, (membership) => {
+  const reportAutoEnabledWebSearch = useCallback(() => {
+    toast.success(t('preferences.pi.webSearchEnabledAfterPurchase'));
+  }, [t]);
+  const onWechatMembershipUpdated = useCallback((membership: Awaited<ReturnType<typeof cloud.refreshMembership>> | null) => {
     if (membership) setActiveMembership(membership);
-  });
+  }, []);
+  const { status: wechatStatus, refresh: refreshWechatStatus } = useWechatPaymentStatus(
+    wechatCheckout?.orderId,
+    onWechatMembershipUpdated,
+  );
   const buyingRef = useRef(false);
   const bodyRef = useRef<HTMLElement | null>(null);
 
@@ -104,6 +122,16 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
   }, [t]);
 
   useEffect(() => { void load(true); }, [load]);
+
+  useEffect(() => {
+    let mounted = true;
+    setOrderCheckFailed(false);
+    setHasPendingOrder(null);
+    void cloud.listBillingOrders().then((orders) => {
+      if (mounted) setHasPendingOrder(orders.some((order) => order.status === 'pending'));
+    }).catch(() => { if (mounted) setOrderCheckFailed(true); });
+    return () => { mounted = false; };
+  }, [orderCheckAttempt]);
 
   useEffect(() => {
     if (typeof cloud.refreshMembership !== 'function' || typeof cloud.listSubscriptions !== 'function') return;
@@ -155,16 +183,34 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
   const initialFocusProductId = (initialTab === 'credits' ? groups.credits[0] : groups.membership[0])?.id
     ?? displayProducts[0]?.id;
 
-  const buy = async (product: CloudProduct) => {
-    if (buyingRef.current) return;
+  const buy = async (product: CloudProduct, quantity: number) => {
+    if (buyingRef.current || (isMembershipProduct(product) && hasPendingOrder !== false)) return;
     buyingRef.current = true;
     setBuyingId(product.id);
+    let stopWatchingMembership: (() => void) | undefined;
+    const isAiMembershipPurchase = !isMembershipProduct(product);
     try {
-      const checkout = await cloud.createCheckout(product.id);
+      const checkout = await cloud.createCheckout(product.id, quantity);
+      if (isAiMembershipPurchase && checkout.checkoutUrl) {
+        try {
+          stopWatchingMembership = await watchAiMembershipPurchase(
+            checkout.orderId,
+            !checkout.checkoutUrl.startsWith('weixin://'),
+            reportAutoEnabledWebSearch,
+          );
+        } catch {
+          toast.error(t('preferences.pi.webSearchPurchaseTrackingFailed'));
+        }
+      }
       if (checkout.checkoutUrl.startsWith('weixin://')) {
         setWechatCheckout(checkout);
       } else if (checkout.checkoutUrl) {
-        await openUrl(checkout.checkoutUrl);
+        try {
+          await openUrl(checkout.checkoutUrl);
+        } catch (error) {
+          stopWatchingMembership?.();
+          throw error;
+        }
         onClose();
       }
     } catch (value) {
@@ -184,7 +230,10 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
     >
       <DialogContent
         aria-labelledby="flowix-payment-dialog-title"
-        className={PAYMENT_DIALOG_CONTENT_CLASS}
+        className={cn(
+          PAYMENT_DIALOG_CONTENT_CLASS,
+          displayProducts.length >= 4 && 'payment-dialog--four-products',
+        )}
         closeDisabled={buyingId !== null}
       >
         <main ref={bodyRef} className="relative z-[1] w-full px-5 py-6">
@@ -221,18 +270,23 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
 
             {displayProducts.length > 0 && (
               <div className="payment-dialog__list-container">
-                <ul className="payment-dialog__list">
+                <ul className={cn(
+                  'payment-dialog__list',
+                  groups.credits.length > 1 && 'payment-dialog__list--ai-pair',
+                  displayProducts.length >= 4 && 'payment-dialog__list--four-products',
+                )}>
                   {displayProducts.map((product) => {
                   const credits = creditsOf(product);
                   const cycle = cycleLabelKey(product);
                   const features = product.entitlement?.features ?? {};
+                  const quantity = isMembershipProduct(product) ? 1 : (quantities[product.id] ?? 1);
                   // Classification comes from the catalog's entitlementKind
                   // (with a legacy feature fallback), never from the credit
                   // denomination alone. `credits` is only a display amount.
                   const isStoragePlan = isMembershipProduct(product);
                   const isAiPlan = !isStoragePlan;
-                  const isAiCovered = isAiPlan && activeMembership?.aiActive === true;
-                  const isCurrent = activeSubscriptionIds.has(product.id)
+                  const isAiRepurchase = isAiPlan && activeMembership?.aiActive === true;
+                  const isCurrent = (isStoragePlan && activeSubscriptionIds.has(product.id))
                     || (isStoragePlan
                       && features.lifetime === true
                       && activeMembership?.active === true
@@ -256,9 +310,9 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
                   const benefits = isAiPlan
                     ? [
                       ...(credits !== null
-                        ? [t('billing.dialog.aiBenefit.credits', { value: credits.toLocaleString() })]
+                        ? [t('billing.dialog.aiBenefit.credits', { value: (credits * quantity).toLocaleString() })]
                         : []),
-                      t('billing.dialog.aiBenefit.models'),
+                      t('billing.dialog.aiBenefit.webSearch'),
                     ]
                     : [
                       // 组合商品：云存储主类型同时赠送点数，两条都列出来，别让它看起来只是存储包。
@@ -266,16 +320,16 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
                         ? [t('billing.dialog.aiBenefit.credits', { value: credits.toLocaleString() })]
                         : []),
                       t('preferences.cloud.totalStorage', { capacity: storageCapacity }),
+                      t('billing.dialog.storageBenefit.wikiPublishing'),
                       t('preferences.cloud.unlimitedSyncedNotebooks'),
                       t('preferences.cloud.maximumFileSize', {
-                        size: features.lifetime === true ? '100 MB' : '5 MB',
+                        size: features.lifetime === true ? '100 MB' : '10 MB',
                       }),
                       ...(['memberThemes'] as const)
                         .map((benefit) => t(`preferences.cloud.plan.benefit.${benefit}`)),
                       t('billing.dialog.storageBenefit.localAi'),
                       ...(['mcpCli', 'earlyAccess'] as const)
                         .map((benefit) => t(`preferences.cloud.plan.benefit.${benefit}`)),
-                      t('billing.dialog.storageBenefit.futureFeatures'),
                       t('billing.dialog.storageBenefit.permanentData'),
                     ];
                   return (
@@ -295,8 +349,32 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
                           {productDescription}
                         </div>
                         <div className="payment-dialog__product-price">
-                          <span className="payment-dialog__amount">{formatBillingPrice(product.price)}</span>
+                          <span className="payment-dialog__amount">{formatBillingPrice({
+                            amount: product.price.amount * quantity,
+                            currency: product.price.currency,
+                          })}</span>
                           {cycle && <span className="payment-dialog__cycle">{t(cycle)}</span>}
+                          {isAiPlan && (
+                            <div className="payment-dialog__quantity-stepper" role="group" aria-label={t('billing.dialog.quantity')}>
+                              <button
+                                type="button"
+                                aria-label={t('billing.dialog.quantityDecrease')}
+                                disabled={buyingId !== null || quantity <= 1}
+                                onClick={() => setQuantities((current) => ({
+                                  ...current, [product.id]: Math.max(1, (current[product.id] ?? 1) - 1),
+                                }))}
+                              >−</button>
+                              <output aria-live="polite">{quantity}</output>
+                              <button
+                                type="button"
+                                aria-label={t('billing.dialog.quantityIncrease')}
+                                disabled={buyingId !== null || quantity >= 10}
+                                onClick={() => setQuantities((current) => ({
+                                  ...current, [product.id]: Math.min(10, (current[product.id] ?? 1) + 1),
+                                }))}
+                              >+</button>
+                            </div>
+                          )}
                         </div>
                         <button
                           type="button"
@@ -305,14 +383,14 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
                             'payment-dialog__purchase relative mt-4 flex w-full items-center justify-center',
                             isStoragePlan && features.lifetime !== true && 'payment-dialog__purchase--white',
                             isStoragePlan && features.lifetime === true && 'payment-dialog__purchase--storage-long-term',
-                            (isCurrent || isCoveredByLifetime || isAiCovered) && 'payment-dialog__purchase--current',
+                            (isCurrent || isCoveredByLifetime) && 'payment-dialog__purchase--current',
                           )}
                           data-payment-initial-focus={product.id === initialFocusProductId ? '' : undefined}
-                          disabled={isCurrent || isCoveredByLifetime || isAiCovered || buyingId !== null}
-                          onClick={() => void buy(product)}
+                          disabled={isCurrent || isCoveredByLifetime || buyingId !== null || (isStoragePlan && hasPendingOrder !== false)}
+                          onClick={() => void buy(product, quantity)}
                         >
                           {buyingId === product.id && <Loader2 className="absolute right-3 h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
-                          {t(isAiCovered ? 'billing.dialog.aiAlreadyActive' : isCurrent
+                          {t(isAiRepurchase ? 'billing.dialog.aiRepurchase' : isCurrent
                             ? 'billing.dialog.currentlyActive'
                             : isCoveredByLifetime
                               ? 'billing.dialog.downgradeUnsupported'
@@ -320,6 +398,17 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
                                 ? 'billing.dialog.wechatPurchase'
                                 : 'billing.dialog.purchase')}
                         </button>
+                        {isStoragePlan && hasPendingOrder === true && (
+                          <p role="status">{t('preferences.cloud.order.pendingCheckout')}</p>
+                        )}
+                        {isStoragePlan && orderCheckFailed && (
+                          <div role="alert">
+                            <span>{t('errors.friendly.ordersLoad')}</span>{' '}
+                            <button type="button" onClick={() => setOrderCheckAttempt((attempt) => attempt + 1)}>
+                              {t('preferences.cloud.retry')}
+                            </button>
+                          </div>
+                        )}
                         <div className="payment-dialog__benefits-title">
                           {t('preferences.cloud.plan.includes')}
                         </div>
@@ -330,12 +419,93 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
                               <span>{benefit}</span>
                             </li>
                           ))}
+                          {isAiPlan && (
+                            <>
+                              <li className="payment-dialog__benefit-models">
+                                <Check aria-hidden="true" />
+                                <span className="payment-dialog__benefit-model-content">
+                                  <span>{t('billing.dialog.aiBenefit.models')}</span>
+                                  <span className="payment-dialog__model-logos">
+                                    <span
+                                      className="payment-dialog__model-icon payment-dialog__model-icon--chatgpt"
+                                      role="img"
+                                      aria-label="GPT"
+                                      title="GPT"
+                                    >
+                                      <img src={chatgptIcon} alt="" />
+                                      <span
+                                        aria-hidden="true"
+                                        className="payment-dialog__model-icon-mask"
+                                        style={{
+                                          maskImage: `url("${chatgptIcon}")`,
+                                          WebkitMaskImage: `url("${chatgptIcon}")`,
+                                        }}
+                                      />
+                                    </span>
+                                    <span
+                                      className="payment-dialog__model-icon"
+                                      role="img"
+                                      aria-label="Claude"
+                                      title="Claude"
+                                    >
+                                      <img src={claudeIcon} alt="" />
+                                    </span>
+                                    <span
+                                      className="payment-dialog__model-icon"
+                                      role="img"
+                                      aria-label="DeepSeek"
+                                      title="DeepSeek"
+                                    >
+                                      <img src={deepseekIcon} alt="" />
+                                    </span>
+                                    <span
+                                      className="payment-dialog__model-icon payment-dialog__model-icon--gemini"
+                                      role="img"
+                                      aria-label="Gemini"
+                                      title="Gemini"
+                                    >
+                                      <img src={geminiIcon} alt="" />
+                                      <span
+                                        aria-hidden="true"
+                                        className="payment-dialog__model-icon-mask"
+                                        style={{
+                                          maskImage: `url("${geminiIcon}")`,
+                                          WebkitMaskImage: `url("${geminiIcon}")`,
+                                        }}
+                                      />
+                                    </span>
+                                    <span
+                                      className="payment-dialog__model-icon"
+                                      role="img"
+                                      aria-label="GLM"
+                                      title="GLM"
+                                    >
+                                      <img src={ZHIPU_ICON_URL} alt="" />
+                                    </span>
+                                  </span>
+                                </span>
+                              </li>
+                              <li className="payment-dialog__benefit-group-title">
+                                {t('billing.dialog.product.aiPricingTitle')}
+                              </li>
+                              <li>
+                                <Check aria-hidden="true" />
+                                <span>{t('billing.dialog.product.aiPricing.deepSeek')}</span>
+                              </li>
+                              <li>
+                                <Check aria-hidden="true" />
+                                <span>{t('billing.dialog.product.aiPricing.chatGpt')}</span>
+                              </li>
+                              <li>
+                                <Check aria-hidden="true" />
+                                <span>{t('billing.dialog.product.aiPricing.claude')}</span>
+                              </li>
+                              <li className="payment-dialog__benefit-group-title">
+                                {t('billing.dialog.aiBenefit.workbuddyTaskCount')}
+                              </li>
+                            </>
+                          )}
                         </ul>
-                        {isAiPlan && (
-                          <p className="payment-dialog__ai-note">
-                            {t('billing.dialog.allProductsNote')}
-                          </p>
-                        )}
                       </div>
                     </li>
                   );
@@ -373,14 +543,29 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
                 <ChevronDown aria-hidden="true" />
               </summary>
               <p className="payment-dialog__faq-answer">
-                {t('billing.dialog.faq.renewal.answer')}
+                {t(displayProducts.some((product) => product.billingType === 'subscription')
+                  ? 'billing.dialog.faq.renewal.recurringAnswer'
+                  : 'billing.dialog.faq.renewal.answer')}
               </p>
             </details>
+            {(['multiplier', 'repurchase', 'wiki', 'invoice'] as const).map((item) => (
+              <details className="payment-dialog__faq-item" key={item}>
+                <summary className="payment-dialog__faq-question">
+                  <span>{t(`billing.dialog.faq.${item}.question`)}</span>
+                  <ChevronDown aria-hidden="true" />
+                </summary>
+                <p className="payment-dialog__faq-answer">{t(`billing.dialog.faq.${item}.answer`)}</p>
+              </details>
+            ))}
           </section>
 
         </main>
       </DialogContent>
-      <Dialog open={wechatCheckout !== null} onOpenChange={(open) => { if (!open) setWechatCheckout(null); }}>
+      <Dialog open={wechatCheckout !== null} onOpenChange={(open) => {
+        if (!open) {
+          setWechatCheckout(null);
+        }
+      }}>
         <DialogContent aria-labelledby="wechat-payment-dialog-title" className="max-w-sm">
           <DialogTitle id="wechat-payment-dialog-title" className="mb-3 flex items-center gap-2">
             <WechatPaymentIcon />{t('billing.dialog.wechatTitle')}
@@ -399,7 +584,9 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
               >{t(wechatStatus === 'checking' ? 'billing.dialog.wechatChecking' : 'billing.dialog.wechatRefresh')}</Button>}
               <Button
                 type="button"
-                onClick={() => setWechatCheckout(null)}
+                onClick={() => {
+                  setWechatCheckout(null);
+                }}
               >
                 {t('billing.dialog.wechatClose')}
               </Button>

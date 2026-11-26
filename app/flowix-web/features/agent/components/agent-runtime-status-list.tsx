@@ -18,6 +18,8 @@ type AgentRuntimeStatusByType = Partial<Record<AgentTypeKey, AgentRuntimeSnapsho
 interface AgentRuntimeStatusListProps {
   statusByType: AgentRuntimeStatusByType;
   isChecking: boolean;
+  /** Optional display priority; unspecified agents retain their catalog order. */
+  displayOrder?: readonly AgentTypeKey[];
   onSetupClick?: (typeKey: AgentTypeKey) => void;
   rowClassName?: string;
   statusClassName?: string;
@@ -83,6 +85,7 @@ function isRuntimeUnavailable(status: AgentRuntimeStatusView): boolean {
 export function AgentRuntimeStatusList({
   statusByType,
   isChecking,
+  displayOrder,
   onSetupClick,
   rowClassName,
   statusClassName,
@@ -95,7 +98,16 @@ export function AgentRuntimeStatusList({
 }: AgentRuntimeStatusListProps) {
   const isVisible = (typeKey: AgentTypeKey) =>
     !hiddenKeys?.has(typeKey);
-  const visibleAgentTypes = AGENT_TYPES.filter((type) => isVisible(type.id));
+  const orderedAgentTypes = displayOrder
+    ? [...AGENT_TYPES].sort((left, right) => {
+        const leftPriority = displayOrder.indexOf(left.id);
+        const rightPriority = displayOrder.indexOf(right.id);
+        if (leftPriority < 0) return rightPriority < 0 ? 0 : 1;
+        if (rightPriority < 0) return -1;
+        return leftPriority - rightPriority;
+      })
+    : AGENT_TYPES;
+  const visibleAgentTypes = orderedAgentTypes.filter((type) => isVisible(type.id));
   const { t } = useI18n();
   const { enabledByType: agentEnabledByType, setEnabled } = useAgentVisibilityPreferences();
 

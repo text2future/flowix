@@ -755,7 +755,6 @@ pub fn run() {
             commands::cloud::cloud_delete_custom_s3_profile,
             commands::cloud::cloud_check_custom_s3,
             commands::cloud::cloud_save_custom_s3_profile,
-            commands::cloud::cloud_update_account_region,
             commands::cloud::cloud_request_password_reset_code,
             commands::cloud::cloud_confirm_password_reset_code,
             commands::cloud::cloud_request_registration_code,

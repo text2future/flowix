@@ -1,10 +1,7 @@
+import { createComposerWorkspaceIcon, createPermissionModeIcon, modelProviderIcon, sameModelOptions } from "./external-agent-settings-helpers";
 import { AgentEmptyStateController, type AgentEmptyStatePresentation } from "./agent-empty-state-controller";
 export type { AgentEmptyStatePresentation } from "./agent-empty-state-controller";
 import { resolveAgentPreferenceRuntimeConfig } from "@features/agent/store/agent-user-preferences";
-import cursorOutlineSvg from "@/assets/cursor-outline.svg?raw";
-import folderOutlineSvg from "@/assets/folder-outline.svg?raw";
-import shieldAlertOutlineSvg from "@/assets/shield-alert-outline.svg?raw";
-import shieldCheckOutlineSvg from "@/assets/shield-check-outline.svg?raw";
 import type { AppLanguage, I18nKey, I18nParams } from "@/lib/i18n";
 import { translate } from "@/lib/i18n";
 import { replayEnterAnimation } from "@/lib/replay-enter-animation";
@@ -99,64 +96,11 @@ const CODEX_COMPOSER_EFFORT_LABEL_KEYS = {
 
 const CODEX_SETTINGS_POPOVER_WIDTH_PX = 212;
 const CODEX_SETTINGS_POPOVER_MAX_HEIGHT_PX = 280;
-const PI_MODEL_PICKER_MAX_HEIGHT_PX = 360;
+const PI_MODEL_PICKER_MAX_HEIGHT_PX = 398;
 const CODEX_SETTINGS_POPOVER_OFFSET_PX = 6;
 const CODEX_SETTINGS_POPOVER_VIEWPORT_PADDING_PX = 8;
 type SettingsPopoverPlacement = "anchor" | "submenu";
 
-
-function createComposerWorkspaceIcon(): SVGSVGElement | null {
-  const template = document.createElement("template");
-  template.innerHTML = folderOutlineSvg.trim();
-  const icon = template.content.firstElementChild as SVGSVGElement | null;
-  if (!icon) return null;
-  icon.classList.add("agent-composer__workspace-icon");
-  icon.setAttribute("aria-hidden", "true");
-  icon.setAttribute("focusable", "false");
-  return icon;
-}
-
-function createPermissionModeIcon(
-  mode: AgentPermissionMode,
-): SVGSVGElement | null {
-  const svgSource =
-    mode === "danger-full-access"
-      ? shieldAlertOutlineSvg
-      : mode === "workspace-write"
-        ? shieldCheckOutlineSvg
-        : mode === "read-only"
-          ? cursorOutlineSvg
-          : null;
-  if (!svgSource) return null;
-  const template = document.createElement("template");
-  template.innerHTML = svgSource.trim();
-  const icon = template.content.firstElementChild as SVGSVGElement | null;
-  if (!icon) return null;
-  icon.classList.add("agent-thread-card__permission-mode-icon");
-  icon.setAttribute("aria-hidden", "true");
-  icon.setAttribute("focusable", "false");
-  if (mode === "danger-full-access") {
-    icon.classList.add("agent-thread-card__permission-mode-icon--warning");
-  }
-  return icon;
-}
-
-function modelProviderIcon(iconUrl?: string): HTMLImageElement | undefined {
-  if (!iconUrl) return undefined;
-  try {
-    if (new URL(iconUrl).protocol !== "https:") return undefined;
-  } catch {
-    return undefined;
-  }
-  const image = document.createElement("img");
-  image.className = "agent-thread-card__model-provider-icon";
-  image.src = iconUrl;
-  image.alt = "";
-  image.loading = "lazy";
-  image.referrerPolicy = "no-referrer";
-  image.onerror = () => image.remove();
-  return image;
-}
 
 const CLAUDE_MODEL_OPTIONS: AgentModelOption[] = [
   { id: "claude-opus-4-8", label: "claude-opus-4-8" },
@@ -225,7 +169,6 @@ export class ExternalAgentSettingsController {
   private readonly onCloudAccessBlocked?: (kind: CloudAccessKind) => void;
 
   private modelButton: HTMLButtonElement | null = null;
-  private piModelNotice: HTMLButtonElement | null = null;
   private composerModelButton: HTMLButtonElement | null = null;
   private composerModeButton: HTMLButtonElement | null = null;
   private composerPermissionButton: HTMLButtonElement | null = null;
@@ -256,6 +199,10 @@ export class ExternalAgentSettingsController {
   private piModelsLoadFailed = false;
   private localSupportedModelsTypeKey: AgentTypeKey | null = null;
   private localSupportedModels: AgentModelOption[] = [];
+  // 模型目录正在拉取的 agent 类型（仅当无可用缓存时置位）。显式区分
+  // "加载中 / 加载完成但为空 / 加载失败"，加载期间按钮与弹层显示
+  // "正在读取模型"，避免把未就绪的数据误渲染成结果。
+  private modelCatalogLoadInFlight: AgentTypeKey | null = null;
   private readonly unlistenCodexSettings: UnlistenFn;
   private readonly unlistenPiCatalog: () => void;
   private readonly emptyState: AgentEmptyStateController;
@@ -355,7 +302,7 @@ export class ExternalAgentSettingsController {
     if (kind === "permission") return resolved.access?.sandbox ?? "danger-full-access";
     if (kind === "reasoning") return resolved.reasoningEffort ?? "medium";
     return useAgentDataStore.getState().agents[typeKey].user.mode
-      ?? (typeKey === "pi" ? "writing" : "standard");
+      ?? (typeKey === "pi" ? "code" : "standard");
   }
 
   /**
@@ -502,7 +449,11 @@ export class ExternalAgentSettingsController {
       return;
     }
     const cached = useAgentDataStore.getState().agents[typeKey].catalog.models;
-    if (cached.items.length) this.applyModelCatalog(typeKey, cached);
+    // The popover is rendered immediately after this call. Updating controller
+    // state here is enough; rebuilding it once more caused provider icons to
+    // disappear and reload during the opening frame.
+    if (cached.items.length) this.applyModelCatalog(typeKey, cached, { renderPopover: false });
+    else this.beginModelCatalogLoad(typeKey);
 
     void loadAgentModelCatalog(typeKey, { force })
       .then((catalog) => this.applyModelCatalog(typeKey, catalog))
@@ -512,6 +463,7 @@ export class ExternalAgentSettingsController {
           this.localSupportedModelsTypeKey = typeKey;
           this.localSupportedModels = [];
         }
+        this.endModelCatalogLoad(typeKey);
         this.refreshEmptySettings();
         if (this.open && this.kind === "model") {
           this.renderPopover();
@@ -522,13 +474,22 @@ export class ExternalAgentSettingsController {
 
   private loadPiModelCatalog(force: boolean): void {
     const cached = useAgentDataStore.getState().agents.pi.catalog.models;
-    if (cached.items.length) this.applyModelCatalog("pi", cached);
+    if (cached.items.length) this.applyModelCatalog("pi", cached, { renderPopover: false });
+    else this.beginModelCatalogLoad("pi");
 
+    // Pi catalog changes are applied by the store subscription. Applying the
+    // resolved value here as well rebuilt the same list a second time after
+    // the store had already notified this controller.
     void loadPiCloudModelCatalog({ force })
-      .then((catalog) => this.applyModelCatalog("pi", catalog))
       .catch(() => {
         if (this.isDestroyed() || this.getTypeKey() !== "pi") return;
-        if (!cached.items.length) this.piModelsLoadFailed = true;
+        // 以当前 store 为准：加载期间可能已被订阅写入有效目录，此时保留数据不报错。
+        if (!useAgentDataStore.getState().agents.pi.catalog.models.items.length) {
+          this.piModelsLoadFailed = true;
+          this.localSupportedModelsTypeKey = "pi";
+          this.localSupportedModels = [];
+        }
+        this.endModelCatalogLoad("pi");
         this.refreshEmptySettings();
         if (this.open && this.kind === "model") {
           this.renderPopover();
@@ -537,11 +498,53 @@ export class ExternalAgentSettingsController {
       });
   }
 
-  private applyModelCatalog(typeKey: AgentTypeKey, catalog: AgentModelCatalog): void {
+  /** 拉取开始且无缓存可用 → 进入加载态并立即刷新按钮文案。 */
+  private beginModelCatalogLoad(typeKey: AgentTypeKey): void {
+    if (this.modelCatalogLoadInFlight === typeKey) return;
+    this.modelCatalogLoadInFlight = typeKey;
+    this.refreshEmptySettings();
+  }
+
+  private endModelCatalogLoad(typeKey: AgentTypeKey): void {
+    if (this.modelCatalogLoadInFlight === typeKey) {
+      this.modelCatalogLoadInFlight = null;
+    }
+  }
+
+  private isModelCatalogLoading(): boolean {
+    return this.modelCatalogLoadInFlight !== null
+      && this.modelCatalogLoadInFlight === this.getTypeKey();
+  }
+
+  private applyModelCatalog(
+    typeKey: AgentTypeKey,
+    catalog: AgentModelCatalog,
+    options: { renderPopover?: boolean } = {},
+  ): void {
     if (this.isDestroyed() || this.getTypeKey() !== typeKey) return;
+    this.endModelCatalogLoad(typeKey);
     // Pi's session-aware store is authoritative, including an empty directory
     // after logout. A late promise must not revive the controller's old copy.
     if (typeKey === "pi") catalog = useAgentDataStore.getState().agents.pi.catalog.models;
+    const sameType = this.localSupportedModelsTypeKey === typeKey;
+    const modelCatalogChanged = !sameType || !sameModelOptions(this.localSupportedModels, catalog.items);
+    const previousDefaultModel = typeKey === "codex"
+      ? this.codexDefaultModel
+      : typeKey === "pi"
+        ? this.piDefaultModel
+        : typeKey === "dsh"
+          ? this.dshDefaultModel
+          : "";
+    const previousDefaultProviderId = typeKey === "pi"
+      ? this.piDefaultProviderId
+      : typeKey === "dsh"
+        ? this.dshDefaultProviderId
+        : undefined;
+    const catalogDefaultModel = catalog.defaultModel ?? "";
+    const catalogChanged = modelCatalogChanged
+      || previousDefaultModel !== catalogDefaultModel
+      || previousDefaultProviderId !== catalog.defaultProviderId;
+    const modelLoadStateChanged = typeKey === "pi" && this.piModelsLoadFailed;
     this.localSupportedModelsTypeKey = typeKey;
     this.localSupportedModels = catalog.items as AgentModelOption[];
     if (typeKey === "codex") this.codexDefaultModel = catalog.defaultModel ?? "";
@@ -555,7 +558,8 @@ export class ExternalAgentSettingsController {
       this.dshDefaultProviderId = catalog.defaultProviderId;
     }
     this.refreshEmptySettings();
-    if (this.open && this.kind === "model") {
+    if (options.renderPopover !== false && this.open && this.kind === "model"
+      && (catalogChanged || modelLoadStateChanged)) {
       this.renderPopover();
       this.schedulePosition();
     }
@@ -569,7 +573,6 @@ export class ExternalAgentSettingsController {
     if (this.anchor && empty.contains(this.anchor)) this.setSettingsPopoverOpen(false);
     this.workspaceDisplay = null;
     this.modelButton = null;
-    this.piModelNotice = null;
     this.reasoningButton = null;
     this.modeButton = null;
     this.permissionButton = null;
@@ -577,24 +580,6 @@ export class ExternalAgentSettingsController {
 
   private appendEmptyRuntimeSettings(empty: HTMLElement, presentation: AgentEmptyStatePresentation): void {
     if (this.getTypeKey() === "pi") {
-      const modelNotice = document.createElement("button");
-      modelNotice.type = "button";
-      modelNotice.className =
-        "agent-thread-card__dsh-update-notice agent-thread-card__pi-model-notice";
-      modelNotice.setAttribute("aria-label", this.t("agent.model.configure"));
-      modelNotice.hidden = true;
-      const modelNoticeLabel = document.createElement("span");
-      modelNoticeLabel.className = "agent-thread-card__dsh-update-label";
-      const modelNoticeChevron = createChevronIcon("right");
-      modelNoticeChevron.setAttribute("aria-hidden", "true");
-      modelNotice.append(modelNoticeLabel, modelNoticeChevron);
-      modelNotice.addEventListener("click", (event) => {
-        event.stopPropagation();
-        void windows.openPreferences("pi");
-      });
-      empty.append(modelNotice);
-      this.piModelNotice = modelNotice;
-
       const unavailableNotice = document.createElement("div");
       unavailableNotice.className =
         "agent-thread-card__dsh-update-notice agent-thread-card__pi-unavailable-notice";
@@ -637,7 +622,7 @@ export class ExternalAgentSettingsController {
           )
         : null;
       this.reasoningButton = null;
-      this.modeButton = this.supportsRuntimeSetting("mode")
+      this.modeButton = this.getTypeKey() !== "pi" && this.supportsRuntimeSetting("mode")
         ? this.createEmptyControl(
             "mode",
             this.t("agent.mode.title"),
@@ -735,7 +720,8 @@ export class ExternalAgentSettingsController {
 
   /** Compact runtime mode switcher placed beside the model control. */
   createComposerModeButton(): HTMLButtonElement | null {
-    if (!this.supportsRuntimeSetting("mode")) return null;
+    // Pi mode is a shared preference controlled from Pi preferences, not the composer.
+    if (this.getTypeKey() === "pi" || !this.supportsRuntimeSetting("mode")) return null;
     const label = this.t("agent.mode.title");
     const button = createExternalAgentWorkspaceControl(
       label,
@@ -878,20 +864,6 @@ export class ExternalAgentSettingsController {
   }
 
   refreshEmptySettings(): void {
-    if (this.piModelNotice) {
-      const showNotice = this.shouldShowPiModelEmptyState();
-      this.piModelNotice.hidden = !showNotice;
-      if (this.modelButton) this.modelButton.hidden = showNotice;
-      const messageKey = this.piModelsLoadFailed
-        ? "agent.model.loadFailed"
-        : "agent.model.configure";
-      const label = this.t(messageKey);
-      const labelElement = this.piModelNotice.querySelector<HTMLElement>(
-        ".agent-thread-card__dsh-update-label",
-      );
-      if (labelElement) labelElement.textContent = label;
-      this.piModelNotice.setAttribute("aria-label", label);
-    }
     this.refreshModelDisplays();
     this.refreshComposerModeButton();
     this.refreshComposerPermissionButton();
@@ -1343,9 +1315,7 @@ export class ExternalAgentSettingsController {
     const settingsLabel = document.createElement("span");
     settingsLabel.className = "agent-thread-card__codex-settings-item-label";
     settingsLabel.textContent = this.t("agent.workspace.manageRepositories");
-    const chevron = createChevronIcon("right");
-    chevron.setAttribute("class", "agent-thread-card__codex-settings-settings-chevron");
-    settingsButton.append(settingsLabel, chevron);
+    settingsButton.append(settingsLabel);
     settingsButton.addEventListener("click", (event) => {
       event.stopPropagation();
       // 翻到第二页而不是跳走; 弹窗保持打开, 外点关闭 / 定位都不需要重算。
@@ -1900,6 +1870,8 @@ export class ExternalAgentSettingsController {
     if (
       selection.id !== "inherit" &&
       !(this.getTypeKey() === "pi" && !selection.id) &&
+      // 加载中目录尚未就绪，不合成"未知模型"尾行，让弹层显示加载态。
+      !this.isModelCatalogLoading() &&
       !missingPiCloudModel &&
       !options.some((option) =>
         option.id === selection.id
@@ -1919,6 +1891,11 @@ export class ExternalAgentSettingsController {
   }
 
   private getCurrentExternalModelLabel(): string {
+    // 加载中优先于一切结果态，避免用未就绪的数据伪造选中值。
+    if (this.isModelCatalogLoading()) {
+      return this.t("agent.model.loading");
+    }
+
     if (this.shouldShowPiModelEmptyState()) {
       return this.t(this.piModelsLoadFailed ? "agent.model.loadFailed" : "agent.model.noneFound");
     }
@@ -1962,7 +1939,8 @@ export class ExternalAgentSettingsController {
     effort?: string;
   } {
     const label = this.getCurrentExternalModelLabel();
-    if (!label || !this.supportsRuntimeSetting("reasoning")) {
+    // 加载中不拼接 reasoning 后缀（"正在读取模型… · high" 是噪音）。
+    if (!label || !this.supportsRuntimeSetting("reasoning") || this.isModelCatalogLoading()) {
       return { text: label, model: label };
     }
     if (this.getTypeKey() === "codex") {
@@ -2069,6 +2047,7 @@ export class ExternalAgentSettingsController {
       options,
       loadedOptions: this.getLoadedModelOptions(),
       piModelsLoadFailed: this.piModelsLoadFailed,
+      modelsLoading: this.isModelCatalogLoading(),
       showEmptyState: this.shouldShowPiModelEmptyState(),
       supportsReasoning: this.supportsRuntimeSetting("reasoning"),
       t: (key) => this.t(key),
@@ -2227,7 +2206,7 @@ export class ExternalAgentSettingsController {
         void this.selectExternalAgentModel(option);
       },
       description,
-      { icon: modelProviderIcon(option.iconUrl) },
+      { icon: modelProviderIcon(option.iconUrl, this.getTypeKey() === "pi") },
     );
   }
 
@@ -2275,7 +2254,7 @@ export class ExternalAgentSettingsController {
   private renderModeSettings(): void {
     const options = useAgentDataStore.getState().agents[this.getTypeKey()].catalog.capabilities.modes;
     const current = this.readRuntimeSetting("mode")
-      ?? (this.getTypeKey() === "pi" ? "writing" : "standard");
+      ?? (this.getTypeKey() === "pi" ? "code" : "standard");
     if (this.getTypeKey() === "pi") {
       options.forEach((option) => {
         this.popover.append(

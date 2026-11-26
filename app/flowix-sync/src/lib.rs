@@ -29,7 +29,7 @@ pub use manager::SyncManager;
 pub use manager::{PassInput, V4_CREDENTIAL_RENEWAL_MARGIN_MS};
 pub use models::{
     AccountDeletionOutcome, AccountDeletionState, AppleAuthChallenge, AppleAuthorization,
-    CloudAccount, CloudAiCredential, CloudAiCreditBalance, CloudAiModel, CloudAiProvider,
+    CloudAccount, CloudAiCredential, CloudAiCreditBalance, CloudAiCreditState, CloudAiCreditStatus, CloudAiModel, CloudAiProvider,
     CloudAuthStatus, CloudCheckout, CloudEntitlementStatus, CloudMembership, CloudNoteShareLink,
     CloudNotebook, CloudOrder, CloudOrderCheck, CloudPrice, CloudProduct, CloudState,
     CloudSubscription, CloudUser, PasswordResetCodeRequest, ProductDuration, ProductEntitlement,
@@ -55,4 +55,3 @@ pub use pass::{
     plan_pass, run_pass, state_updates, DirectSource, ObjectSource, PassEnv, PassPlan, PassReport,
     PassRequest, StateUpdates, BIND_GRACE_MS,
 };
-

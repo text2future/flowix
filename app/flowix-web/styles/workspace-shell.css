@@ -465,26 +465,6 @@
  * 关键帧由 animate-[<name>_<duration>_<timing>] arbitrary value 引用,
  * 必须保留 CSS。 */
 
-@keyframes notebookAgentSettingsDialogIn {
-  from {
-    opacity: 0;
-    transform: translateY(8px) scale(0.985);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-.notebook-agent-settings-dialog {
-  animation: notebookAgentSettingsDialogIn 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .notebook-agent-settings-dialog {
-    animation: none;
-  }
-}
 
 @keyframes agentThinkingDot {
 	0%, 100% {

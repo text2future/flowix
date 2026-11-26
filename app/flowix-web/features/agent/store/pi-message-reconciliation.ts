@@ -8,11 +8,24 @@ export type PiTimelineSource =
       /** Immutable projection version captured BEFORE starting the RPC read. */
       requestProjection?: readonly ChatMessage[] };
 
-export function piRowIdentity(message: Pick<ChatMessage, "id" | "role" | "messageId" | "piBlockIndex">): string {
+export function piRowIdentity(
+  message: Pick<ChatMessage, "id" | "role" | "messageId" | "piBlockIndex"> & {
+    toolCallId?: string;
+  },
+): string {
+  // A tool row's native identity is its call id. Pi's live row names itself
+  // `tool-<callId>` because `tool_execution_start` carries no native message
+  // id (the completed assistant snapshot only supplies the parent entry), while
+  // the persisted row uses the call id directly. Keying on `messageId` alone
+  // therefore produced two identities for one call, and the live row survived
+  // completion reconciliation as a duplicate tool row.
+  const base = message.role === "tool" && message.toolCallId
+    ? message.toolCallId
+    : message.messageId ?? message.id;
   const block = message.piBlockIndex !== undefined &&
     (message.role === "assistant" || message.role === "reasoning")
     ? `:block:${message.piBlockIndex}` : "";
-  return `${message.role}\u0000${message.messageId ?? message.id}${block}`;
+  return `${message.role}\u0000${base}${block}`;
 }
 
 /**

@@ -21,12 +21,14 @@ export type PublicCloudModel = {
   id: string;
   title?: string;
   subtitle?: string;
+  tags?: string[];
   creditMultiplier?: number;
   reasoning?: { levels: string[]; defaultLevel?: string | null };
   iconUrl?: string;
   providerIconUrl?: string;
   /** Directory rank set in the Cloud admin; larger values come first. */
   sortOrder?: number;
+  recommended?: boolean;
 };
 
 export type PublicCloudCatalogCache = { fetchedAt: number; models: PublicCloudModel[] };
@@ -107,10 +109,12 @@ export function withPublicCloudModels(
       providerId: FLOWIX_CLOUD_PREVIEW_PROVIDER_ID,
       providerName: "Flowix Cloud",
       subtitle: model.subtitle,
+      tags: model.tags,
       creditMultiplier: model.creditMultiplier,
       reasoningConfig: model.reasoning,
       iconUrl: model.iconUrl || model.providerIconUrl,
       sortOrder: model.sortOrder,
+      recommended: model.recommended,
     })), ...local.items.filter((model) => !isFlowixCloudModel(model))],
   };
 }

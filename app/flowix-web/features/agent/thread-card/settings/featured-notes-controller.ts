@@ -87,14 +87,25 @@ export class FeaturedNotesController {
         void this.refreshFeaturedNotes(empty, panel);
       });
       this.featuredNotesPanel = panel;
-      // Expanded empty-state notes float above the composer so they remain
+      // Keep expanded empty-state notes in a separate row above the composer,
       // independent from the welcome content and the message viewport.
-      const composer = empty
-        .closest<HTMLElement>(".agent-thread-card__container")
-        ?.querySelector<HTMLElement>(":scope > .agent-composer");
+      const container = empty.closest<HTMLElement>(".agent-thread-card__container");
+      const standaloneSurface = empty.closest<HTMLElement>(".agent-conversation-detail");
+      const composer = container?.querySelector<HTMLElement>(":scope > .agent-composer")
+        ?? standaloneSurface?.querySelector<HTMLElement>(".agent-composer");
       if (empty.classList.contains("agent-thread-card__empty--expanded") && composer) {
         panel.setAttribute("data-no-composer-focus", "");
-        composer.prepend(panel);
+        const composerStack = composer.closest<HTMLElement>(".agent-conversation-detail__composer-stack");
+        const composerMount = composer.parentElement;
+        if (composerStack && composerMount?.parentElement === composerStack) {
+          // Standalone conversations mount the composer inside a React-owned
+          // wrapper. Place the panel beside that wrapper so it gets its own
+          // row instead of joining the composer wrapper's horizontal flex row.
+          composerMount.before(panel);
+        } else {
+          // Thread Cards own the composer as a direct grid child.
+          composer.before(panel);
+        }
       } else if (empty.classList.contains("agent-thread-card__empty--expanded")) {
         // Keep controller-only hosts without a composer usable (for example
         // isolated renderers); production surfaces always mount the composer.
@@ -266,6 +277,8 @@ export class FeaturedNotesController {
       setSettingsOpen(settingsButton.getAttribute("aria-expanded") !== "true");
     });
 
+    const listViewport = document.createElement("div");
+    listViewport.className = "agent-thread-card__featured-notes-viewport";
     const list = document.createElement("div");
     list.className = "agent-thread-card__featured-notes-list";
     list.setAttribute("role", "group");
@@ -274,7 +287,8 @@ export class FeaturedNotesController {
     for (const note of notes) {
       list.append(this.createFeaturedNoteCard(note, notebookId));
     }
-    panel.append(list, settingsFooter);
+    listViewport.append(list);
+    panel.append(listViewport, settingsFooter);
     const updateNavigation = (): void => {
       const maxScrollLeft = Math.max(0, list.scrollWidth - list.clientWidth);
       const hasOverflow = maxScrollLeft > 1;

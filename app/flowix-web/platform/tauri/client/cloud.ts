@@ -37,6 +37,13 @@ export interface CloudAiCreditBalance {
   monthlyExpiresAt: number | null;
 }
 
+export interface CloudAiCreditState {
+  data: CloudAiCreditBalance | null;
+  status: 'unknown' | 'refreshing' | 'ready' | 'error';
+  error: string | null;
+  updatedAt: number | null;
+}
+
 export interface CloudState {
   revision: number;
   authenticated: boolean;
@@ -48,6 +55,8 @@ export interface CloudState {
   membership?: CloudMembership | null;
   membershipStatus?: 'unknown' | 'refreshing' | 'verified' | 'error';
   membershipError?: string | null;
+  membershipUpdatedAt?: number | null;
+  aiCredits?: CloudAiCreditState;
   syncAccess?: CloudSyncAccess;
   /** This session revived a deleted account inside its grace window. */
   restored?: boolean;
@@ -224,6 +233,7 @@ export interface CloudOrder {
   productId: string;
   productName: string;
   amount: number;
+  quantity?: number;
   currency: string;
   status: string;
   createdAt: number;
@@ -263,8 +273,6 @@ export const cloud = {
   saveCustomS3Profile: (input: CustomS3ProfileInput) =>
     invoke<CloudStorageSettings>('cloud_save_custom_s3_profile', { input }),
   getState: () => invoke<CloudState>('cloud_get_state'),
-  updateAccountRegion: (region: CloudUser['region']) =>
-    invoke<CloudState>('cloud_update_account_region', { region }),
   requestPasswordResetCode: (email: string, emailLanguage: 'zh-CN' | 'en-US') =>
     invoke<PasswordResetCodeRequest>('cloud_request_password_reset_code', { email, emailLanguage }),
   confirmPasswordResetCode: (email: string, code: string, newPassword: string) =>
@@ -305,7 +313,7 @@ export const cloud = {
     invoke<CloudAiCreditBalance>('cloud_ai_credit_balance'),
   piModelCatalog: () => invoke<{ data: { models: Array<{
     id: string; title?: string; subtitle?: string; creditMultiplier?: number; iconUrl?: string; providerIconUrl?: string;
-    sortOrder?: number;
+    sortOrder?: number; tags?: string[]; recommended?: boolean;
   }> } }>('cloud_pi_model_catalog'),
   piModelAvailability: () => invoke<boolean>('cloud_pi_model_availability'),
   refreshPiModelProvider: () => invoke<boolean>('cloud_refresh_pi_model_provider'),
@@ -319,8 +327,8 @@ export const cloud = {
     invoke<void>('cloud_cancel_subscription', { subscriptionId }),
   checkBillingOrder: (orderId: string) =>
     invoke<CloudOrderCheck>('cloud_check_billing_order', { orderId }),
-  createCheckout: (productId: string) =>
-    invoke<CloudCheckout>('cloud_create_checkout', { productId }),
+  createCheckout: (productId: string, quantity = 1) =>
+    invoke<CloudCheckout>('cloud_create_checkout', { productId, quantity }),
   submitFeedback: (
     deviceId: string,
     kind: 'product_suggestion' | 'usage_issue',

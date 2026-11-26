@@ -137,7 +137,9 @@ function getToolGroupLabel(group: ToolGroup, language: AppLanguage): string {
         ? "agent.tools.runningSteps"
         : "agent.tools.processing"
       : group.status === "failed"
-        ? "agent.tools.finishedSteps"
+        // Failure is a hint, not an alarm: the label stays in the same quiet
+        // register and only adds "some failed" to the step count.
+        ? "agent.tools.finishedWithFailure"
         : "agent.tools.completedSteps";
   return translate(language, key, {
     count: group.status === "failed" ? group.totalCount : completedCount,

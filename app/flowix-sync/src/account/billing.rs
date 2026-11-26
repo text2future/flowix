@@ -1,43 +1,6 @@
 use super::*;
 
 impl AccountService {
-    pub async fn update_account_region(
-        &self,
-        region: &str,
-    ) -> Result<crate::models::CloudState, SyncError> {
-        if !matches!(region, "mainland" | "non_mainland") {
-            return Err(SyncError::InvalidState("unsupported account region".into()));
-        }
-
-        let generation = self.auth_generation();
-        let token = self.access_token(generation).await?;
-        let first = self.client.update_account_region(&token, region).await;
-        let updated_region = if first.as_ref().is_err_and(SyncError::is_unauthorized) {
-            let refreshed = self.force_refresh_access_token(generation).await?;
-            self.client
-                .update_account_region(&refreshed, region)
-                .await?
-        } else {
-            first?
-        };
-        if updated_region != region {
-            return Err(SyncError::InvalidState(
-                "cloud returned an unexpected account region".into(),
-            ));
-        }
-
-        let generation_guard = self.require_auth_generation(generation)?;
-        let mut auth = self.auth.write().unwrap_or_else(|p| p.into_inner());
-        let mut account = self.store.account()?.ok_or(SyncError::NotAuthenticated)?;
-        account.user.region = updated_region;
-        self.store.save_account(&account)?;
-        auth.revision = auth.revision.saturating_add(1);
-        drop(auth);
-        drop(generation_guard);
-        self.notify_state_change();
-        self.state()
-    }
-
     pub async fn products(&self, region: &str) -> Result<Vec<CloudProduct>, SyncError> {
         self.client.products(region).await
     }
@@ -106,18 +69,19 @@ impl AccountService {
     pub async fn create_checkout(
         &self,
         product_id: &str,
+        quantity: u8,
         idempotency_key: &str,
     ) -> Result<CloudCheckout, SyncError> {
         let generation = self.auth_generation();
         let token = self.access_token(generation).await?;
         let first = self
             .client
-            .checkout(&token, product_id, idempotency_key)
+            .checkout(&token, product_id, quantity, idempotency_key)
             .await;
         let result = if first.as_ref().is_err_and(SyncError::is_unauthorized) {
             let refreshed = self.force_refresh_access_token(generation).await?;
             self.client
-                .checkout(&refreshed, product_id, idempotency_key)
+                .checkout(&refreshed, product_id, quantity, idempotency_key)
                 .await
         } else {
             first

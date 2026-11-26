@@ -134,8 +134,8 @@ export const notebooks = {
     invoke<string>('ensure_default_notebook_path', { name }),
   create: (name: string, path?: string, icon?: string | null, activate = true) =>
     invoke<NotebookRecord>('create_notebook', { name, path, icon, activate }),
-  createFromCloud: (id: string, name: string, path: string, icon?: string | null, activate = true) =>
-    invoke<NotebookRecord>('create_notebook_from_cloud', { id, name, path, icon, activate }),
+  createFromCloud: (id: string, name: string, parentPath: string, icon?: string | null, activate = true) =>
+    invoke<NotebookRecord>('create_notebook_from_cloud', { id, name, parentPath, icon, activate }),
   startImport: (notebookId: string, language: AppLanguage) =>
     invoke<void>('start_notebook_import', { notebookId, language }),
   getImportStatus: (notebookId: string) =>

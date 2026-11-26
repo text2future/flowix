@@ -1,7 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { lazy, Suspense, useCallback, useEffect, useState, type ReactNode } from 'react';
+import { ChevronDown, Loader2 } from 'lucide-react';
 import { openUrl } from '@platform/tauri/opener';
 import { AgentRuntimeStatusList } from '@features/agent/components/agent-runtime-status-list';
 import { openAgentSetup } from '@features/agent/agent-setup';
@@ -22,6 +22,7 @@ import { useAgentDataStore } from '@features/agent/store/agent-data-store';
 import { AgentIcon, useNewConversationAgentSelection } from '@features/agent/public/shell-api';
 import { setCollectionAgentType, useCollectionAgentType } from '@features/collection/public/agent-api';
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@shared/ui/select';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@shared/ui/dialog';
 
 type CollapsibleAgentKey =
   | 'codex'
@@ -33,10 +34,11 @@ type CollapsibleAgentKey =
 const CUSTOM_MODEL_DOCS_URL = 'https://flowix-memo.com/docs/ai-access/';
 
 /// 偏好设置不展示内置 Agent 的路径配置卡片。
-const HIDDEN_PREFERENCE_AGENT_KEYS: ReadonlySet<AgentTypeKey> = new Set([
-  'pi',
-  'dsh',
-]);
+const HIDDEN_PREFERENCE_AGENT_KEYS: ReadonlySet<AgentTypeKey> = new Set(['pi']);
+
+const DshInstallDialogContent = lazy(() =>
+  import('@features/preferences/sections/dsh').then((module) => ({ default: module.DshInstallDialogContent })),
+);
 
 export function AgentsSection() {
   const { t } = useI18n();
@@ -50,10 +52,9 @@ export function AgentsSection() {
   const refreshIfStale = useAgentRuntimeStore((s) => s.refreshIfStale);
   const refreshStatus = useAgentRuntimeStore((s) => s.refresh);
 
-  // 单展开态: 任何时刻最多一张 agent 卡片展开, 默认展开 codex。
-  // 状态在组件生命周期内维持 ── 切走/回来会回到默认; 需要跨会话保留可下沉到
-  // user-settings-store。
-  const [expandedKey, setExpandedKey] = useState<CollapsibleAgentKey | null>('codex');
+  // 单展开态：初始全部折叠；切走再回来时恢复默认折叠状态。
+  const [expandedKey, setExpandedKey] = useState<CollapsibleAgentKey | null>(null);
+  const [dshDialogOpen, setDshDialogOpen] = useState(false);
   // External CLI 路径配置 (~/.flowix/agent-external-config.json) ──
   // 唯一参照, 偏好设置可改 path / 重新探测。改 path 后同步刷 runtime status。
   const [externalConfig, setExternalConfig] =
@@ -142,7 +143,7 @@ export function AgentsSection() {
           {t('preferences.agents.cacheWriteFailed')}
         </div>
       )}
-      <div className="flex flex-col gap-3 rounded-lg border border-[var(--border)] px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <h3 className="text-sm font-medium text-[var(--foreground)]">
             {t('preferences.agents.defaultAgent.title')}
@@ -163,7 +164,9 @@ export function AgentsSection() {
             {selectedAvailableAgent ? (
               <span className="flex min-w-0 flex-1 items-center gap-2 text-left">
                 <AgentIcon typeKey={selectedAvailableAgent.id} alt="" className="h-4 w-4 shrink-0" />
-                <span className="truncate">{selectedAvailableAgent.name}</span>
+                <span className="truncate">
+                  {selectedAvailableAgent.id === 'pi' ? t('preferences.tabs.pi') : selectedAvailableAgent.name}
+                </span>
               </span>
             ) : (
               <span className="text-[var(--muted-foreground)]">
@@ -176,7 +179,7 @@ export function AgentsSection() {
               <SelectItem key={type.id} value={type.id}>
                 <span className="flex items-center gap-2">
                   <AgentIcon typeKey={type.id} alt="" className="h-4 w-4 shrink-0" />
-                  <span>{type.name}</span>
+                  <span>{type.id === 'pi' ? t('preferences.tabs.pi') : type.name}</span>
                 </span>
               </SelectItem>
             ))}
@@ -186,17 +189,27 @@ export function AgentsSection() {
       <AgentRuntimeStatusList
         statusByType={statusByType}
         isChecking={isChecking}
+        displayOrder={['codex', 'dsh']}
         variant="preferences"
         onSetupClick={(typeKey) => {
+          if (typeKey === 'dsh') {
+            setDshDialogOpen(true);
+            return;
+          }
           void openAgentSetup(typeKey);
         }}
         headerAction={renderHeaderAction}
         highlightedKey={expandedKey}
         hiddenKeys={HIDDEN_PREFERENCE_AGENT_KEYS}
-        // 整张卡片可点击展开/折叠 ── 不再局限于 chevron 按钮。
-        // 父容器内部对 switch / Setup / headerAction 都做了 stopPropagation,
-        // 互不串味。
-        onCardClick={(key) => toggleExpanded(key as CollapsibleAgentKey)}
+        // 整张卡片可点击：外部 Agent 展开/折叠，DSH 打开安装弹窗。
+        // 父容器内部对 switch / Setup / headerAction 都做了 stopPropagation。
+        onCardClick={(key) => {
+          if (key === 'dsh') {
+            setDshDialogOpen(true);
+            return;
+          }
+          toggleExpanded(key as CollapsibleAgentKey);
+        }}
         renderAfterRow={(typeKey) => {
           const renderExternalPath = () => {
             const def = AGENT_TYPES.find((a) => a.id === typeKey);
@@ -269,6 +282,22 @@ export function AgentsSection() {
           return null;
         }}
       />
+      <Dialog open={dshDialogOpen} onOpenChange={setDshDialogOpen}>
+        <DialogContent className="max-h-[85vh] w-[min(92vw,600px)] max-w-[600px] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{t('preferences.dsh.title')}</DialogTitle>
+            <DialogDescription>{t('preferences.dsh.description')}</DialogDescription>
+          </DialogHeader>
+          <Suspense fallback={(
+            <div className="flex min-h-[280px] items-center justify-center" role="status" aria-busy="true">
+              <Loader2 className="size-6 flowix-spin text-[var(--muted-foreground)]" />
+              <span className="sr-only">{t('preferences.general.loading')}</span>
+            </div>
+          )}>
+            <DshInstallDialogContent />
+          </Suspense>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -159,9 +159,10 @@ describe('AgentThreadCard fullscreen host scoping', () => {
     expect(probeState?.browserColumnInfo).toBeNull();
   });
 
-  it('退出按钮只对所属 host 的全屏卡片渲染', () => {
-    function renderExitButton(host: 'column-1' | 'column-2'): void {
-      act(() => {
+  it('退出按钮只对所属 host 的全屏卡片渲染', async () => {
+    await import('./agent-thread-card-titlebar');
+    async function renderExitButton(host: 'column-1' | 'column-2'): Promise<void> {
+      await act(async () => {
         root?.render(createElement(AgentThreadCardFullscreenExitButton, {
           host,
           className: 'agent-thread-card-fullscreen-exit-btn',
@@ -171,12 +172,12 @@ describe('AgentThreadCard fullscreen host scoping', () => {
 
     // 第三列卡片全屏: 浏览器列退出按钮不渲染
     mountFullscreenCard(mainThird!, { title: '第三列对话' });
-    renderExitButton('column-2');
+    await renderExitButton('column-2');
     expect(container?.querySelector('button.agent-thread-card-fullscreen-exit-btn')).toBeNull();
 
     // 换成浏览器列卡片全屏: 浏览器列退出按钮出现
     mountFullscreenCard(browserColumn!, { title: '浏览器列对话' });
-    renderExitButton('column-2');
+    await renderExitButton('column-2');
     const button = container?.querySelector('button.agent-thread-card-fullscreen-exit-btn');
     expect(button).not.toBeNull();
     expect(button?.getAttribute('aria-label')).toBeTruthy();

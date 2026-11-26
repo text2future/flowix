@@ -8,7 +8,7 @@ import { friendlyErrorMessage } from '@/lib/friendly-error-message';
 
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronDown, Loader2 } from 'lucide-react';
-import { useShortcutScope, pushHandler } from '@features/shortcuts';
+import { DeleteDialogShortcuts } from './delete-dialog-shortcuts';
 import { useI18n, type I18nParams } from '@/lib/i18n';
 import { consumeAccountRestoreNotice, getCloudSyncAccess } from '@/lib/cloud-account';
 import { useShallow } from 'zustand/react/shallow';
@@ -53,6 +53,7 @@ import { openPaymentDialog } from '@features/cloud-billing/public/payment-dialog
 import { toast } from '@/lib/toast';
 import { cn } from '@/lib/utils';
 import { canonicalDirectoryPath, joinNotebookMemoPath } from '@/lib/path';
+import { filenameFromPath, sameDirectorySet, notebookStoragePaths } from './notebook-storage-paths';
 import { Kbd } from '@shared/ui/kbd';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@shared/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@shared/ui/select';
@@ -79,51 +80,6 @@ function normalizeNotebookIconId(icon: string | null | undefined): string {
 interface MediaDeleteRequest {
   filePath: string;
   notebookPath: string;
-}
-
-function filenameFromPath(filePath: string): string {
-  return filePath.split(/[\\/]/).filter(Boolean).pop() ?? filePath;
-}
-
-function sameDirectorySet(left: string[], right: string[]): boolean {
-  if (left.length !== right.length) return false;
-  const rightPaths = new Set(right.map(canonicalDirectoryPath));
-  return left.every((path) => rightPaths.has(canonicalDirectoryPath(path)));
-}
-
-function notebookStoragePaths(notebook: Notebook, repositories: { path: string }[]): string[] {
-  return [notebook.path, ...repositories.map(({ path }) => path)
-    .filter((path) => canonicalDirectoryPath(path) !== canonicalDirectoryPath(notebook.path))];
-}
-
-function DeleteDialogShortcuts({
-  onCancel,
-  onConfirm,
-}: {
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  useShortcutScope('dialog');
-
-  useEffect(() => {
-    const popCancel = pushHandler('dialog.cancel', onCancel);
-    const popConfirm = pushHandler('dialog.confirm', () => {
-      const active = document.activeElement;
-      if (
-        active instanceof HTMLElement &&
-        (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)
-      ) {
-        return false;
-      }
-      onConfirm();
-    });
-    return () => {
-      popCancel();
-      popConfirm();
-    };
-  }, [onCancel, onConfirm]);
-
-  return null;
 }
 
 function BlockingOperationStatus({ text, stacked }: { text: string; stacked: boolean }) {
@@ -287,15 +243,16 @@ export function MemoListServicesHost({
   const [deleteMemo, setDeleteMemo] = useState<NoteListItem | null>(null);
   const [deleteMedia, setDeleteMedia] = useState<MediaDeleteRequest | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [cloudImportOpen, setCloudImportOpen] = useState(false);
   const [createCloudSync, setCreateCloudSync] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [newName, setNewName] = useState('');
   const [newPaths, setNewPaths] = useState<string[]>([]);
   const [newIcon, setNewIcon] = useState<string | null>(DEFAULT_NOTEBOOK_ICON_ID);
-  const [createMode, setCreateMode] = useState<'create' | 'cloud'>('create');
   const [remoteNotebooks, setRemoteNotebooks] = useState<CloudNotebook[]>([]);
   const [remoteLoading, setRemoteLoading] = useState(false);
   const [syncingRemoteId, setSyncingRemoteId] = useState<string | null>(null);
+  const cloudNotebookImportAfterLoginRef = useRef(false);
   const [cloudImporting, setCloudImporting] = useState(false);
   const [obsidianVaults, setObsidianVaults] = useState<ObsidianVaultRecord[]>([]);
   const [obsidianVaultsLoading, setObsidianVaultsLoading] = useState(false);
@@ -320,36 +277,36 @@ export function MemoListServicesHost({
 
   const resetCreateState = useCallback(() => {
     setCreateOpen(false);
-    setCreateMode('create');
     setCreateCloudSync(false);
     setNewName('');
     setNewPaths([]);
     setNewIcon(DEFAULT_NOTEBOOK_ICON_ID);
-    setRemoteNotebooks([]);
-    setRemoteLoading(false);
-    setSyncingRemoteId(null);
     setObsidianVaults([]);
     setObsidianVaultsLoading(false);
     setObsidianVaultsError(false);
+  }, []);
+
+  const resetCloudImportState = useCallback(() => {
+    setCloudImportOpen(false);
+    setRemoteNotebooks([]);
+    setRemoteLoading(false);
+    setSyncingRemoteId(null);
   }, []);
 
   const openCreate = useCallback(() => {
     editingNotebookIdRef.current = null;
     ++editLoadGenerationRef.current;
     setEditOpen(false);
+    resetCloudImportState();
     setNewName('');
     setNewPaths([]);
     setNewIcon(DEFAULT_NOTEBOOK_ICON_ID);
-    setCreateMode('create');
     setCreateCloudSync(false);
-    setRemoteNotebooks([]);
-    setRemoteLoading(false);
-    setSyncingRemoteId(null);
     setObsidianVaults([]);
     setObsidianVaultsLoading(false);
     setObsidianVaultsError(false);
     setCreateOpen(true);
-  }, []);
+  }, [resetCloudImportState]);
 
   useEffect(() => {
     if (notebookCreateRequest > 0) openCreate();
@@ -476,6 +433,7 @@ export function MemoListServicesHost({
       const notebook = (event as CustomEvent<Notebook>).detail;
       if (!notebook) return;
       setCreateOpen(false);
+      resetCloudImportState();
       setEditSaving(false);
       setEditCloudSync(false);
       setOriginalEditCloudSync(false);
@@ -528,7 +486,7 @@ export function MemoListServicesHost({
       window.removeEventListener('flowix:toggle-palette', handleTogglePalette);
       window.removeEventListener('flowix:open-palette', handleOpenPalette);
     };
-  }, [openCreate, loadEditStorage]);
+  }, [openCreate, loadEditStorage, resetCloudImportState]);
 
   const handleCreateMemo = useCallback(async () => {
     if (!selectedNotebook) return;
@@ -621,28 +579,82 @@ export function MemoListServicesHost({
       // The preferences window remains the recovery surface.
     }
     resetCreateState();
+    resetCloudImportState();
     toast.error(t('preferences.cloud.sessionExpired'));
     void tauriWindows.openPreferences('cloudSync').catch(() => undefined);
     return true;
-  }, [resetCreateState, t]);
+  }, [resetCloudImportState, resetCreateState, t]);
 
   const openRemoteNotebooks = useCallback(async () => {
     try {
       const storageAccess = await cloud.getStorageAccess();
       setCloudSyncAvailable(storageAccess.canUpload);
       if (!storageAccess.canRead) {
+        resetCloudImportState();
         await tauriWindows.openPreferences('cloudSync');
         return;
       }
-      setCreateMode('cloud');
+      setRemoteNotebooks([]);
       setRemoteLoading(true);
-      setRemoteNotebooks(await cloud.listNotebooks());
+      const localNotebookIds = new Set(notebooks.map((notebook) => notebook.id));
+      const remote = await cloud.listNotebooks();
+      setRemoteNotebooks(remote.map((notebook) => localNotebookIds.has(notebook.id)
+        ? { ...notebook, synced: true }
+        : notebook));
     } catch (error) {
       if (!await handleInvalidCloudSession(error)) toast.error(cloudSyncErrorMessage(error, t));
     } finally {
       setRemoteLoading(false);
     }
-  }, [handleInvalidCloudSession, resetCreateState, t]);
+  }, [handleInvalidCloudSession, notebooks, resetCloudImportState, t]);
+
+  const openCloudNotebookImport = useCallback(async () => {
+    try {
+      const state = await cloud.getState();
+      if (!state.authenticated) {
+        cloudNotebookImportAfterLoginRef.current = true;
+        setLoginDialogOpen(true);
+        return;
+      }
+      setCreateOpen(false);
+      setCloudImportOpen(true);
+      await openRemoteNotebooks();
+    } catch (error) {
+      toast.error(cloudSyncErrorMessage(error, t));
+    }
+  }, [openRemoteNotebooks, t]);
+
+  const handleLoginDialogOpenChange = useCallback((open: boolean) => {
+    setLoginDialogOpen(open);
+    if (open || !cloudNotebookImportAfterLoginRef.current) return;
+    void cloud.getState().then((state) => {
+      if (!cloudNotebookImportAfterLoginRef.current) return;
+      cloudNotebookImportAfterLoginRef.current = false;
+      if (state.authenticated) {
+        setCreateOpen(false);
+        setCloudImportOpen(true);
+        void openRemoteNotebooks();
+      }
+    }).catch((error) => {
+      cloudNotebookImportAfterLoginRef.current = false;
+      toast.error(cloudSyncErrorMessage(error, t));
+    });
+  }, [openRemoteNotebooks, t]);
+
+  useEffect(() => {
+    const handleOpenCloudNotebookImport = () => void openCloudNotebookImport();
+    window.addEventListener('flowix:open-cloud-notebook-import', handleOpenCloudNotebookImport);
+    return () => window.removeEventListener('flowix:open-cloud-notebook-import', handleOpenCloudNotebookImport);
+  }, [openCloudNotebookImport]);
+
+  useEffect(() => listenToCloudStateChanges((state) => {
+    if (!state.authenticated || !cloudNotebookImportAfterLoginRef.current) return;
+    cloudNotebookImportAfterLoginRef.current = false;
+    setLoginDialogOpen(false);
+    setCreateOpen(false);
+    setCloudImportOpen(true);
+    void openRemoteNotebooks();
+  }), [openRemoteNotebooks]);
 
   const openObsidianVaults = useCallback(async () => {
     setObsidianVaults([]);
@@ -663,12 +675,14 @@ export function MemoListServicesHost({
       setSyncingRemoteId(remote.id);
       let local = notebooks.find((item) => item.id === remote.id);
       if (!local) {
-        const path = await request<string | null>('select_directory');
-        if (!path) return;
+        const parentPath = await request<string | null>('select_directory', {
+          title: t('notebook.cloudImport.chooseParentFolder'),
+        });
+        if (!parentPath) return;
         local = await createNotebook({
           cloudNotebookId: remote.id,
+          cloudNotebookParentPath: parentPath,
           name: remote.name,
-          path,
           icon: normalizeNotebookIconId(remote.icon),
         }) ?? undefined;
       }
@@ -682,7 +696,7 @@ export function MemoListServicesHost({
       setCloudImporting(true);
       await cloud.linkNotebook(local.id, remote.id);
       await cloud.syncNow(local.id);
-      resetCreateState();
+      resetCloudImportState();
       onRefresh();
       toast.success(t('notebook.cloudImport.complete'));
     } catch (error) {
@@ -691,7 +705,7 @@ export function MemoListServicesHost({
       setCloudImporting(false);
       setSyncingRemoteId(null);
     }
-  }, [createNotebook, handleInvalidCloudSession, notebooks, onRefresh, request, resetCreateState, syncingRemoteId, t]);
+  }, [createNotebook, handleInvalidCloudSession, notebooks, onRefresh, request, resetCloudImportState, syncingRemoteId, t]);
 
   const confirmCreate = useCallback(() => {
     if (!newName.trim()) return;
@@ -872,7 +886,7 @@ export function MemoListServicesHost({
         </DialogContent>
       </Dialog>
 
-      {(createOpen || editOpen || loginDialogOpen) && (
+      {(createOpen || editOpen || loginDialogOpen || cloudImportOpen) && (
         <Suspense fallback={null}>
           <LazyNotebookDialogs
             createOpen={createOpen}
@@ -890,21 +904,15 @@ export function MemoListServicesHost({
             createNotebookCloudSync={createCloudSync}
             onCreateNotebookCloudSyncChange={setCreateCloudSync}
             onCreateNotebookCloudSyncUnavailable={() => void handleCloudSyncUnavailable(() => setCreateCloudSync(true))}
-            createMode={createMode}
+            cloudImportOpen={cloudImportOpen}
+            onCloudImportOpenChange={(open) => open ? setCloudImportOpen(true) : resetCloudImportState()}
             remoteNotebooks={remoteNotebooks}
             remoteNotebooksLoading={remoteLoading}
             remoteNotebookSyncingId={syncingRemoteId}
             obsidianVaults={obsidianVaults}
             obsidianVaultsLoading={obsidianVaultsLoading}
             obsidianVaultsError={obsidianVaultsError}
-            onOpenRemoteNotebooks={() => void openRemoteNotebooks()}
             onOpenObsidianVaults={() => void openObsidianVaults()}
-            onBackToCreate={() => {
-              setCreateMode('create');
-              setRemoteNotebooks([]);
-              setObsidianVaults([]);
-              setObsidianVaultsError(false);
-            }}
             onSelectRemoteNotebook={(item) => void selectRemoteNotebook(item)}
             onSelectObsidianVault={(vault) => {
               setNewPaths((current) => current.includes(vault.path) ? current : [...current, vault.path]);
@@ -943,7 +951,7 @@ export function MemoListServicesHost({
             editStorageStatus={editStorageStatus}
             onRetryEditStorage={() => { if (editingNotebook) void loadEditStorage(editingNotebook); }}
             loginOpen={loginDialogOpen}
-            onLoginOpenChange={setLoginDialogOpen}
+            onLoginOpenChange={handleLoginDialogOpenChange}
             onSelectEditDirectory={() => void selectEditDirectory()}
             onRemoveEditDirectory={(path) => {
               setEditPaths((current) => current.length > 1

@@ -57,8 +57,8 @@ export const notebookRepository = {
   ensureDefaultPath: (name: string) => notebooks.ensureDefaultPath(name),
   create: (name: string, path?: string, icon?: string | null, activate = true) =>
     notebooks.create(name, path, icon, activate),
-  createFromCloud: (id: string, name: string, path: string, icon?: string | null, activate = true) =>
-    notebooks.createFromCloud(id, name, path, icon, activate),
+  createFromCloud: (id: string, name: string, parentPath: string, icon?: string | null, activate = true) =>
+    notebooks.createFromCloud(id, name, parentPath, icon, activate),
   startImport: (notebookId: string, language: AppLanguage) => notebooks.startImport(notebookId, language),
   getImportStatus: (notebookId: string) => notebooks.getImportStatus(notebookId),
   update: (id: string, name?: string, icon?: string | null) =>

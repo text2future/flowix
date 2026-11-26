@@ -167,6 +167,7 @@ pub(super) async fn execute_pass_with_progress(
         &mut checkpoint,
         apply::ApplyOptions {
             sizes: Some(&sizes),
+            max_upload_file_bytes: request.max_upload_file_bytes,
             on_transfer,
             on_progress,
         },

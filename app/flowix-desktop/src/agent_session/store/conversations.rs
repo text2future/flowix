@@ -472,6 +472,22 @@ impl ThreadManager {
         };
         let mut conn = self.lock_conn();
         let tx = conn.transaction()?;
+        let existing_updated_at: Option<i64> = tx
+            .query_row(
+                "SELECT updated_at FROM agent_instances WHERE id = ?1",
+                [instance_id.as_str()],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if existing_updated_at.is_some_and(|existing| updated_at < existing) {
+            // Reject the whole stale snapshot, including its thread binding.
+            // The conditional upserts below alone do not protect the index.
+            tx.rollback()?;
+            drop(conn);
+            return self
+                .get_agent_conversation_instance_inner(&instance_id)?
+                .ok_or(ThreadError::NotFound(instance_id));
+        }
         let previous_thread_id = tx
             .query_row(
                 "SELECT id FROM threads_index WHERE instance_id = ?1",

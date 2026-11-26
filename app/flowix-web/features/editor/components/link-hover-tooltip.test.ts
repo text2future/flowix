@@ -392,11 +392,12 @@ describe('link hover tooltip navigation', () => {
     const { anchor, detach } = createGapFixture();
     try {
       const tooltip = await showGapTooltip(anchor);
-      // mouseleave 不冒泡, 直接派发在气泡上; 指针停在留白里不该触发隐藏。
+      // mouseleave starts a timer; movement through the safe gap cancels it.
       tooltip.dispatchEvent(new MouseEvent('mouseleave', {
         clientX: 150,
         clientY: 196,
       }));
+      document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 150, clientY: 196 }));
       await wait(300);
 
       expect(document.querySelector('.editor-link-hover-tooltip')).toBe(tooltip);

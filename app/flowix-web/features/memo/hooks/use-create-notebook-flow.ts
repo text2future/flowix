@@ -21,6 +21,7 @@ const NOTEBOOK_IMPORT_POLL_MAX_ATTEMPTS = 1_200;
 interface CreateNotebookInput {
   name: string;
   path?: string;
+  cloudNotebookParentPath?: string;
   icon?: string | null;
   cloudNotebookId?: string;
 }
@@ -102,9 +103,9 @@ export function useCreateNotebookFlow({
   }, [handleImportStatus]);
 
   const createNotebook = useCallback(
-    async ({ name, path, icon, cloudNotebookId }: CreateNotebookInput): Promise<Notebook | null> => {
+    async ({ name, path, cloudNotebookParentPath, icon, cloudNotebookId }: CreateNotebookInput): Promise<Notebook | null> => {
       const notebookName = name.trim();
-      const notebookPath = path?.trim() || undefined;
+      const notebookPath = (cloudNotebookId ? cloudNotebookParentPath : path)?.trim() || undefined;
       const notebookIcon = resolveNotebookIconId(icon);
       if (!notebookName || (cloudNotebookId && !notebookPath)) return null;
       if (createInFlightRef.current) return null;

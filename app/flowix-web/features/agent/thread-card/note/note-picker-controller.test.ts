@@ -48,7 +48,6 @@ describe('NotePickerController', () => {
       attachments: { addFiles: vi.fn() } as unknown as ComposerAttachmentController,
       t: (key) => key,
       isDestroyed: () => false,
-      openNotebookAgentSettings: vi.fn(),
     });
     trigger.click();
     const addNote = addPopover.querySelector<HTMLButtonElement>('button');

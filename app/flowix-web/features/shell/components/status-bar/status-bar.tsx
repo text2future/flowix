@@ -1,7 +1,7 @@
 'use client';
 
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Info, ListTodo } from 'lucide-react';
+import { Info, ListTodo } from 'lucide-react';
 import type { CSSProperties } from 'react';
 import mcpPluginIcon from '@/assets/mcp-plugin.svg';
 import { Tooltip } from '@shared/ui/tooltip';
@@ -10,12 +10,11 @@ import { NotebookSelectorPopup } from '@features/shell/components/status-bar/not
 import { ProductUpdatePill } from '@features/shell/components/status-bar/product-update-pill';
 import { ProductIntroDialog } from '@features/product-intro';
 import { MassDeletionDialog } from '@features/shell/components/status-bar/mass-deletion-dialog';
-import { degradedSyncState, notebooksAwaitingDeletionDecision, selectedNotebookSyncStatuses, stabilizeTransferPhase, updateNotebookSyncFailures } from '@features/shell/components/status-bar/sync-degradation';
+import { notebooksAwaitingDeletionDecision, selectedNotebookSyncStatuses, stabilizeTransferPhase } from '@features/shell/components/status-bar/sync-degradation';
 import { useI18n } from '@/lib/i18n';
 import { toast } from '@/lib/toast';
 import { useDocumentMetricsStore } from '@features/document/store/document-metrics-store';
 import { useNoteStore } from '@features/memo/store/note-store';
-import { CloudStatusIcon } from '@shared/icons/cloud-status-icon';
 import {
   cloud,
   listenToCloudStateChanges,
@@ -51,7 +50,9 @@ interface StatusBarProps {
  *
  * Layout (two columns):
  *   [NotebookSwitcher] | [Note Nav] [Todos] [running conversations]   …flex spacer…
- *                       [update pill] [syncing] [char count] [⚙ MCP] [ⓘ intro]
+ *                       [update pill] [char count] [⚙ MCP] [ⓘ intro]
+ *
+ * Cloud sync indicators live beside the product icon in the list title bar.
  *
  * The left column is the notebook switcher (fixed width by its own button
  * content); the right column takes the remaining width for the status actions.
@@ -77,9 +78,6 @@ export function StatusBar({
   const statusBarRightEdgeRef = useRef<HTMLDivElement>(null);
   const [notebookPopupOpen, setNotebookPopupOpen] = useState(false);
   const [cloudSyncStatuses, setCloudSyncStatuses] = useState<Map<string, CloudSyncStatus>>(
-    () => new Map(),
-  );
-  const [cloudSyncFailures, setCloudSyncFailures] = useState<ReadonlyMap<string, CloudSyncStatus>>(
     () => new Map(),
   );
   const cloudStateRequestRef = useRef(0);
@@ -136,7 +134,6 @@ export function StatusBar({
 
   useEffect(() => {
     return listenToCloudSyncStatusChanges((status) => {
-      setCloudSyncFailures((previous) => updateNotebookSyncFailures(previous, status));
       setCloudSyncStatuses((previous) => {
         const current = previous.get(status.notebookId);
         if (current && status.startedAt < current.startedAt) return previous;
@@ -148,16 +145,6 @@ export function StatusBar({
   }, []);
 
   const currentSyncStatuses = selectedNotebookSyncStatuses(cloudSyncStatuses, selectedNotebook?.id);
-  const transferDirection = currentSyncStatuses.find((status) =>
-    status.state === 'syncing' && (status.phase === 'upload' || status.phase === 'download'),
-  )?.phase as 'upload' | 'download' | undefined;
-
-  // A pass that could not publish still finishes successfully — its counters are
-  // zero because nothing was attempted, not because there was nothing to do, so
-  // the outcome has to be read off the engine's own flags. Shown alongside the
-  // transfer indicator: "local only" is the standing conclusion.
-  const degradedSync = degradedSyncState(currentSyncStatuses);
-  const failedSync = selectedNotebook?.id ? cloudSyncFailures.get(selectedNotebook.id) : undefined;
   // The prompt can only speak for the notebook on screen; a background notebook
   // sitting on a deferred batch has no other way of saying so.
   const pendingDeletionNotebookIds = notebooksAwaitingDeletionDecision(cloudSyncStatuses.values());
@@ -196,75 +183,6 @@ export function StatusBar({
         </Suspense>
         <div className="flex-1" />
         <ProductUpdatePill updater={updater} anchor={statusBarRightEdgeRef} />
-        {transferDirection && (
-          <div
-            className="inline-flex h-[22px] items-center gap-1 px-1.5 text-xs leading-none text-[var(--muted-foreground)]"
-            role="status"
-            aria-live="polite"
-            aria-label={t(transferDirection === 'upload' ? 'shell.statusBar.uploading' : 'shell.statusBar.downloading')}
-          >
-            <CloudStatusIcon
-              status={transferDirection}
-              size={14}
-              className="!opacity-100"
-            />
-          </div>
-        )}
-        {failedSync && (
-          <Tooltip
-            side="top"
-            content={(
-              <span className="block max-w-[24rem] space-y-1">
-                <span className="block font-medium">{t('cloudSync.failed.title')}</span>
-                <span className="block">{t('cloudSync.failed.body')}</span>
-                <code className="block whitespace-pre-wrap break-words text-[11px]">
-                  {failedSync.lastError}
-                </code>
-              </span>
-            )}
-          >
-            <div
-              className="inline-flex h-[22px] items-center gap-1 px-1.5 text-xs leading-none text-[var(--destructive)]"
-              role="status"
-              aria-live="polite"
-              aria-label={t('cloudSync.failed.title')}
-            >
-              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-            </div>
-          </Tooltip>
-        )}
-        {degradedSync && (
-          <Tooltip
-            side="top"
-            content={
-              <span className="block max-w-[15rem] space-y-0.5">
-                <span className="block font-medium">
-                  {degradedSync === 'readOnly'
-                    ? t('cloudSync.readOnly.title')
-                    : t('cloudSync.deletesPaused.title')}
-                </span>
-                <span className="block">
-                  {degradedSync === 'readOnly'
-                    ? t('cloudSync.readOnly.body')
-                    : t('cloudSync.deletesPaused.body')}
-                </span>
-              </span>
-            }
-          >
-            <div
-              className="inline-flex h-[22px] items-center gap-1 px-1.5 text-xs leading-none text-[var(--warning)]"
-              role="status"
-              aria-live="polite"
-              aria-label={
-                degradedSync === 'readOnly'
-                  ? t('cloudSync.readOnly.title')
-                  : t('cloudSync.deletesPaused.title')
-              }
-            >
-              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-            </div>
-          </Tooltip>
-        )}
         {charCount > 0 && (
           <span className="h-full inline-flex items-center gap-0.5 px-1.5 text-[var(--muted-foreground)] hover:bg-[var(--muted)]">
             {t('status.characters')}{' '}

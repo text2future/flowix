@@ -1,7 +1,6 @@
 import * as React from "react";
 import { Check, Copy, Loader2, RotateCw } from "lucide-react";
-import { Button } from "@shared/ui/button";
-import { cloud } from "@platform/tauri/client";
+import { cloud, listenToCloudStateChanges, type CloudState } from "@platform/tauri/client";
 import {
   HoverCard,
   HoverCardContent,
@@ -11,7 +10,14 @@ import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import type { AgentTypeKey, UsageInfo } from "@/types/agent";
 import { useAgentDataStore } from "@features/agent/store/agent-data-store";
+import { resolvePiModelDisplayName } from "./pi-model-display";
 import { useBadgeRuntimeInfo, type BadgeHoverCardRuntimeInfo } from "./runtime/use-badge-runtime-info";
+
+const hoverCardActionClassName = cn(
+  "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--muted-foreground)]",
+  "transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]",
+  "disabled:cursor-not-allowed disabled:opacity-60",
+);
 
 interface BadgeHoverCardProps {
   /** Internal identity only; never rendered. */
@@ -99,6 +105,14 @@ function percentageFromRate(rate: number | undefined): string {
   return rate === undefined ? "" : `${Math.round(rate * 100)}%`;
 }
 
+interface CloudCredits {
+  total: number;
+}
+
+function creditsRate(credits: CloudCredits | null): number | undefined {
+  return credits && Number.isFinite(credits.total) ? Math.max(0, credits.total) / 4000 : undefined;
+}
+
 /**
  * Agent conversation identity badge 的运行信息卡片。
  *
@@ -124,10 +138,37 @@ export function BadgeHoverCard({
   const piModels = useAgentDataStore((state) => state.agents.pi.catalog.models.items);
   const codex = agentType === "codex";
   const [copied, setCopied] = React.useState(false);
-  const [credits, setCredits] = React.useState<number | null>(null);
+  const [credits, setCredits] = React.useState<CloudCredits | null>(null);
   const [creditsLoading, setCreditsLoading] = React.useState(false);
   const [creditsError, setCreditsError] = React.useState(false);
+  const [creditsOpen, setCreditsOpen] = React.useState(false);
   const creditRequest = React.useRef(0);
+  const creditsRevision = React.useRef(-1);
+  const applyCreditsState = React.useCallback((state: CloudState) => {
+    if (state.revision < creditsRevision.current) return;
+    creditsRevision.current = state.revision;
+    if (!state.authenticated) {
+      setCredits(null);
+      setCreditsError(false);
+      setCreditsLoading(false);
+      return;
+    }
+    if (!state.aiCredits) return;
+    setCredits(state.aiCredits.data ? {
+      total: state.aiCredits.data.balanceMicrocredits / 1_000_000,
+    } : null);
+    setCreditsError(state.aiCredits.status === "error");
+    setCreditsLoading(state.aiCredits.status === "refreshing");
+  }, []);
+  React.useEffect(() => {
+    if (!pi || !creditsOpen) return;
+    let active = true;
+    const receive = (state: CloudState) => { if (active) applyCreditsState(state); };
+    const snapshot = () => { void cloud.getState().then(receive).catch(() => {}); };
+    const unlisten = listenToCloudStateChanges(receive, { onListenerReady: snapshot });
+    snapshot();
+    return () => { active = false; unlisten(); };
+  }, [pi, creditsOpen, applyCreditsState]);
   React.useEffect(() => () => { creditRequest.current += 1; }, []);
   const refreshCredits = React.useCallback(async () => {
     if (!pi) return;
@@ -136,12 +177,17 @@ export function BadgeHoverCard({
     setCreditsError(false);
     try {
       const state = await cloud.getState();
+      if (request === creditRequest.current) applyCreditsState(state);
       if (!state.authenticated) {
         if (request === creditRequest.current) setCredits(null);
         return;
       }
       const result = await cloud.getAiCreditBalance();
-      if (request === creditRequest.current) setCredits(result.balanceMicrocredits / 1_000_000);
+      if (request === creditRequest.current) {
+        setCredits({
+          total: result.balanceMicrocredits / 1_000_000,
+        });
+      }
     } catch {
       if (request === creditRequest.current) {
         setCredits(null);
@@ -150,7 +196,7 @@ export function BadgeHoverCard({
     } finally {
       if (request === creditRequest.current) setCreditsLoading(false);
     }
-  }, [pi]);
+  }, [pi, applyCreditsState]);
   const runtimeInfo = useBadgeRuntimeInfo({
     identity: `${threadId ?? ""}:${sessionId ?? ""}:${runId ?? ""}`,
     model,
@@ -171,10 +217,10 @@ export function BadgeHoverCard({
   const handleOpenChange = React.useCallback(
     (open: boolean) => {
       onOpenChange?.(open);
+      setCreditsOpen(open);
       if (open) {
         requestRuntimeInfo();
         if (pi) {
-          setCredits(null);
           void refreshCredits();
         }
       } else {
@@ -213,14 +259,8 @@ export function BadgeHoverCard({
       ? resetAt.toLocaleTimeString(language, { hour: "2-digit", minute: "2-digit", hour12: false })
       : resetAt.toLocaleDateString(language, { month: "long", day: "numeric" })}`;
   };
-  const cloudModel = pi && displayModel ? piModels.find((entry) =>
-    entry.source === "flowix-cloud" && (
-      displayModel === entry.id || displayModel === `${entry.providerId}/${entry.id}`
-    ),
-  ) : undefined;
-  const piModelParts = cloudModel?.label || (displayModel?.includes("/")
-    ? displayModel.slice(displayModel.indexOf("/") + 1)
-    : displayModel ?? "");
+  const piModelName = pi ? resolvePiModelDisplayName(displayModel, piModels) : "";
+  const creditRate = creditsRate(credits);
 
   const handleCopy = React.useCallback(async () => {
     if (!displaySessionId) return;
@@ -269,11 +309,7 @@ export function BadgeHoverCard({
               onClick={handleCopy}
               disabled={!displaySessionId}
               aria-label={t("editor.threadCard.copySessionId")}
-              className={cn(
-                "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--muted-foreground)]",
-                "transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]",
-                "disabled:cursor-not-allowed disabled:opacity-60",
-              )}
+              className={hoverCardActionClassName}
             >
               {copied ? (
                 <Check className="h-3 w-3" />
@@ -289,9 +325,9 @@ export function BadgeHoverCard({
                 <span className="text-[var(--muted-foreground)]">{t("editor.threadCard.model")}</span>
                 <span className={cn(
                   "agent-thread-card__model-value min-w-0",
-                  piModelParts ? "text-[var(--foreground)]" : "text-[var(--muted-foreground)]",
+                  piModelName ? "text-[var(--foreground)]" : "text-[var(--muted-foreground)]",
                 )}>
-                  {modelPending ? <HoverCardSkeleton width="4rem" /> : piModelParts || "-"}
+                  {modelPending ? <HoverCardSkeleton width="4rem" /> : piModelName || "-"}
                 </span>
               </div>
             </>
@@ -315,13 +351,17 @@ export function BadgeHoverCard({
               <span className="flex items-center justify-end gap-1 font-mono tabular-nums text-[var(--foreground)]" aria-live="polite">
                 {creditsLoading && credits === null ? <HoverCardSkeleton width="3rem" /> : creditsError
                   ? t("preferences.pi.cloudCreditsUnavailable")
-                  : credits === null ? "-" : new Intl.NumberFormat(language, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(credits)}
-                <Button type="button" variant="ghost" size="icon-xs" onClick={() => void refreshCredits()} disabled={creditsLoading}
+                  : creditRate === undefined ? "-" : (
+                    <span className="agent-thread-card__credits-share font-mono tabular-nums text-[var(--foreground)]">
+                      {percentageFromRate(creditRate)}
+                    </span>
+                  )}
+                <button type="button" onClick={() => void refreshCredits()} disabled={creditsLoading}
                   aria-label={t("preferences.pi.cloudCreditsRefresh")}
                   title={t("preferences.pi.cloudCreditsRefresh")}
-                  className="rounded-full text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+                  className={hoverCardActionClassName}>
                   {creditsLoading ? <Loader2 className="size-3 flowix-spin" aria-hidden="true" /> : <RotateCw className="size-3" aria-hidden="true" />}
-                </Button>
+                </button>
               </span>
             </div>
           )}

@@ -333,6 +333,9 @@ pub struct PassRequest<'a> {
     /// that filled its storage would otherwise keep attempting uploads for the
     /// rest of the token's lifetime and collect a 403 per object.
     pub quota: Option<&'a StorageQuota>,
+    /// Optional per-file ceiling for uploads. `None` leaves this to the
+    /// selected remote; official cloud passes set it from the active plan.
+    pub max_upload_file_bytes: Option<u64>,
     /// The caller already asked the user about a bulk delete.
     ///
     /// A pass cannot tell a deliberate "delete this folder" from a scan or a

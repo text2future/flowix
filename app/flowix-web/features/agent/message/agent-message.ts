@@ -114,6 +114,7 @@ export function getAgentMessageVisibleContent(
         language,
         /^msg:deepseek-harness:/u.test(message.id) ||
           message.errorDetails?.source === "dsh-history",
+        /^msg:codex:/u.test(message.id) || message.errorDetails?.source === "dsh-history",
       ),
     );
     // Error codes can also appear in normal answers, quoted logs and code blocks
@@ -136,6 +137,7 @@ function formatExternalAgentErrorMessage(
   details: ChatMessage["errorDetails"],
   language: AppLanguage,
   hideProviderDiagnostics = false,
+  hideGuidance = false,
 ): string {
   const upstream = details?.upstreamMessage?.trim();
   const rawBody = upstream || stripCliFailureWrapper(content.trim());
@@ -163,7 +165,7 @@ function formatExternalAgentErrorMessage(
   const guidanceKey = details?.category
     ? ERROR_GUIDANCE_KEYS[details.category]
     : undefined;
-  const guidance = guidanceKey ? translate(language, guidanceKey) : "";
+  const guidance = !hideGuidance && guidanceKey ? translate(language, guidanceKey) : "";
   return [body, guidance, diagnostics.join(" · ")].filter(Boolean).join("\n\n");
 }
 

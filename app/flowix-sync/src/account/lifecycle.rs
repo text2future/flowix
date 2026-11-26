@@ -27,7 +27,19 @@ impl AccountService {
             self.restore_saved_session(policy),
             self.retry_credentials(policy),
             self.refresh_entitlements_when_requested(),
+            self.refresh_ai_credits_when_requested(),
         );
+    }
+
+    async fn refresh_ai_credits_when_requested(&self) {
+        loop {
+            self.ai_credits_retry.notified().await;
+            if self.state().is_ok_and(|state| state.authenticated) {
+                if let Err(error) = self.ai_credit_balance().await {
+                    tracing::debug!(%error, "requested AI credit refresh failed");
+                }
+            }
+        }
     }
 
     async fn refresh_entitlements_when_requested(&self) {

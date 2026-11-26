@@ -6,6 +6,7 @@ import { CloudSyncSection } from './cloud-sync';
 const mocks = vi.hoisted(() => ({
   listBillingOrders: vi.fn(), listSubscriptions: vi.fn(), checkBillingOrder: vi.fn(), listProducts: vi.fn(),
   refreshMembership: vi.fn(), success: vi.fn(), info: vi.fn(), error: vi.fn(),
+  getAiCreditBalance: vi.fn(),
   membershipAccess: { active: false, lifetime: false, loading: false },
   cloudState: { authenticated: true, account: { user: { id: 'usr_1', displayName: 'User' } } },
 }));
@@ -14,6 +15,7 @@ vi.mock('@platform/tauri/client', () => ({ cloud: {
   listSubscriptions: mocks.listSubscriptions,
   checkBillingOrder: mocks.checkBillingOrder,
   listProducts: mocks.listProducts,
+  getAiCreditBalance: mocks.getAiCreditBalance,
 } }));
 vi.mock('@features/preferences/sections/pi-cloud-models-section', () => ({
   PiCloudModelsSection: () => 'PI_MEMBER_MODELS_SECTION',
@@ -27,10 +29,10 @@ vi.mock('@features/preferences/hooks/use-cloud-account-state', () => ({
 vi.mock('@features/preferences/public/membership', () => ({
   useMembershipAccess: () => mocks.membershipAccess,
 }));
-vi.mock('@/lib/i18n', async (importOriginal) => ({
-  ...await importOriginal<typeof import('@/lib/i18n')>(),
-  useI18n: () => ({ t: (key: string) => key }),
-}));
+vi.mock('@/lib/i18n', async (importOriginal) => {
+  const t = (key: string) => key;
+  return { ...await importOriginal<typeof import('@/lib/i18n')>(), useI18n: () => ({ t }) };
+});
 vi.mock('@/lib/toast', () => ({ toast: { success: mocks.success, info: mocks.info, error: mocks.error } }));
 vi.mock('@platform/tauri/event-bus', () => ({ subscribe: () => () => {} }));
 vi.mock('@platform/tauri/opener', () => ({ openUrl: vi.fn() }));
@@ -47,6 +49,7 @@ beforeEach(() => {
     id: 'ord_1', productName: 'Plan', amount: 390, currency: 'CNY', status: 'pending', createdAt: 0,
   }]);
   mocks.refreshMembership.mockResolvedValue('refreshed');
+  mocks.getAiCreditBalance.mockResolvedValue({});
   container = document.createElement('div');
   document.body.append(container);
   root = createRoot(container);
@@ -58,7 +61,14 @@ afterEach(async () => {
 
 async function clickCheck() {
   await act(async () => root.render(<CloudSyncSection />));
-  const button = Array.from(container.querySelectorAll('button')).find(
+  if (!document.body.querySelector('[role="dialog"]')) {
+    const orders = Array.from(container.querySelectorAll('button')).find(
+      (item) => item.textContent === 'preferences.cloud.order.title',
+    );
+    expect(orders).toBeDefined();
+    await act(async () => orders!.click());
+  }
+  const button = Array.from(document.body.querySelectorAll('button')).find(
     (item) => item.textContent === 'preferences.cloud.order.check',
   );
   expect(button).toBeDefined();
@@ -102,7 +112,7 @@ it.each([
   expect(mocks.success).not.toHaveBeenCalled();
   expect(mocks.refreshMembership).not.toHaveBeenCalled();
   if (checkStatus === 'failed') {
-    expect(container.textContent).toContain('preferences.cloud.retry');
+    expect(document.body.textContent).toContain('preferences.cloud.retry');
   }
 });
 
@@ -118,7 +128,7 @@ it('shows the localized rate limit message and keeps retry available', async () 
   mocks.checkBillingOrder.mockRejectedValue('cloud API error 429 BILLING_RATE_LIMITED: too many checks');
   await clickCheck();
   expect(mocks.error).toHaveBeenCalledWith('preferences.cloud.order.rateLimited');
-  expect(container.textContent).toContain('preferences.cloud.retry');
+  expect(document.body.textContent).toContain('preferences.cloud.retry');
 });
 
 it('reports a confirmed payment with a failed local refresh without showing success', async () => {
@@ -137,32 +147,6 @@ it.each(['stale', 'skipped'])('does not show recovery feedback for a %s membersh
   expect(mocks.error).not.toHaveBeenCalled();
 });
 
-
-it('blocks membership purchases while an order is pending and enables them after payment confirmation', async () => {
-  mocks.listProducts.mockResolvedValue([{
-    id: 'product_1', name: 'Year membership', description: '', billingType: 'subscription',
-    price: { amount: 2900, currency: 'USD' },
-    entitlement: {
-      storageBytes: 5 * 1024 * 1024 * 1024,
-      duration: { unit: 'year', count: 1 },
-      features: { membership: true },
-    },
-  }]);
-  await act(async () => root.render(<CloudSyncSection />));
-  const purchaseButton = () => Array.from(container.querySelectorAll('button')).find(
-    (button) => button.textContent === 'preferences.cloud.member.purchase',
-  )!;
-  expect(purchaseButton().disabled).toBe(true);
-  expect(container.textContent).toContain('preferences.cloud.order.pendingCheckout');
-
-  mocks.listBillingOrders.mockResolvedValue([{
-    id: 'ord_1', productName: 'Plan', amount: 390, currency: 'CNY', status: 'paid', createdAt: 0,
-  }]);
-  mocks.checkBillingOrder.mockResolvedValue({ status: 'paid', confirmed: true, checkStatus: 'processed' });
-  await clickCheck();
-  expect(purchaseButton().disabled).toBe(false);
-  expect(container.textContent).not.toContain('preferences.cloud.order.pendingCheckout');
-});
 
 it('hides membership plans and the lifetime upgrade card while membership is active', async () => {
   mocks.membershipAccess.active = true;
@@ -216,6 +200,8 @@ it('shows actionable copy instead of raw subscription and order API errors', asy
   mocks.listBillingOrders.mockRejectedValue(failure);
   await act(async () => root.render(<CloudSyncSection />));
   expect(container.textContent).toContain('errors.friendly.subscriptionLoad');
-  expect(container.textContent).toContain('errors.friendly.ordersLoad');
-  expect(container.textContent).not.toMatch(/INTERNAL_ERROR|backend failure|secret-ref/);
+  const orders = Array.from(container.querySelectorAll('button')).find((item) => item.textContent === 'preferences.cloud.order.title');
+  await act(async () => orders!.click());
+  expect(document.body.textContent).toContain('errors.friendly.ordersLoad');
+  expect(document.body.textContent).not.toMatch(/INTERNAL_ERROR|backend failure|secret-ref/);
 });

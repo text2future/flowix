@@ -171,11 +171,6 @@
       "count": 2
     }
   },
-  "app/flowix-web/features/agent/thread-card/settings/notebook-agent-settings-dialog.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
   "app/flowix-web/features/agent/use-cases/new-conversation.ts": {
     "no-restricted-imports": {
       "count": 1
@@ -459,11 +454,6 @@
       "count": 1
     }
   },
-  "app/flowix-web/features/memo/components/notebook-dialogs.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
   "app/flowix-web/features/memo/components/notebook-document-create-dialog.tsx": {
     "no-restricted-imports": {
       "count": 1
@@ -716,11 +706,6 @@
       "count": 1
     }
   },
-  "app/flowix-web/features/preferences/sections/pi.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
   "app/flowix-web/features/preferences/sections/shortcuts.tsx": {
     "no-restricted-imports": {
       "count": 1
@@ -781,6 +766,16 @@
       "count": 10
     }
   },
+  "app/flowix-web/features/surface/main-column-file-browser-view.tsx": {
+    "no-restricted-imports": {
+      "count": 2
+    }
+  },
+  "app/flowix-web/features/surface/main-column-surface-adapter.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
   "app/flowix-web/features/surface/markdown-document-surface.tsx": {
     "no-restricted-imports": {
       "count": 6
@@ -806,19 +801,9 @@
       "count": 1
     }
   },
-  "app/flowix-web/features/surface/main-column-surface-adapter.ts": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
   "app/flowix-web/features/surface/work-documents-collection-view.tsx": {
     "no-restricted-imports": {
       "count": 3
-    }
-  },
-  "app/flowix-web/features/surface/main-column-file-browser-view.tsx": {
-    "no-restricted-imports": {
-      "count": 2
     }
   },
   "app/flowix-web/features/surface/workspace-file-browser-surface-renderer.tsx": {

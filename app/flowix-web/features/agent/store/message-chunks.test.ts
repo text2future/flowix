@@ -215,6 +215,35 @@ describe("assistant message chunks", () => {
     });
   });
 
+  it("orders a late Pi text block ahead of an already projected tool row", () => {
+    const withTool = applyToolCallChunk(
+      emptyState(),
+      "pi-tool-1",
+      "read",
+      {},
+      "pi",
+      {
+        id: "pi-tool-row",
+        parentMessageId: "pi-entry-1",
+        sourceSubsequence: 1,
+      },
+    );
+    const withText = applyTextChunk(withTool, "preface", {
+      id: "pi-entry-1:block:0",
+      nativeMessageId: "pi-entry-1",
+      blockIndex: 0,
+      adoptPendingId: true,
+      phase: "completed",
+      contentMode: "snapshot",
+    });
+
+    expect(withText.messages.map((message) => message.role)).toEqual([
+      "assistant",
+      "tool",
+    ]);
+    expect(withText.messages[0].content).toBe("preface");
+  });
+
   it("does not collapse distinct Codex item ids with identical text", () => {
     const first = applyTextChunk(emptyState(), "answer", {
       id: "assistant-item-1",

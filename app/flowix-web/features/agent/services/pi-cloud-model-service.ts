@@ -2,6 +2,7 @@ import { cloud, type CloudState } from "@platform/tauri/client";
 import { isFlowixCloudModel } from "@features/agent/config/agent-model-source";
 import { FLOWIX_CLOUD_PREVIEW_PROVIDER_ID } from "@features/agent/config/cloud-access";
 import { useAgentDataStore, type AgentModelCatalog } from "@features/agent/store/agent-data-store";
+import { prefetchPiCloudModelIcons } from "./pi-model-icons";
 import { loadAgentModelCatalog, refreshAgentModelCatalog } from "./agent-catalog-service";
 import {
   PI_PUBLIC_CATALOG_MAX_AGE_MS,
@@ -30,9 +31,11 @@ function modelsFromPreviewCatalog(catalog: AgentModelCatalog): PublicCloudModel[
       id: model.id,
       title: model.label,
       subtitle: model.subtitle,
+      tags: model.tags,
       creditMultiplier: model.creditMultiplier,
       iconUrl: model.iconUrl,
       sortOrder: model.sortOrder,
+      recommended: model.recommended,
     }));
 }
 
@@ -50,6 +53,7 @@ function applyGuestCatalog(
     ...local,
     items: local.items.filter((model) => !isFlowixCloudModel(model)),
   }, models);
+  prefetchPiCloudModelIcons(catalog);
   store.setModelCatalog("pi", catalog);
   return catalog;
 }

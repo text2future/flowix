@@ -14,7 +14,6 @@ export interface ComposerAddMenuControllerOptions {
   attachments: ComposerAttachmentController;
   t: (key: I18nKey) => string;
   isDestroyed: () => boolean;
-  openNotebookAgentSettings: () => void;
   settings?: readonly {
     label: I18nKey;
     popupRole?: "menu" | "dialog";
@@ -139,12 +138,6 @@ export class ComposerAddMenuController {
         items.push(this.createSettingsItem(this.options.t(label), onHover, popupRole));
       });
     }
-    const projectAiSettings = this.createItem(this.options.t("editor.threadCard.projectAiSettings"), false, () => {
-      this.setOpen(false);
-      this.options.openNotebookAgentSettings();
-    });
-    if (settings.length > 0) items.push(this.createSeparator());
-    items.push(projectAiSettings);
     this.scrollbar?.destroy();
     this.scrollbar = createPopupScrollAreaDom(this.options.popover.ownerDocument);
     this.scrollbar.scroller.append(...items);

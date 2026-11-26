@@ -1,3 +1,5 @@
+import { getMessageDateTimeText, getMessageDurationText, getCommandModeLabel } from "./message-labels";
+import { readCachedAttachmentPreview } from "./cached-attachment-preview";
 import { messageRenderKey } from "@features/agent/message/render-identity";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -15,7 +17,6 @@ import { resolveDocumentRelativeHref } from "@/lib/document-relative-path";
 import { translate, type AppLanguage } from "@/lib/i18n";
 import { createLogger } from "@/lib/logger";
 import { COLLECTION_AGENT_REFERENCE_LINK_TITLE } from "@features/collection/public/agent-reference-api";
-import { agent } from "@platform/tauri/client";
 import type { ThreadState } from "@features/agent/store/thread-runtime-state";
 import {
   createAgentMessageViewModel,
@@ -45,24 +46,6 @@ import { createAgentThreadCardToolMessageParts } from "@features/agent/thread-ca
 type AgentMessage = ThreadState["messages"][number];
 export { disposeAgentThreadCardMessageTree } from "@features/agent/thread-card/messages/message-lifecycle";
 
-const pendingCachedAttachmentReads = new Map<string, Promise<string | null>>();
-
-function readCachedAttachmentPreview(path: string): Promise<string | null> {
-  const pending = pendingCachedAttachmentReads.get(path);
-  if (pending) return pending;
-  const request = agent.readCachedAttachment(path);
-  pendingCachedAttachmentReads.set(path, request);
-  void request.then(
-    () => {
-      if (pendingCachedAttachmentReads.get(path) === request) pendingCachedAttachmentReads.delete(path);
-    },
-    () => {
-      if (pendingCachedAttachmentReads.get(path) === request) pendingCachedAttachmentReads.delete(path);
-    },
-  );
-  return request;
-}
-
 export interface AgentThreadCardMessageElementResult {
   element: HTMLElement;
   shouldRemember: boolean;
@@ -83,60 +66,6 @@ function createLucideIcon(
     createElement(icon, { size: 14, strokeWidth: 2, "aria-hidden": true }),
   );
   return template.content.firstElementChild as SVGSVGElement;
-}
-
-function getMessageDateTimeText(message: AgentMessage, language: AppLanguage): string {
-  const date = new Date(message.timestamp);
-  if (Number.isNaN(date.getTime())) return "";
-  return new Intl.DateTimeFormat(language === "zh-CN" ? "zh-CN" : "en-US", {
-    weekday: "long",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(date);
-}
-
-function getMessageDurationText(
-  message: AgentMessage,
-  language: AppLanguage,
-): string | undefined {
-  const durationMs = message.turnDurationMs;
-  if (
-    durationMs === undefined ||
-    !Number.isFinite(durationMs) ||
-    durationMs < 0
-  ) {
-    return undefined;
-  }
-  const totalSeconds = Math.floor(durationMs / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  if (language === "zh-CN") {
-    return minutes === 0 ? `${seconds}秒` : `${minutes}分${seconds}秒`;
-  }
-  return `Duration ${minutes}m${seconds}s`;
-}
-
-function getCommandModeLabel(message: AgentMessage, language: AppLanguage): string | null {
-  if (
-    message.messageType !== "dsh-command" &&
-    message.messageType !== "dsh-command-prompt" &&
-    message.messageType !== "codex-command"
-  ) {
-    return null;
-  }
-
-  const command = message.content.trim();
-  if (
-    message.messageType === "dsh-command-prompt" ||
-    /^\/plan(?:\s|$)/iu.test(command)
-  ) {
-    return translate(language, "editor.threadCard.commandMode.plan");
-  }
-  if (/^\/goal(?:\s|$)/iu.test(command)) {
-    return translate(language, "editor.threadCard.commandMode.goal");
-  }
-  return null;
 }
 
 function createUserMessageAttachments(
@@ -771,7 +700,10 @@ export function createAgentThreadCardMessageElement(options: {
     messageView = createAgentMessageViewModel(message, language);
     item = document.createElement("div");
     item.className = `agent-thread-card__message agent-thread-card__message--${message.role}`;
-    if (message.messageType === "context-compaction") {
+    if (
+      message.messageType === "context-compaction" ||
+      message.messageType === "branch-summary"
+    ) {
       item.classList.add("agent-thread-card__message--context-compaction");
     }
     if (
@@ -952,6 +884,12 @@ export function createAgentThreadCardMessageElement(options: {
         content.textContent = compactedResult
           ? `${translate(language, "agent.contextCompaction")} / ${compactedResult}`
           : translate(language, "agent.contextCompaction");
+      } else if (message.messageType === "branch-summary") {
+        content.className = "agent-thread-card__message-context-compaction";
+        const summary = message.content.trim();
+        content.textContent = summary
+          ? `${translate(language, "agent.branchSummary")} / ${summary}`
+          : translate(language, "agent.branchSummary");
       } else if (
         message.messageType === "goal-round" ||
         message.messageType === "goal-complete" ||

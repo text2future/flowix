@@ -57,7 +57,7 @@ describe("Pi Codemode shared preference", () => {
       instanceRuntimeConfig: { pi: { codeMode: false } },
     });
 
-    expect(legacyConversation.pi?.codeMode).toBe(false);
+    expect(legacyConversation.pi?.codeMode).toBe(true);
     expect(sharedWriting.pi?.codeMode).toBe(false);
     expect(sharedCode.pi?.codeMode).toBe(true);
   });

@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use base64::Engine;
-use serde_json::Value;
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tauri::Manager;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -315,11 +315,31 @@ fn pi_tools_for_permission_mode(mode: Option<&str>, caps: shell::PiCapabilities)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+struct PiWebToolsLaunch {
+    base_url: String,
+    token: String,
+}
+
+fn web_tools_launch(enabled: bool, api_base: &str) -> Result<Option<PiWebToolsLaunch>, String> {
+    if !enabled || api_base.is_empty() {
+        return Ok(None);
+    }
+    let Some(token) = super::config::cloud_model_credential_key()? else {
+        return Ok(None);
+    };
+    Ok(Some(PiWebToolsLaunch {
+        base_url: format!("{}/v1/ai", api_base.trim_end_matches('/')),
+        token,
+    }))
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct PiSessionConfig {
     cwd: PathBuf,
     tools: String,
     code_mode: bool,
     tool_search: bool,
+    web_tools: Option<PiWebToolsLaunch>,
     provider: Option<String>,
     model: Option<String>,
     cloud_auth_generation: Option<u64>,
@@ -775,6 +795,42 @@ impl ActivePiRun {
     }
 }
 
+/// Pi tool results use a `{ content: [...blocks], details: {...} }` envelope.
+/// Product rendering consumes one text payload per tool row, so flatten the
+/// text blocks in the runtime. Doing it here (instead of only in the frontend)
+/// keeps the live stream and the persisted history projection identical: the
+/// frontend would otherwise stringify the raw envelope for a live result and
+/// then swap to flattened text as soon as history replaces the row.
+///
+/// `is_error` mirrors Pi's own `tool_execution_end.isError`; it travels with
+/// the content so both projection paths agree on whether the row failed.
+fn pi_tool_result_value(result: Option<&Value>, is_error: bool) -> Value {
+    let text = match result {
+        Some(Value::String(text)) => text.clone(),
+        Some(Value::Object(object)) => match object.get("content") {
+            Some(Value::String(text)) => text.clone(),
+            Some(Value::Array(blocks)) => blocks
+                .iter()
+                .filter_map(|block| match block {
+                    Value::String(text) => Some(text.clone()),
+                    _ => block
+                        .get("text")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                        .or_else(|| {
+                            (block.get("type").and_then(Value::as_str) == Some("image"))
+                                .then(|| "[Image attachment]".to_string())
+                        }),
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
+            _ => String::new(),
+        },
+        _ => String::new(),
+    };
+    json!({ "content": text, "is_error": is_error })
+}
+
 fn pi_user_message_text(message: &Value) -> String {
     match message.get("content") {
         Some(Value::String(text)) => text.clone(),
@@ -1114,9 +1170,21 @@ impl PiRpcManager {
             .cloud_context_opt()
             .map(|context| context.api_base().to_string())
             .unwrap_or_default();
-        let cloud_auth_generation = self
+        let model_cloud_auth_generation = self
             .ensure_cloud_credential(app, provider.as_deref(), &cloud_api_base)
             .await?;
+        let web_search_auth_generation = if pi_features.web_search {
+            match self.ensure_web_search_credential(app, &cloud_api_base).await {
+                Ok(generation) => generation,
+                Err(error) => {
+                    tracing::warn!("could not prepare Pi web search credential: {error}");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let cloud_auth_generation = model_cloud_auth_generation.or(web_search_auth_generation);
         let thinking = message
             .reasoning_effort_for_runtime(AGENT_TYPE)
             .filter(|value| {
@@ -1137,6 +1205,7 @@ impl PiRpcManager {
             tools: pi_tools_for_permission_mode(permission_mode, caps),
             code_mode: message.code_mode_for_runtime(AGENT_TYPE).unwrap_or(false),
             tool_search: pi_features.tool_search,
+            web_tools: web_tools_launch(web_search_auth_generation.is_some(), &cloud_api_base)?,
             provider: provider.clone().filter(|value| !value.trim().is_empty()),
             model: runtime_model.clone(),
             cloud_auth_generation,
@@ -1359,6 +1428,10 @@ impl PiRpcManager {
                     continue;
                 };
                 sequence += 1;
+                let is_error = value
+                    .get("isError")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
                 let chunk = AgentChunk::ToolResult {
                     thread_id: thread_id.to_string(),
                     id: tool_call_id.to_string(),
@@ -1367,7 +1440,7 @@ impl PiRpcManager {
                         .and_then(Value::as_str)
                         .unwrap_or("tool")
                         .to_string(),
-                    result: value.get("result").cloned().unwrap_or(Value::Null),
+                    result: pi_tool_result_value(value.get("result"), is_error),
                 };
                 self.emit_event(app, &chunk, run_id, sequence, None, None, None)
                     .await;
@@ -2478,7 +2551,45 @@ fn attach_pi_session_message_ids_impl(
     let mut entry_index = 0;
     let mut first_unmatched_renderable = None;
     let mut unmatched_renderable_messages = 0;
+    let mut matched_summaries = std::collections::HashSet::new();
     for (message_index, message) in messages.iter_mut().enumerate() {
+        // Pi synthesizes summaries from non-message entries. A compaction
+        // summary precedes retained messages in the context even though its
+        // entry follows them in the journal, so it must not advance the
+        // ordinary message cursor.
+        let summary_type = match message.get("role").and_then(Value::as_str) {
+            Some("compactionSummary") => Some("compaction"),
+            Some("branchSummary") => Some("branch_summary"),
+            _ => None,
+        };
+        if let Some(summary_type) = summary_type {
+            let matched = branch.iter().enumerate().find(|(index, entry)| {
+                !matched_summaries.contains(index)
+                    && entry.get("type").and_then(Value::as_str) == Some(summary_type)
+                    && entry.get("summary").and_then(Value::as_str).is_some()
+                    && entry.get("summary") == message.get("summary")
+                    && entry.get("timestamp").and_then(Value::as_str)
+                        .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+                        .map(|value| value.timestamp_millis())
+                        == message.get("timestamp").and_then(Value::as_i64)
+                    && message.get("timestamp").and_then(Value::as_i64).is_some()
+            });
+            if let Some((index, entry)) = matched {
+                if first_unmatched_renderable.is_some() {
+                    return Err("Pi history contains an unmatched message before a later committed message".into());
+                }
+                matched_summaries.insert(index);
+                if let Some(object) = message.as_object_mut() {
+                    if let Some(id) = entry.get("id").and_then(Value::as_str) {
+                        object.insert("_pi_session_message_id".into(), Value::String(id.into()));
+                    }
+                    if let Some(parent_id) = entry.get("parentId").and_then(Value::as_str) {
+                        object.insert("_pi_session_parent_id".into(), Value::String(parent_id.into()));
+                    }
+                }
+                continue;
+            }
+        }
         let matched_index = branch[entry_index..].iter().position(|entry| {
             entry.get("type").and_then(Value::as_str) == Some("message")
                 && entry

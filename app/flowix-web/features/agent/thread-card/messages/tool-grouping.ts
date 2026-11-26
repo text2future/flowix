@@ -30,6 +30,10 @@ export type AgentRenderItem =
 export function isFailedToolMessage(message: ChatMessage): boolean {
   if (message.role !== "tool") return false;
   if (message.isLoading) return false;
+  // An explicit provider verdict wins in both directions. Successful tools can
+  // legitimately return no text (a write with no output), and treating that
+  // empty payload as a failure would flag quiet successes as errors.
+  if (typeof message.toolError === "boolean") return message.toolError;
   if (!message.content && !message.toolData) return true;
   return /^\s*\[error\]/i.test(message.content || message.toolData || "");
 }

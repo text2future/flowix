@@ -4,7 +4,7 @@ use serde_json::json;
 
 use crate::error::SyncError;
 use crate::models::{
-    AccountDeletionOutcome, AccountDeletionState, AccountRegionData, ApiErrorEnvelope,
+    AccountDeletionOutcome, AccountDeletionState, ApiErrorEnvelope,
     AppleAuthChallenge, AppleAuthorization, AuthData, CloudAiCredential, CloudCheckout,
     CloudNoteShareLink, CloudOrder, CloudOrderCheck, CloudProduct, CloudSubscription, DataEnvelope,
     EntitlementData, MeData, PasswordResetCodeRequest, RefreshData, RegistrationCodeRequest,
@@ -195,6 +195,7 @@ impl CloudClient {
         &self,
         access_token: &str,
         product_id: &str,
+        quantity: u8,
         idempotency_key: &str,
     ) -> Result<CloudCheckout, SyncError> {
         let response = self
@@ -204,6 +205,7 @@ impl CloudClient {
             .header("Idempotency-Key", idempotency_key)
             .json(&json!({
                 "productId": product_id,
+                "quantity": quantity,
                 "successUrl": "flowix://billing/success",
             }))
             .send()
@@ -414,21 +416,6 @@ impl CloudClient {
         )
         .await
         .map(|value| value.data)
-    }
-
-    pub(crate) async fn update_account_region(
-        &self,
-        access_token: &str,
-        region: &str,
-    ) -> Result<String, SyncError> {
-        self.send::<DataEnvelope<AccountRegionData>>(
-            Method::PATCH,
-            "/v1/account/region",
-            Some(access_token),
-            Some(json!({ "region": region })),
-        )
-        .await
-        .map(|value| value.data.region)
     }
 
     pub(crate) async fn delete_account(

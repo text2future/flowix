@@ -210,10 +210,6 @@ impl SyncManager {
         self.account.deletion_state().await
     }
 
-    pub async fn update_account_region(&self, region: &str) -> Result<CloudState, SyncError> {
-        self.account.update_account_region(region).await
-    }
-
     pub async fn delete_account(
         &self,
         confirm_email: &str,
@@ -345,10 +341,11 @@ impl SyncManager {
     pub async fn create_checkout(
         &self,
         product_id: &str,
+        quantity: u8,
         idempotency_key: &str,
     ) -> Result<CloudCheckout, SyncError> {
         self.account
-            .create_checkout(product_id, idempotency_key)
+            .create_checkout(product_id, quantity, idempotency_key)
             .await
     }
 

@@ -133,10 +133,12 @@ export interface PiModelEntryConfig {
   id: string;
   name: string;
   subtitle?: string;
+  tags?: string[];
   creditMultiplier?: number;
   iconUrl?: string;
   /** Cloud directory rank: larger values are shown first. */
   sortOrder?: number;
+  recommended?: boolean;
   api?: string;
   reasoning: boolean;
   reasoningConfig?: { levels: string[]; defaultLevel?: string | null };
@@ -160,7 +162,7 @@ export interface PiProviderConfig {
   models: PiModelEntryConfig[];
 }
 
-export interface PiFeatures { toolSearch: boolean; legacyCodeMode?: boolean }
+export interface PiFeatures { toolSearch: boolean; webSearch: boolean; legacyCodeMode?: boolean }
 
 export interface PiMcpServerConfig {
   name: string;
@@ -185,7 +187,7 @@ export interface PiModelCatalog {
 
 export const piModels = {
   getFeatures: () => invoke<PiFeatures>('get_pi_features'),
-  saveFeatures: (features: Pick<PiFeatures, 'toolSearch'>) => invoke<void>('save_pi_features', { features }),
+  saveFeatures: (features: Partial<Pick<PiFeatures, 'toolSearch' | 'webSearch'>>) => invoke<void>('save_pi_features', { features }),
   clearLegacyCodeMode: () => invoke<void>('clear_pi_legacy_code_mode'),
   list: () => invoke<PiProviderConfig[]>('get_pi_model_configs'),
   catalog: () => invoke<PiModelCatalog>('get_pi_model_catalog'),

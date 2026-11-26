@@ -239,6 +239,7 @@ impl AccountService {
         drop(current_generation);
         self.notify_state_change();
         self.entitlement_retry.notify_one();
+        self.ai_credits_retry.notify_one();
         Ok(next_generation)
     }
 

@@ -4,7 +4,7 @@ import type { AgentConversationMessageState } from "@features/agent/store/agent-
 import type { ConversationSlice } from "@features/agent/store/conversation-slice";
 import type { ProjectionSlice } from "@features/agent/store/projection-slice";
 import type { AgentSessionMeta } from "@features/agent/store/session-state";
-import { emptyProjection } from "@features/agent/store/session-reducer";
+import { emptyProjection, isProjectionRunActive } from "@features/agent/store/session-reducer";
 import { getAgentHistoryAdapter, HistoryChangedError } from "@features/agent/store/agent-history-adapters";
 import type { ThreadHistoryPage } from "@features/agent/store/agent-history-adapters";
 import { createLogger } from "@/lib/logger";
@@ -38,7 +38,7 @@ function loadHistorySync(): Promise<HistorySyncModule> {
 
 type HistoryContext = ThreadHistorySlice & ProjectionSlice &
   Partial<Pick<ConversationSlice, "recoverThreadCardAfterMissingSession">> &
-  { sessionMeta: AgentSessionMeta };
+  { sessionMeta: AgentSessionMeta; reconcileRunningRuns?: () => Promise<unknown> };
 type SessionGet = () => HistoryContext;
 
 // Codex history is normally available immediately after turn completion. Keep
@@ -74,7 +74,7 @@ export interface ThreadHistorySlice {
     page: Pick<ThreadHistoryPage, "messages"> & { coverage: "partial" },
   ): void;
   resetMessageStates(threadIds: string[]): void;
-  loadMessages(agentType: AgentTypeKey, threadId: string): Promise<HistoryLoadResult>;
+  loadMessages(agentType: AgentTypeKey, threadId: string, fromScroll?: boolean): Promise<HistoryLoadResult>;
   /** Reload complete provider history while preserving newer live messages. */
   reloadMessagesFromHistory(
     agentType: AgentTypeKey,
@@ -141,11 +141,34 @@ export function createThreadHistorySlice(
       });
     },
     resetMessageStates: (threadIds) => get().resetThreadProjections(threadIds),
-    loadMessages: async (agentType, threadId) => {
+    loadMessages: async (agentType, threadId, fromScroll = false) => {
       const productThreadId = productThreadIdFor(threadId, agentType);
       if (!productThreadId) return "stale";
-      if (productThreadId !== threadId) return get().loadMessages(agentType, productThreadId);
+      if (productThreadId !== threadId) return get().loadMessages(agentType, productThreadId, fromScroll);
       if (get().threadTombstones[threadId]) return "stale";
+      // A fresh WebView has no run projection yet. Restore liveness before
+      // deciding whether a Pi history RPC is safe to defer.
+      if (agentType === "pi" && !get().threadProjections[threadId]?.runs.activeRunId &&
+        get().threadProjections[threadId]?.pagination.initialStatus !== "ready" && get().reconcileRunningRuns) {
+        try { await get().reconcileRunningRuns!(); } catch { /* Fall back to history. */ }
+      }
+      const projection = get().threadProjections[threadId];
+      // Deferring the Pi history read is only valid while a run is actually
+      // active: the session file is still being written, so a page read would
+      // race the live projection. Once nothing is running the flag must stop
+      // gating reads, otherwise a run that ended while this view was reloading
+      // leaves the conversation with no history forever.
+      if (agentType === "pi" && projection?.pagination.deferredPiHistory && !fromScroll &&
+        isProjectionRunActive(projection)) return "ready";
+      if (agentType === "pi" && projection && isProjectionRunActive(projection)) {
+        requests.begin(threadId);
+        get().updateThreadHistory(threadId, (current) => ({
+          ...current,
+          pagination: { ...current.pagination, initialStatus: "ready", initialError: null,
+            loadingInitial: false, deferredPiHistory: true, hasMoreHistory: true },
+        }));
+        return "ready";
+      }
       const binding = requests.binding(threadId);
       if (get().threadProjections[threadId]?.pagination.loadingInitial &&
         requests.hasInitial(threadId, agentType, binding)) return "stale";
@@ -226,6 +249,14 @@ export function createThreadHistorySlice(
         }
         return applied && requests.isCurrent(historyReadVersion) ? "ready" : "stale";
       } catch (error) {
+        const live = get().threadProjections[threadId];
+        if (agentType === "pi" && live && isProjectionRunActive(live) && requests.isCurrent(historyReadVersion)) {
+          get().updateThreadHistory(threadId, (current) => ({
+            ...current, pagination: { ...current.pagination, initialStatus: "ready", initialError: null,
+              loadingInitial: false, deferredPiHistory: true, hasMoreHistory: true },
+          }));
+          return "ready";
+        }
         logger.error("Failed to load messages", { error: String(error) });
         if (!requests.isCurrent(historyReadVersion)) {
           return "stale";
@@ -326,6 +357,22 @@ export function createThreadHistorySlice(
       if (!productThreadId) return;
       if (productThreadId !== threadId) return get().reconcileCompletedRun(agentType, productThreadId, runId);
       if (get().threadTombstones[threadId]) return;
+      // A deferred Pi read is only safe to release once the run has settled;
+      // while it is still live the session file is being written and the live
+      // projection already owns the tail. Leaving the flag set after the run
+      // ends would gate every later history read, so the turn would never load
+      // again (`paginationAfterSnapshot` clears it once a page is applied).
+      if (agentType === "pi" &&
+        get().threadProjections[threadId]?.pagination.deferredPiHistory) {
+        if (isProjectionRunActive(get().threadProjections[threadId])) return;
+        get().updateThreadHistory(threadId, (projection) =>
+          projection.pagination.deferredPiHistory
+            ? {
+                ...projection,
+                pagination: { ...projection.pagination, deferredPiHistory: false },
+              }
+            : projection);
+      }
       const reconcile = async () => {
         if (get().threadTombstones[threadId]) return;
         const historyReadVersion = requests.begin(threadId);
@@ -428,6 +475,19 @@ export function createThreadHistorySlice(
       if (!productThreadId) return;
       if (productThreadId !== threadId) return get().loadMoreMessages(agentType, productThreadId);
       const current = get().threadProjections[threadId];
+      if (agentType === "pi" && current?.pagination.deferredPiHistory) {
+        if (current.pagination.loadingMore || isProjectionRunActive(current)) return;
+        get().updateThreadHistory(threadId, (projection) => ({
+          ...projection, pagination: { ...projection.pagination, loadingMore: true },
+        }));
+        try { await get().loadMessages(agentType, threadId, true); }
+        finally {
+          get().updateThreadHistory(threadId, (projection) => ({
+            ...projection, pagination: { ...projection.pagination, loadingMore: false },
+          }));
+        }
+        return;
+      }
       if (
         !current ||
         current.pagination.loadingMore ||

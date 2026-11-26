@@ -45,7 +45,7 @@ export function AgentConversationIdentity({
     threadId ? state.threadProjections[threadId] : undefined,
   );
   const codexModel = useAgentDataStore((state) => state.agents.codex.user.model?.id ?? 'inherit');
-  const piCodeMode = useAgentDataStore((state) => state.agents.pi.user.mode === 'code');
+  const piCodeMode = useAgentDataStore((state) => (state.agents.pi.user.mode ?? 'code') === 'code');
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
   const lastRenameRequest = useRef(renameRequest);

@@ -3,6 +3,7 @@ import { getFallbackAgentModelOptions } from "@features/agent/config/agent-model
 import { formatModelDisplayLabel } from "@features/agent/config/codex-options";
 import { listCodexSkillCatalog } from "@features/agent/services/codex-slash-command-service";
 import { listPiSkills } from "@features/agent/services/pi-slash-command-service";
+import { prefetchPiCloudModelIcons } from "@features/agent/services/pi-model-icons";
 import { byModelOrder, withCachedGuestCloudModels } from "@features/agent/services/pi-public-catalog";
 import {
   type AgentCatalogModel,
@@ -33,6 +34,9 @@ export function loadAgentModelCatalog(
     if (!fallback.items.length) throw error;
     store.setModelCatalog(agentType, fallback);
     return fallback;
+  }).then((catalog) => {
+    if (agentType === "pi") prefetchPiCloudModelIcons(catalog);
+    return catalog;
   });
 }
 
@@ -116,9 +120,11 @@ async function fetchAgentModelCatalog(agentType: AgentTypeKey): Promise<AgentMod
         ...(provider ? { source: provider.source === "flowix-cloud" ? "flowix-cloud" as const : "custom" as const } : {}),
         label: modelConfig?.name?.trim() || formatModelDisplayLabel(id),
         ...(modelConfig?.subtitle?.trim() ? { subtitle: modelConfig.subtitle.trim() } : {}),
+        ...(modelConfig?.tags?.length ? { tags: modelConfig.tags } : {}),
         ...(modelConfig?.creditMultiplier != null ? { creditMultiplier: modelConfig.creditMultiplier } : {}),
         ...(modelConfig?.reasoningConfig ? { reasoningConfig: modelConfig.reasoningConfig } : {}),
         ...(modelConfig?.sortOrder != null ? { sortOrder: modelConfig.sortOrder } : {}),
+        ...(modelConfig?.recommended ? { recommended: true } : {}),
         ...(modelConfig?.iconUrl || provider?.iconUrl
           ? { iconUrl: modelConfig?.iconUrl || provider?.iconUrl }
           : {}),

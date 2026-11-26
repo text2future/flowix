@@ -10,3 +10,4 @@ export {
   AppUpdatePromptDialog,
   type AppUpdatePromptDialogProps,
 } from '@features/shell/components/app-update-prompt-dialog';
+export { CloudSyncStatusIndicator } from '@features/shell/components/status-bar/cloud-sync-status-indicator';

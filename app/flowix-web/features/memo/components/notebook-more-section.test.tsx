@@ -5,7 +5,10 @@ import { openSkillMarketUi } from '@features/surface/public/open-skill-market-ui
 import { NotebookMoreSection } from './notebook-more-section';
 
 vi.mock('@features/surface/public/open-skill-market-ui', () => ({ openSkillMarketUi: vi.fn().mockResolvedValue(true) }));
-vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }));
+vi.mock('@/lib/i18n', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/lib/i18n')>(),
+  useI18n: () => ({ t: (key: string) => key }),
+}));
 afterEach(() => { vi.clearAllMocks(); document.body.innerHTML = ''; });
 
 it('opens each market view without putting loading on sidebar items', async () => {

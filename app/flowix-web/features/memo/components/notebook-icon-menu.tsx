@@ -62,7 +62,7 @@ export function NotebookIconMenu({
   const [feedbackPreviews, setFeedbackPreviews] = useState<Array<{ file: File; url: string }>>([]);
   const feedbackFileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // 显式标注为通用 tab 类型: 字面量联合里 pi/dsh 没有 sidebarIcon 字段,
+  // 显式标注为通用 tab 类型: 字面量联合里 pi 没有 sidebarIcon 字段,
   // 直接 map 会丢失可选性, 访问 tab.sidebarIcon 会报 TS2339。
   const visiblePreferenceGroups: PreferencesTabGroup[] = PREFERENCE_TAB_GROUPS.map((group) => ({
     ...group,

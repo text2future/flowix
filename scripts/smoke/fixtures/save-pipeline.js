@@ -4,7 +4,7 @@
 // 感受不到真实定时器/事件循环。这里用真实浏览器跑：
 //   1. latest-value 槽位：同 lane 的待执行任务被替换，不会形成无界队列
 //   2. 单写者：同一文档任何时刻只有一个任务在执行
-//   3. capture 时钟：300ms 去抖 + flush 立即触发 + cancel 不再触发
+//   3. capture 时钟：300ms 去抖 + cancel 不再触发
 
 import { checkAsync, assert, assertEqual, installCrashGuard, report, sleep } from './harness.js';
 
@@ -14,7 +14,6 @@ const {
   enqueueDocumentCommit,
   waitForDocumentCommits,
   scheduleDocumentCapture,
-  flushDocumentCapture,
   cancelDocumentCapture,
   DOCUMENT_SAVE_DELAY_MS,
 } = await import('@features/document/store/document-commit-queue');
@@ -79,13 +78,7 @@ await checkAsync('capture clock: debounce coalesces bursts into one run', async 
   assertEqual(runs, 1, '连续输入应合并为一次 capture');
 });
 
-await checkAsync('capture clock: flush runs immediately, cancel prevents the run', async () => {
-  const flushKey = 'md:smoke-capture-flush';
-  let flushed = 0;
-  scheduleDocumentCapture(flushKey, () => { flushed += 1; });
-  flushDocumentCapture(flushKey);
-  assertEqual(flushed, 1, 'flush 应立即触发 capture');
-
+await checkAsync('capture clock: cancel prevents the run', async () => {
   const cancelKey = 'md:smoke-capture-cancel';
   let cancelled = 0;
   scheduleDocumentCapture(cancelKey, () => { cancelled += 1; });

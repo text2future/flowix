@@ -124,7 +124,7 @@ describe("Pi mode startup migration", () => {
     expect(useAgentDataStore.getState().loadState.piMode.status).toBe("error");
     expect(piBackend.clearLegacyCodeMode).not.toHaveBeenCalled();
     await useAgentDataStore.getState().initializePiMode();
-    expect(useAgentDataStore.getState().agents.pi.user.mode).toBe("writing");
+    expect(useAgentDataStore.getState().agents.pi.user.mode).toBe("code");
   });
 });
 

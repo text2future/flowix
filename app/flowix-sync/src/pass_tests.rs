@@ -397,6 +397,7 @@ fn pass_request<'a>(scanned: &'a [ScannedLocalFile], force: bool) -> PassRequest
         scanned,
         force,
         quota: None,
+        max_upload_file_bytes: None,
         allow_mass_deletion: false,
     }
 }

@@ -191,6 +191,18 @@ describe("groupAgentMessages", () => {
     expect(failed.kind === "tool-group" && failed.status).toBe("failed");
   });
 
+  it("trusts an explicit provider verdict over the empty-content heuristic", () => {
+    const [quietSuccess] = groupAgentMessages([
+      message("t1", "tool", { content: "", toolError: false, isLoading: false }),
+    ]);
+    const [explicitFailure] = groupAgentMessages([
+      message("t1", "tool", { content: "partial output", toolError: true, isLoading: false }),
+    ]);
+
+    expect(quietSuccess.kind === "tool-group" && quietSuccess.status).toBe("completed");
+    expect(explicitFailure.kind === "tool-group" && explicitFailure.status).toBe("failed");
+  });
+
   it("compares groups by their message references and state", () => {
     const first = groupAgentMessages([message("t1", "tool"), message("t2", "tool")])[0];
     const same = groupAgentMessages([message("t1", "tool"), message("t2", "tool")])[0];

@@ -146,6 +146,194 @@ describe("createStreamEventDispatcher", () => {
     });
   });
 
+  it("coalesces id-bearing deltas into one reduction per frame", () => {
+    const { ports, projections } = createPorts();
+    const dispatch = vi.spyOn(ports, "dispatch");
+    let scheduled: FrameRequestCallback | null = null;
+    const dispatcher = createStreamEventDispatcher(ports, {
+      request: (callback) => {
+        scheduled = callback;
+        return 1;
+      },
+      cancel: vi.fn(),
+    });
+    dispatcher.dispatch({
+      kind: "stream_start",
+      agentType: "pi",
+      threadId: "thread-1",
+      runId: "run-1",
+      timestamp: 1,
+    });
+    const reductionsBeforeDeltas = dispatch.mock.calls.length;
+
+    // Pi/Codex deltas always carry a native id and a source sequence. They used
+    // to bypass the buffer for that reason, so every token cost a full store
+    // reduction.
+    for (const [index, text] of ["Hel", "lo ", "world"].entries()) {
+      dispatcher.dispatch({
+        kind: "text_delta",
+        agentType: "pi",
+        threadId: "thread-1",
+        runId: "run-1",
+        timestamp: 2,
+        text,
+        messageId: "pi-entry-1",
+        contentMode: "delta",
+        sourceSequence: index + 1,
+        sourceSubsequence: 0,
+      });
+    }
+
+    expect(dispatch.mock.calls.length).toBe(reductionsBeforeDeltas);
+    (scheduled as unknown as FrameRequestCallback)(16);
+
+    expect(dispatch.mock.calls.length - reductionsBeforeDeltas).toBe(1);
+    expect(projections["thread-1"].messages[0].content).toBe("Hello world");
+  });
+
+  it("keeps Pi content blocks of one message as separate rows inside a frame", () => {
+    const { ports, projections } = createPorts();
+    let scheduled: FrameRequestCallback | null = null;
+    const dispatcher = createStreamEventDispatcher(ports, {
+      request: (callback) => {
+        scheduled = callback;
+        return 1;
+      },
+      cancel: vi.fn(),
+    });
+    dispatcher.dispatch({
+      kind: "stream_start",
+      agentType: "pi",
+      threadId: "thread-1",
+      runId: "run-1",
+      timestamp: 1,
+    });
+
+    const delta = (text: string, sourceSubsequence: number) => ({
+      kind: "text_delta" as const,
+      agentType: "pi" as const,
+      threadId: "thread-1",
+      runId: "run-1",
+      timestamp: 2,
+      text,
+      messageId: "pi-entry-1",
+      contentMode: "delta" as const,
+      sourceSequence: 1,
+      sourceSubsequence,
+    });
+    dispatcher.dispatch(delta("first ", 0));
+    dispatcher.dispatch(delta("block", 0));
+    dispatcher.dispatch(delta("second block", 1));
+    (scheduled as unknown as FrameRequestCallback)(16);
+
+    expect(
+      projections["thread-1"].messages.map((message) => [
+        message.piBlockIndex,
+        message.content,
+      ]),
+    ).toEqual([
+      [0, "first block"],
+      [1, "second block"],
+    ]);
+  });
+
+  it("flushes buffered deltas before a tool boundary so source order survives", () => {
+    const { ports, projections } = createPorts();
+    const dispatcher = createStreamEventDispatcher(ports, {
+      request: () => 1,
+      cancel: vi.fn(),
+    });
+    dispatcher.dispatch({
+      kind: "stream_start",
+      agentType: "pi",
+      threadId: "thread-1",
+      runId: "run-1",
+      timestamp: 1,
+    });
+    dispatcher.dispatch({
+      kind: "text_delta",
+      agentType: "pi",
+      threadId: "thread-1",
+      runId: "run-1",
+      timestamp: 2,
+      text: "before",
+      messageId: "pi-entry-1",
+      contentMode: "delta",
+      sourceSequence: 1,
+      sourceSubsequence: 0,
+    });
+    dispatcher.dispatch({
+      kind: "tool_call",
+      agentType: "pi",
+      threadId: "thread-1",
+      runId: "run-1",
+      timestamp: 3,
+      toolCallId: "tool-1",
+      name: "read",
+      input: {},
+      messageId: "pi-entry-1:tool-1",
+      parentMessageId: "pi-entry-1",
+      sourceSequence: 2,
+      sourceSubsequence: 1,
+    });
+    dispatcher.dispatch({
+      kind: "text_delta",
+      agentType: "pi",
+      threadId: "thread-1",
+      runId: "run-1",
+      timestamp: 4,
+      text: "after",
+      messageId: "pi-entry-1",
+      contentMode: "delta",
+      sourceSequence: 3,
+      sourceSubsequence: 2,
+    });
+    dispatcher.flushBuffer();
+
+    expect(
+      projections["thread-1"].messages.map((message) => [
+        message.role,
+        message.content,
+      ]),
+    ).toEqual([
+      ["assistant", "before"],
+      ["tool", ""],
+      ["assistant", "after"],
+    ]);
+  });
+
+  it("applies a completed snapshot without waiting for the frame", () => {
+    const { ports, projections } = createPorts();
+    const dispatch = vi.spyOn(ports, "dispatch");
+    const dispatcher = createStreamEventDispatcher(ports, {
+      request: () => 1,
+      cancel: vi.fn(),
+    });
+    dispatcher.dispatch({
+      kind: "stream_start",
+      agentType: "pi",
+      threadId: "thread-1",
+      runId: "run-1",
+      timestamp: 1,
+    });
+    const before = dispatch.mock.calls.length;
+
+    dispatcher.dispatch({
+      kind: "text_delta",
+      agentType: "pi",
+      threadId: "thread-1",
+      runId: "run-1",
+      timestamp: 2,
+      text: "final text",
+      messageId: "pi-entry-1",
+      contentMode: "snapshot",
+      messagePhase: "completed",
+    });
+
+    expect(dispatch.mock.calls.length - before).toBe(1);
+    expect(projections["thread-1"].messages[0].content).toBe("final text");
+  });
+
   it("routes session resolution through the injected atomic action", () => {
     const { ports, applySessionResolved } = createPorts();
     const dispatcher = createStreamEventDispatcher(ports);

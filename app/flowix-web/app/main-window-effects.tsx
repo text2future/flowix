@@ -37,7 +37,7 @@ import { createLogger } from '@/lib/logger';
 import { joinNotebookMemoPath } from '@/lib/path';
 import { acceptWorkspaceDocumentLinkSave } from '@features/memo/public/app-api';
 import { subscribeWorkspaceDocumentSaves } from '@features/document/public/workspace-api';
-import { preloadEditorChunkOnIdle } from '@features/document/public/shell-api';
+import { preloadEditorChunkOnIdle } from '@features/document/public/editor-preload-api';
 import {
   syncAppAgentConversationRestore,
   removeBrowserColumnContentByPath,
@@ -65,6 +65,15 @@ export function MainWindowEffects() {
   const { t } = useI18n();
   const mainWindowTitle = t("window.main.title");
   const navigationFailure = useWorkspaceNavigationFailure();
+
+  useEffect(() => {
+    let disposed = false;
+    let stop: (() => void) | undefined;
+    void import('@features/cloud-billing/public/ai-membership-purchase').then(({ resumeAiMembershipPurchase }) => {
+      if (!disposed) stop = resumeAiMembershipPurchase(() => toast.success(t('preferences.pi.webSearchEnabledAfterPurchase')));
+    }).catch((error: unknown) => logger.warn('failed to resume AI purchase tracking', { error }));
+    return () => { disposed = true; stop?.(); };
+  }, [t]);
 
   useEffect(() => subscribe<BillingTab>('billing:open-payment-dialog', (tab) => {
     if (tab !== 'membership' && tab !== 'credits') return;

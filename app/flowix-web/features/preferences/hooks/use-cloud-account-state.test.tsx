@@ -28,6 +28,10 @@ function Harness() {
 function snapshot(revision: number): CloudState {
   return { revision, authenticated: false, authStatus: 'signed_out' };
 }
+function authenticatedSnapshot(revision: number): CloudState {
+  return { ...snapshot(revision), authenticated: true, authStatus: 'authenticated',
+    account: { user: { id: 'user-1', email: 'user@example.com', displayName: 'User', region: 'non_mainland' } } };
+}
 beforeEach(() => {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   vi.clearAllMocks();
@@ -97,7 +101,7 @@ it('removes subscriptions and ignores a query response after unmount', async () 
 });
 
 it('shows membership failures and allows a successful retry', async () => {
-  mocks.getState.mockResolvedValue({ ...snapshot(1), authenticated: true, authStatus: 'authenticated' });
+  mocks.getState.mockResolvedValue(authenticatedSnapshot(1));
   mocks.refreshMembership.mockRejectedValueOnce(new Error('offline'));
   await act(async () => root.render(<Harness />));
   expect(mocks.refreshMembership).not.toHaveBeenCalled();
@@ -137,7 +141,7 @@ it('keeps failed verification locked through retries and stale cached snapshots'
 });
 
 it('accepts a successful membership refresh from another window after verification failed', async () => {
-  mocks.getState.mockResolvedValue({ ...snapshot(1), authenticated: true, authStatus: 'authenticated' });
+  mocks.getState.mockResolvedValue(authenticatedSnapshot(1));
   mocks.refreshMembership.mockRejectedValueOnce(new Error('offline'));
   await act(async () => root.render(<Harness />));
   await act(async () => { await current.refreshMembership(); });
@@ -150,7 +154,7 @@ it('accepts a successful membership refresh from another window after verificati
 
 it('ignores a membership failure from a previous session', async () => {
   let reject!: (error: Error) => void;
-  mocks.getState.mockResolvedValue({ ...snapshot(1), authenticated: true, authStatus: 'authenticated' });
+  mocks.getState.mockResolvedValue(authenticatedSnapshot(1));
   mocks.refreshMembership.mockReturnValueOnce(new Promise((_, fail) => { reject = fail; }));
   await act(async () => root.render(<Harness />));
   expect(mocks.refreshMembership).not.toHaveBeenCalled();
@@ -191,7 +195,7 @@ it('does not poll membership after authentication or window focus', async () => 
 });
 
 it('returns failure to callers and success after retry without an unhandled rejection', async () => {
-  mocks.getState.mockResolvedValue({ ...snapshot(1), authenticated: true, authStatus: 'authenticated' });
+  mocks.getState.mockResolvedValue(authenticatedSnapshot(1));
   await act(async () => root.render(<Harness />));
   mocks.refreshMembership.mockRejectedValueOnce(new Error('offline'));
   let result: string | undefined;
@@ -204,7 +208,7 @@ it('returns failure to callers and success after retry without an unhandled reje
 });
 
 it('returns stale to all coalesced callers after the session changes', async () => {
-  mocks.getState.mockResolvedValue({ ...snapshot(1), authenticated: true, authStatus: 'authenticated' });
+  mocks.getState.mockResolvedValue(authenticatedSnapshot(1));
   await act(async () => root.render(<Harness />));
   let finish!: () => void;
   mocks.refreshMembership.mockReturnValueOnce(new Promise<void>((resolve) => { finish = resolve; }));
@@ -223,7 +227,7 @@ it('returns stale to all coalesced callers after the session changes', async () 
 });
 
 it.each(['success', 'failure'] as const)('returns stale to all callers when a refresh ends with %s after unmount', async (outcome) => {
-  mocks.getState.mockResolvedValue({ ...snapshot(1), authenticated: true, authStatus: 'authenticated' });
+  mocks.getState.mockResolvedValue(authenticatedSnapshot(1));
   await act(async () => root.render(<Harness />));
   let finish!: () => void;
   mocks.refreshMembership.mockReturnValueOnce(new Promise<void>((resolve, reject) => {

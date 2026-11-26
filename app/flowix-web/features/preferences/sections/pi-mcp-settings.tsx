@@ -167,7 +167,7 @@ export function PiMcpSettings() {
       </div>
       {error && <p role="alert" className="text-sm text-[var(--destructive)]">{error}</p>}
       {loading && <div className="flex justify-center py-5"><Loader2 className="size-5 flowix-spin" /></div>}
-      {!loading && !error && servers.length === 0 && !draft && <div className="rounded-lg border border-dashed border-[var(--divider)] px-4 py-5 text-center text-sm text-[var(--muted-foreground)]">{t('preferences.pi.mcp.empty')}</div>}
+      {!loading && !error && servers.length === 0 && !draft && <div className="py-3 text-center text-sm text-[var(--muted-foreground)]">{t('preferences.pi.mcp.empty')}</div>}
       <div className="space-y-2">
         {servers.map((server) => <article key={server.name} className="flex items-center gap-2 rounded-xl border border-[var(--divider)] bg-[var(--card)] p-3">
           <div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold text-[var(--foreground)]">{server.name}</div><div className="truncate text-xs text-[var(--muted-foreground)]">{typeof server.config.command === 'string' ? [server.config.command, ...(Array.isArray(server.config.args) ? server.config.args as string[] : [])].join(' ') : String(server.config.url ?? '')}</div></div>

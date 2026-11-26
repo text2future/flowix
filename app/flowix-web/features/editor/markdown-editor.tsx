@@ -1,13 +1,12 @@
-import type { DocumentResourceContext } from '@/lib/document-resource-context';
 import { useDocumentAttachmentContext } from './use-document-attachment-context';
 import { useEditorImageSources } from './use-editor-image-sources';
-import type { EditorImageContext } from './editor-image-source';
 import { useSessionViewChannel } from '@features/workspace/public/session-view-state-api';
 import { useDeferredMarkdownSerialization } from './use-deferred-markdown-serialization';
 import { Editor } from '@tiptap/core';
 import { TextSelection } from '@tiptap/pm/state';
-import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, useCallback, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
-import { useShortcutScope, pushHandler } from '@features/shortcuts';
+import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, useCallback, type MouseEvent as ReactMouseEvent } from 'react';
+import { useShortcutScope } from '@features/shortcuts';
+import { useEditorShortcutHandlers } from './use-editor-shortcut-handlers';
 import { TableBubbleMenu } from '@features/editor/extensions/table/table-bubble-menu';
 import { TableAxisMenu } from '@features/editor/extensions/table/table-axis-menu';
 import { SelectionBubbleMenu } from '@features/editor/components/selection-bubble-menu';
@@ -24,9 +23,7 @@ import type { EditorLinkContext } from '@features/editor/editor-link-resolution'
 import { pasteClipboardSnapshot } from '@features/editor/extensions/paste-rules';
 import type { ClipboardSnapshot } from '@features/editor/extensions/paste-rules/clipboard';
 import { SearchReplacePanel } from '@features/editor/components/search-replace-panel';
-import { selectEditableDocumentContent } from '@features/editor/extensions/frontmatter';
 import { REPLACE_PROTECTED_COMMENTS_META } from '@features/editor/extensions/protected-comment';
-import { applyListType } from '@features/editor/extensions/list-transforms';
 import { SKIP_AGENT_THREAD_CARD_CLEANUP_META } from '@features/agent/thread-card/agent-thread-card-extension';
 import { translate, useI18n } from '@/lib/i18n';
 import { samePath } from '@/lib/path';
@@ -35,7 +32,6 @@ import { getCurrentAppLanguage } from '@features/preferences/public/runtime-api'
 import { markDocumentOpenTrace } from '@/lib/document-open-perf';
 import { perfMark } from '@/lib/perf-probe';
 import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
-import type { WorkspaceColumnId } from '@features/workspace/public/host-api';
 import { CodeBlockShiki } from '@features/editor/extensions/codeblock-shiki/codeblock-shiki';
 import { createMarkdownEditorExtensions, serializeEditorMarkdown } from './markdown-editor-extensions';
 import {
@@ -48,63 +44,10 @@ import { attachEditorViewRecovery } from './editor-view-recovery';
 import { focusTerminalBlockGap } from './extensions/block-gap-cursor';
 import { isSlashMenuOpen } from './extensions/slash-menu';
 import { normalizeTaskItemPlaceholders, resetEditorHistory } from './editor-document-reset';
-import { useSearchPanelState, type SearchPanelControlProps } from './use-search-panel-state';
+import { useSearchPanelState } from './use-search-panel-state';
 
-type MarkdownEditorProps = SearchPanelControlProps & {
-  /** Absolute or notebook-relative path of the note owning editor uploads. */
-  ownerPath?: string;
-  /** Workspace surface hosting this editor, passed to surface-aware NodeViews. */
-  workspaceHost?: WorkspaceColumnId;
-  /** Read the current path when an upload starts, including after a rename. */
-  getAttachmentContext?: () => DocumentResourceContext;
-  propertyTargetId?: string;
-  onPropertyAreaHoverChange?: (hovered: boolean) => void;
-  onViewSourceMode?: () => void;
-  transitionId?: number | null;
-  content: string;
-  editable?: boolean;
-  placeholder?: string;
-  onChange?: (markdown: string) => void;
-  /** Schedule capture on the owning document clock, without serializing on input. */
-  onDirty?: () => void;
-  className?: string;
-  onEditorScroll?: (scrollTop: number) => void;
-  autoFocus?: boolean;
-  onBeforeCreate?: (editor: Editor) => void;
-  onEditingFinished?: () => void;
-  /** Move focus from the first editable body block to the title. */
-  onFocusTitle?: () => void;
-  /** Append the first editable body line to the existing title. */
-  /** Return false when the title update was refused; the body block is then preserved. */
-  onAppendToTitle?: (title: string) => void | boolean | Promise<boolean>;
-  /**
-   * Navigation context for in-content links: relative path hrefs resolve
-   * against `documentPath` and route through `openLocalPath` (supplied by the
-   * document layer). Omitted contexts fall back to the historic web opener.
-   */
-  linkContext?: EditorLinkContext;
-  imageContext?: EditorImageContext;
-  /** Content in the document scroller that stays outside ProseMirror. */
-  header?: ReactNode;
-}
-
-interface PendingExternalContent {
-  content: string;
-  localEditVersion: number;
-}
-
-export interface MarkdownEditorHandle {
-  flushPendingChanges: () => string | null;
-  commitPropertyDraft?: () => void;
-  getCurrentMarkdown: () => string;
-  revealSourceLocation?: (location: { line: number; column?: number }) => { clamped: boolean } | null;
-  revealSourceAnchor?: (anchor: string) => boolean | null;
-  /** Reveal a GitHub-slug heading anchor in the rich text view (scroll only). */
-  revealHeadingAnchor?: (anchor: string) => boolean | null;
-  focusStart?: () => void;
-  moveTitleToBody?: (trailingContent: string) => void;
-  pasteToBody?: (snapshot: ClipboardSnapshot) => boolean;
-}
+import type { MarkdownEditorProps, MarkdownEditorHandle, PendingExternalContent } from './markdown-editor-types';
+export type { MarkdownEditorHandle } from './markdown-editor-types';
 
 export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(function MarkdownEditor({
   ownerPath,
@@ -815,70 +758,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     }
   }, [editable]);
 
-  // 把 editor.find / editor.undo / editor.redo 以及块级格式 action 的实例级
-  // handler 注册到全局 handler-registry。组件卸载时 pop 走 — 命令面板
-  // (Phase 3) 仍能从 registry 读到 action 列表, 但 run 落到空栈, 行为退化
-  // 为 no-op。编辑器命令附带真实 DOM focus 检查，避免多列同时挂载时把
-  // 命令发给最后挂载而非当前活动的编辑器。
-  //
-  useEffect(() => {
-    const editorIsFocused = () => {
-      const editor = editorRef.current;
-      if (!editor || editor.isDestroyed) return false;
-      try {
-        return editor.view.hasFocus();
-      } catch {
-        return false;
-      }
-    };
-    const pops = [
-      pushHandler('editor.selectAll', () => {
-        const editor = editorRef.current;
-        if (!editor) return false;
-        return selectEditableDocumentContent(editor);
-      }, { isActive: editorIsFocused }),
-      pushHandler('editor.find', () => {
-        handleSearchPanelOpenChange(true);
-      }, { isActive: editorIsFocused }),
-      pushHandler('editor.undo', () => {
-        return editorRef.current?.commands.undo() ?? false;
-      }, { isActive: editorIsFocused }),
-      pushHandler('editor.redo', () => {
-        return editorRef.current?.commands.redo() ?? false;
-      }, { isActive: editorIsFocused }),
-      // 块元素切换 (⌘1-4 / ⌘0 / ⌘⇧7-9) — 与 drag-context-menu items.tsx
-      // 里的菜单项一一对应, 走同一组 Tiptap chain().focus().toggleXxx() 命令。
-      // focus() 先调用是为了: 用户可能从标题输入框等地方按快捷键,
-      // focus 保证命令落到编辑器内的当前 block。
-      pushHandler('editor.setHeading1', () => {
-        editorRef.current?.chain().focus().toggleHeading({ level: 1 }).run();
-      }, { isActive: editorIsFocused }),
-      pushHandler('editor.setHeading2', () => {
-        editorRef.current?.chain().focus().toggleHeading({ level: 2 }).run();
-      }, { isActive: editorIsFocused }),
-      pushHandler('editor.setHeading3', () => {
-        editorRef.current?.chain().focus().toggleHeading({ level: 3 }).run();
-      }, { isActive: editorIsFocused }),
-      pushHandler('editor.setHeading4', () => {
-        editorRef.current?.chain().focus().toggleHeading({ level: 4 }).run();
-      }, { isActive: editorIsFocused }),
-      pushHandler('editor.setParagraph', () => {
-        editorRef.current?.chain().focus().setParagraph().run();
-      }, { isActive: editorIsFocused }),
-      pushHandler('editor.toggleBulletList', () => {
-        if (editorRef.current) applyListType(editorRef.current, 'bulletList');
-      }, { isActive: editorIsFocused }),
-      pushHandler('editor.toggleOrderedList', () => {
-        if (editorRef.current) applyListType(editorRef.current, 'orderedList');
-      }, { isActive: editorIsFocused }),
-      pushHandler('editor.toggleTaskList', () => {
-        if (editorRef.current) applyListType(editorRef.current, 'taskList');
-      }, { isActive: editorIsFocused }),
-    ];
-    return () => {
-      for (const pop of pops) pop();
-    };
-  }, [handleSearchPanelOpenChange]);
+  useEditorShortcutHandlers(editorRef, handleSearchPanelOpenChange);
 
   const editorContentChildren = (
     <>

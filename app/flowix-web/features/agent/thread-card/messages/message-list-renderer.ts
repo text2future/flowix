@@ -69,14 +69,22 @@ function withMessageActions(messages: ThreadState["messages"], context: AgentThr
   };
 }
 
+/**
+ * 同步 assistant 行的操作按钮 (复制 / fork)。
+ *
+ * `fromIndex` 让流式 patch 只处理真正可能变化的行 ── patch-last 只有末条会变,
+ * append 也只有"上一条末行 + 新追加行"会变 (末行失去 last-in-turn, 新行获得)。
+ * 之前每帧都对全表做一次 `querySelector`, 1000 条会话约 300 次查询/帧。
+ */
 function syncMessageActions(
   messages: ThreadState["messages"],
   list: HTMLDivElement,
   context: AgentThreadCardMessageRenderContext,
+  fromIndex = 0,
 ): void {
   const renderItems = context.renderItems ?? getRenderedAgentItems(messages, context.isLoading);
   const actionsByMessage = context.messageActions ?? createMessageActionStates(messages, context.isLoading);
-  for (let index = 0; index < renderItems.length; index += 1) {
+  for (let index = Math.max(0, fromIndex); index < renderItems.length; index += 1) {
     const renderItem = renderItems[index];
     if (renderItem.kind !== "message") continue;
     const message = renderItem.message;
@@ -289,7 +297,7 @@ export function patchLastRenderedAgentMessage(
     return null;
   }
 
-  syncMessageActions(messages, list, context);
+  syncMessageActions(messages, list, context, renderItems.length - 1);
   renderedItemByElement.set(item, nextLast);
   afterRender();
   return [...cache.refs.slice(0, -1), nextLast];
@@ -355,7 +363,9 @@ export function appendRenderedAgentMessagesToTail(
   }
 
   if (appendedCount === 0) return null;
-  syncMessageActions(messages, list, context);
+  // The previous tail stopped being the last row of its turn; every row before
+  // it keeps its action state.
+  syncMessageActions(messages, list, context, oldRefs.length - 1);
   afterRender();
   return newRendered;
 }

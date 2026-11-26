@@ -27,6 +27,13 @@ import {
 import { closeLoadingToolRows } from "@features/agent/store/thread-runtime-state";
 import { insertAgentMessageBySourceOrder } from "@features/agent/store/message-order";
 import {
+  getAgentMessageProfile,
+  messageBlockId,
+  messageBlockIndex,
+  messageDraftScope,
+  messageNativeId,
+} from "@features/agent/runtime/agent-message-profile";
+import {
   emptyProjection,
   type ThreadProjection,
 } from "@features/agent/store/session-reducer/types";
@@ -95,9 +102,10 @@ function applyUserMessageToProjection(
   // well so the live view matches history before the turn finishes.
   if (isLiveDshPlanPrompt(p, event.text)) return p;
 
-  const isOptimisticPiUser = event.agentType === "pi" &&
+  const profile = getAgentMessageProfile(event.agentType);
+  const isOptimisticDraftUser = profile.draftScope === "run" &&
     event.id === completedRunUserMessageId(event.agentType, event.runId);
-  const codexUserHasSyntheticId = event.agentType === "codex" &&
+  const codexUserHasSyntheticId = profile.mintsFallbackItemIds &&
     event.id === CODEX_MISSING_USER_ITEM_ID && !!event.codexTurnId;
   const codexUserId = codexUserHasSyntheticId
     ? codexFallbackIdForCompletedItem(p, event, "user", event.text, null)
@@ -105,10 +113,10 @@ function applyUserMessageToProjection(
   const messageId = codexUserId ?? event.id;
   const next = applyUserMessageChunk(p, event.text, {
     id: messageId,
-    nativeMessageId: !isOptimisticPiUser && !codexUserHasSyntheticId &&
-      (event.agentType === "pi" || event.agentType === "codex")
-      ? event.id : undefined,
-    isOptimistic: isOptimisticPiUser,
+    nativeMessageId: !isOptimisticDraftUser && !codexUserHasSyntheticId
+      ? messageNativeId(profile, event.id)
+      : undefined,
+    isOptimistic: isOptimisticDraftUser,
     messageType: event.messageType,
     phase: "completed",
     contentMode: "snapshot",
@@ -117,9 +125,10 @@ function applyUserMessageToProjection(
     sourceSubsequence: event.sourceSubsequence,
     codexTurnId: event.codexTurnId,
     attachments: event.attachments,
-    // Codex turn ids and Pi session message ids let provider-backed user rows
-    // adopt their optimistic row in place.
-    optimisticId: event.codexTurnId || (event.agentType === "pi" && !event.clientUserMessageId)
+    // Codex turn ids and provider session message ids let provider-backed user
+    // rows adopt their optimistic row in place.
+    optimisticId: event.codexTurnId ||
+      (profile.adoptsOptimisticUserRow && !event.clientUserMessageId)
       ? completedRunUserMessageId(event.agentType, event.runId)
       : undefined,
   });
@@ -138,7 +147,7 @@ function codexFallbackIdForCompletedItem(
   pendingId: string | null,
 ): string | undefined {
   if (
-    event.agentType !== "codex" ||
+    !getAgentMessageProfile(event.agentType).mintsFallbackItemIds ||
     (event.messageId && event.messageId !== CODEX_MISSING_USER_ITEM_ID) ||
     event.contentMode !== "snapshot" || event.messagePhase !== "completed" ||
     !event.codexTurnId
@@ -188,7 +197,8 @@ function applyTextDeltaToProjection(
   // delta would render the answer a second time until history is reloaded.
   // Scope this to the native item id so a later distinct assistant item in
   // the same turn remains valid.
-  if (event.agentType === "codex" && event.contentMode !== "snapshot" &&
+  const profile = getAgentMessageProfile(event.agentType);
+  if (profile.dropsDeltasAfterCompletion && event.contentMode !== "snapshot" &&
       event.messageId && p.messages.some((message) =>
         message.id === event.messageId && message.role === "assistant" &&
         message.isCompleted === true &&
@@ -196,20 +206,19 @@ function applyTextDeltaToProjection(
     return p;
   }
   const next = applyTextChunk(p, event.text, {
-    id: event.agentType === "pi" && event.messageId && event.sourceSubsequence !== undefined
-      ? `${event.messageId}:block:${event.sourceSubsequence}`
-      : event.messageId ?? codexFallbackIdForCompletedItem(
-          p, event, "assistant", event.text, p.pending.assistantId,
-        ),
-    nativeMessageId: event.agentType === "pi" || event.agentType === "codex" ? event.messageId : undefined,
-    blockIndex: event.agentType === "pi" ? event.sourceSubsequence : undefined,
+    id: messageBlockId(profile, event.messageId, event.sourceSubsequence) ??
+      codexFallbackIdForCompletedItem(
+        p, event, "assistant", event.text, p.pending.assistantId,
+      ),
+    nativeMessageId: messageNativeId(profile, event.messageId),
+    blockIndex: messageBlockIndex(profile, event.sourceSubsequence),
     phase: event.messagePhase,
     contentMode: event.contentMode,
     sourceTimestamp: event.sourceTimestamp,
     sourceSequence: event.sourceSequence,
     sourceSubsequence: event.sourceSubsequence,
-    adoptPendingId: event.agentType === "pi" || event.agentType === "codex",
-    draftScope: event.agentType === "pi" ? event.runId : undefined,
+    adoptPendingId: profile.nativeMessageIds,
+    draftScope: messageDraftScope(profile, event.runId),
     codexTurnId: event.codexTurnId,
     messageType: event.messageType,
   });
@@ -228,21 +237,21 @@ function applyReasoningDeltaToProjection(
   p: ThreadProjection,
   event: AgentEvent & { kind: "reasoning_delta" },
 ): ThreadProjection {
+  const profile = getAgentMessageProfile(event.agentType);
   const next = applyReasoningChunk(p, event.text, {
-    id: event.agentType === "pi" && event.messageId && event.sourceSubsequence !== undefined
-      ? `${event.messageId}:block:${event.sourceSubsequence}`
-      : event.messageId ?? codexFallbackIdForCompletedItem(
-          p, event, "reasoning", event.text, p.pending.reasoningId,
-        ),
-    nativeMessageId: event.agentType === "pi" || event.agentType === "codex" ? event.messageId : undefined,
-    blockIndex: event.agentType === "pi" ? event.sourceSubsequence : undefined,
+    id: messageBlockId(profile, event.messageId, event.sourceSubsequence) ??
+      codexFallbackIdForCompletedItem(
+        p, event, "reasoning", event.text, p.pending.reasoningId,
+      ),
+    nativeMessageId: messageNativeId(profile, event.messageId),
+    blockIndex: messageBlockIndex(profile, event.sourceSubsequence),
     phase: event.messagePhase,
     contentMode: event.contentMode,
     sourceTimestamp: event.sourceTimestamp,
     sourceSequence: event.sourceSequence,
     sourceSubsequence: event.sourceSubsequence,
-    adoptPendingId: event.agentType === "pi" || event.agentType === "codex",
-    draftScope: event.agentType === "pi" ? event.runId : undefined,
+    adoptPendingId: profile.nativeMessageIds,
+    draftScope: messageDraftScope(profile, event.runId),
     codexTurnId: event.codexTurnId,
     messageType: event.messageType,
   });
@@ -257,6 +266,9 @@ function applyContextCompactionToProjection(
   p: ThreadProjection,
   event: AgentEvent & { kind: "context_compaction" },
 ): ThreadProjection {
+  // A compaction row is a system marker, never a draft: it carries no
+  // pending-adoption semantics, and both live and history render it as
+  // `role: "system"` + `context-compaction`.
   const message = {
     id: event.id,
     role: "system" as const,
@@ -266,8 +278,6 @@ function applyContextCompactionToProjection(
     sourceTimestamp: event.sourceTimestamp,
     sourceSequence: event.sourceSequence,
     sourceSubsequence: event.sourceSubsequence,
-    adoptPendingId: event.agentType === "pi",
-    draftScope: event.agentType === "pi" ? event.runId : undefined,
     codexTurnId: event.codexTurnId,
   };
   if (p.messages.some((item) => item.id === message.id)) return p;
@@ -282,17 +292,18 @@ function applyFinalMessageToProjection(
   event: AgentEvent & { kind: "final_message" },
 ): ThreadProjection {
   // final_message 形态与 text_delta 一致, 仅 contentMode="snapshot" 且 phase="completed".
+  const profile = getAgentMessageProfile(event.agentType);
   const next = applyTextChunk(p, event.text, {
     id: event.messageId ?? codexFallbackIdForCompletedItem(
       p, event, "assistant", event.text, p.pending.assistantId,
     ),
-    nativeMessageId: event.agentType === "codex" ? event.messageId : undefined,
+    nativeMessageId: messageNativeId(profile, event.messageId),
     phase: event.messagePhase,
     contentMode: event.contentMode,
     sourceTimestamp: event.sourceTimestamp,
     sourceSequence: event.sourceSequence,
     sourceSubsequence: event.sourceSubsequence,
-    adoptPendingId: event.agentType === "codex",
+    adoptPendingId: profile.nativeMessageIds,
     codexTurnId: event.codexTurnId,
     messageType: event.messageType,
   });
@@ -597,7 +608,7 @@ function clearUnfinishedAssistantDrafts(messages: ChatMessage[]): ChatMessage[] 
 function shouldUseDeepSeekHarnessReconnectNotice(
   event: AgentEvent & { kind: "error" },
 ): boolean {
-  if (event.agentType !== "dsh") return false;
+  if (!getAgentMessageProfile(event.agentType).echoesInjectedPrompts) return false;
 
   // A classified provider error has its own user-facing guidance. It must not
   // be presented as a transport/reconnect failure.
