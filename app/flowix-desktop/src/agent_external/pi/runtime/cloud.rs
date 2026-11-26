@@ -86,13 +86,6 @@ impl PiRpcManager {
         app: &tauri::AppHandle,
         api_base: &str,
     ) -> Result<bool, String> {
-        let has_cloud_provider = super::super::config::list()?
-            .iter()
-            .any(|provider| provider.source.as_deref() == Some("flowix-cloud"));
-        if !has_cloud_provider {
-            return Ok(false);
-        }
-
         let cloud_sync = self.cloud_or_err()?.sync().clone();
         if !cloud_sync
             .state()

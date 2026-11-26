@@ -21,7 +21,8 @@ fn main() {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })
         .expect("query");
-    for (name, sql) in iterator {
+    for row in iterator {
+        let (name, sql) = row.expect("read schema row");
         dump.push_str(&format!("-- {name}\n{sql}\n\n"));
     }
     print!("{dump}");

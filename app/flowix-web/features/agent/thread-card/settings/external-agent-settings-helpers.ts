@@ -6,6 +6,12 @@ import type { AgentPermissionMode, AgentCodexReasoningEffort } from "@/types/age
 import type { I18nKey } from "@/lib/i18n";
 import type { AgentModelOption } from "@features/agent/thread-card/settings/model-picker/model-picker-types";
 
+export const CLAUDE_MODEL_OPTIONS: AgentModelOption[] = [
+  { id: "claude-opus-4-8", label: "claude-opus-4-8" },
+  { id: "claude-sonnet-5", label: "claude-sonnet-5" },
+  { id: "claude-haiku-4-5", label: "claude-haiku-4-5" },
+];
+
 export function createComposerWorkspaceIcon(): SVGSVGElement | null {
   const template = document.createElement("template");
   template.innerHTML = folderOutlineSvg.trim();

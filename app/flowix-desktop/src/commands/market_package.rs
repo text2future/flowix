@@ -114,7 +114,7 @@ mod tests {
         tokio::spawn(async move {
             let (mut stream, _) = listener.accept().await.unwrap();
             let mut buffer = [0; 4096];
-            stream.read(&mut buffer).await.unwrap();
+            let _ = stream.read(&mut buffer).await.unwrap();
             let _ = stream.write_all(response).await;
         });
         url::Url::parse(&format!("http://localhost:{port}/archive.zip")).unwrap()

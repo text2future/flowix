@@ -628,7 +628,7 @@ const enUS: Record<keyof typeof zhCN, string> = {
     "preferences.pi.creditMultiplier": "Credit consumption multiplier: {value}×",
     "editor.threadCard.memberCredits": "Credits",
     "editor.threadCard.creditsMonthlyShare": "Monthly share of the remaining credits",
-    "preferences.pi.cloudCreditsBalance": "Credits balance",
+    "preferences.pi.cloudCreditsBalance": "Available credits",
     "preferences.pi.cloudCreditsMonthly": "This month",
     "preferences.pi.cloudCreditsPermanent": "Permanent",
     "preferences.pi.cloudCreditsResetDay": "Reset",

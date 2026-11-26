@@ -91,7 +91,8 @@ export function PiCloudModelsSection({
     setModelCatalogLoading(true);
     try {
       const refreshModels = async () => {
-        await cloud.refreshPiModelProvider();
+        const connected = await cloud.refreshPiModelProvider();
+        if (!connected && authenticated) await cloud.refreshPiModelProviderAtStartup();
         await refreshAgentModelCatalog('pi');
       };
       const [, modelCatalogResult] = await Promise.allSettled([
@@ -104,7 +105,7 @@ export function PiCloudModelsSection({
     } finally {
       setModelCatalogLoading(false);
     }
-  }, [refreshBalance, t]);
+  }, [authenticated, refreshBalance, t]);
 
   return (
     <div className="space-y-1.5">

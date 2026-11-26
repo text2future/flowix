@@ -72,6 +72,9 @@ jobs:
       - name: Browser smoke tests
         run: npm run smoke
 
+      - name: Stage Flowix CLI sidecar for Tauri tests
+        run: npm run cli:build:dev
+
       - name: Rust workspace tests
         working-directory: app
         run: cargo test --workspace --lib -- --test-threads=1

@@ -1,4 +1,4 @@
-import { createComposerWorkspaceIcon, createPermissionModeIcon, modelProviderIcon, sameModelOptions } from "./external-agent-settings-helpers";
+import { CLAUDE_MODEL_OPTIONS, createComposerWorkspaceIcon, createPermissionModeIcon, modelProviderIcon, sameModelOptions } from "./external-agent-settings-helpers";
 import { AgentEmptyStateController, type AgentEmptyStatePresentation } from "./agent-empty-state-controller";
 export type { AgentEmptyStatePresentation } from "./agent-empty-state-controller";
 import { resolveAgentPreferenceRuntimeConfig } from "@features/agent/store/agent-user-preferences";
@@ -82,12 +82,6 @@ const CODEX_SETTINGS_POPOVER_OFFSET_PX = 6;
 const CODEX_SETTINGS_POPOVER_VIEWPORT_PADDING_PX = 8;
 type SettingsPopoverPlacement = "anchor" | "submenu";
 
-
-const CLAUDE_MODEL_OPTIONS: AgentModelOption[] = [
-  { id: "claude-opus-4-8", label: "claude-opus-4-8" },
-  { id: "claude-sonnet-5", label: "claude-sonnet-5" },
-  { id: "claude-haiku-4-5", label: "claude-haiku-4-5" },
-];
 
 export class ExternalAgentSettingsController {
   private readonly popover: HTMLDivElement;

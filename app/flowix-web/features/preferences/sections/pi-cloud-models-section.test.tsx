@@ -6,6 +6,7 @@ import { PiCloudModelsSection } from './pi-cloud-models-section';
 const mocks = vi.hoisted(() => ({
   getAiCreditBalance: vi.fn(),
   refreshPiModelProvider: vi.fn(),
+  refreshPiModelProviderAtStartup: vi.fn(),
   refreshAgentModelCatalog: vi.fn(),
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
@@ -21,6 +22,7 @@ vi.mock('@platform/tauri/client', () => ({
   cloud: {
     getAiCreditBalance: mocks.getAiCreditBalance,
     refreshPiModelProvider: mocks.refreshPiModelProvider,
+    refreshPiModelProviderAtStartup: mocks.refreshPiModelProviderAtStartup,
   },
 }));
 vi.mock('@features/agent/services/agent-catalog-service', () => ({
@@ -46,10 +48,21 @@ beforeEach(() => {
     monthlyExpiresAt: null,
   });
   mocks.refreshPiModelProvider.mockResolvedValue(true);
+  mocks.refreshPiModelProviderAtStartup.mockResolvedValue(true);
   mocks.refreshAgentModelCatalog.mockResolvedValue({ items: [] });
   container = document.createElement('div');
   document.body.append(container);
   root = createRoot(container);
+});
+
+it('creates the Cloud provider when refreshing for the first time', async () => {
+  mocks.refreshPiModelProvider.mockResolvedValue(false);
+  await act(async () => root.render(<PiCloudModelsSection authenticated />));
+  const button = container.querySelector<HTMLButtonElement>('button[aria-label="preferences.pi.cloudCreditsRefresh"]');
+  await act(async () => button!.click());
+  expect(mocks.refreshPiModelProviderAtStartup).toHaveBeenCalledOnce();
+  expect(mocks.refreshPiModelProviderAtStartup.mock.invocationCallOrder[0])
+    .toBeLessThan(mocks.refreshAgentModelCatalog.mock.invocationCallOrder[0]);
 });
 
 afterEach(async () => {

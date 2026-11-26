@@ -617,7 +617,7 @@ const zhCN = {
     "preferences.pi.creditMultiplier": "官价倍率：{value}×",
     "editor.threadCard.memberCredits": "额度",
     "editor.threadCard.creditsMonthlyShare": "本月额度占余额比例",
-    "preferences.pi.cloudCreditsBalance": "点数余额",
+    "preferences.pi.cloudCreditsBalance": "可用点数",
     "preferences.pi.cloudCreditsMonthly": "本月",
     "preferences.pi.cloudCreditsPermanent": "永久",
     "preferences.pi.cloudCreditsResetDay": "重置",

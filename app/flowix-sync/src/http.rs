@@ -112,6 +112,7 @@ mod tests {
     async fn connect_refusal_counts_as_stale_snapshot() {
         // Nothing listens on port 1; connecting is refused immediately.
         let client = reqwest::Client::builder()
+            .no_proxy()
             .timeout(std::time::Duration::from_secs(2))
             .build()
             .unwrap();
@@ -127,6 +128,7 @@ mod tests {
     async fn timeouts_do_not_count_as_stale_snapshot() {
         let addr = silent_server().await;
         let client = reqwest::Client::builder()
+            .no_proxy()
             .timeout(std::time::Duration::from_millis(300))
             .build()
             .unwrap();
@@ -156,6 +158,7 @@ mod tests {
                     .unwrap())
             } else {
                 Ok(reqwest::Client::builder()
+                    .no_proxy()
                     .timeout(std::time::Duration::from_secs(2))
                     .build()
                     .unwrap())

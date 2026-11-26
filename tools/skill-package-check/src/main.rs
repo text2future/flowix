@@ -3,10 +3,21 @@
 
 use std::path::Path;
 
+extern crate self as flowix_core;
+
+#[path = "../../../app/flowix-core/src/path_scope.rs"]
+mod path_scope;
 #[path = "../../../app/flowix-desktop/src/config/path_scope.rs"]
 mod config;
-#[path = "../../../app/flowix-desktop/src/commands/agent/skill_frontmatter.rs"]
+#[path = "../../../app/flowix-core/src/skill_frontmatter.rs"]
 mod skill_frontmatter;
+#[path = "../../../app/flowix-core/src/market_archive.rs"]
+mod market_archive;
+mod commands {
+    pub mod market_package {
+        pub use crate::market_archive::is_market_archive_origin;
+    }
+}
 #[path = "../../../app/flowix-desktop/src/commands/agent/skill_package.rs"]
 mod skill_package;
 

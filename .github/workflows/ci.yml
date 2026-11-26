@@ -110,6 +110,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
       - name: Linux system deps (Tauri)
         run: |
           sudo apt-get update
@@ -126,6 +131,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: app/target -> ci
+
+      - name: Stage Flowix CLI sidecar for Tauri checks
+        run: npm run cli:build:dev
 
       - name: Clippy
         working-directory: app
