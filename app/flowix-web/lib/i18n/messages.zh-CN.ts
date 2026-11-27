@@ -742,7 +742,7 @@ const zhCN = {
     "agent.types.hermes.desc": "使用本地安装的 Hermes",
     "agent.types.opencode.name": "OpenCode",
     "agent.types.opencode.desc": "轻量快速、开源、模型自由",
-    "agent.types.pi.name": "AI 对话",
+    "agent.types.pi.name": "Flowix AI",
     "agent.types.pi.desc": "使用 Pi 编程 Agent",
 
     "preferences.shortcuts.title": "键盘快捷键",

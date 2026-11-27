@@ -753,7 +753,7 @@ const enUS: Record<keyof typeof zhCN, string> = {
     "agent.types.hermes.desc": "Use a locally installed Hermes",
     "agent.types.opencode.name": "OpenCode",
     "agent.types.opencode.desc": "Use OpenCode through Agent Client Protocol",
-    "agent.types.pi.name": "AI Chat",
+    "agent.types.pi.name": "Flowix AI",
     "agent.types.pi.desc": "Use the Pi coding agent",
 
     "preferences.shortcuts.title": "Keyboard shortcuts",
