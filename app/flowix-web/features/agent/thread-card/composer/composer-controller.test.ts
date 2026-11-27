@@ -84,6 +84,45 @@ afterEach(() => {
 });
 
 describe("ComposerController note references", () => {
+  it("lets IME Enter confirm a candidate without inserting a newline or submitting", () => {
+    const submit = vi.fn();
+    const { controller } = setup({ submit });
+    const input = controller.getInputElement();
+    controller.editorInstance.commands.setContent("中文", { contentType: "markdown" });
+    controller.focus();
+    input.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+
+    const enter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+    input.dispatchEvent(enter);
+    expect(enter.defaultPrevented).toBe(false);
+    expect(controller.getPrompt()).toBe("中文");
+    expect(submit).not.toHaveBeenCalled();
+
+    input.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: "中文" }));
+    const webkitEnter = new KeyboardEvent("keydown", { key: "Enter", keyCode: 229, bubbles: true, cancelable: true });
+    input.dispatchEvent(webkitEnter);
+    expect(webkitEnter.defaultPrevented).toBe(false);
+    expect(controller.getPrompt()).toBe("中文");
+    expect(submit).not.toHaveBeenCalled();
+
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    expect(submit).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not send on a same-turn Enter after composition ends", () => {
+    const submit = vi.fn();
+    const { controller } = setup({ submit });
+    controller.editorInstance.commands.setContent("中文", { contentType: "markdown" });
+    const input = controller.getInputElement();
+    input.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+    input.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }));
+    const enter = new KeyboardEvent("keydown", { key: "Enter", keyCode: 13, bubbles: true, cancelable: true });
+    input.dispatchEvent(enter);
+    expect(enter.defaultPrevented).toBe(true);
+    expect(submit).not.toHaveBeenCalled();
+    expect(controller.getPrompt()).toBe("中文");
+  });
+
   it("applies the same pending-attachment guard to click and Enter", async () => {
     let pending = true;
     const submit = vi.fn();

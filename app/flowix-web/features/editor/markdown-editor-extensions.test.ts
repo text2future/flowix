@@ -11,7 +11,9 @@ import { createMarkdownEditorExtensions } from './markdown-editor-extensions';
  * did not move anything.
  */
 const EXPECTED_EXTENSION_ORDER = [
+  'imeEnterGuard',
   'starterKit',
+  'underline',
   'bold',
   'literalUnderscoreStrong',
   'paragraph',

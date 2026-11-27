@@ -57,6 +57,7 @@ import { BlockGapCursor } from './extensions/block-gap-cursor';
 import { EditorFirstBlockMark } from './extensions/editor-first-block-mark';
 import { HorizontalRuleBackspace } from '@features/editor/extensions/horizontal-rule-backspace';
 import { StableCaret } from '@features/editor/extensions/stable-caret';
+import { ImeEnterGuard } from '@features/editor/extensions/ime-enter-guard';
 import { MarkdownParagraph, MarkdownTaskItem, GuardedTaskList } from './markdown-parser-common-extensions';
 import { isEmptyMarkdownPlaceholderOnly } from './markdown-normalization';
 import type { WorkspaceColumnId } from '@features/workspace/public/host-api';
@@ -438,6 +439,7 @@ export function createMarkdownEditorExtensions({
   // Grouped by concern; the array order is load-bearing (see the snapshot test
   // in `markdown-editor-extensions.test.ts`), so groups are spread in place.
   const schemaAndTextExtensions = [
+    ImeEnterGuard,
     StarterKit.configure({
       heading: { levels: [1, 2, 3, 4] },
       dropcursor: false,

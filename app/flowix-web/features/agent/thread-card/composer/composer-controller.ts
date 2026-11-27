@@ -6,6 +6,7 @@ import Text from "@tiptap/extension-text";
 import { UndoRedo } from "@tiptap/extensions/undo-redo";
 import { Markdown } from "@tiptap/markdown";
 import { pushHandler } from "@/lib/shortcuts/handler-registry";
+import { isImeKeyboardEvent } from "@/lib/input-method";
 
 import { selectComposerSubmissionState, type ComposerRuntimeState, type ComposerSubmissionState } from "./composer-submission-state";
 import { getPersistableInputDraft } from "@features/agent/thread-card/composer/composer-draft";
@@ -43,6 +44,7 @@ import type { AgentTypeKey } from "@/types/agent";
 import { getDocumentResourceSnapshot } from "@features/document/public/resource-context";
 import { ComposerNoteReference, normalizeNoteReferenceDocument } from "@features/editor/extensions/note-link";
 import { ComposerStableCaret } from "@features/editor/extensions/stable-caret";
+import { ImeEnterGuard } from "@features/editor/public/ime-enter-guard-api";
 import {
   ComposerAttachmentToken,
   composerAttachmentMarkdownToDisplay,
@@ -146,6 +148,7 @@ export class ComposerController {
       // child, which complicates focus, sizing, and the shared DOM contract.
       element: { mount: this.input },
       extensions: [
+        ImeEnterGuard,
         Document,
         Paragraph,
         Text,
@@ -595,7 +598,7 @@ export class ComposerController {
 
   private readonly handleKeydown = (event: KeyboardEvent): void => {
     this.disableComposerHoverUntilPointerMove();
-    if (this.isComposing || event.isComposing || event.keyCode === 229) return;
+    if (isImeKeyboardEvent(event, this.isComposing)) return;
 
     // The composer is a nested contenteditable inside the document editor.
     // Horizontal cursor events belong to the nested composer, never to the

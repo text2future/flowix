@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronRight, ChevronsUpDown, Pencil, Plus, Star, Trash2 } from 'lucide-react';
+import { ChevronRight, ChevronsUpDown, PencilLine, Plus, Star, Trash2 } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@shared/ui/popover';
 import { notebooks as notebooksClient } from '@platform/tauri/client';
 import { NotebookIcon } from '@features/memo/components/notebook-icon';
@@ -63,6 +63,11 @@ interface DragGeometry {
 
 const DRAG_THRESHOLD_PX = 4;
 const NOTEBOOK_ITEM_CLASS = 'w-full shrink-0';
+
+function hasValidNotebookMemoCount(notebook: Notebook): boolean {
+  const count = notebook.memoCount;
+  return !notebook.missing && typeof count === 'number' && Number.isSafeInteger(count) && count >= 0;
+}
 
 function reorderNotebookIds(
   notebooks: Notebook[],
@@ -147,11 +152,14 @@ export function NotebookSelectorPopup({
     () => {
       const pinned: string[] = [];
       const others: string[] = [];
+      const missing: string[] = [];
       for (const id of previewNotebookIds) {
-        if (notebooksById.get(id)?.pinned) pinned.push(id);
+        const notebook = notebooksById.get(id);
+        if (notebook?.missing) missing.push(id);
+        else if (notebook?.pinned) pinned.push(id);
         else others.push(id);
       }
-      return { pinned, others };
+      return { pinned, others: [...others, ...missing] };
     },
     [previewNotebookIds, notebooksById],
   );
@@ -424,6 +432,8 @@ export function NotebookSelectorPopup({
     if (!notebook) return null;
     const isActive = selectedNotebook?.id === notebook.id;
     const isMissing = Boolean(notebook.missing);
+    const hasMemoCount = hasValidNotebookMemoCount(notebook);
+    const hasPendingDeletionBadge = Boolean(pendingDeletionNotebookIds?.has(notebook.id) && !isActive);
 
     return (
       <div
@@ -473,23 +483,30 @@ export function NotebookSelectorPopup({
             {notebook.name}
             {isMissing && ` ${t('status.invalid')}`}
           </span>
-          <span className="flex shrink-0 items-center gap-1 text-xs text-[var(--muted-foreground)]">
-            {pendingDeletionNotebookIds?.has(notebook.id) && !isActive && (
-              <span
-                role="img"
-                aria-label={t('cloudSync.massDeletion.pendingBadge')}
-                title={t('cloudSync.massDeletion.pendingBadge')}
-                className="h-2 w-2 shrink-0 rounded-full bg-[var(--destructive)]"
-              />
-            )}
-            <span className="font-mono tabular-nums text-sm">
-              {notebook.memoCount === undefined ? '—' : t('status.notebookMemoCount', { count: notebook.memoCount })}
+          {(hasPendingDeletionBadge || hasMemoCount) && (
+            <span className={cn(
+              'flex shrink-0 items-center gap-1 text-xs text-[var(--muted-foreground)]',
+              hasMemoCount && (notebook.pinned ? 'mr-2' : 'group-hover:mr-2 group-focus-within:mr-2'),
+            )}>
+              {hasPendingDeletionBadge && (
+                <span
+                  role="img"
+                  aria-label={t('cloudSync.massDeletion.pendingBadge')}
+                  title={t('cloudSync.massDeletion.pendingBadge')}
+                  className="h-2 w-2 shrink-0 rounded-full bg-[var(--destructive)]"
+                />
+              )}
+              {hasMemoCount && (
+                <span className="font-mono tabular-nums text-sm">
+                  {t('status.notebookMemoCount', { count: notebook.memoCount! })}
+                </span>
+              )}
             </span>
-          </span>
+          )}
         </div>
         <div className={cn(
           'flex shrink-0 items-center overflow-hidden transition-[width] duration-[37.5ms]',
-          notebook.pinned ? 'w-6' : 'w-0 group-hover:w-6 group-focus-within:w-6',
+          notebook.pinned ? 'mr-1 w-6' : 'w-0 group-hover:mr-1 group-hover:w-6 group-focus-within:mr-1 group-focus-within:w-6',
         )}>
           <button
             type="button"
@@ -508,7 +525,7 @@ export function NotebookSelectorPopup({
             <Star className={cn('h-4 w-4', notebook.pinned && 'fill-current')} aria-hidden="true" />
           </button>
         </div>
-        <div className="flex w-0 shrink-0 items-center justify-end gap-0.5 overflow-hidden opacity-0 transition-[width,opacity] duration-[37.5ms] group-hover:w-[50px] group-hover:opacity-100 group-focus-within:w-[50px] group-focus-within:opacity-100">
+        <div className="flex w-0 shrink-0 items-center justify-end gap-1 overflow-hidden opacity-0 transition-[width,opacity] duration-[37.5ms] group-hover:w-[52px] group-hover:opacity-100 group-focus-within:w-[52px] group-focus-within:opacity-100">
           <button
             type="button"
             aria-label={t('common.edit')}
@@ -520,7 +537,7 @@ export function NotebookSelectorPopup({
             }}
             className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)]"
           >
-            <Pencil className="h-4 w-4" aria-hidden="true" />
+            <PencilLine className="h-4 w-4" aria-hidden="true" />
           </button>
           <button
             type="button"
@@ -611,7 +628,7 @@ export function NotebookSelectorPopup({
         <PopupScrollArea
           className="flowix-notebook-selector-scrollbar min-h-0 max-h-[calc(72vh-6.375rem)] flex-initial"
           scrollerRef={listViewportRef}
-          scrollerClassName="min-h-0 max-h-[calc(72vh-6.375rem)] px-2 pt-1 pb-1"
+          scrollerClassName="min-h-0 max-h-[calc(72vh-6.375rem)] px-2 pb-1"
         >
           <div className="flex flex-col gap-1">
             {notebooks.length === 0 && (
@@ -687,9 +704,11 @@ export function NotebookSelectorPopup({
               <span className="block truncate text-sm text-[var(--foreground)]">
                 {sourceNotebook.name}
               </span>
-              <span className="block font-mono tabular-nums text-xs text-[var(--muted-foreground)]">
-                {sourceNotebook.memoCount === undefined ? '—' : t('status.notebookMemoCount', { count: sourceNotebook.memoCount })}
-              </span>
+              {hasValidNotebookMemoCount(sourceNotebook) && (
+                <span className="block font-mono tabular-nums text-xs text-[var(--muted-foreground)]">
+                  {t('status.notebookMemoCount', { count: sourceNotebook.memoCount! })}
+                </span>
+              )}
             </div>
           </div>,
           document.body,
