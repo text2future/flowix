@@ -29,10 +29,9 @@ export function useAppUpdater({
         void runStartupStage3Task('app-update-auto-check', async () => {
           if (cancelled || useAppUpdaterStore.getState().checkStarted) return;
           try {
-            const update = await checkNow();
-            if (update?.notify) await useAppUpdaterStore.getState().downloadNow();
+            await checkNow();
           } catch {
-            // Automatic check and predownload failures stay silent.
+            // Automatic check failures stay silent.
           }
         });
       }, delayMs);

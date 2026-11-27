@@ -10,17 +10,16 @@ import {
   SpinnerIcon,
 } from '@phosphor-icons/react';
 import { AGENT_TYPES, isAgentTypeSelectable } from '@/lib/agent-types';
-import { canonicalPath } from '@/lib/path';
 import type { AgentTypeKey } from '@/types/agent';
 import { useNoteStore } from '@features/memo/store/note-store';
-import { openNotebookNote } from '@features/memo/use-cases/open-notebook-note';
 import {
   type PluginDescriptor,
   type PluginField,
 } from '@platform/tauri/client';
-import type { SurfaceNotice, SurfacePresentationUpdate } from '@features/workspace/public/surface-api';
+import type { SurfaceNotice, SurfacePresentationUpdate, WorkspaceColumnId } from '@features/workspace/public/surface-api';
 import { openSurfaceAtPosition } from '@features/workspace/public/open-surface-api';
-import { useMainColumnStore } from '@features/workspace/store/main-column-store';
+import { openSurfaceInColumn } from '@features/workspace/public/session-opening-api';
+import { useWorkspaceSessionStore } from '@features/workspace/public/session-api';
 import { runPlugin } from './plugin-runner';
 import {
   ensurePluginRunStoreSubscription,
@@ -39,6 +38,7 @@ import {
 } from './plugin-field-control';
 import { DEFAULT_AGENT_TYPE_KEY } from '@/lib/agent-types';
 import { PluginMarkmapControls } from './plugin-markmap-controls';
+import { canOpenPluginRunResult } from './plugin-run-navigation';
 
 function fieldList(plugin: PluginDescriptor): PluginField[] {
   const fields = plugin.manifest.input?.fields ?? [];
@@ -53,12 +53,14 @@ export function AgentPluginWorkbench({
   notebookPath,
   currentNotePath,
   currentNoteContent,
+  host = 'column-1',
   reportPresentation,
 }: {
   plugin: PluginDescriptor;
   notebookPath: string | undefined;
   currentNotePath: string | null;
   currentNoteContent: string;
+  host?: WorkspaceColumnId;
   reportPresentation?: (update: SurfacePresentationUpdate) => void;
 }) {
   const [values, setValues] = useState<Record<string, PluginFieldValue>>({ prompt: '' });
@@ -132,6 +134,7 @@ export function AgentPluginWorkbench({
 
   const handleGenerate = useCallback(async () => {
     if (!notebookPath) return;
+    const initialNavigation = useWorkspaceSessionStore.getState().sessions[host].navigation;
     setRequestError(null);
     try {
       const context = [
@@ -153,28 +156,18 @@ export function AgentPluginWorkbench({
         sourceNote: currentNotePath || undefined,
       });
       if (next.path) {
-        // Completion belongs to the run store. Only an explicit, still-active
-        // workbench may opt into opening the produced pointer memo; switching
-        // notebook, memo, conversation, or plugin while the run continues
-        // must not steal the mainColumn back.
-        const isCurrentWorkbenchContext = () => {
-          const currentTarget = useMainColumnStore.getState().navigation.target;
-          const currentNotebook = useNoteStore.getState().selectedNotebook;
-          return currentTarget.kind === 'plugin-workbench'
-            && currentTarget.plugin.manifest.id === plugin.manifest.id
-            && currentNotebook?.path != null
-            && canonicalPath(currentNotebook.path) === canonicalPath(notebookPath);
-        };
-        if (!isCurrentWorkbenchContext()) return;
+        const navigation = useWorkspaceSessionStore.getState().sessions[host].navigation;
         const currentNotebook = useNoteStore.getState().selectedNotebook;
-        if (currentNotebook && isCurrentWorkbenchContext()) {
-          await openNotebookNote(next.path, currentNotebook);
+        if (currentNotebook && canOpenPluginRunResult(initialNavigation, navigation, plugin.manifest.id,
+          notebookPath, currentNotebook.path)) {
+          await openSurfaceInColumn({ columnId: host,
+            target: { kind: 'external', path: next.path, scopePath: currentNotebook.path, transitionId: null } });
         }
       }
     } catch (runError) {
       setRequestError(runError instanceof Error ? runError.message : String(runError));
     }
-  }, [agentType, currentNoteContent, currentNotePath, notebookPath, plugin.manifest.execution?.runtime, plugin.manifest.id, prompt, requestFields, selectedNotebook]);
+  }, [agentType, currentNoteContent, currentNotePath, host, notebookPath, plugin.manifest.execution?.runtime, plugin.manifest.id, prompt, requestFields]);
 
   if (!notebookPath || !selectedNotebook) {
     return <div className="flex h-full items-center justify-center text-sm text-[var(--muted-foreground)]">请先选择一个笔记本</div>;

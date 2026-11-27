@@ -120,9 +120,10 @@ export function MarkdownRenderer({ surface, context }: RendererProps<'file-markd
 }
 
 export function CodeRenderer({ surface, context }: RendererProps<'file-code'>) {
+  const reportPresentation = context.reportPresentation;
   useEffect(() => {
-    context.reportPresentation?.({ title: fileHeaderTitle(surface.fileIdentity.path) });
-  }, [context.reportPresentation, surface.fileIdentity.path]);
+    reportPresentation?.({ title: fileHeaderTitle(surface.fileIdentity.path) });
+  }, [reportPresentation, surface.fileIdentity.path]);
   const onContentStateChange = useCallback((state: DocumentContentStatus) => {
     publishDocumentContentState(context.reportPresentation, state);
   }, [context.reportPresentation]);
@@ -198,9 +199,10 @@ export function WorkDocumentsCollectionRenderer(props: RendererProps<'file-work-
 }
 
 export function HtmlRenderer({ surface, context }: RendererProps<'file-html'>) {
+  const reportPresentation = context.reportPresentation;
   useEffect(() => {
-    context.reportPresentation?.({ title: fileHeaderTitle(surface.fileIdentity.path) });
-  }, [context.reportPresentation, surface.fileIdentity.path]);
+    reportPresentation?.({ title: fileHeaderTitle(surface.fileIdentity.path) });
+  }, [reportPresentation, surface.fileIdentity.path]);
   const documentProps = useWorkspaceSurfaceLifecycleBridge({
     ...surface.documentProps,
     fileIdentity: surface.fileIdentity,
@@ -225,6 +227,7 @@ export function UnavailableRenderer({ surface, context }: RendererProps<'file-un
     publishDocumentContentState(context.reportPresentation, state);
   }, [context.reportPresentation]);
   const filePath = surface.fileIdentity.path;
+  const reportPresentation = context.reportPresentation;
   const documentProps = useWorkspaceSurfaceLifecycleBridge({
     ...surface.documentProps,
     workspaceHost: context.host,
@@ -238,13 +241,13 @@ export function UnavailableRenderer({ surface, context }: RendererProps<'file-un
   useEffect(() => {
     if (baseFileKind === 'docx' || baseFileKind === 'csv') return;
     if (contentDetectionLoading) {
-      context.reportPresentation?.({ state: {
+      reportPresentation?.({ state: {
         status: 'loading', loadingMode: 'blocking', retainContent: false,
       } });
     } else if (resolvedFileKind === 'code' && hasDocumentProps) {
-      context.reportPresentation?.({ title: fileHeaderTitle(filePath), ...workspaceSurfaceContentPresentation('file-code'), actions: NO_SURFACE_ACTIONS });
+      reportPresentation?.({ title: fileHeaderTitle(filePath), ...workspaceSurfaceContentPresentation('file-code'), actions: NO_SURFACE_ACTIONS });
     }
-  }, [baseFileKind, context.reportPresentation, hasDocumentProps, contentDetectionLoading, resolvedFileKind]);
+  }, [baseFileKind, filePath, reportPresentation, hasDocumentProps, contentDetectionLoading, resolvedFileKind]);
   if (baseFileKind === 'docx') {
     const preview = <DocxPreview filePath={filePath} scopePath={surface.scopePath} reportPresentation={context.reportPresentation} />;
     return wrapInColumnFileShell(context, preview);
@@ -286,18 +289,19 @@ export function PluginDocumentRenderer({ surface, context }: RendererProps<'mind
 }
 
 export function PluginWorkbenchRenderer({ surface, context }: RendererProps<'plugin-workbench'>) {
-  return <LazyPluginWorkbench {...surface.props} reportPresentation={context.reportPresentation} />;
+  return <LazyPluginWorkbench {...surface.props} host={context.host} reportPresentation={context.reportPresentation} />;
 }
 
 export function CollectionRenderer({ surface, context }: RendererProps<'collection'>) {
   const { t } = useI18n();
+  const reportPresentation = context.reportPresentation;
   // Ask before offering the chooser: every index skips these folders, so both
   // choices would open a view that can never list anything.
   const indexExcluded = usePathIndexExcluded(surface.folderPath);
 
   useEffect(() => {
-    context.reportPresentation?.({ state: { status: 'ready' } });
-  }, [context.reportPresentation]);
+    reportPresentation?.({ state: { status: 'ready' } });
+  }, [reportPresentation]);
 
   if (indexExcluded === null) return null;
   if (indexExcluded) {

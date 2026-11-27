@@ -730,9 +730,9 @@ fn normalise_hash(hash: &str) -> &str {
 /// object — the ETag answers the narrower question "was this key replaced since
 /// I left my bytes there?". If it was, the remote side wins and the local bytes
 /// are preserved as a conflict copy; that is the only branch where the loser of
-/// a same-second race keeps its edit. Without an ETag baseline the local writer
-/// still wins, which keeps the common case (remote untouched, local edited)
-/// from being downloaded over.
+/// a same-second race keeps its edit. With a timestamp baseline but no ETag,
+/// the local writer wins when the remote timestamp has not advanced. Without
+/// any baseline, preserve the local bytes as a conflict copy.
 fn remote_wins(
     file: &LocalFile,
     object: &RemoteObject,
@@ -740,7 +740,9 @@ fn remote_wins(
     baseline_etag: Option<&str>,
 ) -> bool {
     let Some(baseline) = baseline else {
-        return false;
+        // Without a shared baseline neither copy can be declared newer. Keep
+        // the local bytes as a conflict copy before taking the cloud version.
+        return true;
     };
     if same_object(object, baseline_etag) {
         return false;

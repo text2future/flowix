@@ -9,13 +9,13 @@ Flowix ships per-platform update manifests and static website downloads:
 - **Per-platform updater manifests** under stable R2 paths, served directly to
   the in-app updater. Each one advertises exactly one release platform
   group's binaries and pins its own top-level `version`.
-- **Version-prefixed R2 artifacts** (`v<version>/...`) that the manifests point
-  at. These are immutable per release. Flowix updater archives are signed with
+- **Tencent COS artifacts** (`versions/...`) that the manifests point at. Their
+  filenames include the release version. Flowix updater archives are signed with
   the Tauri updater key; the client verifies the `.sig` value from the HTTPS
   manifest before installation. The standalone DSH runtime is also checked
   with SHA-256 and the same Tauri/Minisign signature before installation.
 
-Per-platform updater manifests live on R2 (under `${FLOWIX_R2_PUBLIC_BASE}/${FLOWIX_R2_UPDATER_PREFIX}/`) so each release can overwrite the stable URL without rebuilding flowix-home. The split exists so that macOS and Windows can ship on independent cadences —
+Signed updater archives and installer downloads live in Tencent COS under `${FLOWIX_COS_PUBLIC_BASE}/${FLOWIX_COS_PREFIX}/` (default: `/versions/`). Per-platform updater manifests remain on Cloudflare R2 under `${FLOWIX_R2_PUBLIC_BASE}/${FLOWIX_R2_UPDATER_PREFIX}/`; installed clients keep using the stable `download.flowix.cc` manifest endpoint, while the package URLs inside those manifests point directly to COS. macOS, Windows, and Linux can ship on independent cadences —
 macOS can publish `1.3.0` while Windows stays on `1.2.4` without confusing
 either client into a self-install loop.
 
@@ -48,24 +48,29 @@ group manifest will fail the update check rather than silently offering nothing.
 
 `scripts/release.sh` infers the release scope from `FLOWIX_TARGETS`:
 
-- **Full release** — writes/uploads all covered per-platform manifests and
-  rebuilds/deploys the flowix-home website.
-- **Partial release** — writes/uploads only the covered per-platform manifests;
-  the website is not rebuilt or deployed.
+- **Full release** — uploads covered artifacts to COS, publishes per-platform
+  manifests to R2, and rebuilds/deploys flowix-home when macOS is included.
+- **Partial release** — uploads only the covered artifacts and manifests; a
+  macOS release that includes both architectures also rebuilds/deploys
+  flowix-home so its two installer links stay current.
 
 ## Environment overrides
 
 | Variable                            | Default                                              | Notes |
 | ----------------------------------- | ---------------------------------------------------- | ----- |
+| `FLOWIX_COS_BUCKET`                 | `flowix-downloads-1307208156`                        | Tencent COS bucket for installers and updater archives |
+| `FLOWIX_COS_REGION`                 | `ap-guangzhou`                                       | COS bucket region |
+| `FLOWIX_COS_PREFIX`                 | `versions`                                           | COS key prefix for installers and signed updater artifacts |
+| `FLOWIX_COS_PUBLIC_BASE`            | `https://flowix-downloads-1307208156.cos.ap-guangzhou.myqcloud.com` | Public COS object origin |
+| `TENCENT_COS_SECRET_ID` / `TENCENT_COS_SECRET_KEY` | —                                  | CAM credentials with `PutObject` access to the bucket; uploads use the Tencent COS Node SDK without multipart permissions |
 | `FLOWIX_R2_UPDATER_PREFIX`          | `updater`                                            | R2 key prefix for per-platform manifests |
-| `FLOWIX_R2_PREFIX`                  | `v${VERSION}`                                        | R2 key prefix for versioned artifacts (unchanged) |
-| `FLOWIX_R2_BUCKET`                  | `flowix-downloads`                                   | R2 bucket (unchanged) |
-| `FLOWIX_R2_PUBLIC_BASE`             | `https://download.flowix.cc`                   | Public origin for artifact URLs (unchanged) |
+| `FLOWIX_R2_BUCKET`                  | `flowix-downloads`                                   | Existing Cloudflare R2 bucket serving updater manifests |
+| `FLOWIX_R2_PUBLIC_BASE`             | `https://download.flowix.cc`                         | Stable updater manifest origin |
 
 ## Publish flow
 
 ```bash
-# Full release from a freshly built matrix
+# Full release from a freshly built matrix; set the COS credentials in the environment.
 FLOWIX_SKIP_BUILD=1 \
 FLOWIX_TARGETS="aarch64-apple-darwin x86_64-apple-darwin x86_64-pc-windows-msvc x86_64-unknown-linux-gnu" \
 FLOWIX_PUBLISH=1 \
@@ -73,16 +78,16 @@ bash scripts/release.sh
 ```
 
 ```bash
-# Partial release — only Windows (e.g. when macOS is held back)
+# Partial release — only Windows (e.g. when macOS is held back).
 FLOWIX_SKIP_BUILD=1 \
 FLOWIX_TARGETS="x86_64-pc-windows-msvc" \
 FLOWIX_PUBLISH=1 \
 bash scripts/release.sh
 ```
 
-Both flows upload the per-group manifest to the matching stable R2 path so the
-in-app updater picks up the new version immediately. Full releases also deploy
-the website's download links through flowix-home.
+Both flows upload packages to COS and the per-group manifest to the matching
+stable R2 path, so the in-app updater picks up the new version immediately.
+macOS releases also deploy the website's download links through flowix-home.
 
 For macOS, the updater artifact is the Tauri `.app.tar.gz` archive; the DMG is
 published separately for website downloads. For Windows, the updater artifact

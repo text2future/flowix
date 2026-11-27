@@ -4,20 +4,33 @@ import type { Root } from 'react-dom/client';
 interface MountedCloudLoginDialog {
   container: HTMLElement;
   root: Root;
+  onAuthenticated?: () => void;
 }
 
 let mounted: MountedCloudLoginDialog | null = null;
 
-export async function openCloudLoginDialog(): Promise<void> {
+function getMountedDialog(): MountedCloudLoginDialog | null {
+  return mounted;
+}
+
+export async function openCloudLoginDialog(onAuthenticated?: () => void): Promise<void> {
   if (typeof document === 'undefined') return;
-  if (mounted) return;
+  if (mounted) {
+    if (onAuthenticated) mounted.onAuthenticated = onAuthenticated;
+    return;
+  }
 
   const [{ createRoot }, React, { CloudLoginDialog }] = await Promise.all([
     import('react-dom/client'),
     import('react'),
     import('../components/cloud-login-dialog'),
   ]);
-  if (mounted) return;
+  // Another caller may have mounted the dialog while the imports loaded.
+  const current = getMountedDialog();
+  if (current) {
+    if (onAuthenticated) current.onAuthenticated = onAuthenticated;
+    return;
+  }
 
   const container = document.createElement('div');
   container.className = 'cloud-login-dialog-root';
@@ -30,8 +43,11 @@ export async function openCloudLoginDialog(): Promise<void> {
     container.remove();
   };
 
-  mounted = { container, root };
-  root.render(React.createElement(CloudLoginDialog, { onClose: close }));
+  mounted = { container, root, onAuthenticated };
+  root.render(React.createElement(CloudLoginDialog, {
+    onClose: close,
+    onAuthenticated: () => mounted?.onAuthenticated?.(),
+  }));
 }
 
 /** Test seam: true while the dialog is mounted. */

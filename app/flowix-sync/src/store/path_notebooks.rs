@@ -62,6 +62,29 @@ impl SyncStore {
         Ok(entries)
     }
 
+    /// Restore an existing remote notebook without publishing stale metadata.
+    /// An existing local choice, including an explicit disable, always wins.
+    pub fn restore_remote_notebook(
+        &self,
+        notebook: &PathNotebookMetadata,
+        user_id: &str,
+    ) -> Result<bool, SyncError> {
+        let mut connection = self.open()?;
+        let transaction = connection.transaction()?;
+        let inserted = transaction.execute(
+            r#"INSERT OR IGNORE INTO path_notebooks
+               (notebook_id, enabled, name, icon, sort_order, manifest_uploaded, generation, pending_action, updated_at)
+               VALUES (?1, 1, ?2, ?3, ?4, 1, 1, NULL, ?5)"#,
+            params![notebook.id, notebook.name, notebook.icon, notebook.sort_order, chrono::Utc::now().timestamp_millis()],
+        )?;
+        transaction.execute(
+            "DELETE FROM cloud_notebook_preferences WHERE user_id = ?1 AND notebook_id = ?2",
+            params![user_id, notebook.id],
+        )?;
+        transaction.commit()?;
+        Ok(inserted > 0)
+    }
+
     pub fn set_path_notebook(
         &self,
         notebook: &PathNotebookMetadata,
@@ -224,4 +247,3 @@ impl SyncStore {
         Ok(())
     }
 }
-

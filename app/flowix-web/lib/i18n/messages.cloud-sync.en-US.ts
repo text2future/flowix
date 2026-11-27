@@ -5,6 +5,11 @@ import type zhCN from './messages.cloud-sync.zh-CN';
  * its key set aligned with the zh-CN shard at compile time.
  */
 const enUS: Record<keyof typeof zhCN, string> = {
+  "cloudSync.disabled.title": "Cloud sync is off for this notebook",
+  "cloudSync.disabled.prompt": "Enable cloud sync?",
+  "cloudSync.disabled.description": "Sync this notebook across devices using cloud storage. Available cloud storage must be configured first.",
+  "cloudSync.disabled.local": "Use locally",
+  "cloudSync.disabled.enable": "Enable sync",
   "cloudSync.tabs.storage": "Cloud storage",
   "cloudSync.storage.title": "Storage plan",
   "cloudSync.custom.title": "Use your own cloud storage (S3)",
@@ -78,9 +83,21 @@ const enUS: Record<keyof typeof zhCN, string> = {
   "cloudSync.massDeletion.pendingBadge": "Deletion awaiting confirmation",
   "cloudSync.massDeletion.confirm": "Confirm",
   "cloudSync.massDeletion.restore": "Undo deletion",
-  "cloudSync.failed.title": "Cloud sync failed",
+  "cloudSync.failed.title": "Sync failed",
   "cloudSync.deleteConflictRestored": "A deleted file was updated on another device. The cloud version was kept.",
-  "cloudSync.failed.body": "This sync pass did not finish. Error details:",
+  "cloudSync.failed.body": "This sync did not finish. Please try again later.",
+  "cloudSync.failed.retry": "Retry sync",
+  "cloudSync.failed.retrying": "Retrying…",
+  "cloudSync.failed.details": "View error details",
+  "cloudSync.failed.partial": "Some files or folders could not be synced. Please try again later.",
+  "cloudSync.failed.notebookPath": "The notebook folder is unavailable. Check that it exists and that you have access, then try again.",
+  "cloudSync.failed.local": "Could not read or update local sync data. Check local files and permissions, then try again.",
+  "cloudSync.failed.quota": "Cloud storage is full. Free up space or upgrade, then try again.",
+  "cloudSync.failed.session": "Your session is no longer valid. Sign in again and retry.",
+  "cloudSync.failed.disabled": "Cloud sync is not enabled for this notebook. Check your sync settings.",
+  "cloudSync.failed.permission": "Cloud storage denied the sync request. Check your account or storage access permissions.",
+  "cloudSync.failed.timeout": "Sync timed out. Check your connection and try again.",
+  "cloudSync.failed.network": "Could not connect to the cloud service. Check your connection and try again.",
 };
 
 export default enUS;

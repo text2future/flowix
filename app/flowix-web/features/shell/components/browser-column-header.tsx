@@ -1,6 +1,6 @@
 import { useWorkspaceSessionNavigation } from '@features/workspace/public/session-navigation-api';
 import { getWorkspaceAgentRepositories } from '@features/agent/public/workspace-api';
-import { canOpenBrowserTargetInMainColumn, selectBrowserColumnFile, type BrowserColumnEntry } from '@features/workspace/public/browser-column-api';
+import { canOpenBrowserTargetInMainColumn, openBrowserContentInMainColumn, selectBrowserColumnFile, type BrowserColumnEntry } from '@features/workspace/public/browser-column-api';
 import type { BrowserColumnSurfaceChrome } from '@features/surface/public/shell-api';
 import { browserCollectionIndexPath, markRepositoryBreadcrumbItems, resolveDocumentBreadcrumb } from '@features/surface/public/shell-api';
 import { useShellNotebooks } from '@features/memo/public/shell-api';
@@ -29,10 +29,7 @@ export interface BrowserColumnHeaderProps {
   /** Resolved file-browser ownership/scope shared with the rendered surface. */
   resolvedFileBrowserContext?: FileBrowserContext | null;
   onToggleMemoEditorMode: (surfaceId: string) => void | Promise<void>;
-  onOpenInMainColumn: (surfaceId: string) => void | Promise<void>;
   onCloseColumn?: () => void;
-  isFocused: boolean;
-  canCreate: boolean;
   onCreateNote: (templateId?: string) => void;
   onCreateAgentConversation: (typeKey: AgentTypeKey) => void;
 }
@@ -113,12 +110,14 @@ export function BrowserColumnHeader(props: BrowserColumnHeaderProps) {
         path={path} scopePath={target.scopePath} notebookId={target.notebookId} header={header}
         collectionPath={collectionPath} surfaceId={current!.id} onToggleMemoEditorMode={props.onToggleMemoEditorMode}
         iconButtonClass={iconButtonClass} />
-      : <WorkspaceHeaderContentActions collection={collection} collectionHost={current ? 'column-2' : undefined}
-        notebookId={target?.notebookId} iconButtonClass={iconButtonClass}
-        fallback={current?.target.kind === 'web' ? undefined : <WorkspaceHeaderFallbackMenu columnId="column-2"
-          iconButtonClass={iconButtonClass} canCreate={props.canCreate} onCreateNote={props.onCreateNote}
+      : <>
+        <WorkspaceHeaderContentActions collection={collection} collectionHost={collection ? 'column-2' : undefined}
+          notebookId={target?.notebookId} iconButtonClass={iconButtonClass} />
+        {current && !collection && current.target.kind !== 'web' && <WorkspaceHeaderFallbackMenu columnId="column-2"
+          iconButtonClass={iconButtonClass} onCreateNote={props.onCreateNote}
           onCreateAgentConversation={props.onCreateAgentConversation}
-          onOpenInMainColumn={current && canOpenBrowserTargetInMainColumn(current.target)
-            ? () => void props.onOpenInMainColumn(current.id) : undefined} />} />}
+          onOpenInMainColumn={canOpenBrowserTargetInMainColumn(current.target)
+            ? () => void openBrowserContentInMainColumn(current.id) : undefined} />}
+      </>}
   />;
 }

@@ -5,8 +5,9 @@ mod local_adapter;
 mod path_sync_runner;
 mod path_sync_adapter;
 pub(crate) use coordinator::{
-    invalidate_notebook_selection, notebook_selection_changed, schedule_notebook_sync,
+    invalidate_notebook_recovery, invalidate_notebook_selection, notebook_selection_changed, schedule_notebook_sync,
     schedule_notebook_sync_observation, schedule_pending_notebook_deletions,
+    schedule_cloud_notebook_recovery,
     start_cloud_sync_polling,
 };
 pub(crate) use google_login::GoogleCallback;

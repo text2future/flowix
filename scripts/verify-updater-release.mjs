@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-// Args: [--release-dir <dir>] <manifest> <version> <prefix> <platform...>
+// Args: [--release-dir <dir>] <manifest> <version> <artifact-prefix> <platform...>
 //   --release-dir   where artifacts live on disk (defaults to the manifest's parent dir).
 //                   Per-platform manifests in release.sh live at
 //                   ${RELEASE_OUT}/updater/<group>/latest.json but their artifacts
@@ -19,7 +19,7 @@ for (let i = 0; i < rawArgs.length; i += 1) {
 const [manifestPath, expectedVersion, expectedPrefixArg, ...requiredPlatforms] = positional;
 
 if (!manifestPath || !expectedVersion || !expectedPrefixArg || requiredPlatforms.length === 0) {
-  console.error('Usage: node scripts/verify-updater-release.mjs [--release-dir <dir>] <latest.json> <version> <prefix> <platform...>');
+  console.error('Usage: node scripts/verify-updater-release.mjs [--release-dir <dir>] <latest.json> <version> <artifact-prefix> <platform...>');
   process.exit(2);
 }
 

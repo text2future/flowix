@@ -467,6 +467,25 @@ impl SyncManager {
         self.store.set_path_notebook(notebook, enabled)
     }
 
+    /// Commit a previously verified remote match only for the session that
+    /// performed discovery. Do not replace an explicit local sync choice.
+    pub fn restore_remote_notebook(
+        &self,
+        notebook: &PathNotebookMetadata,
+        user_id: &str,
+        generation: u64,
+    ) -> Result<bool, SyncError> {
+        let _generation = self.account.require_auth_generation(generation)?;
+        if self.remote_kind() != crate::remote::RemoteKind::OfficialCloud {
+            return Ok(false);
+        }
+        let state = self.account.state()?;
+        if !state.authenticated || state.account.as_ref().map(|account| account.user.id.as_str()) != Some(user_id) {
+            return Err(SyncError::NotAuthenticated);
+        }
+        self.store.restore_remote_notebook(notebook, user_id)
+    }
+
     pub fn record_path_notebook_change(
         &self,
         notebook: &PathNotebookMetadata,

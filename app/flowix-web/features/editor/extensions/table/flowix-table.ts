@@ -1,4 +1,4 @@
-import type { Editor } from '@tiptap/core';
+import type { Editor, RenderContext } from '@tiptap/core';
 import { getExtensionField } from '@tiptap/core';
 import { Table } from '@tiptap/extension-table';
 import { Lexer } from 'marked';
@@ -109,7 +109,7 @@ export const FlowixTable = Table.extend({
 
   renderMarkdown(
     this: {
-      parent?: (node: JSONContent, helpers: MarkdownRendererHelpers, ctx: unknown) => string
+      parent?: (node: JSONContent, helpers: MarkdownRendererHelpers, ctx: RenderContext) => string
     },
     node,
     helpers,

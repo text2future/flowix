@@ -6,6 +6,7 @@ import { ChevronRight, ChevronsUpDown, Pencil, Plus, Star, Trash2 } from 'lucide
 import { Popover, PopoverContent, PopoverTrigger } from '@shared/ui/popover';
 import { notebooks as notebooksClient } from '@platform/tauri/client';
 import { NotebookIcon } from '@features/memo/components/notebook-icon';
+import { SyncCloudIcon } from '@shared/icons/sync-cloud-icon';
 import { PopupScrollArea } from '@shared/ui/popup-scroll-area';
 import { Button } from '@shared/ui/button';
 import { useNoteStore, type Notebook } from '@features/memo/store/note-store';
@@ -100,7 +101,6 @@ export function NotebookSelectorPopup({
   onCreateNotebook,
   onRefresh,
   cloudSyncedNotebookIds,
-  cloudSyncAvailable = false,
   pendingDeletionNotebookIds,
   trigger,
   side = 'top',
@@ -458,6 +458,11 @@ export function NotebookSelectorPopup({
           imageClassName="h-[72%] w-[72%]"
         />
         <div className="flex min-w-0 flex-1 items-center gap-2">
+          {cloudSyncedNotebookIds?.has(notebook.id) && (
+            <span title={t('notebook.cloudSync.locationLabel')} className="flex shrink-0 items-center text-[var(--brand)]">
+              <SyncCloudIcon variant="cloud" className="h-4 w-4" />
+            </span>
+          )}
           <span
             className={cn(
               'block min-w-0 flex-1 truncate text-sm',
@@ -468,12 +473,7 @@ export function NotebookSelectorPopup({
             {notebook.name}
             {isMissing && ` ${t('status.invalid')}`}
           </span>
-          <span className="flex shrink-0 items-center gap-1 text-xs text-[var(--muted-foreground)] group-hover:hidden group-focus-within:hidden">
-            {notebook.pinned && (
-              <span title={t('memo.list.notebookMenu.pin')}>
-                <Star className="h-4 w-4 fill-current text-[var(--primary)]" aria-hidden="true" />
-              </span>
-            )}
+          <span className="flex shrink-0 items-center gap-1 text-xs text-[var(--muted-foreground)]">
             {pendingDeletionNotebookIds?.has(notebook.id) && !isActive && (
               <span
                 role="img"
@@ -482,23 +482,15 @@ export function NotebookSelectorPopup({
                 className="h-2 w-2 shrink-0 rounded-full bg-[var(--destructive)]"
               />
             )}
-            {cloudSyncedNotebookIds?.has(notebook.id) && (
-              <span className="flex h-4 w-3 shrink-0 items-center justify-center" aria-hidden="true">
-                <span
-                  className={cn(
-                    'h-2 w-2 rounded-full',
-                    cloudSyncAvailable ? 'bg-[var(--success)]' : 'bg-[var(--muted-foreground)]',
-                  )}
-                  aria-hidden="true"
-                />
-              </span>
-            )}
             <span className="font-mono tabular-nums text-sm">
               {notebook.memoCount === undefined ? '—' : t('status.notebookMemoCount', { count: notebook.memoCount })}
             </span>
           </span>
         </div>
-        <div className="flex w-0 shrink-0 items-center justify-end gap-0.5 overflow-hidden opacity-0 transition-[width,opacity] duration-[37.5ms] group-hover:w-[76px] group-hover:opacity-100 group-focus-within:w-[76px] group-focus-within:opacity-100">
+        <div className={cn(
+          'flex shrink-0 items-center overflow-hidden transition-[width] duration-[37.5ms]',
+          notebook.pinned ? 'w-6' : 'w-0 group-hover:w-6 group-focus-within:w-6',
+        )}>
           <button
             type="button"
             aria-label={t(notebook.pinned ? 'memo.list.notebookMenu.unpin' : 'memo.list.notebookMenu.pin')}
@@ -508,10 +500,15 @@ export function NotebookSelectorPopup({
               event.stopPropagation();
               void toggleNotebookPinned(notebook);
             }}
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)]"
+            className={cn(
+              'flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)]',
+              notebook.pinned ? 'text-[var(--primary)]' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100',
+            )}
           >
             <Star className={cn('h-4 w-4', notebook.pinned && 'fill-current')} aria-hidden="true" />
           </button>
+        </div>
+        <div className="flex w-0 shrink-0 items-center justify-end gap-0.5 overflow-hidden opacity-0 transition-[width,opacity] duration-[37.5ms] group-hover:w-[50px] group-hover:opacity-100 group-focus-within:w-[50px] group-focus-within:opacity-100">
           <button
             type="button"
             aria-label={t('common.edit')}

@@ -300,6 +300,7 @@ fn cleanup_empty_cloud_notebook_directory(path: &Path) {
 }
 
 fn notify_notebook_workspace_changed(app: &AppHandle) {
+    crate::commands::cloud::invalidate_notebook_recovery();
     dispatcher::emit_to(app, AGENT_WORKSPACE_CHANGED_EVENT, ());
 }
 

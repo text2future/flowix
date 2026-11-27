@@ -12,6 +12,7 @@ import { useNoteStore } from '@features/memo/store/note-store';
 import { notes, type PluginDescriptor } from '@platform/tauri/client';
 import { openSurfaceAtPosition } from '@features/workspace/public/open-surface-api';
 import type { SurfacePresentationUpdate, SurfaceNotice } from '@features/workspace/public/surface-api';
+import type { WorkspaceColumnId } from '@features/workspace/public/surface-api';
 import { AgentPluginWorkbench } from './plugin-agent-workbench';
 import { normalizePluginId } from './plugin-note';
 
@@ -20,14 +21,17 @@ interface PluginWorkbenchProps {
   notebookPath: string | undefined;
   currentNotePath: string | null;
   currentNoteContent: string;
+  host?: WorkspaceColumnId;
   reportPresentation?: (update: SurfacePresentationUpdate) => void;
 }
 
 export function PluginWorkbench(props: PluginWorkbenchProps) {
+  const selectedNotebook = useNoteStore((state) => state.selectedNotebook);
+  const resolvedProps = { ...props, notebookPath: props.notebookPath ?? selectedNotebook?.path };
   if (props.plugin.manifest.kind !== 'artifact-tool') {
-    return <AgentPluginWorkbench {...props} />;
+    return <AgentPluginWorkbench {...resolvedProps} />;
   }
-  return <ArtifactToolWorkbench {...props} />;
+  return <ArtifactToolWorkbench {...resolvedProps} />;
 }
 
 /**

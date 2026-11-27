@@ -827,6 +827,84 @@ fn schedule_retry_after_failure(app: &AppHandle, target: SyncTarget) {
     });
 }
 
+// Recovery discovers remote identity once per authenticated session. Failures
+// are retried by polling; an explicit local disabled row is never overwritten.
+static NOTEBOOK_RECOVERY_RUNNING: AtomicBool = AtomicBool::new(false);
+static NOTEBOOK_RECOVERY_COMPLETE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MAX);
+static NOTEBOOK_RECOVERY_REVISION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static NOTEBOOK_RECOVERY_COMPLETE_REVISION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MAX);
+
+pub(crate) fn invalidate_notebook_recovery() {
+    NOTEBOOK_RECOVERY_REVISION.fetch_add(1, Ordering::SeqCst);
+}
+
+pub(crate) fn schedule_cloud_notebook_recovery(app: AppHandle) {
+    let Some(state) = app.try_state::<AppState>() else { return; };
+    let manager = state.cloud_sync.clone();
+    drop(state);
+    if manager.remote_kind() != flowix_sync::remote::RemoteKind::OfficialCloud
+        || !manager.cloud_sync_available()
+    {
+        return;
+    }
+    let generation = manager.account().session_generation();
+    let revision = NOTEBOOK_RECOVERY_REVISION.load(Ordering::SeqCst);
+    if NOTEBOOK_RECOVERY_COMPLETE.load(Ordering::SeqCst) == generation
+        && NOTEBOOK_RECOVERY_COMPLETE_REVISION.load(Ordering::SeqCst) == revision
+    {
+        return;
+    }
+    if NOTEBOOK_RECOVERY_RUNNING.swap(true, Ordering::SeqCst)
+    {
+        return;
+    }
+    tauri::async_runtime::spawn(async move {
+        let result: Result<bool, String> = async {
+            let account = manager.account().state().map_err(|error| error.to_string())?;
+            let user_id = account.account.filter(|_| account.authenticated)
+                .ok_or_else(|| "cloud account unavailable".to_string())?.user.id;
+            let remote = manager.remote_notebooks().await.map_err(|error| error.to_string())?;
+            let remote_ids: HashSet<_> = remote.into_iter().map(|notebook| notebook.id).collect();
+            let state = app.state::<AppState>();
+            let _transition = state.notebook_transition.lock();
+            let memo_file = read_lock(&state.memo_file, "memo_file");
+            let configs = memo_file.read_notebook_configs().map_err(|error| error.to_string())?;
+            let mut restored = false;
+            for config in configs.into_iter().filter(|config| remote_ids.contains(&config.id) && Path::new(&config.path).is_dir()) {
+                restored |= manager.restore_remote_notebook(
+                    &PathNotebookMetadata { id: config.id, name: config.name, icon: config.icon, sort_order: config.sort },
+                    &user_id,
+                    generation,
+                ).map_err(|error| error.to_string())?;
+            }
+            Ok(restored)
+        }.await;
+        match result {
+            Ok(restored) => {
+                NOTEBOOK_RECOVERY_COMPLETE.store(generation, Ordering::SeqCst);
+                NOTEBOOK_RECOVERY_COMPLETE_REVISION.store(revision, Ordering::SeqCst);
+                if restored {
+                    if let Ok(state) = manager.account().state() {
+                        let _ = app.emit("cloud-state-changed", state);
+                    }
+                }
+                // An already-linked notebook also needs a pass after login;
+                // it may contain edits made while the account was signed out.
+                if let Some(id) = current_notebook_id(app.state::<AppState>().inner()) {
+                    schedule_notebook_sync(app.clone(), id);
+                }
+            }
+            Err(error) => tracing::warn!(%error, "notebook sync recovery will be retried"),
+        }
+        NOTEBOOK_RECOVERY_RUNNING.store(false, Ordering::SeqCst);
+        // A session can change while discovery is in flight.
+        if manager.account().session_generation() != generation
+            || NOTEBOOK_RECOVERY_REVISION.load(Ordering::SeqCst) != revision {
+            schedule_cloud_notebook_recovery(app);
+        }
+    });
+}
+
 /// Complete explicit notebook removals without synchronizing their contents.
 /// A durable pending row is retried on later polls if this worker fails.
 pub(crate) fn schedule_pending_notebook_deletions(app: AppHandle) {
@@ -861,6 +939,7 @@ pub(crate) fn start_cloud_sync_polling(app: AppHandle) {
                 current_notebook_id(state.inner())
                     .is_some_and(|id| automatic_sync_available(&app, &id))
             };
+            schedule_cloud_notebook_recovery(app.clone());
             schedule_pending_notebook_deletions(app.clone());
             if should_poll {
                 if let Err(error) = send_sync_request(&app, SyncCoordinatorRequest::Poll) {

@@ -28,7 +28,7 @@ function createEditor(editable = true, styleId: TableStyleId = 'default') {
   editors.push(editor);
   const table = editor.state.doc.firstChild!;
   const cellPos = 1 + TableMap.get(table).map[0];
-  vi.spyOn(editor.view, 'posAtCoords').mockReturnValue({ pos: cellPos + 2, inside: cellPos });
+  vi.spyOn(editor.view, 'posAtCoords').mockReturnValue({ pos: cellPos + 2, inside: cellPos, affinity: 0 });
   const cell = editor.view.dom.querySelector<HTMLTableCellElement>('th')!;
   vi.spyOn(cell, 'getBoundingClientRect').mockReturnValue({
     left: 100, right: 200, top: 40, bottom: 80, width: 100, height: 40, x: 100, y: 40, toJSON: () => ({}),

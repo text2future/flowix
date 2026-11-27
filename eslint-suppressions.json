@@ -645,7 +645,7 @@
       "count": 1
     },
     "no-restricted-imports": {
-      "count": 3
+      "count": 1
     }
   },
   "app/flowix-web/features/plugin/plugin-document-view.tsx": {

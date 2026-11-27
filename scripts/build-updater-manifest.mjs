@@ -3,8 +3,8 @@
 // Inputs (env vars):
 //   FLOWIX_MANIFEST_OUT       output file path (overwritten if exists)
 //   FLOWIX_VERSION            Flowix version this release advertises
-//   FLOWIX_R2_PUBLIC_BASE     public origin for artifact URLs (no trailing slash)
-//   FLOWIX_R2_PREFIX          R2 key prefix under which artifacts were uploaded
+//   FLOWIX_ARTIFACT_PUBLIC_BASE public origin for artifact URLs (no trailing slash)
+//   FLOWIX_ARTIFACT_PREFIX     object prefix under which artifacts were uploaded
 //   FLOWIX_RELEASE_OUT        artifact staging directory
 //   FLOWIX_RELEASE_NOTES      optional human-facing release notes
 //   FLOWIX_UPDATE_NOTIFY      whether clients should show update prompts
@@ -25,15 +25,15 @@ import path from 'node:path';
 
 const out = process.env.FLOWIX_MANIFEST_OUT;
 const version = process.env.FLOWIX_VERSION;
-const publicBase = process.env.FLOWIX_R2_PUBLIC_BASE?.replace(/\/$/u, '');
-const prefix = process.env.FLOWIX_R2_PREFIX?.replace(/^\/+|\/+$/gu, '');
+const publicBase = process.env.FLOWIX_ARTIFACT_PUBLIC_BASE?.replace(/\/$/u, '');
+const prefix = process.env.FLOWIX_ARTIFACT_PREFIX?.replace(/^\/+|\/+$/gu, '');
 const releaseOut = process.env.FLOWIX_RELEASE_OUT;
 const releaseNotes = process.env.FLOWIX_RELEASE_NOTES?.trim() || `Flowix ${version}`;
 const notifyValue = process.env.FLOWIX_UPDATE_NOTIFY?.trim().toLowerCase() || 'true';
 const rows = process.argv.slice(1);
 
 if (!out || !version || !publicBase || prefix === undefined || !releaseOut) {
-  throw new Error('build-updater-manifest: FLOWIX_MANIFEST_OUT, FLOWIX_VERSION, FLOWIX_R2_PUBLIC_BASE, FLOWIX_R2_PREFIX, and FLOWIX_RELEASE_OUT are required');
+  throw new Error('build-updater-manifest: FLOWIX_MANIFEST_OUT, FLOWIX_VERSION, FLOWIX_ARTIFACT_PUBLIC_BASE, FLOWIX_ARTIFACT_PREFIX, and FLOWIX_RELEASE_OUT are required');
 }
 if (notifyValue !== 'true' && notifyValue !== 'false') {
   throw new Error('build-updater-manifest: FLOWIX_UPDATE_NOTIFY must be true or false');

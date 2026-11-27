@@ -15,6 +15,7 @@ import { Editor, Extension, renderNestedMarkdownContent } from '@tiptap/core';
 import type { JSONContent } from '@tiptap/core';
 import { NodeSelection } from '@tiptap/pm/state';
 import StarterKit from '@tiptap/starter-kit';
+import Underline from '@tiptap/extension-underline';
 import { ListItem } from '@tiptap/extension-list';
 import { Markdown } from '@tiptap/markdown';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -373,6 +374,32 @@ export interface MarkdownEditorExtensionContext {
   getPlaceholder: () => string;
 }
 
+/** Preserve the desktop client's ++ underline syntax while accepting modern <u> markup. */
+const desktopUnderlineTokenizer = Underline.config.markdownTokenizer;
+const DesktopCompatibleUnderline = Underline.extend({
+  renderMarkdown(node, helpers) {
+    return `++${helpers.renderChildren(node)}++`;
+  },
+  markdownTokenizer: {
+    name: 'underline',
+    level: 'inline',
+    start(src) {
+      const legacy = src.indexOf('++');
+      const html = src.toLowerCase().indexOf('<u>');
+      if (legacy < 0) return html;
+      return html < 0 ? legacy : Math.min(legacy, html);
+    },
+    tokenize(src, tokens, lexer) {
+      const match = /^(\+\+)([\s\S]+?)(\+\+)/.exec(src);
+      if (match) {
+        const text = match[2].trim();
+        return { type: 'underline', raw: match[0], text, tokens: lexer.inlineTokens(text) };
+      }
+      return desktopUnderlineTokenizer?.tokenize?.(src, tokens, lexer);
+    },
+  },
+});
+
 /** Full interactive editor registry; parser specs are shared through pure Markdown modules. */
 function tableControlLabels(): NonNullable<TablePluginOptions['labels']> {
   // The edge buttons are plain DOM created by the plugin, so they cannot read
@@ -426,7 +453,9 @@ export function createMarkdownEditorExtensions({
       // Registered below as an asterisk-only mark: the stock underscore rules
       // would eat `__pycache__` and other identifiers.
       bold: false,
+      underline: false,
     }),
+    DesktopCompatibleUnderline,
     AsteriskOnlyBold,
     LiteralUnderscoreStrong,
     PreservedParagraph,

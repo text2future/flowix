@@ -302,7 +302,7 @@ describe('real document container session lifecycle', () => {
         expect(editor.commands.insertFiles({ files })).toBe(true);
         return;
       }
-      vi.spyOn(editor.view, 'posAtCoords').mockReturnValue({ pos: editor.state.selection.from, inside: -1 });
+      vi.spyOn(editor.view, 'posAtCoords').mockReturnValue({ pos: editor.state.selection.from, inside: -1, affinity: 0 });
       const event = new Event('drop', { bubbles: true, cancelable: true });
       Object.defineProperties(event, {
         dataTransfer: { value: { files, types: ['Files'], getData: () => '' } },

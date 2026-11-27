@@ -256,7 +256,7 @@ export function DialogTitle({ className, children, ...props }: HTMLAttributes<HT
 
 export function DialogDescription({ className, children }: { className?: string; children: ReactNode }) {
 	return (
-		<p className={cn('mt-1 w-full min-w-0 text-sm text-[var(--muted-foreground)]', className)}>
+		<p className={cn('mt-2 w-full min-w-0 text-sm text-[var(--muted-foreground)]', className)}>
 			{children}
 		</p>
 	);

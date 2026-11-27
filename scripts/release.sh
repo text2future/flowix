@@ -1,21 +1,23 @@
 #!/usr/bin/env bash
-# Build signed Tauri updater artifacts, publish them to R2, and deploy the
+# Build signed Tauri updater artifacts, publish them to Tencent COS, and deploy the
 # stable updater manifest through the flowix-home Pages site.
 #
 # Useful overrides:
 #   FLOWIX_HOME_DIR          local flowix-home checkout
 #   FLOWIX_TARGETS           space-separated Rust targets to collect
-#   FLOWIX_R2_BUCKET         R2 bucket name (default: flowix-downloads)
-#   FLOWIX_R2_PREFIX         object prefix for versioned artifacts (default: v${VERSION})
-#   FLOWIX_R2_UPDATER_PREFIX object prefix for stable per-platform updater manifests
-#                            (default: updater) ── written to
-#                            ${BUCKET}/${PREFIX}/{macos,windows,linux}/latest.json
-#   FLOWIX_R2_PUBLIC_BASE    public package origin
+#   FLOWIX_COS_BUCKET        Tencent COS bucket name (default: flowix-downloads-1307208156)
+#   FLOWIX_COS_REGION        COS region (default: ap-guangzhou)
+#   FLOWIX_COS_PREFIX        object prefix for versioned artifacts (default: versions)
+#   FLOWIX_COS_PUBLIC_BASE   public package origin
+#   TENCENT_COS_SECRET_ID / TENCENT_COS_SECRET_KEY
+#                            CAM credentials with PutObject permission
+#   FLOWIX_R2_BUCKET         Cloudflare R2 bucket for updater manifests (default: flowix-downloads)
+#   FLOWIX_R2_UPDATER_PREFIX stable per-platform updater manifest prefix (default: updater)
 #   TAURI_SIGNING_PRIVATE_KEY           Tauri updater private key (or use PATH)
 #   TAURI_SIGNING_PRIVATE_KEY_PATH      path to the Tauri updater private key
 #   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  optional Tauri updater key password
 #   FLOWIX_SKIP_BUILD=1       collect artifacts already present in CARGO_TARGET_DIR
-#   FLOWIX_PUBLISH=1          upload R2; full releases also deploy flowix-home
+#   FLOWIX_PUBLISH=1          upload COS artifacts, publish R2 manifests and deploy flowix-home
 #   FLOWIX_UPDATE_NOTIFY     whether installed clients show update prompts
 #                            (default: true; set false for silent releases)
 #
@@ -26,14 +28,10 @@
 # replace the production manifest.
 #
 # Release scope (auto-detected from FLOWIX_TARGETS):
-#   * full   = all three platform groups (macos, windows, linux) are covered
-#              → per-platform updater manifests uploaded and flowix-home
-#                rebuilt/deployed for the website downloads.
-#   * partial = one or two platform groups only
-#              → only the covered per-platform updater manifests are
-#                uploaded; flowix-home is left alone (lagging platforms keep
-#                whatever the site already shows, which is correct because
-#                they were not released this time).
+#   * any release uploads updater manifests for its platform groups.
+#   * releases containing both macOS architectures also rebuild and deploy
+#     flowix-home so its two installer links follow the published COS files.
+#     Other platform links keep their existing version until that platform ships.
 
 set -euo pipefail
 
@@ -43,8 +41,12 @@ export CARGO_TARGET_DIR
 
 VERSION="$(awk -F'"' '/^version *=/{print $2; exit}' "$REPO_ROOT/app/Cargo.toml")"
 FLOWIX_HOME_DIR="${FLOWIX_HOME_DIR:-$REPO_ROOT/../flowix-home}"
+FLOWIX_COS_BUCKET="${FLOWIX_COS_BUCKET:-flowix-downloads-1307208156}"
+FLOWIX_COS_REGION="${FLOWIX_COS_REGION:-ap-guangzhou}"
+FLOWIX_COS_PREFIX="${FLOWIX_COS_PREFIX:-versions}"
+FLOWIX_COS_PUBLIC_BASE="${FLOWIX_COS_PUBLIC_BASE:-https://${FLOWIX_COS_BUCKET}.cos.${FLOWIX_COS_REGION}.myqcloud.com}"
+FLOWIX_COS_PUBLIC_BASE="${FLOWIX_COS_PUBLIC_BASE%/}"
 FLOWIX_R2_BUCKET="${FLOWIX_R2_BUCKET:-flowix-downloads}"
-FLOWIX_R2_PREFIX="${FLOWIX_R2_PREFIX:-v${VERSION}}"
 FLOWIX_R2_UPDATER_PREFIX="${FLOWIX_R2_UPDATER_PREFIX:-updater}"
 FLOWIX_R2_PUBLIC_BASE="${FLOWIX_R2_PUBLIC_BASE:-https://download.flowix.cc}"
 FLOWIX_HOME_PROJECT="${FLOWIX_HOME_PROJECT:-flowix-home}"
@@ -83,9 +85,9 @@ if [[ "${FLOWIX_PUBLISH:-0}" == "1" ]]; then
     echo "release.sh: production publishing requires FLOWIX_SKIP_BUILD=1" >&2
     exit 1
   fi
-  # Per-platform updater manifests make partial releases safe: mac and win
-  # can now ship different latest versions on independent cadences. Full
-  # releases also refresh the website; partial releases skip that step.
+  # Per-platform updater manifests make partial releases safe: platform groups
+  # can ship different latest versions on independent cadences. macOS releases
+  # also refresh the website's static installer links.
 fi
 
 rm -rf "$RELEASE_OUT"
@@ -140,7 +142,7 @@ artifact_suffix_for_target() {
   esac
 }
 
-# Per-release-group 名: macos/windows/linux ── 用于拆 manifest 与 R2 路径。
+# Per-release-group 名: macos/windows/linux ── 用于拆 manifest 与稳定 R2 路径。
 # 每个 group 的 manifest 互相独立, 允许 mac/win 在不同版本独立发布。
 platform_group_for_target() {
   case "$1" in
@@ -160,8 +162,8 @@ write_manifest() {
   FLOWIX_MANIFEST_OUT="$output" \
   FLOWIX_RELEASE_OUT="$RELEASE_OUT" \
   FLOWIX_VERSION="$VERSION" \
-  FLOWIX_R2_PUBLIC_BASE="$FLOWIX_R2_PUBLIC_BASE" \
-  FLOWIX_R2_PREFIX="$FLOWIX_R2_PREFIX" \
+  FLOWIX_ARTIFACT_PUBLIC_BASE="$FLOWIX_COS_PUBLIC_BASE" \
+  FLOWIX_ARTIFACT_PREFIX="$FLOWIX_COS_PREFIX" \
   node "$REPO_ROOT/scripts/build-updater-manifest.mjs" "${rows[@]}"
 }
 
@@ -172,7 +174,7 @@ verify_manifest() {
   local required_platforms=("$@")
   node "$REPO_ROOT/scripts/verify-updater-release.mjs" \
     --release-dir "$RELEASE_OUT" \
-    "$manifest" "$VERSION" "$FLOWIX_R2_PREFIX" "${required_platforms[@]}"
+    "$manifest" "$VERSION" "$FLOWIX_COS_PREFIX" "${required_platforms[@]}"
 }
 
 append_group_row() {
@@ -275,8 +277,8 @@ done
 
 export FLOWIX_RELEASE_OUT="$RELEASE_OUT"
 export FLOWIX_VERSION="$VERSION"
-export FLOWIX_R2_PUBLIC_BASE
-export FLOWIX_R2_PREFIX
+export FLOWIX_ARTIFACT_PUBLIC_BASE="$FLOWIX_COS_PUBLIC_BASE"
+export FLOWIX_ARTIFACT_PREFIX="$FLOWIX_COS_PREFIX"
 
 # 收集有产出的 group (顺序固定为 macos -> windows -> linux, 方便日志比对)
 declare -a ACTIVE_GROUPS=()
@@ -313,28 +315,44 @@ for group in "${ACTIVE_GROUPS[@]}"; do
 done
 
 if [[ "${FLOWIX_PUBLISH:-0}" != "1" ]]; then
-  echo "==> publish skipped (set FLOWIX_PUBLISH=1 to upload R2)"
+  echo "==> publish skipped (set FLOWIX_PUBLISH=1 to publish COS artifacts and updater manifests)"
   exit 0
 fi
 
 WRANGLER="${WRANGLER:-$(command -v wrangler || true)}"
-if [[ -z "$WRANGLER" ]]; then
-  echo "release.sh: wrangler is required when FLOWIX_PUBLISH=1" >&2
+if [[ -z "$WRANGLER" && -x "$FLOWIX_HOME_DIR/node_modules/.bin/wrangler" ]]; then
+  WRANGLER="$FLOWIX_HOME_DIR/node_modules/.bin/wrangler"
+fi
+if [[ -z "${TENCENT_COS_SECRET_ID:-}" || -z "${TENCENT_COS_SECRET_KEY:-}" ]]; then
+  echo "release.sh: TENCENT_COS_SECRET_ID and TENCENT_COS_SECRET_KEY are required to publish to Tencent COS" >&2
   exit 1
 fi
 
-if [[ "$IS_FULL_RELEASE" -eq 1 && ! -d "$FLOWIX_HOME_DIR" ]]; then
+if [[ -z "$WRANGLER" ]]; then
+  echo "release.sh: wrangler is required to publish updater manifests and deploy flowix-home" >&2
+  exit 1
+fi
+
+HAS_MACOS_RELEASE=0
+HAS_COMPLETE_MACOS_RELEASE=0
+for group in "${ACTIVE_GROUPS[@]}"; do
+  [[ "$group" == "macos" ]] && HAS_MACOS_RELEASE=1
+done
+if [[ " $GROUP_PLATFORMS_MACOS " == *" darwin-aarch64 "* \
+  && " $GROUP_PLATFORMS_MACOS " == *" darwin-x86_64 "* ]]; then
+  HAS_COMPLETE_MACOS_RELEASE=1
+fi
+if [[ "$HAS_COMPLETE_MACOS_RELEASE" -eq 1 && ! -d "$FLOWIX_HOME_DIR" ]]; then
   echo "release.sh: flowix-home checkout not found at $FLOWIX_HOME_DIR" >&2
   exit 1
 fi
 
-# Versioned artifacts 上传到版本前缀路径 (immutable)。同时发布签名 updater
-# archive 和官网下载用的 DMG；Windows NSIS 包两者共用同一文件。
-for name in "${UPLOAD_FILES[@]}"; do
-  echo "==> uploading $name to R2"
-  "$WRANGLER" r2 object put "$FLOWIX_R2_BUCKET/$FLOWIX_R2_PREFIX/$name" \
-    --file "$RELEASE_OUT/$name" --remote
-done
+# Versioned artifacts are immutable COS objects. Publish both updater archives
+# and human-facing installers (DMG/NSIS/AppImage) before the R2 manifests.
+echo "==> uploading ${#UPLOAD_FILES[@]} artifacts to Tencent COS"
+node "$REPO_ROOT/scripts/upload-cos-artifacts.mjs" \
+  "$RELEASE_OUT" "$FLOWIX_COS_BUCKET" "$FLOWIX_COS_REGION" \
+  "$FLOWIX_COS_PREFIX" "$FLOWIX_COS_PUBLIC_BASE" "${UPLOAD_FILES[@]}"
 
 # Publish manifests only after every referenced artifact has uploaded.
 # Production 1.5.0/1.5.1 bundled Pi and embedded updater/pi/<group>/latest.json.
@@ -348,18 +366,22 @@ for group in "${ACTIVE_GROUPS[@]}"; do
   done
 done
 
-if [[ "$IS_FULL_RELEASE" -eq 1 ]]; then
-  # flowix-home 使用模板中的静态下载链接, 全量发布时重新构建并部署站点。
+if [[ "$HAS_COMPLETE_MACOS_RELEASE" -eq 1 ]]; then
+  # Website links contain both architectures, so deploy only after both exist.
   npm --prefix "$FLOWIX_HOME_DIR" run build
   echo "==> deploying flowix-home"
   "$WRANGLER" pages deploy "$FLOWIX_HOME_DIR/_site" \
     --project-name "$FLOWIX_HOME_PROJECT" --branch "$FLOWIX_HOME_BRANCH"
 else
-  echo "==> flowix-home deployment skipped for partial release"
+  if [[ "$HAS_MACOS_RELEASE" -eq 1 ]]; then
+    echo "==> flowix-home deployment skipped (both macOS architectures are required)"
+  else
+    echo "==> flowix-home deployment skipped (no macOS installer in this release)"
+  fi
 fi
 
 echo "==> published Flowix ${VERSION}"
 for group in "${ACTIVE_GROUPS[@]}"; do
   echo "    updater[$group]: $FLOWIX_R2_PUBLIC_BASE/$FLOWIX_R2_UPDATER_PREFIX/$group/latest.json"
 done
-echo "    artifacts: $FLOWIX_R2_PUBLIC_BASE/$FLOWIX_R2_PREFIX/"
+echo "    artifacts: $FLOWIX_COS_PUBLIC_BASE/$FLOWIX_COS_PREFIX/"

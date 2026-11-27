@@ -4,6 +4,11 @@
  * 主表 `messages.*` 行数冻结，云存储设置和同步状态提示统一放在此分片中。
  */
 const zhCN = {
+  "cloudSync.disabled.title": "当前笔记本未同步",
+  "cloudSync.disabled.prompt": "开启云同步？",
+  "cloudSync.disabled.description": "开启云同步可方便多设备共享，云数据永久备份保存，需先配置可用的存储空间。",
+  "cloudSync.disabled.local": "本地使用",
+  "cloudSync.disabled.enable": "开启同步",
   "cloudSync.tabs.storage": "云存储",
   "cloudSync.storage.title": "存储方案",
   "cloudSync.custom.title": "使用自有云存储（S3）",
@@ -77,9 +82,21 @@ const zhCN = {
   "cloudSync.massDeletion.pendingBadge": "有删除待确认",
   "cloudSync.massDeletion.confirm": "确认",
   "cloudSync.massDeletion.restore": "撤销删除",
-  "cloudSync.failed.title": "云同步失败",
+  "cloudSync.failed.title": "同步失败",
   "cloudSync.deleteConflictRestored": "已删除的文件在其他设备上有更新，已保留云端版本。",
-  "cloudSync.failed.body": "本轮同步未完成。错误信息：",
+  "cloudSync.failed.body": "本次同步未完成，请稍后重试。",
+  "cloudSync.failed.retry": "重试同步",
+  "cloudSync.failed.retrying": "正在重试…",
+  "cloudSync.failed.details": "查看错误详情",
+  "cloudSync.failed.partial": "部分文件或文件夹未能同步，请稍后重试。",
+  "cloudSync.failed.notebookPath": "无法访问本机笔记本文件夹，请检查文件夹是否存在及访问权限后重试。",
+  "cloudSync.failed.local": "无法读取或更新本机同步数据，请检查本机文件和访问权限后重试。",
+  "cloudSync.failed.quota": "云存储空间不足，请清理空间或升级容量后重试。",
+  "cloudSync.failed.session": "登录状态已失效，请重新登录后重试。",
+  "cloudSync.failed.disabled": "此笔记本未启用云同步，请检查同步设置。",
+  "cloudSync.failed.permission": "云存储拒绝了同步请求，请检查账号或存储配置的访问权限。",
+  "cloudSync.failed.timeout": "同步等待超时，请检查网络连接后重试。",
+  "cloudSync.failed.network": "无法连接云服务，请检查网络连接后重试。",
 };
 
 export default zhCN;

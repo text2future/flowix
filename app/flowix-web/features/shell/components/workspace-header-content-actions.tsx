@@ -1,4 +1,4 @@
-import type { ComponentProps, ReactNode } from 'react';
+import type { ComponentProps } from 'react';
 import type { WorkspaceColumnId } from '@features/workspace/public/surface-api';
 import {
   ExternalDocumentActions, ExternalTitlebarBadge, MediaActions, NoteShareControl,
@@ -16,7 +16,7 @@ type DocumentActions = Omit<ComponentProps<typeof ExternalDocumentActions>, 'ico
 type MediaActionProps = Omit<ComponentProps<typeof MediaActions>, 'iconButtonClass' | 'collectionDisplay'>;
 
 /** Content menus are shared across sessions and physical hosts. Adapters only bind commands. */
-export function WorkspaceHeaderContentActions({ document, media, collection, collectionHost, notebookId, mediaReference, iconButtonClass, fallback }: {
+export function WorkspaceHeaderContentActions({ document, media, collection, collectionHost, notebookId, mediaReference, iconButtonClass }: {
   document?: DocumentActions;
   media?: MediaActionProps;
   collection?: WorkspaceHeaderCollectionContext | null;
@@ -24,7 +24,6 @@ export function WorkspaceHeaderContentActions({ document, media, collection, col
   notebookId?: string | null;
   mediaReference?: { path: string; notebookId: string | null } | null;
   iconButtonClass: string;
-  fallback?: ReactNode;
 }) {
   const selectedNotebook = useShellSelectedNotebook();
   const notebooks = useShellNotebooks();
@@ -74,5 +73,5 @@ export function WorkspaceHeaderContentActions({ document, media, collection, col
       key={collectionContext.collectionPath} filePath={collectionContext.collectionPath} kind="folder" flushDocument={async () => true} iconButtonClass={iconButtonClass} />}
     <CollectionDisplayMenu {...collectionContext} iconButtonClass={iconButtonClass} />
   </>;
-  return <>{headerAgentAction}{fallback}</>;
+  return <>{headerAgentAction}</>;
 }

@@ -111,6 +111,22 @@ fn policy() -> SessionPolicy {
         retry_max: Duration::from_millis(20),
     }
 }
+
+#[tokio::test]
+async fn membership_refresh_updates_cached_account_region() {
+    let server = Server::new(|path| match path {
+        "/v1/auth/login" => (200, json!({"data": {"session": session("first"), "user": user("first")}})),
+        "/v2/entitlements/current" => (200, entitlement()),
+        "/v1/auth/me" => (200, json!({"data": {"user": {"id": "first", "email": "first@example.test", "displayName": "first", "region": "mainland"}}})),
+        _ => panic!("unexpected request {path}"),
+    });
+    let directory = tempfile::tempdir().unwrap();
+    let manager = SyncManager::new(&server.url, directory.path().join("sync.db")).unwrap();
+    manager.login("first@example.test", "password").await.unwrap();
+    assert_eq!(manager.state().unwrap().account.unwrap().user.region, "non_mainland");
+    manager.refresh_membership().await.unwrap();
+    assert_eq!(manager.state().unwrap().account.unwrap().user.region, "mainland");
+}
 async fn wait_for(mut condition: impl FnMut() -> bool) {
     tokio::time::timeout(Duration::from_secs(2), async {
         while !condition() {
@@ -362,6 +378,7 @@ async fn failed_membership_refresh_invalidates_shared_access_until_a_successful_
             json!({ "error": { "code": "UNAVAILABLE", "message": "offline" } }),
         ),
         "/v2/entitlements/current" => (200, entitlement()),
+        "/v1/auth/me" => (200, json!({"data": {"user": user("first")}})),
         _ => panic!("unexpected request {path}"),
     });
     let directory = tempfile::tempdir().unwrap();
@@ -449,6 +466,7 @@ async fn account_changes_clear_membership_and_constructor_notifier_observes_firs
             )
         }
         "/v2/entitlements/current" => (200, entitlement()),
+        "/v1/auth/me" => (503, json!({"error": {"code": "UNAVAILABLE", "message": "offline"}})),
         "/v1/auth/logout/refresh" => (200, json!({ "data": {} })),
         _ => panic!("unexpected request {path}"),
     });
@@ -746,6 +764,7 @@ async fn account_service_verifies_entitlement_immediately_after_login() {
             json!({"data": {"session": session("service"), "user": user("service")}}),
         ),
         "/v2/entitlements/current" => (200, entitlement()),
+        "/v1/auth/me" => (200, json!({"data": {"user": user("service")}})),
         "/v1/account/ai-credits" => (200, json!({"data": {"balanceMicrocredits": 100}})),
         _ => panic!("unexpected request {path}"),
     });

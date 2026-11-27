@@ -4,6 +4,7 @@ import { PopupScrollArea } from '@shared/ui/popup-scroll-area';
 
 import { ArrowCircleUpIcon } from '@phosphor-icons/react';
 import type { AppUpdaterState } from '@features/shell/hooks/use-app-updater';
+import { isNewerAppVersion } from '@platform/tauri/client/updater';
 import { useI18n } from '@/lib/i18n';
 import { toast } from '@/lib/toast';
 import { Tooltip } from '@shared/ui/tooltip';
@@ -20,7 +21,12 @@ export function ProductUpdatePill({
   const { t } = useI18n();
   const { status, update } = updater;
 
-  if (!update || !update.notify || (status !== 'ready' && status !== 'installing')) {
+  if (
+    !update
+    || !update.notify
+    || !isNewerAppVersion(update.version, update.currentVersion)
+    || (status !== 'ready' && status !== 'installing')
+  ) {
     return null;
   }
 

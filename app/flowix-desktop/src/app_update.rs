@@ -150,6 +150,22 @@ fn update_info(update: &Update) -> AppUpdateInfo {
     }
 }
 
+fn update_is_newer_than_current(update: &Update) -> Result<bool, String> {
+    let version = semver::Version::parse(&update.version).map_err(|error| {
+        format!(
+            "invalid application update version {}: {error}",
+            update.version
+        )
+    })?;
+    let current_version = semver::Version::parse(&update.current_version).map_err(|error| {
+        format!(
+            "invalid current application version {}: {error}",
+            update.current_version
+        )
+    })?;
+    Ok(version > current_version)
+}
+
 fn ensure_update_is_idle(state: &AppUpdateState) -> Result<(), String> {
     let active = state
         .active
@@ -173,6 +189,11 @@ async fn download_requested_update(
         .await
         .map_err(|error| format!("failed to check for update: {error}"))?
         .ok_or_else(|| "no application update is available".to_string())?;
+    if !update_is_newer_than_current(&update)? {
+        return Err(format!(
+            "requested update {version} is not newer than the current application version"
+        ));
+    }
     if update.version != version {
         return Err(format!("requested update {version} is no longer available"));
     }
@@ -205,6 +226,14 @@ pub async fn check_app_update(
             .map_err(|_| "application update state is unavailable".to_string())? = None;
         return Ok(None);
     };
+
+    if !update_is_newer_than_current(&update)? {
+        *state
+            .prepared
+            .lock()
+            .map_err(|_| "application update state is unavailable".to_string())? = None;
+        return Ok(None);
+    }
 
     Ok(Some(update_info(&update)))
 }

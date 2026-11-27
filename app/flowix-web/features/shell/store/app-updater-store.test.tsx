@@ -87,7 +87,7 @@ it('releases failed checks so a later manual check can succeed', async () => {
 });
 it('runs one silent automatic check across entries and allows manual retry after failure', async () => {
   vi.useFakeTimers();
-  mocks.check.mockRejectedValueOnce(new Error('predownload timed out'));
+  mocks.check.mockRejectedValueOnce(new Error('automatic check timed out'));
   function Entry() { useAppUpdater({autoCheck:true,delayMs:10}); return null; }
   for (let i=0;i<2;i++) {
     const root=createRoot(document.createElement('div')); roots.push(root);
@@ -128,15 +128,15 @@ it('retains discovered update after a failed download and allows retry', async (
   await useAppUpdaterStore.getState().downloadNow();
   expect(useAppUpdaterStore.getState().status).toBe('ready');
 });
-it('automatically checks and downloads without installing', async () => {
+it('automatically checks without downloading', async () => {
   vi.useFakeTimers();
   function Entry() {useAppUpdater({autoCheck:true,delayMs:10});return null;}
   const root=createRoot(document.createElement('div')); roots.push(root);
   await act(async () => root.render(<Entry />));
   await act(async () => {await vi.advanceTimersByTimeAsync(10);});
   expect(mocks.check).toHaveBeenCalledTimes(1);
-  expect(mocks.download).toHaveBeenCalledTimes(1);
-  expect(useAppUpdaterStore.getState().status).toBe('ready');
+  expect(mocks.download).not.toHaveBeenCalled();
+  expect(useAppUpdaterStore.getState().status).toBe('available');
   expect(mocks.install).not.toHaveBeenCalled();
 });
 it('does not automatically download releases with notifications disabled', async () => {

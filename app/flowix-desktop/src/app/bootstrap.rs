@@ -413,6 +413,12 @@ pub fn run() {
                             }
                         });
                     }
+                    if state.authenticated && state.sync_access.can_read {
+                        let app = cloud_state_app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            commands::cloud::schedule_cloud_notebook_recovery(app);
+                        });
+                    }
                     if let Err(error) = cloud_state_app.emit("cloud-state-changed", state) {
                         tracing::warn!("failed to emit cloud state notification: {error}");
                     }

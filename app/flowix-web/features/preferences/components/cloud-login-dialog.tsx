@@ -3,11 +3,11 @@
 import { AccountAuthFlow } from '@features/preferences/public/account-auth-flow';
 import { Dialog, DialogContent } from '@shared/ui/dialog';
 
-export function CloudLoginDialog({ onClose }: { onClose: () => void }) {
+export function CloudLoginDialog({ onClose, onAuthenticated }: { onClose: () => void; onAuthenticated?: () => void }) {
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="max-h-[calc(100dvh-32px)] w-[min(92vw,420px)] max-w-[420px] overflow-y-auto p-6">
-        <AccountAuthFlow layout="dialog" onAuthenticated={onClose} />
+        <AccountAuthFlow layout="dialog" onAuthenticated={() => { onAuthenticated?.(); onClose(); }} />
       </DialogContent>
     </Dialog>
   );

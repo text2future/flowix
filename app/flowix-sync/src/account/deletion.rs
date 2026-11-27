@@ -64,7 +64,7 @@ impl AccountService {
             other => other,
         }?;
         let (_, cleanup) =
-            self.clear_auth_at_generation(generation, || self.delete_persisted_refresh_token())?;
+            self.clear_deleted_account_at_generation(generation, || self.delete_persisted_refresh_token())?;
         cleanup?;
         Ok(outcome)
     }

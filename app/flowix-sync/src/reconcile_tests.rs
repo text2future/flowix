@@ -886,3 +886,13 @@ mod same_second {
         assert_eq!(tags(&plan), vec!["upload:local-ahead"]);
     }
 }
+
+#[test]
+fn differing_files_without_baseline_preserve_local_copy() {
+    let view = local(vec![LocalFile::new("notes/a.md", 100).dirty()]);
+    let remote = RemoteListing::with_dirs([RemoteObject::file("notes/a.md", NOW, 101)], ["notes"]);
+    let result = plan(&view, &remote, &[], NOW);
+    let SyncAction::Download(download) = &result.actions[0] else { panic!("expected conflict download") };
+    assert_eq!(download.reason, DownloadReason::Conflict);
+    assert!(download.backup.is_some());
+}

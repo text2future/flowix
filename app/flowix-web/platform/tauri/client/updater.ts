@@ -2,12 +2,51 @@ import { relaunch } from '@tauri-apps/plugin-process';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 
+const semverIdentifier = '[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*';
+const appVersionPattern = new RegExp(
+  `^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-(${semverIdentifier}))?(?:\\+${semverIdentifier})?$`,
+);
+
 export interface AppUpdate {
   currentVersion: string;
   version: string;
   notify: boolean;
   date?: string;
   body?: string;
+}
+
+/** Compare strict SemVer versions; invalid versions are not considered newer. */
+export function isNewerAppVersion(version: string, currentVersion: string): boolean {
+  const parse = (value: string) => {
+    const match = appVersionPattern.exec(value);
+    if (!match) return null;
+    const prerelease = match[4]?.split('.') ?? null;
+    if (prerelease?.some((part) => !part || (/^\d+$/.test(part) && part.length > 1 && part.startsWith('0')))) return null;
+    return { core: [BigInt(match[1]), BigInt(match[2]), BigInt(match[3])], prerelease };
+  };
+
+  const candidate = parse(version);
+  const current = parse(currentVersion);
+  if (!candidate || !current) return false;
+
+  for (let index = 0; index < 3; index += 1) {
+    if (candidate.core[index] !== current.core[index]) return candidate.core[index] > current.core[index];
+  }
+  if (candidate.prerelease === null) return current.prerelease !== null;
+  if (current.prerelease === null) return false;
+  for (let index = 0; index < Math.max(candidate.prerelease.length, current.prerelease.length); index += 1) {
+    const candidatePart = candidate.prerelease[index];
+    const currentPart = current.prerelease[index];
+    if (candidatePart === undefined) return false;
+    if (currentPart === undefined) return true;
+    if (candidatePart === currentPart) continue;
+    const candidateNumeric = /^\d+$/.test(candidatePart);
+    const currentNumeric = /^\d+$/.test(currentPart);
+    if (candidateNumeric && currentNumeric) return BigInt(candidatePart) > BigInt(currentPart);
+    if (candidateNumeric !== currentNumeric) return !candidateNumeric;
+    return candidatePart > currentPart;
+  }
+  return false;
 }
 
 export interface AppUpdateInstallResult {

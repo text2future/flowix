@@ -26,6 +26,32 @@ vi.mock('@features/document/public/shell-api', () => ({
 }));
 vi.mock('@features/document/public/header-api', () => import('@features/document/public/shell-api'));
 vi.mock('@features/agent/public/header-api', () => ({ AgentIcon: () => null, AgentConversationHeaderContent: () => <span>agent header</span>, useNewConversationAgentSelection: () => ({ options: [] }) }));
+it.each(['empty', 'folder', 'plugin'] as const)('shows the generic more menu only for an open %s', async (kind) => {
+  const current: BrowserColumnEntry | null = kind === 'empty' ? null : {
+    id: kind, title: kind, icon: null,
+    target: kind === 'folder'
+      ? { kind: 'file-browser', activeFilePath: null, folderPath: '/book', scopePath: '/book', notebookId: 'book', fileTreeVisible: false, fileTreeWidth: 220 }
+      : { kind: 'plugin-workbench', plugin: { manifest: { id: 'example', name: 'Example' } } as never },
+  };
+  const node = document.createElement('div');
+  document.body.append(node);
+  const root = createRoot(node);
+  try {
+    await act(async () => root.render(<BrowserColumnHeader current={current} activeSurfaceChrome="document"
+      onToggleMemoEditorMode={vi.fn()} onCreateNote={vi.fn()} onCreateAgentConversation={vi.fn()} />));
+    const more = node.querySelector<HTMLButtonElement>('[aria-label="document.titlebar.moreTooltip"]');
+    expect(node.querySelector('[aria-label^="collection.createConversation"]')).toBeNull();
+    if (kind === 'empty') expect(more).toBeNull();
+    else {
+      expect(more).not.toBeNull();
+      await act(async () => more!.click());
+      expect(document.body.textContent).toContain('tabWindow.context.openInMainColumn');
+    }
+  } finally {
+    await act(async () => root.unmount());
+    node.remove();
+  }
+});
 it.each([true, false])('shows the current title, preserves hide and applies the context-menu drag policy (Windows: %s)', async (windows) => {
   const userAgent = vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(windows ? 'Windows' : 'Macintosh');
   const platform = vi.spyOn(navigator, 'platform', 'get').mockReturnValue(windows ? 'Win32' : 'MacIntel');
@@ -38,7 +64,7 @@ it.each([true, false])('shows the current title, preserves hide and applies the 
   const root = createRoot(node);
   const hide = vi.fn();
   try {
-    await act(async () => root.render(<BrowserColumnHeader current={state.current} activeSurfaceChrome="document" runtimeTitle="Current page" headerBackgroundColor="rgb(17, 34, 51)" onToggleMemoEditorMode={vi.fn()} onOpenInMainColumn={vi.fn()} onCloseColumn={hide} isFocused={false} canCreate={false} onCreateNote={vi.fn()} onCreateAgentConversation={vi.fn()} />));
+    await act(async () => root.render(<BrowserColumnHeader current={state.current} activeSurfaceChrome="document" runtimeTitle="Current page" headerBackgroundColor="rgb(17, 34, 51)" onToggleMemoEditorMode={vi.fn()} onCloseColumn={hide} onCreateNote={vi.fn()} onCreateAgentConversation={vi.fn()} />));
     expect(node.querySelector('[role="tablist"]')).toBeNull();
     const header = node.querySelector('[data-browser-column-header]')!;
     expect((header as HTMLElement).style.backgroundColor).toBe('rgb(17, 34, 51)');
@@ -46,6 +72,7 @@ it.each([true, false])('shows the current title, preserves hide and applies the 
     expect(header.getAttribute('data-workspace-column-context-menu')).toBe(windows ? 'windows' : null);
     expect(header.hasAttribute('data-tauri-drag-region')).toBe(true);
     expect(node.textContent).toContain('Current page');
+    expect(node.querySelector('[aria-label^="collection.createConversation"]')).toBeNull();
     expect(node.querySelector<HTMLButtonElement>('[aria-label="document.titlebar.back"]')?.disabled).toBe(true);
     expect(node.querySelector<HTMLButtonElement>('[aria-label="document.titlebar.forward"]')?.disabled).toBe(true);
     await act(async () => node.querySelector<HTMLButtonElement>('[aria-label="tabWindow.closeColumn"]')?.click());
@@ -70,7 +97,7 @@ it.each(['folder', 'table', 'media_library', 'work_documents'] as const)(
     const root = createRoot(node);
     const render = (title: string) => root.render(<BrowserColumnHeader
       current={{ id: 'collection', title, icon: '📚', target }} activeSurfaceChrome="document" runtimeTitle={title} runtimeIcon="📚"
-      onToggleMemoEditorMode={vi.fn()} onOpenInMainColumn={vi.fn()} onCloseColumn={vi.fn()} isFocused={false} canCreate={false}
+      onToggleMemoEditorMode={vi.fn()} onCloseColumn={vi.fn()}
       onCreateNote={vi.fn()} onCreateAgentConversation={vi.fn()} />);
     try {
       for (const title of ['Collection before tab switch', 'Collection after tab switch']) {
@@ -98,8 +125,8 @@ it('uses the Work collection display menu for folder collections', async () => {
     await act(async () => root.render(<BrowserColumnHeader
       current={{ id: 'folder', title: 'Folder', icon: null, target: {
         kind: 'folder-collection', folderPath: '/book/folder', notebookId: 'book', notebookPath: '/book', folderName: 'Folder',
-      } }} activeSurfaceChrome="document" onToggleMemoEditorMode={vi.fn()} onOpenInMainColumn={vi.fn()}
-      isFocused canCreate onCreateNote={vi.fn()} onCreateAgentConversation={vi.fn()} />));
+      } }} activeSurfaceChrome="document" onToggleMemoEditorMode={vi.fn()}
+      onCreateNote={vi.fn()} onCreateAgentConversation={vi.fn()} />));
     const trigger = node.querySelector<HTMLButtonElement>('[aria-label="collection.display.more"]');
     expect(node.querySelector('[data-folder-share="/book/folder"]')).not.toBeNull();
     expect(trigger).not.toBeNull();
@@ -132,8 +159,8 @@ it('shows the owning notebook path breadcrumb for a note opened in the browser c
     await act(async () => root.render(<BrowserColumnHeader current={{ id: 'note', title: 'Note', icon: null, target: {
       kind: 'file-browser', activeFilePath: '/book/08 原则/note.md', folderPath: null, scopePath: null,
       notebookId: null, fileTreeVisible: false, fileTreeWidth: 220,
-    } }} activeSurfaceChrome="document" onToggleMemoEditorMode={vi.fn()} onOpenInMainColumn={vi.fn()}
-      isFocused canCreate={false} onCreateNote={vi.fn()} onCreateAgentConversation={vi.fn()} />));
+    } }} activeSurfaceChrome="document" onToggleMemoEditorMode={vi.fn()}
+      onCreateNote={vi.fn()} onCreateAgentConversation={vi.fn()} />));
     // The trailing measurement layer is aria-hidden but still contributes textContent.
     // The note suffix is dropped, matching the access-space file tree.
     expect(node.querySelector('nav[aria-label="breadcrumb.label"]')?.firstElementChild?.textContent).toBe('book08 原则note');
@@ -159,8 +186,8 @@ it('computes Browser note identity relative to the notebook root, not the narrow
       notebookId: 'book', fileTreeVisible: true, fileTreeWidth: 220,
     } }} resolvedFileBrowserContext={{
       notebookId: 'book', scopePath: '/book/repo', folderPath: '/book/repo', fileTreeVisible: true, fileTreeWidth: 220,
-    }} activeSurfaceChrome="document" onToggleMemoEditorMode={vi.fn()} onOpenInMainColumn={vi.fn()}
-      isFocused canCreate={false} onCreateNote={vi.fn()} onCreateAgentConversation={vi.fn()} />));
+    }} activeSurfaceChrome="document" onToggleMemoEditorMode={vi.fn()}
+      onCreateNote={vi.fn()} onCreateAgentConversation={vi.fn()} />));
     expect(node.querySelector('[data-titlebar-relative-path]')?.getAttribute('data-titlebar-relative-path')).toBe('repo/note.md');
   } finally {
     await act(async () => root.unmount());
@@ -186,7 +213,7 @@ it('hides the underlying note controls only in the fullscreen host, restores the
   const render = (preview = false) => root.render(<BrowserColumnHeader current={current}
     activeSurfaceChrome="document" surfaceContentKind={preview ? 'mindmap' : 'file-markdown'}
     surfaceCapabilities={preview ? ['fullscreen'] : ['edit', 'copy-content']}
-    onToggleMemoEditorMode={vi.fn()} onOpenInMainColumn={vi.fn()} isFocused canCreate={false}
+    onToggleMemoEditorMode={vi.fn()}
     onCreateNote={vi.fn()} onCreateAgentConversation={vi.fn()} />);
   const color = () => node.querySelector('[aria-label="document.color.button"]');
   try {
@@ -235,8 +262,8 @@ it('keeps back and forward in the owning column after swapping positions', async
   const root = createRoot(node);
   try {
     await act(async () => root.render(<BrowserColumnHeader current={useBrowserColumnStore.getState().current}
-      activeSurfaceChrome="document" onToggleMemoEditorMode={vi.fn()} onOpenInMainColumn={vi.fn()}
-      isFocused canCreate={false} onCreateNote={vi.fn()} onCreateAgentConversation={vi.fn()} />));
+      activeSurfaceChrome="document" onToggleMemoEditorMode={vi.fn()}
+      onCreateNote={vi.fn()} onCreateAgentConversation={vi.fn()} />));
     const back = node.querySelector<HTMLButtonElement>('[aria-label="document.titlebar.back"]')!;
     expect(back.disabled).toBe(false);
     await act(async () => back.click());

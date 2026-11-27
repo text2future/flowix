@@ -279,7 +279,7 @@ impl AccountService {
         &self,
         cleanup: impl FnOnce() -> Result<(), SyncError>,
     ) -> (Option<String>, Result<(), SyncError>) {
-        self.clear_auth_inner(None, cleanup)
+        self.clear_auth_inner(None, true, cleanup)
             .expect("unconditional logout cannot be superseded")
     }
 
@@ -288,12 +288,21 @@ impl AccountService {
         expected_generation: u64,
         cleanup: impl FnOnce() -> Result<(), SyncError>,
     ) -> Result<(Option<String>, Result<(), SyncError>), SyncError> {
-        self.clear_auth_inner(Some(expected_generation), cleanup)
+        self.clear_auth_inner(Some(expected_generation), true, cleanup)
+    }
+
+    pub(super) fn clear_deleted_account_at_generation(
+        &self,
+        expected_generation: u64,
+        cleanup: impl FnOnce() -> Result<(), SyncError>,
+    ) -> Result<(Option<String>, Result<(), SyncError>), SyncError> {
+        self.clear_auth_inner(Some(expected_generation), false, cleanup)
     }
 
     fn clear_auth_inner(
         &self,
         expected_generation: Option<u64>,
+        preserve_preferences: bool,
         cleanup: impl FnOnce() -> Result<(), SyncError>,
     ) -> Result<(Option<String>, Result<(), SyncError>), SyncError> {
         let mut generation = self
@@ -314,7 +323,7 @@ impl AccountService {
         auth.status = CloudAuthStatus::SignedOut;
         auth.restored = false;
         auth.revision = auth.revision.saturating_add(1);
-        let account_result = self.store.clear_account();
+        let account_result = self.store.clear_account_with_preferences(preserve_preferences);
         let cleanup_result = cleanup();
         if cleanup_result.is_err() {
             auth.pending_credential = Some(CredentialWrite::Delete);
