@@ -3,7 +3,7 @@ import { TREE_ICON_COLOR_CLASS } from '@shared/ui/tree-icon-color';
 import { DialogFooter } from '@shared/ui/dialog-footer';
 import { Button } from '@shared/ui/button';
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { ArrowRight, ChevronRight, CircleMinus, Columns2, Download, FolderOpen, Package, Pencil, Plus, Trash2 } from 'lucide-react';
+import { ArrowRight, ChevronRight, CircleMinus, Columns2, Download, FolderOpen, Package, Pencil, Plus, RotateCw, Trash2 } from 'lucide-react';
 import { useActiveFilePath } from '@features/workspace/public/active-file-path-api';
 import type { WorkspaceAgentRepository } from '@features/agent/public/workspace-api';
 import { renameWorkspaceFile } from '@features/workspace/public/shell-api';
@@ -53,11 +53,23 @@ function AgentRepositoryItem({
 }) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const repositoryRef = useRef<HTMLDivElement | null>(null);
   const pendingExpandScrollRef = useRef(false);
   const [renaming, setRenaming] = useState<{ item: DocTreeItem; value: string } | null>(null);
   const [deleting, setDeleting] = useState<DocTreeItem | null>(null);
   const tree = useFolderTree(repository.path, { enabled: expanded });
+  const refreshRepository = async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        tree.refreshTree(),
+        new Promise<void>((resolve) => window.setTimeout(resolve, 500)),
+      ]);
+    } finally {
+      setRefreshing(false);
+    }
+  };
   useEffect(() => {
     if (expandRepositoryPath && samePath(repository.path, expandRepositoryPath)) setExpanded(true);
   }, [expandRepositoryPath, expandRepositoryRequestId, repository.path]);
@@ -291,6 +303,7 @@ function AgentRepositoryItem({
         'overflow-hidden rounded-xl border transition-colors',
         expanded && 'mb-1',
       )} ref={repositoryRef} style={{ borderColor: expanded ? 'var(--border)' : 'transparent' }}>
+      <div className="relative">
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <button
@@ -304,6 +317,7 @@ function AgentRepositoryItem({
               className={cn(
                 'group flex h-7 w-full items-center rounded-lg px-1.5 text-left text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--muted)]',
                 expanded && 'rounded-b-none bg-[var(--hover-bg)]',
+                expanded && 'pr-8',
               )}
             >
               <span className="relative h-[18px] w-[18px] shrink-0">
@@ -324,6 +338,19 @@ function AgentRepositoryItem({
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
+      {expanded && (
+        <button
+          type="button"
+          onClick={() => void refreshRepository()}
+          disabled={refreshing || tree.loading}
+          aria-label={t('memo.fileTree.refresh')}
+          title={t('memo.fileTree.refresh')}
+          className="absolute right-1 top-0.5 flex h-6 w-6 items-center justify-center rounded-md text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)] disabled:opacity-50"
+        >
+          <RotateCw className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')} aria-hidden="true" />
+        </button>
+      )}
+      </div>
       {expanded && (
         <div className="mt-0.5 folder-file-tree__items">
           {tree.loading && tree.nodes.size === 0 && (

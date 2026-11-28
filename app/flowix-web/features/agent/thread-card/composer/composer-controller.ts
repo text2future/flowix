@@ -266,6 +266,7 @@ export class ComposerController {
     this.input.addEventListener("beforeinput", this.handleBeforeInput, true);
     this.input.addEventListener("compositionstart", this.handleCompositionStart);
     this.input.addEventListener("compositionend", this.handleCompositionEnd);
+    this.input.addEventListener("focus", this.handleFocus);
     this.input.addEventListener("blur", this.handleBlur);
     this.editor.on("selectionUpdate", this.handleSelectionUpdate);
 
@@ -500,6 +501,7 @@ export class ComposerController {
     this.input.removeEventListener("beforeinput", this.handleBeforeInput, true);
     this.input.removeEventListener("compositionstart", this.handleCompositionStart);
     this.input.removeEventListener("compositionend", this.handleCompositionEnd);
+    this.input.removeEventListener("focus", this.handleFocus);
     this.input.removeEventListener("blur", this.handleBlur);
     this.editor.off("selectionUpdate", this.handleSelectionUpdate);
     this.slashCommands.dispose();
@@ -658,6 +660,16 @@ export class ComposerController {
   private readonly handleCompositionEnd = (): void => {
     this.isComposing = false;
     this.handleEditorUpdate();
+  };
+
+  private readonly handleFocus = (): void => {
+    // The custom caret is painted from ProseMirror state, but the native IME
+    // needs an actual DOM selection. Blur may have cleared it, and focusing
+    // the empty surrounding composer does not place one via a mouse click.
+    const selection = this.input.ownerDocument.getSelection();
+    if (!selection?.anchorNode || !this.input.contains(selection.anchorNode)) {
+      this.editor.view.focus();
+    }
   };
 
   private readonly handleBlur = (): void => {

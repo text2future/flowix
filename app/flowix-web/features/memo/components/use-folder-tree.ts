@@ -496,7 +496,7 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
   }, [folderPath, loadChildren, setExpandedPaths]);
 
   /** Watcher-only root refresh; unlike the manual reload it preserves expansion. */
-  const refreshRootPreservingExpansion = useCallback((force = false) => {
+  const refreshRootPreservingExpansion = useCallback((force = false, reportError = false) => {
     if (pendingRenamesRef.current > 0) return Promise.resolve();
     // This root is being renamed right now. Reading the old path can only fail,
     // and the surface is about to re-root anyway.
@@ -543,6 +543,8 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
       })
       .catch((err) => {
         logger.warn('refresh root from watcher failed', { folderPath, err });
+        if (reportError && mountedRef.current && generation === generationRef.current
+          && rootRefreshSequenceRef.current === requestSequence) setError('unreadable');
       });
     rootRefreshRef.current = request;
     void request.then(
@@ -615,6 +617,20 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
       await refreshDirectory(key, { silent: true, force });
     }));
   }, [patchSnapshot, refreshDirectory, refreshRootPreservingExpansion, rootKey]);
+
+  /** Revalidate parents before children so removed folders cannot restore stale cache. */
+  const refreshTree = useCallback(async () => {
+    await refreshRootPreservingExpansion(true, true);
+    let level = snapshotRef.current.rootChildren.filter((item) => item.type === 'folder');
+    while (level.length > 0) {
+      await refreshDirectoriesNow(level.map((item) => item.fullPath), { force: true });
+      const current = snapshotRef.current;
+      level = level.flatMap((item) => {
+        const key = canonicalDirectoryPath(item.fullPath);
+        return (current.nodes.get(key)?.children ?? []).filter((child) => child.type === 'folder');
+      });
+    }
+  }, [refreshDirectoriesNow, refreshRootPreservingExpansion]);
 
   /** Merge a burst of native watcher events and refresh after it settles. */
   const refreshDirectories = useCallback((dirPaths: string[]) => {
@@ -695,6 +711,7 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
     expandTo,
     collapseAll,
     refresh,
+    refreshTree,
     refreshDirectories,
     /** Same reconciliation without the watcher debounce (rename follow-ups). */
     refreshDirectoriesNow,
@@ -703,7 +720,7 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
     rebasePath,
     renameFolder,
     ignoreCollectionPathEvents,
-  }), [ignoreCollectionPathEvents, state, toggle, loadChildren, expandTo, collapseAll, refresh, refreshDirectories, refreshDirectoriesNow, loadRoot, retryDirectory, rebasePath, renameFolder]);
+  }), [ignoreCollectionPathEvents, state, toggle, loadChildren, expandTo, collapseAll, refresh, refreshTree, refreshDirectories, refreshDirectoriesNow, loadRoot, retryDirectory, rebasePath, renameFolder]);
 }
 
 export type FolderTreeController = ReturnType<typeof useFolderTree>;

@@ -667,6 +667,32 @@ function expireRefreshWindow(offsetMs = 5_000) {
     expect(lastState?.rootChildren).toHaveLength(0);
   });
 
+  it('手动刷新先更新父目录，并跳过已删除的子目录', async () => {
+    getTreeMock.mockResolvedValue([dir('/root/sub', 'sub')]);
+    getDirChildrenMock.mockResolvedValue([file('/root/sub/old.md', 'old.md')]);
+    mount('/root');
+    await vi.waitFor(() => expect(lastState?.loading).toBe(false));
+    await act(async () => lastState?.toggle('/root/sub'));
+    getDirChildrenMock.mockClear();
+    getTreeMock.mockResolvedValue([]);
+
+    await act(async () => { await lastState?.refreshTree(); });
+    expect(getDirChildrenMock).not.toHaveBeenCalled();
+    expect(lastState?.nodes.has('/root/sub')).toBe(false);
+    expect(lastState?.nodes.has('/root/sub/old.md')).toBe(false);
+  });
+
+  it('手动刷新根目录失败时显示错误并保留旧列表', async () => {
+    getTreeMock.mockResolvedValueOnce([file('/root/a.md', 'a.md')]);
+    mount('/root');
+    await vi.waitFor(() => expect(lastState?.loading).toBe(false));
+    getTreeMock.mockRejectedValueOnce(new Error('read failed'));
+
+    await act(async () => { await lastState?.refreshTree(); });
+    expect(lastState?.error).toBe('unreadable');
+    expect(lastState?.rootChildren.map((item) => item.name)).toEqual(['a.md']);
+  });
+
   it('force 补读绕过去重窗口, 且不进入加载态', async () => {
     getTreeMock.mockResolvedValue([dir('/root/sub', 'sub')]);
     getDirChildrenMock.mockResolvedValue([file('/root/sub/a.md', 'a.md')]);

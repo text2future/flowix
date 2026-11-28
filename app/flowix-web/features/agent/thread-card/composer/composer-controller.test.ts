@@ -84,6 +84,21 @@ afterEach(() => {
 });
 
 describe("ComposerController note references", () => {
+  it("restores the native selection after the composer loses and regains focus", () => {
+    const { controller } = setup();
+    const input = controller.getInputElement();
+    controller.focus();
+    input.blur();
+    expect(document.getSelection()?.anchorNode).toBeNull();
+
+    input.focus();
+
+    const selection = document.getSelection();
+    expect(document.activeElement).toBe(input);
+    expect(selection?.anchorNode && input.contains(selection.anchorNode)).toBe(true);
+    expect(selection?.isCollapsed).toBe(true);
+  });
+
   it("lets IME Enter confirm a candidate without inserting a newline or submitting", () => {
     const submit = vi.fn();
     const { controller } = setup({ submit });

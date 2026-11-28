@@ -3361,6 +3361,7 @@ describe("AgentThreadCard NodeView streaming", () => {
 
     expect(document.activeElement).toBe(input);
     expect(editor.state.selection).not.toBeInstanceOf(NodeSelection);
+    expect(input!.contains(document.getSelection()?.anchorNode ?? null)).toBe(true);
     expect(card!.classList.contains("ProseMirror-selectednode")).toBe(false);
     expect(editor.state.doc.childCount).toBe(3);
     expect(editor.state.doc.child(1).type.name).toBe("agentThreadCard");
