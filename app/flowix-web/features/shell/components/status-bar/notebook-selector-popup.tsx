@@ -467,9 +467,15 @@ export function NotebookSelectorPopup({
           )}
           imageClassName="h-[72%] w-[72%]"
         />
-        <div className="flex min-w-0 flex-1 items-center gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-1">
           {cloudSyncedNotebookIds?.has(notebook.id) && (
-            <span title={t('notebook.cloudSync.locationLabel')} className="flex shrink-0 items-center text-[var(--brand)]">
+            <span
+              title={t('notebook.cloudSync.locationLabel')}
+              className={cn(
+                'flex shrink-0 items-center',
+                isMissing ? 'text-[var(--muted-foreground)]' : 'text-[var(--foreground)]',
+              )}
+            >
               <SyncCloudIcon variant="cloud" className="h-4 w-4" />
             </span>
           )}

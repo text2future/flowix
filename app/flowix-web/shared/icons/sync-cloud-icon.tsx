@@ -10,11 +10,11 @@ export function SyncCloudIcon({ variant, className }: { variant: 'cloud' | 'off'
       {variant === 'off' && (
         <mask id={maskId} maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
           <rect width="24" height="24" fill="white" />
-          <path d="M3 3l18 18" fill="none" stroke="black" strokeWidth="4" strokeLinecap="round" />
+          <path d="M3 6L21 21" fill="none" stroke="black" strokeWidth="5" strokeLinecap="round" />
         </mask>
       )}
       <path d={CLOUD_PATH} stroke="currentColor" strokeWidth="0.133" strokeLinejoin="round" mask={variant === 'off' ? `url(#${maskId})` : undefined} />
-      {variant === 'off' && <path d="M3 3l18 18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />}
+      {variant === 'off' && <path d="M3 6L21 21" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />}
       {variant === 'alert' && (
         <>
           <path d="M12 10.5v3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
@@ -24,4 +24,3 @@ export function SyncCloudIcon({ variant, className }: { variant: 'cloud' | 'off'
     </svg>
   );
 }
-

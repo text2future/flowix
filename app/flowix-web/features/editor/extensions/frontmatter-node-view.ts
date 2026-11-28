@@ -252,7 +252,15 @@ export class FrontmatterPropertyNodeView implements NodeView {
     const documentElement = this.dom.ownerDocument.documentElement;
     documentElement.classList.toggle('frontmatter-property--dragging', locked);
     if (!locked) return;
-    this.dom.ownerDocument.defaultView?.getSelection()?.removeAllRanges();
+    const selection = this.dom.ownerDocument.getSelection();
+    // A collapsed range in the editor is the native IME insertion point.
+    // Preserve editor selections; the drag lock already prevents new text
+    // selection, while unrelated highlighted page text can still be cleared.
+    if (selection && !selection.isCollapsed
+      && !(selection.anchorNode && this.view.dom.contains(selection.anchorNode))
+      && !(selection.focusNode && this.view.dom.contains(selection.focusNode))) {
+      selection.removeAllRanges();
+    }
   }
 
   private syncPropertyEditability() {

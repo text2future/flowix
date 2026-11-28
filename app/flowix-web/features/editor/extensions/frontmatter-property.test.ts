@@ -819,6 +819,37 @@ describe('frontmatter property helpers', () => {
     host.remove();
   });
 
+  it('preserves the body insertion point when a property drag is cancelled', async () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const editor = new Editor({
+      element: host,
+      extensions: [StarterKit, Markdown, Frontmatter],
+      content: '---\nstatus: todo\npriority: high\n---\nBody',
+      contentType: 'markdown',
+    });
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    editor.commands.setTextSelection(editor.state.doc.content.size - 1);
+    editor.view.focus();
+    const selection = document.getSelection()!;
+    const anchor = selection.anchorNode;
+    const offset = selection.anchorOffset;
+    expect(anchor && editor.view.dom.contains(anchor)).toBe(true);
+    const dispatch = (target: EventTarget, type: string, x: number) => {
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      Object.entries({ pointerId: 1, button: 0, clientX: x, clientY: x })
+        .forEach(([key, value]) => Object.defineProperty(event, key, { value }));
+      target.dispatchEvent(event);
+    };
+    dispatch(host.querySelector('[data-property-key="status"] .frontmatter-property__type-icon')!, 'pointerdown', 0);
+    dispatch(window, 'pointermove', 10);
+    dispatch(window, 'pointercancel', 10);
+    expect(selection.anchorNode).toBe(anchor);
+    expect(selection.anchorOffset).toBe(offset);
+    editor.destroy();
+    host.remove();
+  });
+
   it('reorders property rows from a pointer drag that starts on the type icon', async () => {
     const host = document.createElement('div');
     document.body.append(host);
