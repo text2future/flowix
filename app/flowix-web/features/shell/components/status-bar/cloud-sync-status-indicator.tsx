@@ -43,7 +43,7 @@ function FadingStatus({ active, children, fallback }: { active: boolean; childre
   );
 }
 
-/** Cloud sync status displayed beside the product icon in the list title bar. */
+/** Cloud sync status displayed beside the search icon in the list title bar. */
 export function CloudSyncStatusIndicator({ notebookId }: CloudSyncStatusIndicatorProps) {
   const { t } = useI18n();
   const { enabled, promptOpen, setPromptOpen, enabling, retrying, enableSync,

@@ -37,11 +37,13 @@ export function MemoListTitlebarWin({
               buttonClassName="h-6 w-6 [-webkit-app-region:no-drag]"
               productIconClassName="-translate-x-[3px]"
             />
-            <CloudSyncStatusIndicator notebookId={selectedNotebook.id} />
           </>
         )}
       </div>
       <div className="flex items-center gap-4">
+        {!isPreview && selectedNotebook && (
+          <CloudSyncStatusIndicator notebookId={selectedNotebook.id} />
+        )}
         {!isPreview && (
           <>
             <Tooltip content={t("memo.list.searchTooltip")} shortcut="palette.search">

@@ -52,7 +52,7 @@ interface StatusBarProps {
  *   [NotebookSwitcher] | [Note Nav] [Todos] [running conversations]   …flex spacer…
  *                       [update pill] [char count] [⚙ MCP] [ⓘ intro]
  *
- * Cloud sync indicators live beside the product icon in the list title bar.
+ * Cloud sync indicators live beside the search icon in the list title bar.
  *
  * The left column is the notebook switcher (fixed width by its own button
  * content); the right column takes the remaining width for the status actions.
