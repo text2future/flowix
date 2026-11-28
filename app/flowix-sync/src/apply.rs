@@ -829,52 +829,8 @@ fn apply_download(
     if matches!(reason, DownloadReason::Conflict) {
         if let Some(losing) = previous.as_ref() {
             if keep_conflict_copy(&losing.bytes, &incoming_hash) {
-                let merged = if display.to_ascii_lowercase().ends_with(".md") {
-                    crate::blocking::run(|| {
-                        flowix_core::text_merge::merge_markdown_two_way(&losing.bytes, &bytes)
-                    })
-                } else {
-                    flowix_core::text_merge::MergeOutcome::Unsupported
-                };
-                let merge_succeeded =
-                    if let flowix_core::text_merge::MergeOutcome::Merged(merged) = merged {
-                        replacement = merged;
-                        true
-                    } else {
-                        false
-                    };
-                if !merge_succeeded {
-                    let conflict_at = now.with_timezone(&chrono::Local::now().offset().fix());
-                    let mut attempt = 1;
-                    loop {
-                        let candidate =
-                            conflict_copy_path(&display, context.device_id, conflict_at, attempt);
-                        if local.create_exclusive(&candidate, &losing.bytes)?.is_some() {
-                            break;
-                        }
-                        attempt += 1;
-                        if attempt > 100 {
-                            return Err(SyncError::InvalidState(format!(
-                                "cannot find a free conflict name for {display}"
-                            )));
-                        }
-                    }
-                }
-                local.archive(&display, &losing.bytes, ArchiveReason::ConflictBackup)?;
-                // Preserve the incoming version when conflicting scalar
-                // metadata cannot both survive in the merged document.
-                let metadata_differs = std::str::from_utf8(&losing.bytes)
-                    .ok()
-                    .zip(std::str::from_utf8(&bytes).ok())
-                    .is_some_and(|(local, remote)| {
-                        let local_body = flowix_core::memo_file::extract_body_content(local);
-                        let remote_body = flowix_core::memo_file::extract_body_content(remote);
-                        local[..local.len() - local_body.len()]
-                            != remote[..remote.len() - remote_body.len()]
-                    });
-                if display.to_ascii_lowercase().ends_with(".md") && metadata_differs {
-                    local.archive(&display, &bytes, ArchiveReason::ConflictBackup)?;
-                }
+                replacement =
+                    resolve_conflict(context, local, &display, &losing.bytes, &bytes, now)?;
             }
         }
     } else if matches!(reason, DownloadReason::RemoteNew) {
@@ -910,6 +866,59 @@ fn apply_download(
         remote.mtime_millis,
         remote.etag.clone(),
     ))
+}
+
+/// Resolve a conflict after the normal sync decision has selected a download.
+fn resolve_conflict(
+    context: &ApplyContext<'_>,
+    local: &dyn LocalStore,
+    path: &str,
+    previous: &[u8],
+    incoming: &[u8],
+    now: DateTime<Utc>,
+) -> Result<Vec<u8>, SyncError> {
+    let is_markdown = path.to_ascii_lowercase().ends_with(".md");
+    let merged = if is_markdown {
+        crate::blocking::run(|| flowix_core::text_merge::merge_markdown_two_way(previous, incoming))
+    } else {
+        flowix_core::text_merge::MergeOutcome::Unsupported
+    };
+    let replacement = match merged {
+        flowix_core::text_merge::MergeOutcome::Merged(bytes) => bytes,
+        _ => {
+            let conflict_at = now.with_timezone(&chrono::Local::now().offset().fix());
+            let mut created = false;
+            for attempt in 1..=100 {
+                let candidate = conflict_copy_path(path, context.device_id, conflict_at, attempt);
+                if local.create_exclusive(&candidate, previous)?.is_some() {
+                    created = true;
+                    break;
+                }
+            }
+            if !created {
+                return Err(SyncError::InvalidState(format!(
+                    "cannot find a free conflict name for {path}"
+                )));
+            }
+            incoming.to_vec()
+        }
+    };
+    local.archive(path, previous, ArchiveReason::ConflictBackup)?;
+    if is_markdown && frontmatter_differs(previous, incoming) {
+        local.archive(path, incoming, ArchiveReason::ConflictBackup)?;
+    }
+    Ok(replacement)
+}
+
+fn frontmatter_differs(first: &[u8], second: &[u8]) -> bool {
+    std::str::from_utf8(first)
+        .ok()
+        .zip(std::str::from_utf8(second).ok())
+        .is_some_and(|(first, second)| {
+            let header_len =
+                |text: &str| text.len() - flowix_core::memo_file::extract_body_content(text).len();
+            first[..header_len(first)] != second[..header_len(second)]
+        })
 }
 
 fn delete_one(
