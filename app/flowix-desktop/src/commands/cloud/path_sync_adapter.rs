@@ -171,18 +171,6 @@ impl MemoLocalStore {
 }
 
 impl LocalStore for MemoLocalStore {
-    fn read_merge_base(&self, path: &str, hash: &str) -> Result<Option<Vec<u8>>, SyncError> {
-        self.resolve(path)?;
-        let store = read_lock(&self.memo_file, "memo_file");
-        let hash = hash.strip_prefix("sha256:").unwrap_or(hash);
-        let version = store
-            .list_path_versions(&self.notebook_id, path)
-            .into_iter()
-            .find(|version| version.content_hash == hash);
-        Ok(version.and_then(|version| {
-            store.read_path_version_bytes(&self.notebook_id, path, &version.id)
-        }))
-    }
     fn is_syncable_path(&self, path: &str) -> bool {
         is_syncable_notebook_file_path(Path::new(path))
     }

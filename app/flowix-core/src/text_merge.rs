@@ -147,34 +147,118 @@ pub fn merge_markdown(base: &[u8], local: &[u8], remote: &[u8]) -> MergeOutcome 
     }
 }
 
-/// Merge independent edits, choosing the remote edit for overlapping changes.
-/// A local edit spanning an overlap is discarded as a whole: splitting a patch
-/// arbitrarily could produce text that neither writer intended.
-pub fn merge_markdown_remote_wins(base: &[u8], local: &[u8], remote: &[u8]) -> MergeOutcome {
-    let (Ok(base), Ok(local), Ok(remote)) = (
-        std::str::from_utf8(base),
-        std::str::from_utf8(local),
-        std::str::from_utf8(remote),
-    ) else {
-        return MergeOutcome::Unsupported;
-    };
-    if let Ok(merged) = diffy::merge(base, local, remote) {
-        return MergeOutcome::Merged(merged.into_bytes());
+/// Merge two text bodies in a stable order regardless of which device runs it.
+fn merge_two_way_body(first: &str, second: &str) -> Option<String> {
+    if first == second {
+        return Some(first.to_owned());
     }
-    let (Some(local_edits), Some(mut remote_edits)) =
-        (patch_edits(base, local), patch_edits(base, remote))
-    else {
-        return MergeOutcome::Unsupported;
+    let (remote, local) = if first <= second {
+        (first, second)
+    } else {
+        (second, first)
     };
-    for edit in local_edits {
-        if !remote_edits.iter().any(|other| edits_overlap(&edit, other)) {
-            remote_edits.push(edit);
+    let edits = patch_edits(remote, local)?;
+    let lines: Vec<&str> = remote.split_inclusive('\n').collect();
+    let mut output = String::new();
+    let mut position = 0;
+    for edit in edits {
+        for line in &lines[position..edit.end] {
+            output.push_str(line);
+        }
+        if !edit.replacement.is_empty() {
+            if !output.is_empty() && !output.ends_with('\n') {
+                output.push('\n');
+            }
+            output.push_str(&edit.replacement);
+            if edit.end < lines.len() && !output.ends_with('\n') {
+                output.push('\n');
+            }
+        }
+        position = edit.end;
+    }
+    for line in &lines[position..] {
+        output.push_str(line);
+    }
+    Some(output)
+}
+
+fn split_frontmatter(input: &str) -> (Option<&str>, &str) {
+    match crate::memo_file::frontmatter::FRONTMATTER_RE.captures(input) {
+        Some(captures) => {
+            let body = captures.get(2).expect("frontmatter body");
+            (Some(&input[..body.start()]), body.as_str())
+        }
+        None => (None, input),
+    }
+}
+
+/// Merge metadata as a mapping. Tags are unioned; other conflicting values
+/// have a stable winner so concurrent devices produce the same document.
+fn merge_frontmatter(first: Option<&str>, second: Option<&str>) -> Option<String> {
+    match (first, second) {
+        (None, None) => Some(String::new()),
+        (Some(value), None) | (None, Some(value)) => Some(value.to_string()),
+        (Some(a), Some(b)) if a == b => Some(a.to_string()),
+        (Some(a), Some(b)) => {
+            let mut left = crate::memo_file::frontmatter::extract_document_metadata_tolerant(a)
+                .ok()?
+                .properties
+                .as_object()?
+                .clone();
+            let right = crate::memo_file::frontmatter::extract_document_metadata_tolerant(b)
+                .ok()?
+                .properties
+                .as_object()?
+                .clone();
+            for (key, value) in right {
+                match left.get_mut(&key) {
+                    None => {
+                        left.insert(key, value);
+                    }
+                    Some(existing) if key == "tags" && existing.is_array() && value.is_array() => {
+                        let tags = existing.as_array_mut()?;
+                        for tag in value.as_array()? {
+                            if !tags.contains(tag) {
+                                tags.push(tag.clone());
+                            }
+                        }
+                        tags.sort_by_key(|tag| tag.to_string());
+                    }
+                    Some(existing) if value.to_string() < existing.to_string() => *existing = value,
+                    Some(_) => {}
+                }
+            }
+            let yaml = serde_yaml::to_string(&serde_json::Value::Object(left)).ok()?;
+            Some(format!("---\n{}---\n", yaml))
         }
     }
-    remote_edits.sort_by_key(|edit| (edit.start, edit.end));
-    apply_line_edits(base, &remote_edits)
-        .map(|merged| MergeOutcome::Merged(merged.into_bytes()))
-        .unwrap_or(MergeOutcome::Unsupported)
+}
+
+/// Retain both versions' differing body lines without a historical baseline.
+pub fn merge_markdown_two_way(local: &[u8], remote: &[u8]) -> MergeOutcome {
+    let (Ok(local), Ok(remote)) = (std::str::from_utf8(local), std::str::from_utf8(remote)) else {
+        return MergeOutcome::Unsupported;
+    };
+    if local == remote {
+        return MergeOutcome::Merged(local.as_bytes().to_vec());
+    }
+    let (local_header, local_body) = split_frontmatter(local);
+    let (remote_header, remote_body) = split_frontmatter(remote);
+    let Some(header) = merge_frontmatter(local_header, remote_header) else {
+        return MergeOutcome::Unsupported;
+    };
+    let Some(body) = merge_two_way_body(local_body, remote_body) else {
+        return MergeOutcome::Unsupported;
+    };
+    let mut output = header;
+    if !output.is_empty() && !body.is_empty() && !output.ends_with('\n') {
+        output.push('\n');
+    }
+    output.push_str(&body);
+    if crate::memo_file::frontmatter::extract_document_metadata_tolerant(&output).is_err() {
+        return MergeOutcome::Unsupported;
+    }
+    MergeOutcome::Merged(output.into_bytes())
 }
 
 #[cfg(test)]
@@ -231,25 +315,127 @@ mod tests {
     }
 
     #[test]
-    fn remote_wins_overlap_and_local_independent_edit_survives() {
-        let base = b"one\ntwo\nthree\nfour\nfive\n";
+    fn two_way_keeps_both_differences_and_common_lines_once() {
         let local = b"one\nlocal\nthree\nfour\nLOCAL\n";
         let remote = b"one\nremote\nthree\nfour\nfive\n";
         assert_eq!(
-            merge_markdown_remote_wins(base, local, remote),
-            MergeOutcome::Merged(b"one\nremote\nthree\nfour\nLOCAL\n".to_vec())
+            merge_markdown_two_way(local, remote),
+            MergeOutcome::Merged(b"one\nlocal\nremote\nthree\nfour\nLOCAL\nfive\n".to_vec())
         );
     }
 
     #[test]
-    fn remote_wins_concurrent_insertions_and_rejects_non_utf8() {
+    fn two_way_preserves_insertions_and_rejects_non_utf8() {
         assert_eq!(
-            merge_markdown_remote_wins(b"a\nb\n", b"a\nlocal\nb\n", b"a\nremote\nb\n"),
-            MergeOutcome::Merged(b"a\nremote\nb\n".to_vec())
+            merge_markdown_two_way(b"a\nlocal\nb\n", b"a\nremote\nb\n"),
+            MergeOutcome::Merged(b"a\nlocal\nremote\nb\n".to_vec())
         );
         assert_eq!(
-            merge_markdown_remote_wins(b"a", b"\xff", b"a"),
+            merge_markdown_two_way(b"\xff", b"a"),
             MergeOutcome::Unsupported
         );
+    }
+
+    #[test]
+    fn two_way_handles_empty_files_and_missing_final_newlines() {
+        assert_eq!(
+            merge_markdown_two_way(b"", b"cloud"),
+            MergeOutcome::Merged(b"cloud".to_vec())
+        );
+        assert_eq!(
+            merge_markdown_two_way(b"local", b""),
+            MergeOutcome::Merged(b"local".to_vec())
+        );
+        assert_eq!(
+            merge_markdown_two_way(b"same", b"same"),
+            MergeOutcome::Merged(b"same".to_vec())
+        );
+        assert_eq!(
+            merge_markdown_two_way(b"local", b"cloud"),
+            MergeOutcome::Merged(b"cloud\nlocal".to_vec())
+        );
+    }
+
+    #[test]
+    fn two_way_does_not_duplicate_a_version_already_merged() {
+        let local = b"head\nlocal\nend\n";
+        let cloud = b"head\ncloud\nend\n";
+        let MergeOutcome::Merged(merged) = merge_markdown_two_way(local, cloud) else {
+            panic!("merge failed")
+        };
+        assert_eq!(
+            merge_markdown_two_way(local, &merged),
+            MergeOutcome::Merged(merged)
+        );
+    }
+
+    #[test]
+    fn opposite_device_order_produces_identical_merge() {
+        let a = b"head\na\ntail\n";
+        let b = b"head\nb\ntail\n";
+        let merged = merge_markdown_two_way(a, b);
+        assert_eq!(merged, merge_markdown_two_way(b, a));
+        let MergeOutcome::Merged(bytes) = merged else {
+            panic!("merge failed")
+        };
+        assert_eq!(
+            merge_markdown_two_way(a, &bytes),
+            MergeOutcome::Merged(bytes.clone())
+        );
+        assert_eq!(
+            merge_markdown_two_way(b, &bytes),
+            MergeOutcome::Merged(bytes)
+        );
+    }
+
+    #[test]
+    fn two_way_repeated_lines_converge_in_both_directions() {
+        let mut texts = vec![String::new()];
+        for len in 1..=4 {
+            for bits in 0..(1 << len) {
+                let mut value = String::new();
+                for bit in 0..len {
+                    value.push_str(if bits & (1 << bit) == 0 { "a\n" } else { "b\n" });
+                }
+                texts.push(value);
+            }
+        }
+        for a in &texts {
+            for b in &texts {
+                let MergeOutcome::Merged(merged) =
+                    merge_markdown_two_way(a.as_bytes(), b.as_bytes())
+                else {
+                    panic!("merge failed")
+                };
+                assert_eq!(
+                    merge_markdown_two_way(b.as_bytes(), a.as_bytes()),
+                    MergeOutcome::Merged(merged.clone())
+                );
+                assert_eq!(
+                    merge_markdown_two_way(a.as_bytes(), &merged),
+                    MergeOutcome::Merged(merged.clone())
+                );
+                assert_eq!(
+                    merge_markdown_two_way(b.as_bytes(), &merged),
+                    MergeOutcome::Merged(merged)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn frontmatter_tags_are_combined_without_duplicate_yaml_keys() {
+        let a = b"---\ntags: [local]\nstatus: working\n---\nlocal body\n";
+        let b = b"---\ntags: [cloud]\nstatus: done\n---\ncloud body\n";
+        let merged = merge_markdown_two_way(a, b);
+        assert_eq!(merged, merge_markdown_two_way(b, a));
+        let MergeOutcome::Merged(bytes) = merged else {
+            panic!("merge failed")
+        };
+        let text = std::str::from_utf8(&bytes).unwrap();
+        let metadata = crate::memo_file::extract_document_metadata(text).unwrap();
+        assert_eq!(metadata.tags, vec!["cloud", "local"]);
+        assert_eq!(text.matches("status:").count(), 1);
+        assert!(text.contains("local body") && text.contains("cloud body"));
     }
 }

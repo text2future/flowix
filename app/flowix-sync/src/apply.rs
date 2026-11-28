@@ -13,7 +13,7 @@
 
 use std::collections::BTreeMap;
 
-use chrono::{DateTime, FixedOffset, Utc};
+use chrono::{DateTime, FixedOffset, Offset, Utc};
 use futures_util::stream::{FuturesOrdered, FuturesUnordered, StreamExt};
 use sha2::{Digest, Sha256};
 
@@ -43,11 +43,6 @@ pub trait LocalStore: Send + Sync {
     /// `stat`, a save landing between the two would record the new mtime against
     /// the old bytes, marking the file clean and silently dropping that edit.
     fn read(&self, path: &str) -> Result<Option<LocalRead>, SyncError>;
-
-    /// Find the synchronized ancestor in existing local version history.
-    fn read_merge_base(&self, _path: &str, _hash: &str) -> Result<Option<Vec<u8>>, SyncError> {
-        Ok(None)
-    }
 
     /// Writes atomically and reports the stamp the file system actually
     /// produced. The stamp must come from a `stat` after the rename, not from
@@ -109,10 +104,6 @@ impl LocalStore for OffThread<'_> {
 
     fn read(&self, path: &str) -> Result<Option<LocalRead>, SyncError> {
         crate::blocking::run(|| self.inner.read(path))
-    }
-
-    fn read_merge_base(&self, path: &str, hash: &str) -> Result<Option<Vec<u8>>, SyncError> {
-        crate::blocking::run(|| self.inner.read_merge_base(path, hash))
     }
 
     fn write(&self, path: &str, bytes: &[u8]) -> Result<LocalStamp, SyncError> {
@@ -812,12 +803,12 @@ async fn upload_one(
 }
 
 fn apply_download(
-    _context: &ApplyContext<'_>,
+    context: &ApplyContext<'_>,
     local: &dyn LocalStore,
     snapshot: &LocalSnapshot,
     key: &str,
     reason: DownloadReason,
-    _now: DateTime<Utc>,
+    now: DateTime<Utc>,
     previous: Option<LocalRead>,
     DownloadedObject { remote, bytes }: DownloadedObject,
 ) -> Result<PathState, SyncError> {
@@ -838,28 +829,43 @@ fn apply_download(
     if matches!(reason, DownloadReason::Conflict) {
         if let Some(losing) = previous.as_ref() {
             if keep_conflict_copy(&losing.bytes, &incoming_hash) {
-                if display.to_ascii_lowercase().ends_with(".md") {
-                    if let Some(expected_hash) = snapshot
-                        .states
-                        .get(key)
-                        .and_then(|state| state.content_hash.as_deref())
-                    {
-                        if let Some(base) = local.read_merge_base(&display, expected_hash)? {
-                            if content_hash(&base) == expected_hash {
-                                if let flowix_core::text_merge::MergeOutcome::Merged(merged) =
-                                    crate::blocking::run(|| flowix_core::text_merge::merge_markdown_remote_wins(
-                                        &base,
-                                        &losing.bytes,
-                                        &bytes,
-                                    ))
-                                {
-                                    replacement = merged;
-                                }
-                            }
+                let merged = if display.to_ascii_lowercase().ends_with(".md") {
+                    crate::blocking::run(|| {
+                        flowix_core::text_merge::merge_markdown_two_way(&losing.bytes, &bytes)
+                    })
+                } else {
+                    flowix_core::text_merge::MergeOutcome::Unsupported
+                };
+                let merge_succeeded =
+                    if let flowix_core::text_merge::MergeOutcome::Merged(merged) = merged {
+                        replacement = merged;
+                        true
+                    } else {
+                        false
+                    };
+                if !merge_succeeded {
+                    let conflict_at = now.with_timezone(&chrono::Local::now().offset().fix());
+                    let mut attempt = 1;
+                    loop {
+                        let candidate =
+                            conflict_copy_path(&display, context.device_id, conflict_at, attempt);
+                        if local.create_exclusive(&candidate, &losing.bytes)?.is_some() {
+                            break;
+                        }
+                        attempt += 1;
+                        if attempt > 100 {
+                            return Err(SyncError::InvalidState(format!(
+                                "cannot find a free conflict name for {display}"
+                            )));
                         }
                     }
                 }
                 local.archive(&display, &losing.bytes, ArchiveReason::ConflictBackup)?;
+                // Both originals must remain in local history: the remote
+                // object will be replaced when the merged file is uploaded.
+                if merge_succeeded {
+                    local.archive(&display, &bytes, ArchiveReason::ConflictBackup)?;
+                }
             }
         }
     } else if matches!(reason, DownloadReason::RemoteNew) {
