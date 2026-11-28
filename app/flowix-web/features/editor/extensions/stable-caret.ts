@@ -228,6 +228,18 @@ function lastGlyphRect(edge: TextRunEdge): DOMRect | null {
   }
 }
 
+/** A newline has no glyph edge. Measure the insertion point itself in code. */
+function codeCaretRect(view: EditorView, position: number): CaretRect | null {
+  if (!view.state.selection.$head.parent.type.spec.code) return null;
+  const { node, offset } = view.domAtPos(position);
+  if (node.nodeType !== 3) return null;
+  const range = view.dom.ownerDocument.createRange();
+  range.setStart(node, offset);
+  range.collapse(true);
+  const rect = range.getBoundingClientRect();
+  return rect.height > 0 ? { left: rect.left, top: rect.top, bottom: rect.bottom } : null;
+}
+
 /**
  * Returns the caret geometry for a position at the end of a padded inline box
  * (inline code, `==highlight==`), or null to keep the reported geometry.
@@ -454,8 +466,11 @@ class StableCaretView {
       }
       let rect: CaretRect | null = boundaryRect ?? terminalAtom.rect;
       if (!rect) {
-        const reported = this.view.coordsAtPos(selection.head);
-        rect = getTrailingGlyphCaretRect(this.view, selection.head, reported) ?? reported;
+        rect = codeCaretRect(this.view, selection.head);
+        if (!rect) {
+          const reported = this.view.coordsAtPos(selection.head);
+          rect = getTrailingGlyphCaretRect(this.view, selection.head, reported) ?? reported;
+        }
       }
       const clipsOwnContent = /^(auto|scroll|hidden|clip)$/.test(getComputedStyle(this.view.dom).overflowY);
       const scrollViewport = (this.layer && this.scope === 'composer') || clipsOwnContent

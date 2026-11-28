@@ -510,6 +510,21 @@ describe.each(['composer', 'document'] as const)('%s local caret layer', (scope)
     expect(caret.style.left).toBe('150px');
   });
 
+  it('uses the collapsed insertion point for a code block blank line', () => {
+    const { coords } = mount();
+    editor.commands.setContent('<pre><code>first\n\nlast</code></pre>');
+    coords.mockReturnValue({ left: 108, right: 108, top: 50, bottom: 76 });
+    const collapse = vi.fn();
+    vi.spyOn(document, 'createRange').mockImplementation(() => ({
+      setStart: () => {}, collapse,
+      getBoundingClientRect: () => ({ left: 100, right: 100, top: 50, bottom: 76, width: 0, height: 26 }),
+    }) as unknown as Range);
+    editor.commands.setTextSelection(7);
+    flush();
+    expect(collapse).toHaveBeenCalledWith(true);
+    expect(caret.style.left).toBe('60px');
+  });
+
   it('keeps the reported geometry when the last glyph has no layout box', () => {
     const { coords } = mount();
     editor.commands.setContent('<p><code>hah </code></p>');
