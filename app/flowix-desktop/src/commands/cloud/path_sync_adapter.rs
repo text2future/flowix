@@ -171,6 +171,18 @@ impl MemoLocalStore {
 }
 
 impl LocalStore for MemoLocalStore {
+    fn read_merge_base(&self, path: &str, hash: &str) -> Result<Option<Vec<u8>>, SyncError> {
+        self.resolve(path)?;
+        let store = read_lock(&self.memo_file, "memo_file");
+        let hash = hash.strip_prefix("sha256:").unwrap_or(hash);
+        let version = store
+            .list_path_versions(&self.notebook_id, path)
+            .into_iter()
+            .find(|version| version.content_hash == hash);
+        Ok(version.and_then(|version| {
+            store.read_path_version_bytes(&self.notebook_id, path, &version.id)
+        }))
+    }
     fn is_syncable_path(&self, path: &str) -> bool {
         is_syncable_notebook_file_path(Path::new(path))
     }
@@ -522,7 +534,7 @@ mod tests {
     async fn live_r2_single_device_login_upload_and_restart() {
         use flowix_core::memo_file::scan_syncable_notebook_files;
         use flowix_sync::{
-            CloudDirectoryMarker, CloudNotebookManifest, ScannedLocalFile, SyncManager, PassInput,
+            CloudDirectoryMarker, CloudNotebookManifest, PassInput, ScannedLocalFile, SyncManager,
         };
 
         let account_path = std::env::var("FLOWIX_R2_ACCEPTANCE_ACCOUNT").unwrap();
@@ -558,10 +570,7 @@ mod tests {
             path: "notes/empty".into(),
             deleted: false,
         };
-        assert!(manager
-            .put_notebook_manifest(id, &manifest)
-            .await
-            .unwrap());
+        assert!(manager.put_notebook_manifest(id, &manifest).await.unwrap());
         assert!(manager
             .put_directory_marker(id, &directory)
             .await
@@ -600,12 +609,7 @@ mod tests {
         let reopened = SyncManager::new("https://staging-cloud.flowix.cc", &state_path).unwrap();
         reopened.account().login(email, password).await.unwrap();
         assert_eq!(
-            reopened
-                .get_notebook_manifest(id)
-                .await
-                .unwrap()
-                .unwrap()
-                .0,
+            reopened.get_notebook_manifest(id).await.unwrap().unwrap().0,
             manifest
         );
         assert!(reopened

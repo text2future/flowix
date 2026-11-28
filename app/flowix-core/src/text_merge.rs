@@ -147,6 +147,36 @@ pub fn merge_markdown(base: &[u8], local: &[u8], remote: &[u8]) -> MergeOutcome 
     }
 }
 
+/// Merge independent edits, choosing the remote edit for overlapping changes.
+/// A local edit spanning an overlap is discarded as a whole: splitting a patch
+/// arbitrarily could produce text that neither writer intended.
+pub fn merge_markdown_remote_wins(base: &[u8], local: &[u8], remote: &[u8]) -> MergeOutcome {
+    let (Ok(base), Ok(local), Ok(remote)) = (
+        std::str::from_utf8(base),
+        std::str::from_utf8(local),
+        std::str::from_utf8(remote),
+    ) else {
+        return MergeOutcome::Unsupported;
+    };
+    if let Ok(merged) = diffy::merge(base, local, remote) {
+        return MergeOutcome::Merged(merged.into_bytes());
+    }
+    let (Some(local_edits), Some(mut remote_edits)) =
+        (patch_edits(base, local), patch_edits(base, remote))
+    else {
+        return MergeOutcome::Unsupported;
+    };
+    for edit in local_edits {
+        if !remote_edits.iter().any(|other| edits_overlap(&edit, other)) {
+            remote_edits.push(edit);
+        }
+    }
+    remote_edits.sort_by_key(|edit| (edit.start, edit.end));
+    apply_line_edits(base, &remote_edits)
+        .map(|merged| MergeOutcome::Merged(merged.into_bytes()))
+        .unwrap_or(MergeOutcome::Unsupported)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -197,6 +227,29 @@ mod tests {
         assert_eq!(
             merge_markdown(base, local, remote),
             MergeOutcome::Merged(b"FIRST\nsecond\nTHIRD".to_vec())
+        );
+    }
+
+    #[test]
+    fn remote_wins_overlap_and_local_independent_edit_survives() {
+        let base = b"one\ntwo\nthree\nfour\nfive\n";
+        let local = b"one\nlocal\nthree\nfour\nLOCAL\n";
+        let remote = b"one\nremote\nthree\nfour\nfive\n";
+        assert_eq!(
+            merge_markdown_remote_wins(base, local, remote),
+            MergeOutcome::Merged(b"one\nremote\nthree\nfour\nLOCAL\n".to_vec())
+        );
+    }
+
+    #[test]
+    fn remote_wins_concurrent_insertions_and_rejects_non_utf8() {
+        assert_eq!(
+            merge_markdown_remote_wins(b"a\nb\n", b"a\nlocal\nb\n", b"a\nremote\nb\n"),
+            MergeOutcome::Merged(b"a\nremote\nb\n".to_vec())
+        );
+        assert_eq!(
+            merge_markdown_remote_wins(b"a", b"\xff", b"a"),
+            MergeOutcome::Unsupported
         );
     }
 }

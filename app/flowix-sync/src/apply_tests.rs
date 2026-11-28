@@ -19,6 +19,7 @@ use crate::ObjectStoreCredentials;
 /// is how the error path gets exercised without a network.
 struct MemoryStore {
     files: Mutex<BTreeMap<String, Vec<u8>>>,
+    bases: Mutex<BTreeMap<String, Vec<u8>>>,
     archived: Mutex<Vec<(String, ArchiveReason)>>,
     blocked_paths: BTreeSet<String>,
     fail_remove: bool,
@@ -35,6 +36,7 @@ impl MemoryStore {
                     .collect(),
             ),
             archived: Mutex::new(Vec::new()),
+            bases: Mutex::new(BTreeMap::new()),
             blocked_paths: BTreeSet::new(),
             fail_remove: false,
             edit_after_archive: false,
@@ -64,6 +66,9 @@ impl MemoryStore {
 }
 
 impl LocalStore for MemoryStore {
+    fn read_merge_base(&self, path: &str, _hash: &str) -> Result<Option<Vec<u8>>, SyncError> {
+        Ok(self.bases.lock().unwrap().get(path).cloned())
+    }
     fn is_syncable_path(&self, path: &str) -> bool {
         !self.blocked_paths.contains(path)
     }
@@ -134,6 +139,93 @@ impl LocalStore for MemoryStore {
         files.remove(path);
         Ok(true)
     }
+}
+
+#[test]
+fn conflict_merge_keeps_remote_overlap_and_schedules_local_edits_for_upload() {
+    let base = b"title\nstatus: old\nline\nowner: old\n";
+    let local = b"title\nstatus: local\nline\nowner: local\n";
+    let remote = b"title\nstatus: remote\nline\nowner: old\n";
+    let store = MemoryStore::new(&[("note.md", local)]);
+    store
+        .bases
+        .lock()
+        .unwrap()
+        .insert("note.md".into(), base.to_vec());
+    let mut snapshot = LocalSnapshot::default();
+    snapshot.states.insert(
+        "note.md".into(),
+        state_after_transfer(
+            "note.md",
+            "note.md",
+            content_hash(base),
+            base.len() as u64,
+            1,
+            1,
+            Some("old".into()),
+        ),
+    );
+    let credentials = credentials();
+    let context = ApplyContext {
+        credential_resolver: &credentials,
+        notebook_id: "nb",
+        device_id: "device",
+    };
+    let object = RemoteObject::file("note.md", 2, remote.len() as u64).hashed(content_hash(remote));
+    let previous = store.read("note.md").unwrap();
+    let state = apply_download(
+        &context,
+        &store,
+        &snapshot,
+        "note.md",
+        DownloadReason::Conflict,
+        Utc::now(),
+        previous,
+        DownloadedObject {
+            remote: object,
+            bytes: remote.to_vec(),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        store.files.lock().unwrap()["note.md"],
+        b"title\nstatus: remote\nline\nowner: local\n"
+    );
+    assert_eq!(store.paths(), vec!["note.md"]);
+    assert!(state.is_dirty(state.local_size, 2_000));
+    assert_eq!(store.archived.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn conflict_without_ancestor_uses_remote_and_archives_local_without_a_copy() {
+    let store = MemoryStore::new(&[("note.md", b"local")]);
+    let snapshot = LocalSnapshot::default();
+    let credentials = credentials();
+    let context = ApplyContext {
+        credential_resolver: &credentials,
+        notebook_id: "nb",
+        device_id: "device",
+    };
+    let remote = b"remote";
+    let object = RemoteObject::file("note.md", 2, remote.len() as u64).hashed(content_hash(remote));
+    let state = apply_download(
+        &context,
+        &store,
+        &snapshot,
+        "note.md",
+        DownloadReason::Conflict,
+        Utc::now(),
+        store.read("note.md").unwrap(),
+        DownloadedObject {
+            remote: object,
+            bytes: remote.to_vec(),
+        },
+    )
+    .unwrap();
+    assert_eq!(store.files.lock().unwrap()["note.md"], remote);
+    assert_eq!(store.paths(), vec!["note.md"]);
+    assert!(!state.is_dirty(state.local_size, 2_000));
+    assert_eq!(store.archived.lock().unwrap().len(), 1);
 }
 
 #[tokio::test]

@@ -13,7 +13,7 @@
 
 use std::collections::BTreeMap;
 
-use chrono::{DateTime, FixedOffset, Offset, Utc};
+use chrono::{DateTime, FixedOffset, Utc};
 use futures_util::stream::{FuturesOrdered, FuturesUnordered, StreamExt};
 use sha2::{Digest, Sha256};
 
@@ -43,6 +43,11 @@ pub trait LocalStore: Send + Sync {
     /// `stat`, a save landing between the two would record the new mtime against
     /// the old bytes, marking the file clean and silently dropping that edit.
     fn read(&self, path: &str) -> Result<Option<LocalRead>, SyncError>;
+
+    /// Find the synchronized ancestor in existing local version history.
+    fn read_merge_base(&self, _path: &str, _hash: &str) -> Result<Option<Vec<u8>>, SyncError> {
+        Ok(None)
+    }
 
     /// Writes atomically and reports the stamp the file system actually
     /// produced. The stamp must come from a `stat` after the rename, not from
@@ -104,6 +109,10 @@ impl LocalStore for OffThread<'_> {
 
     fn read(&self, path: &str) -> Result<Option<LocalRead>, SyncError> {
         crate::blocking::run(|| self.inner.read(path))
+    }
+
+    fn read_merge_base(&self, path: &str, hash: &str) -> Result<Option<Vec<u8>>, SyncError> {
+        crate::blocking::run(|| self.inner.read_merge_base(path, hash))
     }
 
     fn write(&self, path: &str, bytes: &[u8]) -> Result<LocalStamp, SyncError> {
@@ -481,11 +490,10 @@ pub(crate) async fn apply_with_progress(
                 };
                 let path = display_path(snapshot, &upload.path);
                 if !local.is_syncable_path(&path) {
-                    outcome.failures
-                        .push(ApplyFailure::unsupported(
-                            path,
-                            "path is excluded by the local notebook sync policy",
-                        ));
+                    outcome.failures.push(ApplyFailure::unsupported(
+                        path,
+                        "path is excluded by the local notebook sync policy",
+                    ));
                     continue;
                 }
                 let tracker = &tracker;
@@ -517,7 +525,9 @@ pub(crate) async fn apply_with_progress(
                             return outcome;
                         }
                     }
-                    Err(error) => outcome.failures.push(ApplyFailure::from_error(path, &error)),
+                    Err(error) => outcome
+                        .failures
+                        .push(ApplyFailure::from_error(path, &error)),
                 }
             }
             completed += batch_len;
@@ -802,12 +812,12 @@ async fn upload_one(
 }
 
 fn apply_download(
-    context: &ApplyContext<'_>,
+    _context: &ApplyContext<'_>,
     local: &dyn LocalStore,
     snapshot: &LocalSnapshot,
     key: &str,
     reason: DownloadReason,
-    now: DateTime<Utc>,
+    _now: DateTime<Utc>,
     previous: Option<LocalRead>,
     DownloadedObject { remote, bytes }: DownloadedObject,
 ) -> Result<PathState, SyncError> {
@@ -818,33 +828,35 @@ fn apply_download(
         )));
     }
 
-    // The losing bytes are preserved twice on purpose: once as a visible copy
-    // next to the file, once in the version archive. The archive survives the
-    // user deleting the copy, and it keeps the original path's history.
     let incoming_hash = content_hash(&bytes);
     if remote.content_hash.as_deref() != Some(incoming_hash.as_str()) {
         return Err(SyncError::InvalidState(format!(
             "{key} failed its content-hash check; local data was left unchanged"
         )));
     }
+    let mut replacement = bytes.clone();
     if matches!(reason, DownloadReason::Conflict) {
         if let Some(losing) = previous.as_ref() {
-            // Both sides looked "changed" but produced the same bytes. The
-            // local file was read anyway, so this test costs nothing.
             if keep_conflict_copy(&losing.bytes, &incoming_hash) {
-                let conflict_at = now.with_timezone(&chrono::Local::now().offset().fix());
-                let mut attempt = 1;
-                loop {
-                    let candidate =
-                        conflict_copy_path(&display, context.device_id, conflict_at, attempt);
-                    if local.create_exclusive(&candidate, &losing.bytes)?.is_some() {
-                        break;
-                    }
-                    attempt += 1;
-                    if attempt > 100 {
-                        return Err(SyncError::InvalidState(format!(
-                            "cannot find a free conflict name for {display}"
-                        )));
+                if display.to_ascii_lowercase().ends_with(".md") {
+                    if let Some(expected_hash) = snapshot
+                        .states
+                        .get(key)
+                        .and_then(|state| state.content_hash.as_deref())
+                    {
+                        if let Some(base) = local.read_merge_base(&display, expected_hash)? {
+                            if content_hash(&base) == expected_hash {
+                                if let flowix_core::text_merge::MergeOutcome::Merged(merged) =
+                                    crate::blocking::run(|| flowix_core::text_merge::merge_markdown_remote_wins(
+                                        &base,
+                                        &losing.bytes,
+                                        &bytes,
+                                    ))
+                                {
+                                    replacement = merged;
+                                }
+                            }
+                        }
                     }
                 }
                 local.archive(&display, &losing.bytes, ArchiveReason::ConflictBackup)?;
@@ -864,17 +876,22 @@ fn apply_download(
     }
 
     let expected = previous.as_ref().map(|previous| previous.bytes.as_slice());
-    let Some(stamp) = local.write_if_unchanged(&display, &bytes, expected)? else {
+    let Some(stamp) = local.write_if_unchanged(&display, &replacement, expected)? else {
         return Err(SyncError::InvalidState(format!(
             "{display} changed while the remote version was downloading; local data was left in place"
         )));
     };
+    // A merged file remains dirty until the next pass uploads its local edits.
     Ok(state_after_transfer(
         key,
         display,
         incoming_hash,
         stamp.size,
-        stamp.mtime_millis,
+        if replacement != bytes {
+            i64::MIN
+        } else {
+            stamp.mtime_millis
+        },
         remote.mtime_millis,
         remote.etag.clone(),
     ))
