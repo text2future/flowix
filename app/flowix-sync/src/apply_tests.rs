@@ -183,7 +183,7 @@ fn conflict_merge_keeps_both_versions_and_schedules_upload() {
     );
     assert_eq!(store.paths(), vec!["note.md"]);
     assert!(state.is_dirty(state.local_size, 2_000));
-    assert_eq!(store.archived.lock().unwrap().len(), 2);
+    assert_eq!(store.archived.lock().unwrap().len(), 1);
 }
 
 #[test]
@@ -215,7 +215,7 @@ fn conflict_without_ancestor_merges_and_archives_without_a_copy() {
     assert_eq!(store.files.lock().unwrap()["note.md"], b"local\nremote");
     assert_eq!(store.paths(), vec!["note.md"]);
     assert!(state.is_dirty(state.local_size, 2_000));
-    assert_eq!(store.archived.lock().unwrap().len(), 2);
+    assert_eq!(store.archived.lock().unwrap().len(), 1);
 }
 
 #[test]

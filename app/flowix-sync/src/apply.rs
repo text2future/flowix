@@ -861,9 +861,18 @@ fn apply_download(
                     }
                 }
                 local.archive(&display, &losing.bytes, ArchiveReason::ConflictBackup)?;
-                // Both originals must remain in local history: the remote
-                // object will be replaced when the merged file is uploaded.
-                if merge_succeeded {
+                // Preserve the incoming version when conflicting scalar
+                // metadata cannot both survive in the merged document.
+                let metadata_differs = std::str::from_utf8(&losing.bytes)
+                    .ok()
+                    .zip(std::str::from_utf8(&bytes).ok())
+                    .is_some_and(|(local, remote)| {
+                        let local_body = flowix_core::memo_file::extract_body_content(local);
+                        let remote_body = flowix_core::memo_file::extract_body_content(remote);
+                        local[..local.len() - local_body.len()]
+                            != remote[..remote.len() - remote_body.len()]
+                    });
+                if display.to_ascii_lowercase().ends_with(".md") && metadata_differs {
                     local.archive(&display, &bytes, ArchiveReason::ConflictBackup)?;
                 }
             }
